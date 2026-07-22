@@ -47,8 +47,8 @@ export {
 export { Context, type ContextAllocator } from "./context.ts";
 export { Host } from "./host.ts";
 export { RemotePromise } from "./promise.ts";
-export { type Channel, Session } from "./session.ts";
-export { connect } from "./dial.ts";
+export { type Channel, currentSession, Session } from "./session.ts";
+export { classifyRelayTarget, connect, type RelayTarget } from "./dial.ts";
 export { KeyedTcpServer, listen, listenKeyedTcp, Server } from "./listen.ts";
 // Bun loads its FFI adapter asynchronously (its `bun:ffi` import stays off the
 // static graph), so a Bun program awaits this once before the first
@@ -68,6 +68,7 @@ export {
 	tcpLocator,
 	TRANSPORT_INPROC,
 	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_TCP,
 } from "./locator.ts";

@@ -92,6 +92,11 @@ extern "C" {
 		ticket: u64,
 		out: *mut PancakePendingDial,
 	) -> c_int;
+	pub fn pancake_host_reference_exporter(
+		host: *mut PancakeHost,
+		reference: *const PancakeReference,
+		out_session: *mut *mut PancakeHostSession,
+	) -> c_int;
 	pub fn pancake_host_plan_accept(
 		transport: *const c_uchar,
 		transport_len: usize,

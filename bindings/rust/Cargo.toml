@@ -43,6 +43,13 @@ async = ["dep:tokio", "dep:getrandom"]
 # `listen_iroh` / `IrohServer` over the encrypted-QUIC sidecar
 # bridge (`connect(locator)` routes iroh dials). Implies `async` (the driver it rides).
 iroh = ["async"]
+# Opt-in WebRTC transport. Links the WebRTC public C ABI companion library
+# (`libpancake_net_transport_webrtc`, built by `zig build webrtc-abi`, needs
+# cargo) alongside the static core archive; it exports only `pancake_webrtc_*`,
+# so core symbols still come from `libpancake_ocapn` (ADR-0089). Compiles
+# `pub mod webrtc`, the blocking peer surface (offer/answer/candidate signaling
+# plus the byte-fed read/write) a consumer drives from its own thread.
+webrtc = []
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }

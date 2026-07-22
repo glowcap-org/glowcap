@@ -14,22 +14,16 @@
 
 import {
 	buildRust,
+	DENO_FLAGS,
 	onPath,
-	parseCliArgs,
-	readListeningPort,
+	type Participant,
 	requireZigClientPath,
-	runChild,
-	stopSpawnedServer,
+	runCrossLangDemo,
+	splitDemoArgs,
 	validatePortOptions,
 } from "../_demo/orchestrator.ts";
 
-const positional: string[] = [];
-const cliArgs: string[] = [];
-for (const a of Deno.args) {
-	if (a === "--attach" || a.startsWith("--port=")) cliArgs.push(a);
-	else positional.push(a);
-}
-const { pinPort, attach } = parseCliArgs(cliArgs);
+const { positional, options: { pinPort, attach } } = splitDemoArgs(Deno.args);
 const ZIG_AGENT = requireZigClientPath(
 	positional,
 	"demo.ts: missing the Zig agent path (run via `zig build demo-tools`)",
@@ -37,16 +31,9 @@ const ZIG_AGENT = requireZigClientPath(
 validatePortOptions(pinPort, attach, "demo.ts");
 
 const ROOT = Deno.cwd();
-const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net"];
 
-interface Agent {
-	name: string;
-	cmd: string;
-	argv: (port: number) => string[];
-}
-
-async function roster(): Promise<{ agents: Agent[]; skipped: string[] }> {
-	const agents: Agent[] = [
+async function roster(): Promise<{ participants: Participant[]; skipped: string[] }> {
+	const participants: Participant[] = [
 		{
 			name: "deno",
 			cmd: "deno",
@@ -69,7 +56,7 @@ async function roster(): Promise<{ agents: Agent[]; skipped: string[] }> {
 	const skipped: string[] = [];
 
 	if (await onPath("python3")) {
-		agents.push({
+		participants.push({
 			name: "python",
 			cmd: "python3",
 			argv: (
@@ -84,7 +71,7 @@ async function roster(): Promise<{ agents: Agent[]; skipped: string[] }> {
 	} else skipped.push("python (no python3 on PATH)");
 
 	if (await onPath("racket")) {
-		agents.push({
+		participants.push({
 			name: "racket",
 			cmd: "racket",
 			argv: (
@@ -101,7 +88,7 @@ async function roster(): Promise<{ agents: Agent[]; skipped: string[] }> {
 
 	if (await onPath("cargo")) {
 		if (await buildRust(ROOT, "apps/tools/rust/Cargo.toml")) {
-			agents.push({
+			participants.push({
 				name: "rust",
 				cmd: `${ROOT}/apps/tools/rust/target/debug/tools-agent`,
 				argv: (p) => ["127.0.0.1", String(p), "rs-agent"],
@@ -109,59 +96,22 @@ async function roster(): Promise<{ agents: Agent[]; skipped: string[] }> {
 		} else skipped.push("rust (cargo build failed)");
 	} else skipped.push("rust (no cargo on PATH)");
 
-	return { agents, skipped };
+	return { participants, skipped };
 }
 
-const { agents, skipped } = await roster();
-for (const s of skipped) console.log(`tools demo: skipping ${s}`);
-
-const server = attach ? null : new Deno.Command("deno", {
-	args: [
-		...DENO_FLAGS,
-		`${ROOT}/apps/tools/deno/server.ts`,
-		String(pinPort),
-	],
-	stdout: "piped",
-	stderr: "inherit",
-	cwd: ROOT,
-}).spawn();
-
-let failed = false;
-try {
-	const port = server
-		? await readListeningPort(
-			server,
-			/TOOLS-SERVER-LISTENING (\d+)/,
-			"coordinator never announced its port",
-		)
-		: pinPort;
-	console.log(
-		`tools demo: coordinator on 127.0.0.1:${port}; running ${agents.length} agent(s) (${
-			agents.map((a) => a.name).join(", ")
-		})\n`,
-	);
-
-	for (const a of agents) {
-		const r = await runChild(a.cmd, a.argv(port), ROOT);
-		console.log(`──────── ${r.name} (exit ${r.code}) ────────`);
-		console.log(r.out.trimEnd());
-		console.log("");
-		if (r.code !== 0) failed = true;
-	}
-
-	if (failed) {
-		console.error(
-			"tools demo FAILED: an agent did not prove the capability properties",
-		);
-	} else {
-		const langs = agents.length === 1 ? "1 language" : `${agents.length} languages`;
-		console.log(
+await runCrossLangDemo(
+	{
+		label: "tools",
+		serverNoun: "coordinator",
+		clientNoun: "agent",
+		serverScript: `${ROOT}/apps/tools/deno/server.ts`,
+		listenPattern: /TOOLS-SERVER-LISTENING (\d+)/,
+		listenMiss: "coordinator never announced its port",
+		roster,
+		failLine: "tools demo FAILED: an agent did not prove the capability properties",
+		okLine: (langs) =>
 			`tools demo OK: ${langs} proved delegation, attenuation, and revocation over OCapN`,
-		);
-		if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
-	}
-} finally {
-	await stopSpawnedServer(server);
-}
-
-Deno.exit(failed ? 1 : 0);
+	},
+	pinPort,
+	attach,
+);

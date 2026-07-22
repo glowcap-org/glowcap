@@ -13,23 +13,18 @@
 // there is no long-lived server to join.
 
 import {
+	DENO_FLAGS,
 	onPath,
-	parseCliArgs,
 	pythonCanImport,
 	readPort,
 	rejectAttach,
 	runChild,
+	splitDemoArgs,
 	stopSpawnedServer,
 	validatePortOptions,
 } from "../../_demo/orchestrator.ts";
 
-const positional: string[] = [];
-const cliArgs: string[] = [];
-for (const a of Deno.args) {
-	if (a === "--attach" || a.startsWith("--port=")) cliArgs.push(a);
-	else positional.push(a);
-}
-const { pinPort, attach } = parseCliArgs(cliArgs);
+const { positional, options: { pinPort, attach } } = splitDemoArgs(Deno.args);
 rejectAttach(
 	attach,
 	"demo.ts",
@@ -53,16 +48,7 @@ const callers: CallerSpec[] = [
 	{
 		name: "deno",
 		cmd: "deno",
-		args: (
-			p,
-		) => [
-			"run",
-			"--allow-ffi",
-			"--allow-read",
-			"--allow-net",
-			DENO_CALLER,
-			String(p),
-		],
+		args: (p) => [...DENO_FLAGS, DENO_CALLER, String(p)],
 	},
 ];
 

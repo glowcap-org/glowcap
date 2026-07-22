@@ -24,80 +24,19 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const identity = @import("identity.zig");
-const episode = @import("episode.zig");
 const accountable = @import("accountable.zig");
+const affordance = @import("affordance.zig");
 const log = @import("log.zig");
 
-const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const tcp = pancake.net.tcp;
 const ip = std.Io.net;
 
-const AFFORDANCE_NAME = "affordance";
-const frame_cap: usize = 1 << 16;
-const data_root = "apps/accountability-on-pancake/.data";
-
-/// The signed preimage that binds a caller to a request. The caller signs it; the
-/// host verifies it before attributing an Episode.
-fn attestation(buf: []u8, request: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "invoke|{s}", .{request}) catch unreachable;
-}
-
-/// The Affordance: a published actor whose every invocation the host accounts
-/// for. It verifies the caller's attestation, then emits an Outcome Episode
-/// attributing the true caller before returning the result.
-const Affordance = struct {
-    store: *accountable.Store,
-    served: *usize,
-    last_subject: *[identity.SAID_LEN]u8,
-
-    pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "invoke")) return error.NoSuchMethod;
-        if (msg.args.len != 4) return error.BadInvocation;
-        const subject = strArg(msg.args[0]) orelse return error.BadInvocation;
-        const verkey_b64 = strArg(msg.args[1]) orelse return error.BadInvocation;
-        const request = strArg(msg.args[2]) orelse return error.BadInvocation;
-        const sig_b64 = strArg(msg.args[3]) orelse return error.BadInvocation;
-
-        // Attribution is attested, not trusted. Verify the caller's signature
-        // over the request against the presented verkey; refuse otherwise.
-        const verkey = decodeKey(verkey_b64) catch return error.UnattestedCaller;
-        const sig = decodeSig(sig_b64) catch return error.UnattestedCaller;
-        var att_buf: [512]u8 = undefined;
-        const att = attestation(&att_buf, request);
-        identity.verify(verkey, att, sig) catch return error.UnattestedCaller;
-
-        // The capability invocation succeeds; account for it.
-        const result = try std.fmt.allocPrint(turn.arena, "ack:{s}", .{request});
-        _ = try self.store.record(.outcome, subject, "demo", result);
-        self.served.* += 1;
-        @memcpy(self.last_subject, subject[0..identity.SAID_LEN]);
-        return .{ .string = result };
-    }
-};
-
-fn strArg(a: model.Argument) ?[]const u8 {
-    return switch (a) {
-        .string => |s| s,
-        else => null,
-    };
-}
-
-fn decodeKey(b64: []const u8) ![32]u8 {
-    if (b64.len != 1 + std.base64.url_safe_no_pad.Encoder.calcSize(32)) return error.BadKey;
-    var out: [32]u8 = undefined;
-    try std.base64.url_safe_no_pad.Decoder.decode(&out, b64[1..]);
-    return out;
-}
-
-fn decodeSig(b64: []const u8) ![64]u8 {
-    if (b64.len != std.base64.url_safe_no_pad.Encoder.calcSize(64)) return error.BadSig;
-    var out: [64]u8 = undefined;
-    try std.base64.url_safe_no_pad.Decoder.decode(&out, b64);
-    return out;
-}
+const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
+const frame_cap = affordance.frame_cap;
+const data_root = affordance.data_root;
 
 const HostArgs = struct {
     listener: *tcp.Listener,
@@ -123,7 +62,7 @@ fn hostServe(args: HostArgs) !void {
     var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf);
     defer vat.deinit();
 
-    _ = try vat.publish(AFFORDANCE_NAME, Affordance, .{
+    _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
         .store = args.store,
         .served = args.served,
         .last_subject = args.last_subject,
@@ -142,30 +81,20 @@ fn banner(step: u8, msg: []const u8) void {
 /// that must surface as a clean broken promise, not a crash or a silent success.
 fn invoke(
     cv: *driver.BlockingSession,
-    affordance: actors.Ref,
+    target: actors.Ref,
     caller: *const identity.Identity,
     request: []const u8,
     tamper: bool,
     arena: std.mem.Allocator,
 ) !driver.Settled {
-    var att_buf: [512]u8 = undefined;
-    const att = attestation(&att_buf, request);
-    var sig = caller.current.sign(att);
-    if (tamper) sig[0] ^= 0xff;
-
-    var sig_b64: [std.base64.url_safe_no_pad.Encoder.calcSize(64)]u8 = undefined;
-    const sig_enc = std.base64.url_safe_no_pad.Encoder.encode(&sig_b64, &sig);
-    var verkey_b64: [1 + std.base64.url_safe_no_pad.Encoder.calcSize(32)]u8 = undefined;
-    verkey_b64[0] = 'D';
-    _ = std.base64.url_safe_no_pad.Encoder.encode(verkey_b64[1..], &caller.current.verkey());
-
-    return cv.call(affordance, .{
-        .verb = "invoke",
+    const att = affordance.Attestation.sign(caller.current, request, tamper);
+    return cv.call(target, .{
+        .verb = affordance.invoke_verb,
         .args = &.{
             .{ .string = caller.aidSlice() },
-            .{ .string = &verkey_b64 },
+            .{ .string = &att.verkey },
             .{ .string = request },
-            .{ .string = sig_enc },
+            .{ .string = &att.signature },
         },
     }, arena);
 }
@@ -226,7 +155,7 @@ pub fn main(init: std.process.Init) !void {
     var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
     std.debug.print("      session open over TCP {f}\n", .{address});
 
-    const affordance = try cv.fetch(AFFORDANCE_NAME);
+    const affordance_ref = try cv.fetch(AFFORDANCE_NAME);
 
     // ---- The invocation, accounted on both sides ------------------------------
     const request = "read-thermostat";
@@ -239,9 +168,9 @@ pub fn main(init: std.process.Init) !void {
     var call_arena = std.heap.ArenaAllocator.init(allocator);
     defer call_arena.deinit();
 
-    const outcome = try invoke(&cv, affordance, &caller_id, request, false, call_arena.allocator());
+    const outcome = try invoke(&cv, affordance_ref, &caller_id, request, false, call_arena.allocator());
     const result: []const u8 = switch (outcome) {
-        .fulfilled => |arg| strArg(arg) orelse "",
+        .fulfilled => |arg| affordance.strArg(arg) orelse "",
         .give => "",
         .broken => |reason| {
             std.debug.print("      invocation did not resolve fulfilled (reason='{s}')\n", .{reason});
@@ -260,7 +189,7 @@ pub fn main(init: std.process.Init) !void {
     // to account for what it cannot attribute. The refusal travels back as a
     // broken promise (not a session abort), and the host writes no Episode for it.
     const served_before = served;
-    const refused = try invoke(&cv, affordance, &caller_id, request, true, call_arena.allocator());
+    const refused = try invoke(&cv, affordance_ref, &caller_id, request, true, call_arena.allocator());
     const refusal_reason: []const u8 = switch (refused) {
         .broken => |reason| reason,
         .fulfilled, .give => {

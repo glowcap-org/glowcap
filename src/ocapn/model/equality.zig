@@ -19,6 +19,17 @@
 const std = @import("std");
 const model = @import("mod.zig");
 
+comptime {
+    // Every value below is compared and hashed twice: once over the owned
+    // `model.*` shape (infallible, allocator-free) and once over the borrowed
+    // `model.view.*` shape (fallible, over lazy sequences). The two shapes keep
+    // separate exhaustive switches, so bind their arm sets — a new arm on one
+    // shape cannot land without the mirror arm the paired switch needs.
+    model.assertUnionArmsMirror(model.Argument, model.view.Argument);
+    model.assertUnionArmsMirror(model.Reference, model.view.Reference);
+    model.assertUnionArmsMirror(model.Handoff, model.view.Handoff);
+}
+
 // The recursion ceiling is `model.max_value_depth`, the one shared value-tree
 // depth bound. In practice we only ever compare trees the session already
 // validated (its `max_nesting_depth` sits far below it) or values we built

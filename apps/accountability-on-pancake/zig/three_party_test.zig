@@ -21,66 +21,11 @@ const crypto = pancake.foundation.crypto;
 const syrup = pancake.ocapn.codec.syrup;
 
 const identity = @import("identity.zig");
-const episode = @import("episode.zig");
 const accountable = @import("accountable.zig");
+const affordance = @import("affordance.zig");
 const log = @import("log.zig");
 
 const AFFORDANCE_EXPORT: u64 = 5;
-
-fn strArg(a: model.Argument) ?[]const u8 {
-    return switch (a) {
-        .string => |s| s,
-        else => null,
-    };
-}
-
-fn decodeKey(b64: []const u8) ![32]u8 {
-    const expected_len = 1 + std.base64.url_safe_no_pad.Encoder.calcSize(32);
-    if (b64.len != expected_len) return error.BadKey;
-    var out: [32]u8 = undefined;
-    try std.base64.url_safe_no_pad.Decoder.decode(&out, b64[1..]);
-    return out;
-}
-
-fn decodeSig(b64: []const u8) ![64]u8 {
-    const expected_len = std.base64.url_safe_no_pad.Encoder.calcSize(64);
-    if (b64.len != expected_len) return error.BadSig;
-    var out: [64]u8 = undefined;
-    try std.base64.url_safe_no_pad.Decoder.decode(&out, b64);
-    return out;
-}
-
-fn attestation(buf: []u8, request: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "invoke|{s}", .{request}) catch unreachable;
-}
-
-/// The same Affordance as main.zig, but also records a verifiable Episode.
-const Affordance = struct {
-    store: *accountable.Store,
-    last_subject: []u8,
-    served: *usize,
-
-    pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "invoke")) return error.NoSuchMethod;
-        if (msg.args.len != 4) return error.BadInvocation;
-        const subject = strArg(msg.args[0]) orelse return error.BadInvocation;
-        const verkey_b64 = strArg(msg.args[1]) orelse return error.BadInvocation;
-        const request = strArg(msg.args[2]) orelse return error.BadInvocation;
-        const sig_b64 = strArg(msg.args[3]) orelse return error.BadInvocation;
-
-        const verkey = decodeKey(verkey_b64) catch return error.UnattestedCaller;
-        const sig = decodeSig(sig_b64) catch return error.UnattestedCaller;
-        var att_buf: [512]u8 = undefined;
-        const att = attestation(&att_buf, request);
-        identity.verify(verkey, att, sig) catch return error.UnattestedCaller;
-
-        const result = try std.fmt.allocPrint(turn.arena, "ack:{s}", .{request});
-        _ = try self.store.record(.outcome, subject, "demo", result);
-        @memcpy(self.last_subject[0..subject.len], subject);
-        self.served.* += 1;
-        return .{ .string = result };
-    }
-};
 
 fn shuttleAndStep(from: *engine.Peer, to: *engine.Peer) !void {
     _ = try from.step();
@@ -242,7 +187,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     var last_subject = [_]u8{0} ** identity.SAID_LEN;
     var c_vat = actors.Vat.initOver(allocator, &exporter);
     defer c_vat.deinit();
-    const aff = try c_vat.spawn(Affordance, .{
+    const aff = try c_vat.spawn(affordance.Affordance, .{
         .store = &c_store,
         .last_subject = &last_subject,
         .served = &served,
@@ -315,26 +260,19 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     defer b_id.deinit();
 
     const request = "read-thermostat";
-    var att_buf: [512]u8 = undefined;
-    const att = attestation(&att_buf, request);
-    const sig = b_id.current.sign(att);
-    var sig_b64: [std.base64.url_safe_no_pad.Encoder.calcSize(64)]u8 = undefined;
-    const sig_enc = std.base64.url_safe_no_pad.Encoder.encode(&sig_b64, &sig);
-    var verkey_b64: [1 + std.base64.url_safe_no_pad.Encoder.calcSize(32)]u8 = undefined;
-    verkey_b64[0] = 'D';
-    _ = std.base64.url_safe_no_pad.Encoder.encode(verkey_b64[1..], &b_id.current.verkey());
+    const att = affordance.Attestation.sign(b_id.current, request, false);
 
     // B sends via its Vat over the B-to-C (recipient_to_exporter) session.
     var b_vat = actors.Vat.initOver(allocator, &recipient_to_exporter);
     defer b_vat.deinit();
     const ref: actors.Ref = .{ .far = model.FarRef.object(AFFORDANCE_EXPORT) };
     _ = try b_vat.send(ref, .{
-        .verb = "invoke",
+        .verb = affordance.invoke_verb,
         .args = &.{
             .{ .string = b_id.aidSlice() },
-            .{ .string = &verkey_b64 },
+            .{ .string = &att.verkey },
             .{ .string = request },
-            .{ .string = sig_enc },
+            .{ .string = &att.signature },
         },
     });
 

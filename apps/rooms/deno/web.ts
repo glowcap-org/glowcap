@@ -7,12 +7,14 @@
 //
 //   browser peer ──WebSocket (/relay)──▶ web.ts ──TCP──▶ rooms server
 //
-// `/relay?to=host:port` upgrades to a WebSocket and pipes bytes to that TCP
-// target without parsing them, so the keyed OCapN session rides through end to
-// end and the relay never holds a capability. It is `ws://` on loopback in
-// development and `wss://` once the page is served over HTTPS. TCP relay reaches
-// only the room server; iroh relay accepts any ocapn:// URI (verified by keyed
+// `/relay?target=<locator>` upgrades to a WebSocket and pipes bytes to the far
+// side the locator names (a `host:port` over TCP, an `ocapn://` URI over iroh)
+// without parsing them, so the keyed OCapN session rides through end to end and
+// the relay never holds a capability. It is `ws://` on loopback in development
+// and `wss://` once the page is served over HTTPS. TCP relay reaches only the
+// room server; iroh relay accepts any ocapn:// URI (verified by keyed
 // handshake), enabling third-party handoff for browser-peer direct messages.
+// A cold-dial to a browser is a bridge, not a dial: `/relay?rendezvous=<id>`.
 //
 // This process also supervises the room server as a child: it respawns it if it
 // dies, and if it attached to a server another web.ts already owned and that
@@ -26,8 +28,15 @@
 // a terminal (`chat.ts <locator> <room> <nick>`) at the same time.
 
 import { Directory } from "../lib/room_client.ts";
-import { ANNOUNCE_RE, announceToLocator, dial, loopbackTcpDesignator } from "./lib/locator.ts";
-import { relayAllowed, relayOriginAllowed, relayToLocator } from "./relay_server.ts";
+import { classifyRelayTarget, type RelayTarget } from "@pancake/stack";
+import { dial, loopbackTcpDesignator, readAnnouncedLocator } from "./lib/locator.ts";
+import {
+	bridgeRendezvous,
+	registerRendezvous,
+	relayAllowed,
+	relayOriginAllowed,
+	relayToTarget,
+} from "./relay_server.ts";
 
 // Positional args are the HTTP port and the room port; flags start with `--`.
 const flags = Deno.args.filter((a) => a.startsWith("--"));
@@ -125,7 +134,7 @@ async function respawnOwnedServer(): Promise<void> {
 		console.error(`rooms: room server exited (code ${status.code}); restarting…`);
 		try {
 			child = spawnRoomServer();
-			roomLocator = await readRoomLocator(child);
+			roomLocator = await readAnnouncedLocator(child);
 		} catch (err) {
 			console.error("rooms: room server respawn failed:", err);
 			child = null;
@@ -163,7 +172,7 @@ async function watchAttachedServer(): Promise<void> {
 		}
 		try {
 			child = spawnRoomServer();
-			roomLocator = await readRoomLocator(child);
+			roomLocator = await readAnnouncedLocator(child);
 			console.error(`rooms: now supervising room server at ${roomLocator}`);
 			await respawnOwnedServer();
 			return;
@@ -200,7 +209,7 @@ async function superviseServer(): Promise<void> {
 
 	child = spawnRoomServer();
 	try {
-		roomLocator = await readRoomLocator(child);
+		roomLocator = await readAnnouncedLocator(child);
 	} catch (err) {
 		try {
 			child.kill("SIGTERM");
@@ -301,37 +310,99 @@ async function serveUi(name: string, type: string): Promise<Response> {
 
 // ── The byte relay ───────────────────────────────────────────────────────
 // A browser peer speaks OCapN itself but cannot open a socket directly, so this
-// one endpoint carries its bytes: `/relay?to=host:port` (TCP) or
-// `/relay?locator=<uri>` (iroh) upgrades to WebSocket and pipes frames to the
-// target in both directions without parsing them — the keyed handshake rides
-// through end to end, so the relay never holds a capability. The allow-list
-// keeps TCP on the room server only; an iroh locator may be any ocapn:// URI
-// because the session authority it carries is key-verified (relay_server.ts).
+// endpoint carries its bytes. A *dial* rides `/relay?target=<locator>`: a
+// `host:port` reaches the room server over TCP, an `ocapn://…iroh` URI reaches a
+// member over iroh (relay_server.ts dials and pipes without parsing, so the keyed
+// handshake rides through end to end). A *cold-dial* to a browser is a different
+// operation — a bridge, not a dial — so it has its own path: `/relay?rendezvous=
+// <designator>` bridges onto the inbound socket the browser holds by registering
+// at `/register?id=<designator>` (ADR-0088). The allow-list keeps TCP on the room
+// server only; an ocapn:// dial target may name any iroh node, key-verified end
+// to end.
+//
+// A relay session is a persistent, mostly-quiet byte pipe (a chat peer types
+// rarely), so liveness is the WebSocket ping/pong, not a byte-traffic idle
+// timeout that cannot tell a live-but-quiet peer from a dead one (that byte-idle
+// is off in relay_server.ts, or a quiet peer would be dropped and reconnect every
+// idle window). Deno pings; a live browser auto-pongs and stays connected, and a
+// dead one is reclaimed after this many seconds.
+const RELAY_WS_IDLE_TIMEOUT_S = 120;
 
 try {
 	Deno.serve({ port: HTTP_PORT, signal: shutdown.signal }, (req) => {
 		const url = new URL(req.url);
+		// A browser that cannot be dialed registers its keyed identity and a held
+		// inbound socket here; a peer redeeming an introduction to it dials
+		// `/relay?rendezvous=<designator>` and is bridged onto the held socket
+		// (ADR-0088). Byte-transparent like every relay leg.
+		if (url.pathname === "/register") {
+			const id = url.searchParams.get("id");
+			if (!id) {
+				return new Response("rooms: register requires ?id=<designator>\n", { status: 400 });
+			}
+			if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
+				return new Response("rooms: cross-origin register refused\n", { status: 403 });
+			}
+			// A held registration parks idle until a cold-dial bridges it, so it
+			// needs its own liveness bound: Deno pings the socket and closes it if
+			// no pong lands within `idleTimeout` (ADR-0086's idle reclaim is scoped
+			// to a *bridged* pair, not a held idle one). A live browser auto-pongs
+			// and stays registered; a peer that died without a clean close (mobile
+			// sleep, a dropped network) is reclaimed here, so `Rendezvous.has`
+			// never reports a corpse as present and a dialer never bridges a corpse.
+			const { socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 30 });
+			registerRendezvous(socket, id);
+			return response;
+		}
 		if (url.pathname === "/relay") {
-			const target = url.searchParams.get("locator") ?? url.searchParams.get("to");
+			// A cold-dial to a browser is a *bridge* to a held socket, not a dial, so
+			// it is its own path: `?rendezvous=<designator>` bridges onto the inbound
+			// socket that identity holds here (ADR-0088).
+			const rendezvousId = url.searchParams.get("rendezvous");
+			if (rendezvousId) {
+				if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
+					return new Response("rooms: cross-origin relay refused\n", { status: 403 });
+				}
+				const { socket, response } = Deno.upgradeWebSocket(req, {
+					idleTimeout: RELAY_WS_IDLE_TIMEOUT_S,
+				});
+				bridgeRendezvous(socket, rendezvousId);
+				return response;
+			}
+			// A dial: `?target=<locator>` — a `host:port` dials TCP, an `ocapn://` URI
+			// dials iroh. The shared `classifyRelayTarget` sorts the locator once
+			// through the core; the classified target then gates admission and drives
+			// the dial. A cold-dial to a browser is a bridge, not a dial, and took the
+			// `?rendezvous=` branch above.
+			const target = url.searchParams.get("target");
 			if (!target) {
 				return new Response(
-					"rooms: relay requires ?to=host:port (TCP) or ?locator=<uri> (iroh)\n",
+					"rooms: relay requires ?target=<host:port | ocapn:// URI> or ?rendezvous=<id>\n",
 					{ status: 400 },
 				);
 			}
-			if (!relayAllowed(target, Number(ROOM_PORT))) {
-				const reason = target.includes("://")
-					? "an iroh locator must be an ocapn:// URI"
-					: `TCP relay reaches only 127.0.0.1:${ROOM_PORT}`;
-				return new Response(`rooms: relay target not allowed (${reason})\n`, {
-					status: 403,
-				});
+			if (target.length > 2048) {
+				return new Response("rooms: relay target too long\n", { status: 400 });
+			}
+			let classified: RelayTarget;
+			try {
+				classified = classifyRelayTarget(target);
+			} catch {
+				return new Response("rooms: unparseable relay target locator\n", { status: 400 });
+			}
+			if (!relayAllowed(classified, Number(ROOM_PORT))) {
+				return new Response(
+					`rooms: relay target not allowed (TCP relay reaches only 127.0.0.1:${ROOM_PORT})\n`,
+					{ status: 403 },
+				);
 			}
 			if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
 				return new Response("rooms: cross-origin relay refused\n", { status: 403 });
 			}
-			const { socket, response } = Deno.upgradeWebSocket(req);
-			relayToLocator(socket, target);
+			const { socket, response } = Deno.upgradeWebSocket(req, {
+				idleTimeout: RELAY_WS_IDLE_TIMEOUT_S,
+			});
+			relayToTarget(socket, classified);
 			return response;
 		}
 		// CapTP peers (rooms-peer) bootstrap the live ocapn:// locator over HTTP
@@ -389,27 +460,6 @@ try {
 	shutdown.abort();
 	killChild();
 	Deno.exit(1);
-}
-
-// Read the server's "ROOMS-SERVER-LISTENING <token>" announcement and resolve it
-// to a dial locator (a TCP host:port, or an iroh ocapn:// URI).
-async function readRoomLocator(proc: Deno.ChildProcess): Promise<string> {
-	const reader = proc.stdout.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value);
-		const m = buf.match(ANNOUNCE_RE);
-		if (m) {
-			reader.releaseLock();
-			return announceToLocator(m[1]);
-		}
-	}
-	reader.releaseLock();
-	throw new Error("rooms server never announced its locator");
 }
 
 // Stop cleanly when interrupted: end the respawn loop, close the HTTP server (its

@@ -19,6 +19,9 @@ bench/langs/clients/rust_bench/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
 # the sidecar's external dependency tree must resolve identically everywhere.
 transports/iroh/target/
+# transports/webrtc/Cargo.lock is likewise committed (ADR-0089): the webrtc
+# crate's large tree (DTLS, SCTP, ICE, STUN, SDP) must resolve identically.
+transports/webrtc/target/
 
 # binding consumer caches
 **/__pycache__/
@@ -56,3 +59,6 @@ pancake-c-abi-cache/
 # local env files carry per-host infrastructure names; only .env.example is tracked
 .env
 .worktrees/
+
+# captured stderr from a redirected demo/test run; scratch, never committed
+*.err

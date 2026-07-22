@@ -258,7 +258,7 @@ pub fn checkCAbiSurfaceShape(
     }
 
     // Invariant 2, one error channel per archive, no extra spelling.
-    const allowed_error_families = [_][]const u8{ "", "host", "tcp", "inproc", "iroh" };
+    const allowed_error_families = [_][]const u8{ "", "host", "tcp", "inproc", "iroh", "webrtc" };
     for (names.items) |name| {
         if (!std.mem.endsWith(u8, name, "_last_error")) continue;
         if (std.mem.endsWith(u8, name, "_clear_last_error")) continue;
@@ -1426,6 +1426,7 @@ const abi_vocabulary_headers = [_][]const u8{
     "include/pancake_net_transport_tcp.h",
     "include/pancake_net_transport_inproc.h",
     "include/pancake_net_transport_iroh.h",
+    "include/pancake_net_transport_webrtc.h",
 };
 
 const doc_c_abi_header_paths = [_][]const u8{
@@ -1434,6 +1435,7 @@ const doc_c_abi_header_paths = [_][]const u8{
     "include/pancake_net_transport_tcp.h",
     "include/pancake_net_transport_inproc.h",
     "include/pancake_net_transport_iroh.h",
+    "include/pancake_net_transport_webrtc.h",
     "transports/iroh/include/pancake_iroh_sidecar.h",
 };
 

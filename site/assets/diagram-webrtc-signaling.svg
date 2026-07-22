@@ -1,0 +1,40 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 760 340"
+  width="760"
+  height="340"
+  role="img"
+  aria-label="Two peers trade an offer, an answer, and ICE candidates through a signaling capability, then open a direct DataChannel and run the keyed session over it with the signaling host out of the byte path."
+>
+  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .title { font-size: 15px; font-weight: 700; }
+    .sub { font-size: 12.5px; fill: #6b5d4d; }
+    .lbl { font-size: 12.5px; fill: #6b5d4d; }
+    .lblbytes { font-size: 13px; font-weight: 700; fill: #1b5f66; }</style>
+
+  <!-- signaling setup: dashed, up to the capability and back down -->
+  <line x1="130" y1="150" x2="308" y2="94" stroke="#d8c19a" stroke-width="2" stroke-dasharray="5 5"/>
+  <line x1="452" y1="94" x2="630" y2="150" stroke="#d8c19a" stroke-width="2" stroke-dasharray="5 5"/>
+  <text x="380" y="128" text-anchor="middle" class="lbl">offer &#183; answer &#183; ICE candidates</text>
+
+  <!-- the signaling capability -->
+  <rect x="290" y="26" width="180" height="68" rx="12" fill="#edf5f3" stroke="#cfe4e1"/>
+  <text x="380" y="54" text-anchor="middle" class="title" fill="#1b5f66">signaling capability</text>
+  <text x="380" y="76" text-anchor="middle" class="sub">room / relay: opaque strings</text>
+
+  <!-- the two peers -->
+  <rect x="40" y="150" width="180" height="68" rx="12" fill="#fdf4e3" stroke="#ead9bb"/>
+  <text x="130" y="178" text-anchor="middle" class="title" fill="#a4560c">peer A</text>
+  <text x="130" y="200" text-anchor="middle" class="sub">offerer</text>
+
+  <rect x="540" y="150" width="180" height="68" rx="12" fill="#fdf4e3" stroke="#ead9bb"/>
+  <text x="630" y="178" text-anchor="middle" class="title" fill="#a4560c">peer B</text>
+  <text x="630" y="200" text-anchor="middle" class="sub">answerer</text>
+
+  <!-- the direct DataChannel: solid and thick, straight between the peers -->
+  <line x1="220" y1="272" x2="540" y2="272" stroke="#1b5f66" stroke-width="3.5"/>
+  <line x1="130" y1="218" x2="130" y2="272" stroke="#1b5f66" stroke-width="3.5"/>
+  <line x1="630" y1="218" x2="630" y2="272" stroke="#1b5f66" stroke-width="3.5"/>
+  <text x="380" y="264" text-anchor="middle" class="lblbytes">direct DataChannel &#183; DTLS &#183; keyed session end to end</text>
+  <text x="380" y="304" text-anchor="middle" class="sub">the signaling host is out of the byte path: it saw the setup, never the session</text>
+</svg>

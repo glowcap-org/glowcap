@@ -48,7 +48,8 @@ you can test it without a host runtime.
 - **driver/core** is the sans-io multi-session serve (`Served`, byte-fed
   `Host`). The build bans sockets here.
 - **net** is where `std.Io` enters. Residents today: cleartext TCP, keyed-tcp,
-  inproc, and [iroh](https://www.iroh.computer/) QUIC as an optional artifact.
+  inproc, [iroh](https://www.iroh.computer/) QUIC as an optional artifact, and a
+  [WebRTC]($link.page('transports/webrtc')) DataChannel reached by signaling.
   [Transports]($link.page('transports')).
 
 > **Vat**: one single-threaded container of objects, the unit

@@ -90,6 +90,28 @@ fn main() {
 			lib_dir.join("pancake_net_transport_iroh.dll").display()
 		);
 	}
+
+	if cfg!(feature = "webrtc") {
+		println!("cargo:rustc-link-lib=dylib=pancake_net_transport_webrtc");
+		println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+		#[cfg(target_os = "macos")]
+		println!(
+			"cargo:rerun-if-changed={}",
+			lib_dir
+				.join("libpancake_net_transport_webrtc.dylib")
+				.display()
+		);
+		#[cfg(target_os = "linux")]
+		println!(
+			"cargo:rerun-if-changed={}",
+			lib_dir.join("libpancake_net_transport_webrtc.so").display()
+		);
+		#[cfg(target_os = "windows")]
+		println!(
+			"cargo:rerun-if-changed={}",
+			lib_dir.join("pancake_net_transport_webrtc.dll").display()
+		);
+	}
 }
 
 /// Cascade (ADR-0077): `PANCAKE_LIB_DIR` → abi-versioned download cache →

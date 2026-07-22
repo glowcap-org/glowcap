@@ -36,6 +36,7 @@ That installs the archives under `zig-out/lib/` (each in static `.a` and shared
 | `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | the blocking TCP layer (`pancake_tcp_*`): the frame boundary plus the owning `PancakeTcpSession` |
 | `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | the socket-free in-process layer (`pancake_inproc_*`) |
 | `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | encrypted QUIC (`pancake_iroh_*`); optional, links the Rust sidecar |
+| `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | peer-to-peer WebRTC DataChannel (`pancake_webrtc_*`); optional, links the Rust sidecar |
 
 Each header is generated from its Zig source: `pancake_ocapn.h` by
 `zig build gen-header-ocapn`, the
@@ -124,11 +125,17 @@ convert an `ocapn://` URI to and from a `PancakeLocator` read through the
 `pancake_locator_*` accessors, so a consumer dispatches on the parsed
 `transport` and never hand-rolls a percent codec.
 
-pancake's one encrypted netlayer, iroh, is opt-in and separate. The pure-Zig
-archives are cleartext-only; iroh's QUIC links a Rust sidecar
-([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)), so it ships as a
-distinct optional library, `libpancake_net_transport_iroh`
-(`zig build iroh-abi`, needs cargo). Like the other transport archives it is a
+pancake's two encrypted transports, iroh and webrtc, are opt-in and separate:
+the pure-Zig archives are cleartext-only, and each encrypted transport links a
+Rust sidecar. iroh's QUIC ships as a distinct optional library,
+`libpancake_net_transport_iroh`
+([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md),
+`zig build iroh-abi`, needs cargo). webrtc's DTLS DataChannel ships the same
+way as `libpancake_net_transport_webrtc`
+([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md),
+`zig build webrtc-abi`, needs cargo); its surface is a peer the caller drives
+through a signaling exchange (`pancake_webrtc_peer_*`) rather than a
+locator dial, because a WebRTC peer has no dialable address. Like the other transport archives it is a
 _companion_, not a superset: it exports only a `pancake_iroh_netlayer_*` /
 `pancake_iroh_conn_*` family (with the same frame-read/write shape as the TCP
 layer) and shares no core symbol with `libpancake_ocapn`. A consumer that wants

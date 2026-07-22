@@ -7,10 +7,15 @@
 // left to test here; reachability is checked the way the page reaches the
 // room: a keyed OCapN session established over `/relay`.
 
-import { Host as PancakeHost, Session } from "@pancake/stack";
+import { classifyRelayTarget, Host as PancakeHost, Session } from "@pancake/stack";
 import { webSocketChannel } from "@pancake/web/channel";
 import { DIRECTORY, LIST } from "../lib/protocol.ts";
-import { relayAllowed, relayOriginAllowed } from "./relay_server.ts";
+import {
+	relayAllowed,
+	relayOriginAllowed,
+	relaySessionAdmitted,
+	rendezvousAdmitted,
+} from "./relay_server.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const WEB = new URL("./web.ts", import.meta.url).pathname;
@@ -77,7 +82,7 @@ async function withWeb(
  * web.ts's `/relay` and list the directory. Resolves the room count on
  * success, throws otherwise. */
 async function reachRoomThroughRelay(httpPort: number, roomPort: number): Promise<number> {
-	const ws = new WebSocket(`ws://127.0.0.1:${httpPort}/relay?to=127.0.0.1:${roomPort}`);
+	const ws = new WebSocket(`ws://127.0.0.1:${httpPort}/relay?target=127.0.0.1:${roomPort}`);
 	await new Promise<void>((resolve, reject) => {
 		ws.onopen = () => resolve();
 		ws.onerror = () => reject(new Error("relay ws failed to open"));
@@ -102,13 +107,35 @@ async function reachRoomThroughRelay(httpPort: number, roomPort: number): Promis
 }
 
 Deno.test("the relay allow-list and origin check refuse what they must", () => {
+	// The web handler classifies the target through the shared core primitive,
+	// then admits it; an unparseable locator fails the classify and is refused.
+	const admits = (target: string, roomPort: number): boolean => {
+		try {
+			return relayAllowed(classifyRelayTarget(target), roomPort);
+		} catch {
+			return false;
+		}
+	};
+	// A stand-in peer key: 64 hex digits, the shape the core validates a key
+	// designator against (an iroh node id or a keyed-tcp key).
+	const key = "a".repeat(64);
 	// TCP is allowed only to the room server itself.
-	assert(relayAllowed("127.0.0.1:9099", 9099), "the room server's port should be allowed");
-	assert(!relayAllowed("127.0.0.1:22", 9099), "another loopback port should be refused");
-	assert(!relayAllowed("10.0.0.8:9099", 9099), "a non-loopback host should be refused");
-	// iroh is any ocapn:// URI; the keyed handshake carries the authority.
-	assert(relayAllowed("ocapn://abc.iroh", 9099), "an ocapn:// URI should be allowed");
-	assert(!relayAllowed("https://example.com/", 9099), "a non-ocapn URI should be refused");
+	assert(admits("127.0.0.1:9099", 9099), "the room server's port should be allowed");
+	assert(!admits("127.0.0.1:22", 9099), "another loopback port should be refused");
+	assert(!admits("10.0.0.8:9099", 9099), "a non-loopback host should be refused");
+	// iroh is any node; the keyed handshake carries the authority.
+	assert(admits(`ocapn://${key}.iroh`, 9099), "an ocapn:// iroh URI should be allowed");
+	assert(!admits("https://example.com/", 9099), "a non-ocapn URI should be refused");
+	assert(
+		!admits("ocapn://abc.iroh", 9099),
+		"an iroh URI with a malformed node id should be refused",
+	);
+	// A keyed-tcp URI classifies to a TCP dial of its hint address, so the
+	// room-only pin refuses one that names anything but the room server.
+	assert(
+		!admits(`ocapn://${key}.keyed-tcp?direct-addresses=10.0.0.8:9099`, 9099),
+		"a keyed-tcp URI naming a non-room address should be refused",
+	);
 
 	// Absent Origin (non-browser clients) passes; a mismatched or unparseable
 	// Origin is refused before the WebSocket upgrade.
@@ -124,17 +151,34 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 	assert(!relayOriginAllowed("null", "127.0.0.1:8000"), "an opaque Origin should be refused");
 });
 
+Deno.test("the relay capacity caps admit under the ceiling and refuse at it", () => {
+	// The live-session cap (ADR-0086 bounded resources): admit below the ceiling,
+	// refuse at or above it, so a slow-reader pileup cannot pin unbounded sessions.
+	assert(relaySessionAdmitted(0, 100), "an idle relay admits a session");
+	assert(relaySessionAdmitted(99, 100), "the last slot admits");
+	assert(!relaySessionAdmitted(100, 100), "a full relay refuses");
+	assert(!relaySessionAdmitted(101, 100), "an over-full relay refuses");
+
+	// The registration cap (the rendezvous leg): an identity already holding a
+	// socket replenishes its own queue freely, while a new identity must fit under
+	// the cap, so a flood of fresh identities cannot pin unbounded held sockets.
+	assert(rendezvousAdmitted(200, true, 200), "a registered identity replenishes at the cap");
+	assert(rendezvousAdmitted(0, false, 200), "a new identity admits under the cap");
+	assert(rendezvousAdmitted(199, false, 200), "the last registration slot admits a new identity");
+	assert(!rendezvousAdmitted(200, false, 200), "a new identity is refused at the cap");
+});
+
 Deno.test("a pancake peer reaches the room server through the /relay byte pipe", async () => {
 	await withWeb(async (httpPort, roomPort) => {
 		await waitForHttp(httpPort);
 		// The relay refuses targets off the allow-list before upgrading.
-		const refused = await fetch(`http://127.0.0.1:${httpPort}/relay?to=127.0.0.1:22`);
+		const refused = await fetch(`http://127.0.0.1:${httpPort}/relay?target=127.0.0.1:22`);
 		await refused.body?.cancel();
 		assert(refused.status === 403, "off-list relay target should be refused");
 
 		// A cross-origin page must not drive the relay, even at an allowed target.
 		const crossOrigin = await fetch(
-			`http://127.0.0.1:${httpPort}/relay?to=127.0.0.1:${roomPort}`,
+			`http://127.0.0.1:${httpPort}/relay?target=127.0.0.1:${roomPort}`,
 			{ headers: { origin: "http://evil.example:1234" } },
 		);
 		await crossOrigin.body?.cancel();

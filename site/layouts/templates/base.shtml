@@ -42,8 +42,11 @@
 					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
 					<div class="nav-sub">
-						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted peer-to-peer)</a>
+						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted P2P)</a>
+						<a class="$site.page('transports/webrtc').isCurrent().then('is-current', '')" href="$site.page('transports/webrtc').link()">WebRTC (browser P2P)</a>
+						<a class="$site.page('transports/choosing').isCurrent().then('is-current', '')" href="$site.page('transports/choosing').link()">Choosing a transport</a>
 					</div>
+					<a class="$site.page('relay').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('relay').link()">The relay</a>
 					<span class="nav-heading">Know</span>
 					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
 					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference').link()">API reference</a>

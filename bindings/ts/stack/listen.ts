@@ -18,44 +18,24 @@ import {
 	TRANSPORT_TCP,
 } from "./locator.ts";
 
-/** Wrap a socket a server already accepted and complete the keyed handshake
- * from the responder side. Resolves once the session is open. */
-async function acceptTcp(tcp: NetConn, host: Host): Promise<Session> {
-	const la = tcp.localAddr();
-	try {
-		// serverDesignator unused for address transports; acceptedLocalAddr signs.
-		return await Session.establishAccepted(
-			host,
-			TRANSPORT_TCP,
-			"",
-			tcp,
-			socketAddrDesignator(la.hostname, la.port),
-		);
-	} catch (err) {
-		tcp.close();
-		throw err;
-	}
-}
-
-/** A listening server. Iterate it for an accepted `Session` per partner —
- * `for await (const session of listen(host, port)) { ... }`.
- *
- * Binding the socket is asynchronous on some runtimes, so `await
- * server.ready()` for the bound port (the value you need when you pass port 0
- * for an ephemeral one). The async iterator awaits the bind itself, so a
- * `for await` works without `ready()`; the `port` getter requires `ready()` to
- * have resolved. */
-export class Server {
+/** The shared accept-loop server: owns the listening socket, the bind, and the
+ * accept loop. A subclass supplies only `acceptOne` — how to mint the accepting
+ * session over one accepted socket. The loop closes every socket whose accept
+ * fails (a rude caller, a stray probe, or a handshake that throws before a
+ * `Session` exists to own the socket) and keeps accepting, so one bad connection
+ * neither takes the server down nor leaks its fd. That close-on-failure
+ * guarantee lives here once, not copied — and drifting — per subclass. */
+abstract class AcceptLoopServer {
 	#pending: Promise<NetListener>;
 	#listener: NetListener | null = null;
 	// One identity and one shared gift registry for the whole host: every
-	// accepted session keys its handshake with this host's seed and shares
-	// its gift registry, so a gift deposited on one accepted session is
-	// withdrawable on another — the exporter-host shape a three-party handoff
-	// recipient relies on (ADR-0009/ADR-0056).
+	// accepted session keys its handshake with this host's seed and shares its
+	// gift registry, so a gift deposited on one accepted session is withdrawable
+	// on another — the exporter-host shape a three-party handoff recipient relies
+	// on (ADR-0009/ADR-0056).
 	readonly #host: Host;
 
-	constructor(pending: Promise<NetListener>, host: Host = new Host()) {
+	constructor(pending: Promise<NetListener>, host: Host) {
 		this.#pending = pending;
 		this.#host = host;
 	}
@@ -69,8 +49,7 @@ export class Server {
 
 	/** Await the bind and return the bound TCP port. Idempotent. */
 	async ready(): Promise<number> {
-		if (this.#listener === null) this.#listener = await this.#pending;
-		return this.#listener.port;
+		return (await this.boundListener()).port;
 	}
 
 	/** The bound TCP port. Throws until `ready()` has resolved the bind. */
@@ -84,9 +63,19 @@ export class Server {
 		return this.#listener.port;
 	}
 
+	/** The bound listener, awaiting the bind on first call and caching it — for
+	 * subclasses that need the bound address (a keyed locator). */
+	protected async boundListener(): Promise<NetListener> {
+		if (this.#listener === null) this.#listener = await this.#pending;
+		return this.#listener;
+	}
+
+	/** Mint the accepting session over one accepted socket. The base guarantees
+	 * `tcp.close()` if this throws, so an implementation never closes on failure. */
+	protected abstract acceptOne(tcp: NetConn): Promise<Session>;
+
 	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
-		const listener = await this.#pending;
-		this.#listener = listener;
+		const listener = await this.boundListener();
 		// Closing the listener when iteration ends (a `break`, a `return`, or the
 		// listener itself closing) frees the bound socket, so a one-client server
 		// (`for await (const session of server) { …; break; }`) leaves nothing
@@ -99,14 +88,16 @@ export class Server {
 				} catch {
 					return; // the listener was closed
 				}
-				// A handshake failure belongs to that one connection, a client that
-				// dialed and died, or a stray port probe. Skipping it keeps the
-				// listener accepting, so one rude caller cannot take the whole
-				// server down.
+				// A handshake failure belongs to that one connection — a client that
+				// dialed and died, or a stray port probe. Close its socket and keep
+				// accepting, so one rude caller neither takes the whole server down
+				// nor leaks an fd (the throw may land before `acceptOne` built a
+				// `Session` to close the socket itself).
 				let session: Session;
 				try {
-					session = await acceptTcp(tcp, this.#host);
+					session = await this.acceptOne(tcp);
 				} catch {
+					tcp.close();
 					continue;
 				}
 				yield session;
@@ -116,14 +107,40 @@ export class Server {
 		}
 	}
 
-	/** Stop accepting new partners. Closes the listening socket only;
-	 * sessions already accepted are unaffected. */
+	/** Stop accepting new partners. Closes the listening socket only; sessions
+	 * already accepted are unaffected. */
 	close(): void {
 		if (this.#listener !== null) {
 			this.#listener.close();
 			return;
 		}
 		void this.#pending.then((l) => l.close()).catch(() => {});
+	}
+}
+
+/** A listening server. Iterate it for an accepted `Session` per partner —
+ * `for await (const session of listen(host, port)) { ... }`.
+ *
+ * Binding the socket is asynchronous on some runtimes, so `await
+ * server.ready()` for the bound port (the value you need when you pass port 0
+ * for an ephemeral one). The async iterator awaits the bind itself, so a
+ * `for await` works without `ready()`; the `port` getter requires `ready()` to
+ * have resolved. */
+export class Server extends AcceptLoopServer {
+	constructor(pending: Promise<NetListener>, host: Host = new Host()) {
+		super(pending, host);
+	}
+
+	protected acceptOne(tcp: NetConn): Promise<Session> {
+		// serverDesignator unused for address transports; acceptedLocalAddr signs.
+		const la = tcp.localAddr();
+		return Session.establishAccepted(
+			this.host,
+			TRANSPORT_TCP,
+			"",
+			tcp,
+			socketAddrDesignator(la.hostname, la.port),
+		);
 	}
 }
 
@@ -161,83 +178,32 @@ export function listen(
 /** A keyed-tcp listening server: TCP sockets under a durable key designator
  * (ADR-0075). The host's Ed25519 identity *is* the locator designator and the
  * session signing key — one seed, not a second minted identity. */
-export class KeyedTcpServer {
-	#pending: Promise<NetListener>;
-	#listener: NetListener | null = null;
-	readonly #host: Host;
+export class KeyedTcpServer extends AcceptLoopServer {
 	readonly #designator: string;
 
 	constructor(pending: Promise<NetListener>, host: Host, designator: string) {
-		this.#pending = pending;
-		this.#host = host;
+		super(pending, host);
 		this.#designator = designator;
-	}
-
-	get host(): Host {
-		return this.#host;
 	}
 
 	get designator(): string {
 		return this.#designator;
 	}
 
-	async ready(): Promise<number> {
-		if (this.#listener === null) this.#listener = await this.#pending;
-		return this.#listener.port;
-	}
-
-	get port(): number {
-		if (this.#listener === null) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"server not bound yet; await server.ready() before reading port",
-			);
-		}
-		return this.#listener.port;
-	}
-
 	async uri(): Promise<string> {
-		const listener = this.#listener ?? await this.#pending;
-		this.#listener = listener;
-		const la = listener.localAddr();
+		const la = (await this.boundListener()).localAddr();
 		return keyedTcpLocator(this.#designator, la.hostname, la.port);
 	}
 
-	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
-		const listener = await this.#pending;
-		this.#listener = listener;
-		try {
-			while (true) {
-				let tcp: NetConn;
-				try {
-					tcp = await listener.accept();
-				} catch {
-					return;
-				}
-				try {
-					const la = tcp.localAddr();
-					yield await Session.establishAccepted(
-						this.#host,
-						TRANSPORT_KEYED_TCP,
-						this.#designator,
-						tcp,
-						socketAddrDesignator(la.hostname, la.port),
-					);
-				} catch {
-					continue;
-				}
-			}
-		} finally {
-			listener.close();
-		}
-	}
-
-	close(): void {
-		if (this.#listener !== null) {
-			this.#listener.close();
-			return;
-		}
-		void this.#pending.then((l) => l.close()).catch(() => {});
+	protected acceptOne(tcp: NetConn): Promise<Session> {
+		const la = tcp.localAddr();
+		return Session.establishAccepted(
+			this.host,
+			TRANSPORT_KEYED_TCP,
+			this.#designator,
+			tcp,
+			socketAddrDesignator(la.hostname, la.port),
+		);
 	}
 }
 

@@ -73,6 +73,25 @@ pub fn verify(verkey: [32]u8, payload: []const u8, sig: [64]u8) Error!void {
     signature.verify(payload, key) catch return Error.BadSignature;
 }
 
+const b64 = std.base64.url_safe_no_pad;
+
+/// Decode a derivation-`code`-prefixed base64url verkey (the CESR-shaped `D…`
+/// rendering) back to its raw 32 Ed25519 public-key bytes, dropping the code.
+pub fn decodeVerkey(coded: []const u8) error{BadKey}![32]u8 {
+    if (coded.len != 1 + b64.Encoder.calcSize(32)) return error.BadKey;
+    var out: [32]u8 = undefined;
+    b64.Decoder.decode(&out, coded[1..]) catch return error.BadKey;
+    return out;
+}
+
+/// Decode a base64url-no-pad Ed25519 signature back to its raw 64 bytes.
+pub fn decodeSig(encoded: []const u8) error{BadSig}![64]u8 {
+    if (encoded.len != b64.Encoder.calcSize(64)) return error.BadSig;
+    var out: [64]u8 = undefined;
+    b64.Decoder.decode(&out, encoded) catch return error.BadSig;
+    return out;
+}
+
 /// Render a 32-byte digest as a `code`-prefixed base64url SAID, e.g. an AID
 /// (`E…`) or a next-key digest commitment (`E…`).
 pub fn encodeSaid(code: u8, digest: [DIGEST_BYTES]u8, out: *[SAID_LEN]u8) void {

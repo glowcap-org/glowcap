@@ -1,26 +1,44 @@
 // ── Domain types ───────────────────────────────────────────────────────────
 // The app's own model. The wire-protocol types — Transport, Presence, and the
-// live in lib/limits.ts.
+// room limits — live in lib/limits.ts.
 //
 // One line in a conversation's history. The log is painted from these records, so
 // switching conversations re-renders rather than losing history.
+// A chat line carries an optional send state for our own optimistic sends. A room
+// line paints as "sending" and clears when the room echoes it back; a DM line clears
+// when its direct send settles. A rejected send becomes "failed" (tinted, tap to
+// retry). Absent means confirmed — every line we did not send ourselves, and every
+// one of ours the wire has acknowledged.
+export type SendState = "sending" | "failed";
 export type Item =
-	| { kind: "chat"; from: string; text: string; mine: boolean; at: number }
+	| { kind: "chat"; from: string; text: string; mine: boolean; at: number; state?: SendState }
 	| { kind: "sys"; text: string; at: number }
-	| { kind: "action"; from: string; text: string; at: number }
-	| { kind: "note"; head: string; body: string; at: number };
+	| { kind: "action"; from: string; text: string; at: number };
 export type ChatItem = Extract<Item, { kind: "chat" }>;
 export type SysItem = Extract<Item, { kind: "sys" }>;
-export type NoteItem = Extract<Item, { kind: "note" }>;
 export type ActionItem = Extract<Item, { kind: "action" }>;
-export interface Conv {
-	type: "room" | "dm";
+
+// A conversation is either a public room or a direct message, and the two carry
+// different state: a room has members and typing indicators, a DM has an
+// introduction that is or is not yet live. Modelling them as a discriminated
+// union keeps each kind's fields off the other — a DM can't hold a member map,
+// a room can't be "ready" — so the compiler enforces at every use what a mode
+// flag would only ask a reader to remember.
+interface ConvBase {
 	id: string;
 	key: string;
 	history: Item[];
-	members: Map<string, boolean>; // rooms only: name -> online
-	typers: Map<string, ReturnType<typeof setTimeout>>; // rooms only: nick -> auto-clear timer handle
 	unread: number;
-	noted: boolean; // dm only: whether the provenance note has been shown
-	ready: boolean; // dm only: introduction confirmed live
 }
+export type Conv =
+	| (ConvBase & {
+		type: "room";
+		members: Map<string, boolean>; // name -> online
+		typers: Map<string, ReturnType<typeof setTimeout>>; // nick -> auto-clear timer handle
+	})
+	| (ConvBase & {
+		type: "dm";
+		ready: boolean; // the introduction has been redeemed into a live direct line
+	});
+export type RoomConv = Extract<Conv, { type: "room" }>;
+export type DmConv = Extract<Conv, { type: "dm" }>;

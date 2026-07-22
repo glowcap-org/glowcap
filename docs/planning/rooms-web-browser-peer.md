@@ -47,7 +47,7 @@ Every load-bearing piece of the replacement already ships:
 2. **web.ts shrinks to a static file server, the supervisor, and one dumb
    byte relay.** No per-tab pancake connection, no JSON translation. The
    relay is one endpoint on the existing HTTP port
-   (`ws://web-host/relay?to=host:port`): the browser's `wsUrl` maps every
+   (`ws://web-host/relay?target=host:port`): the browser's `wsUrl` maps every
    dial — the room server's locator and a DM-introduced member's `tcp`
    locator alike — onto it, and web.ts moves bytes between the ws socket
    and the target TCP socket without parsing them. The handshake rides
@@ -84,7 +84,7 @@ Each lands whole — code, tests, and doc claims in the same change.
   a real headless Chromium via Playwright). Both have a `@pancake/web` peer —
   `init`, no dlopen — fetch the room directory and list rooms through
   `/relay`, dialing by mapping the locator's host:port to
-  `ws://<web-host>/relay?to=host:port`. The stack now bundles for a browser:
+  `ws://<web-host>/relay?target=host:port`. The stack now bundles for a browser:
   the blocker was that `internal/ffi/runtime.ts` and `internal/ffi/load.ts`
   carried module-level top-level awaits, and `deno bundle` (esbuild)
   flattens every module's TLA into one file where the stack's import graph

@@ -252,6 +252,28 @@ pub export fn pancake_host_pending_dial(
     return PANCAKE_OK;
 }
 
+/// The exporter session a redeemed-handoff reply `reference` routes to, into
+/// `*out_session` — or `*out_session = NULL` when the reference names no live
+/// redeemed route (an ordinary far reply, or an exporter connection already
+/// gone). This is the deterministic answer to "which connection does this
+/// handoff capability live on": a `sendRedeeming` resolves the reply it holds
+/// to the exact exporter session it should host its back-channel on, with no
+/// capture window and no dependence on which dial completed first. The returned
+/// handle is host-owned and lives with the exporter session; do not release it
+/// here. Returns PANCAKE_ERR_INVALID_ARGUMENT on an unmarshalable reference.
+pub export fn pancake_host_reference_exporter(
+    host: ?*PancakeHost,
+    reference: ?*const shared.PancakeReference,
+    out_session: ?*?*PancakeHostSession,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
+    const ref_ptr = reference orelse return PANCAKE_ERR_NULL_POINTER;
+    const ref = shared.referenceFromC(ref_ptr.*) catch |err| return errToCode(err);
+    slot.* = if (inst.core.exporterSessionFor(ref)) |session| @ptrCast(session) else null;
+    return PANCAKE_OK;
+}
+
 /// Resolve a dial without opening a socket. transport/designator are the
 /// locator's pieces (from `pancake_uri_parse_peer` on a pending dial locator);
 /// direct_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);

@@ -1,9 +1,9 @@
 import { composer, dmListEl, emojiBtn, emojiPop, lineInput, roomListEl } from "./dom.ts";
-import { activeConv, chatItem, state, sysItem } from "./state.ts";
+import { activeConv, sysItem } from "./state.ts";
 import { PICKER } from "./richtext.ts";
 import { MAX_LINE } from "../../lib/limits.ts";
-import { isConnected, send } from "./net.ts";
-import { deliver, toActive } from "./render.ts";
+import { dmSay, isConnected, sayLine, setTyping } from "./net.ts";
+import { toActive } from "./render.ts";
 
 // ── Composer ──────────────────────────────────────────────────────────────
 export function autoGrow() {
@@ -23,7 +23,7 @@ export function stopTyping() {
 	clearTimeout(typingIdle);
 	if (typingOn) {
 		typingOn = false;
-		send({ typing: false });
+		setTyping(false);
 	}
 }
 function noteTyping() {
@@ -34,7 +34,7 @@ function noteTyping() {
 	}
 	if (!typingOn) {
 		typingOn = true;
-		send({ typing: true });
+		setTyping(true);
 	}
 	clearTimeout(typingIdle);
 	typingIdle = setTimeout(stopTyping, 4000);
@@ -53,13 +53,13 @@ export function sendMessage() {
 		return;
 	}
 	if (conv.type === "room") {
-		// The room echoes our line back to every member, so it arrives like any
-		// other; we do not paint it here.
-		send({ say: text });
+		// net.ts paints our own line at once as "sending" and confirms it when the
+		// room echoes it back to every member; a rejected send is marked failed.
+		sayLine(text);
 	} else {
-		// A direct message has no echo, so show our own line right away.
-		send({ dmSay: { to: conv.id, text } });
-		deliver(conv, chatItem(state.nick, text, true));
+		// A direct message has no echo; net.ts paints our own line as it sends and
+		// marks it failed if the direct line cannot reach the peer.
+		dmSay(conv.id, text);
 	}
 	lineInput.value = "";
 	stopTyping(); // the line is gone; clear our typing flag at once

@@ -19,6 +19,24 @@ export function parseCliArgs(args: string[]): CliOptions {
 	return { pinPort, attach };
 }
 
+/** Split a demo's argv into its `--port=`/`--attach` options and everything
+ * else (the positional Zig client/host path). The knowledge of which flags are
+ * options lives here, once, beside `parseCliArgs`. */
+export function splitDemoArgs(
+	args: string[],
+): { positional: string[]; options: CliOptions } {
+	const positional: string[] = [];
+	const optionArgs: string[] = [];
+	for (const a of args) {
+		if (a === "--attach" || a.startsWith("--port=")) optionArgs.push(a);
+		else positional.push(a);
+	}
+	return { positional, options: parseCliArgs(optionArgs) };
+}
+
+/** The Deno permissions every demo server and client run under. */
+export const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net"];
+
 export function requireZigClientPath(
 	positional: string[],
 	usage: string,
@@ -165,4 +183,92 @@ export async function stopSpawnedServer(
 		server.kill("SIGTERM");
 	} catch { /* already gone */ }
 	await server.status;
+}
+
+/** One cross-language client: a name for the divider, the command to run, and
+ * the argv to build once the server's port is known. */
+export interface Participant {
+	name: string;
+	cmd: string;
+	argv: (port: number) => string[];
+}
+
+/** Everything a "one server, many-language clients over one OCapN session"
+ * demo needs beyond the participants themselves. The `tasks` and `tools` demos
+ * are the same orchestration spine with different nouns; it lives here so the
+ * run loop — and the pass/fail accounting — has exactly one owner. */
+export interface CrossLangDemo {
+	/** The demo's name, used to prefix its log lines (e.g. "tasks"). */
+	label: string;
+	/** What the server is called in prose (e.g. "server", "coordinator"). */
+	serverNoun: string;
+	/** What a client is called in prose (e.g. "client", "agent"). */
+	clientNoun: string;
+	/** Absolute path to the Deno server script; run under `DENO_FLAGS`. */
+	serverScript: string;
+	/** Matches the server's port-announcement line on stdout (one capture). */
+	listenPattern: RegExp;
+	/** Reported if the server never announces its port. */
+	listenMiss: string;
+	/** The available clients plus a note on any that were skipped. */
+	roster: () => Promise<{ participants: Participant[]; skipped: string[] }>;
+	/** The success line, given a rendered language count ("3 languages"). */
+	okLine: (langs: string) => string;
+	/** The failure line, printed when any client exits non-zero. */
+	failLine: string;
+}
+
+/** Run a cross-language demo to completion and exit the process: spawn the
+ * server (unless attaching), run every rostered client against it in turn,
+ * print each client's output under a divider, and report one pass/fail summary.
+ * There is one run loop, so a client's divider can only ever name that client. */
+export async function runCrossLangDemo(
+	demo: CrossLangDemo,
+	pinPort: number,
+	attach: boolean,
+): Promise<never> {
+	const root = Deno.cwd();
+	const { participants, skipped } = await demo.roster();
+	for (const s of skipped) console.log(`${demo.label} demo: skipping ${s}`);
+
+	const server = attach ? null : new Deno.Command("deno", {
+		args: [...DENO_FLAGS, demo.serverScript, String(pinPort)],
+		stdout: "piped",
+		stderr: "inherit",
+		cwd: root,
+	}).spawn();
+
+	let failed = false;
+	try {
+		const port = server
+			? await readListeningPort(server, demo.listenPattern, demo.listenMiss)
+			: pinPort;
+		console.log(
+			`${demo.label} demo: ${demo.serverNoun} on 127.0.0.1:${port}; running ${participants.length} ${demo.clientNoun}(s) (${
+				participants.map((p) => p.name).join(", ")
+			})\n`,
+		);
+
+		for (const p of participants) {
+			const r = await runChild(p.cmd, p.argv(port), root);
+			console.log(`──────── ${p.name} (exit ${r.code}) ────────`);
+			console.log(r.out.trimEnd());
+			console.log("");
+			if (r.code !== 0) failed = true;
+		}
+
+		if (failed) {
+			console.error(demo.failLine);
+		} else {
+			const langs = participants.length === 1
+				? "1 language"
+				: `${participants.length} languages`;
+			console.log(demo.okLine(langs));
+			if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
+		}
+	} finally {
+		await stopSpawnedServer(server);
+	}
+
+	Deno.exit(failed ? 1 : 0);
 }

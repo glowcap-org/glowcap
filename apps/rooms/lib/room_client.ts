@@ -38,6 +38,12 @@ import {
 	WATCH,
 } from "./protocol.ts";
 
+// How long `register` waits for the directory's `notify("registered")` before it
+// rejects. A registration whose ack never lands (the server's `registerMember`
+// threw) must surface as a failure the caller can retry, not a silent hang; the
+// window sits far above the round-trip a healthy directory answers within.
+const REGISTER_ACK_TIMEOUT_MS = 10_000;
+
 /** One live room in the directory: its name and how many people are in it. */
 export interface RoomInfo {
 	name: string;
@@ -142,13 +148,29 @@ export class Directory {
 	 * `locator` is the listen address redeem should dial. Resolves on
 	 * `notify("registered", …)`. */
 	register(nick: string, locator: string): Promise<void> {
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
+			let timer: ReturnType<typeof setTimeout>;
+			const settle = (run: () => void) => {
+				clearTimeout(timer);
+				run();
+			};
 			const inbox = this.session.spawn((verb, args) => {
-				if (verb === NOTIFY && args[0] === "registered") resolve();
+				if (verb === NOTIFY && args[0] === "registered") settle(resolve);
 				return null;
 			});
+			// A real reject edge: a dropped `send` (the directory session died
+			// mid-register) and an ack that never arrives both surface as a failure
+			// the caller can retry, instead of a promise that only ever resolves or
+			// hangs — a hang would pin the caller out of the DM roster silently.
 			this.session.send(this.#directory, REGISTER, [nick, locator, inbox]).catch(
-				() => {},
+				(err) => settle(() => reject(err)),
+			);
+			timer = setTimeout(
+				() =>
+					settle(() =>
+						reject(new Error(`register("${nick}") was not acknowledged in time`))
+					),
+				REGISTER_ACK_TIMEOUT_MS,
 			);
 		});
 	}
@@ -160,11 +182,22 @@ export class Directory {
 	 * own connection, not through the directory. Rejects if no member with that
 	 * nick is registered. */
 	async introduce(nick: string): Promise<Ref> {
-		const ref = await this.session.send(this.#directory, INTRODUCE, [nick]);
-		if (!(ref instanceof Ref)) {
+		return (await this.introduceVia(nick)).dm;
+	}
+
+	/** Introduce us to a member, returning both the member's `dm` reference and
+	 * the direct `Session` the redeem dialed to reach it (`via`). Hosting a reply
+	 * inbox on `via` and sending the DM over `via` lets the member answer us back
+	 * over that same connection — the bidirectional completion of the
+	 * introduction, which is the only way a member can reach a caller (a browser,
+	 * say) that cannot itself be dialed. `via` is null only if the reply named no
+	 * fresh redeem. Rejects if no member with that nick is registered. */
+	async introduceVia(nick: string): Promise<{ dm: Ref; via: Session | null }> {
+		const { reply, via } = await this.session.sendRedeeming(this.#directory, INTRODUCE, [nick]);
+		if (!(reply instanceof Ref)) {
 			throw new Error(`introduce("${nick}") did not return a capability`);
 		}
-		return ref;
+		return { dm: reply, via };
 	}
 
 	/** Close the session, ending every room's `messages` stream. */
@@ -178,26 +211,58 @@ export class Directory {
  * asks the directory to introduce you and wraps the redeemed capability. `say`
  * then delivers a message straight to that member over your own connection. The
  * directory is not on the message path. It vouched for the introduction once, and
- * after that the two of you talk without it. */
+ * after that the two of you talk without it.
+ *
+ * The line is bidirectional. It hosts a reply inbox on the very connection the
+ * redeem opened and hands it to the member with each message, so the member
+ * answers you back over that same connection — even though you never listen. An
+ * `onReply` handler passed to `open` receives those replies. */
 export class DirectMessage {
 	#session: Session;
 	#dm: Ref;
+	#replyInbox: Ref | null;
 	readonly peer: string;
 
-	private constructor(session: Session, dm: Ref, peer: string) {
+	private constructor(session: Session, dm: Ref, peer: string, replyInbox: Ref | null) {
 		this.#session = session;
 		this.#dm = dm;
 		this.peer = peer;
+		this.#replyInbox = replyInbox;
 	}
 
-	/** Open a direct line to `peer` by asking `dir` to introduce you. */
-	static async open(dir: Directory, peer: string): Promise<DirectMessage> {
-		return new DirectMessage(dir.session, await dir.introduce(peer), peer);
+	/** Open a direct line to `peer` by asking `dir` to introduce you. `onReply`,
+	 * if given, fires with each `(from, text)` reply the member sends back over
+	 * the direct connection. */
+	static async open(
+		dir: Directory,
+		peer: string,
+		onReply?: (from: string, text: string) => void,
+	): Promise<DirectMessage> {
+		const { dm, via } = await dir.introduceVia(peer);
+		// The reply inbox must live on the connection the redeemed capability
+		// routes to (`via`), so it is a valid near export the member can call
+		// back. Without a `via` (no fresh redeem) there is no connection to host
+		// it on, so the line is send-only.
+		const session = via ?? dir.session;
+		let replyInbox: Ref | null = null;
+		if (onReply && via) {
+			replyInbox = session.spawn((verb, args) => {
+				if (verb !== DM) throw new Error(`dm reply inbox has no method ${verb}`);
+				onReply(
+					typeof args[0] === "string" ? args[0] : peer,
+					typeof args[1] === "string" ? args[1] : "",
+				);
+				return null;
+			});
+		}
+		return new DirectMessage(session, dm, peer, replyInbox);
 	}
 
-	/** Deliver one direct message to the peer, tagged with your own display nick. */
+	/** Deliver one direct message to the peer, tagged with your own display nick.
+	 * Carries the reply inbox when this line has one, so the member can answer. */
 	async say(from: string, text: string): Promise<void> {
-		await this.#session.send(this.#dm, DM, [from, text]);
+		const args: AppValue[] = this.#replyInbox ? [from, text, this.#replyInbox] : [from, text];
+		await this.#session.send(this.#dm, DM, args);
 	}
 }
 

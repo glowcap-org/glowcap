@@ -45,6 +45,7 @@ pub const symbols = [_]Symbol{
         .section = "Resolve a dial to a PancakeDialPlan (grammar + hint + iroh posture); a free function.",
     },
     .{ .name = "pancake_host_pending_dial", .out_params = &.{2} },
+    .{ .name = "pancake_host_reference_exporter", .out_params = &.{2} },
     .{ .name = "pancake_host_plan_accept", .out_params = &.{6} },
     .{ .name = "pancake_host_session_release" },
     .{ .name = "pancake_host_session_session_open" },

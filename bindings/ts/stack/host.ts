@@ -17,8 +17,14 @@ import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer } from "./internal/seam.ts";
 import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT } from "@pancake/abi";
 import { checkHost, PancakeError } from "./errors.ts";
-import { type Argument, type Behavior, type Codec, codecId, Reachability } from "./value.ts";
-import { insideTurn, registerBehavior, trampolinePointer } from "./trampoline.ts";
+import { type Argument, type Behavior, type Codec, codecId, Reachability, Ref } from "./value.ts";
+import { refStruct } from "./codec.ts";
+import {
+	insideTurn,
+	registerBehavior,
+	trampolinePointer,
+	unregisterBehavior,
+} from "./trampoline.ts";
 import type { Context } from "./context.ts";
 import { Session } from "./session.ts";
 import { dialExporter as dialExporterFn } from "./dial.ts";
@@ -71,8 +77,9 @@ export class Host {
 	readonly codec: Codec;
 	#raw: Ptr;
 	// Every live session by its PancakeHostSession address, so a FLUSH action
-	// routes to the transport that owns the bytes and a dialed exporter stays
-	// reachable for teardown.
+	// routes to the transport that owns the bytes, a dialed exporter stays
+	// reachable for teardown, and `exporterFor` maps a redeemed reply's route
+	// (a PancakeHostSession pointer) back to its `Session` wrapper.
 	readonly #sessions = new Map<Ptr, Session>();
 	// The vow table the drain's SETTLE/FAIL arms settle.
 	readonly #vows = new Map<bigint, VowRow>();
@@ -90,6 +97,10 @@ export class Host {
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
 	// mid-turn close never leaks its C handle. Mirrors Python/Rust.
 	readonly #parkedReleases: Array<() => void> = [];
+	// Trampoline ctx ids of this host's giftables. The registry is process-global,
+	// not host-scoped, so nothing drops these when the host dies — `release()`
+	// frees them, or they leak one row per giftable per Host generation.
+	readonly #giftables: bigint[] = [];
 
 	/** A host with identity `seed` (32 bytes; omitted draws a fresh random one —
 	 * entropy at the binding boundary, never inside the sans-io host). `codec`
@@ -146,6 +157,11 @@ export class Host {
 	release(): void {
 		if (this.#raw === NULL) return;
 		hostFinalizer.unregister(this);
+		// Free this host's giftable behaviors from the process-global trampoline
+		// registry; nothing else drops them, so skipping this leaks a row per
+		// giftable for the process's life across every Host generation.
+		for (const ctx of this.#giftables) unregisterBehavior(ctx);
+		this.#giftables.length = 0;
 		const raw = this.#raw;
 		this.#raw = NULL;
 		if (insideTurn()) {
@@ -223,6 +239,7 @@ export class Host {
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
 		const ctx = registerBehavior({ run: behavior, session: null, resolveLocal: null });
+		this.#giftables.push(ctx);
 		const bytes = utf8Encoder.encode(name);
 		checkHost(driverS.pancake_host_publish(
 			this.#raw,
@@ -250,6 +267,22 @@ export class Host {
 	 * action drain's FLUSH/CLOSE arms route through it. */
 	getSession(ptr: Ptr): Session | undefined {
 		return this.#sessions.get(ptr);
+	}
+
+	/** The direct exporter `Session` a redeemed-handoff reply `ref` routes to,
+	 * or null when it names no live redeemed route (an ordinary far reply, or an
+	 * exporter connection already gone). Deterministic (ADR-0088): the reply's
+	 * own token carries its route, so `Session.sendRedeeming` resolves the exact
+	 * exporter session it should host its back-channel on — no capture window,
+	 * no dependence on which dial completed first, and it finds an exporter that
+	 * a prior redeem already dialed (a cache hit that mints no new dial at all).
+	 * Binding-internal: `Session.sendRedeeming` calls it. */
+	exporterFor(ref: Ref): Session | null {
+		const refBuf = refStruct(ref.reference);
+		const out = new Uint8Array(8);
+		checkHost(driverS.pancake_host_reference_exporter(this.#raw, ab(refBuf), ab(out)));
+		const ptr = outPointer(out);
+		return ptr === NULL ? null : this.#sessions.get(ptr) ?? null;
 	}
 
 	/** Close every exporter connection this host dialed for redeems.

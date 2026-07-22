@@ -6,7 +6,7 @@
 .draft = false,
 ---
 
-Hard CapTP ideas, once each. Read in order: what a reference is, how you reach a
+The hard CapTP ideas, explained once each. Read in order: what a reference is, how you reach a
 peer, pipelining and handoff on the wire, which dialect answers, then the memory
 budget that keeps many sessions cheap. From zero on capabilities:
 [capabilities](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/capabilities.md).

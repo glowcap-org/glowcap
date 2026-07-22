@@ -1,5 +1,4 @@
-import type { Conv, Item } from "./types.ts";
-import type { Transport } from "../../lib/limits.ts";
+import type { ChatItem, Conv, DmConv, Item, RoomConv, SendState } from "./types.ts";
 
 // ── State ────────────────────────────────────────────────────────────────
 // Conversations, keyed "room:<name>" or "dm:<peer>". Each holds its own message
@@ -10,9 +9,8 @@ export const convs = new Map<string, Conv>();
 // shared object every module reads and writes through.
 export const state = {
 	activeKey: null as string | null, // conversation shown, or null
-	joinedRoom: "", // the room the server has us in (may not be active)
+	joinedRoom: null as string | null, // the room the server has us in (may not be active)
 	nick: "", // our display name
-	transport: "tcp" as Transport, // learned from the bridge
 	membersHidden: false, // member-pane preference across room switches
 };
 
@@ -47,28 +45,27 @@ export function activeConv(): Conv | null {
 	return convs.get(state.activeKey) ?? null;
 }
 
+export function makeConv(type: "room", id: string): RoomConv;
+export function makeConv(type: "dm", id: string): DmConv;
 export function makeConv(type: "room" | "dm", id: string): Conv {
 	const key = convKey(type, id);
-	const conv: Conv = {
-		type,
-		id,
-		key,
-		history: [],
-		members: new Map(), // rooms only: name -> online
-		typers: new Map(), // rooms only: nick -> auto-clear timer handle
-		unread: 0,
-		noted: false, // dm only: whether the provenance note has been shown
-		ready: false, // dm only: introduction confirmed live
-	};
+	const base = { id, key, history: [] as Item[], unread: 0 };
+	// Build only the fields the kind owns, so the union stays honest: a room gets
+	// its member/typing maps, a DM gets its introduction flags, neither the other's.
+	const conv: Conv = type === "room"
+		? { ...base, type, members: new Map(), typers: new Map() }
+		: { ...base, type, ready: false };
 	convs.set(key, conv);
 	return conv;
 }
-export function ensureRoom(name: string): Conv {
-	return getConv(convKey("room", name)) || makeConv("room", name);
+export function ensureRoom(name: string): RoomConv {
+	const existing = getConv(convKey("room", name));
+	if (existing && existing.type === "room") return existing;
+	return makeConv("room", name);
 }
-export function ensureDm(peer: string): Conv {
+export function ensureDm(peer: string): DmConv {
 	const existing = getConv(convKey("dm", peer));
-	if (existing) return existing;
+	if (existing && existing.type === "dm") return existing;
 	const conv = makeConv("dm", peer);
 	conv.id = peer; // keep the casing the peer arrived with
 	return conv;
@@ -77,12 +74,16 @@ export function ensureDm(peer: string): Conv {
 // ── Message items ─────────────────────────────────────────────────────────
 // Each conversation stores plain item records; the log is painted from them, so
 // switching conversations re-renders rather than losing history.
-export function chatItem(from: string, text: string, mine: boolean): Item {
-	return { kind: "chat", from, text, mine, at: Date.now() };
+export function chatItem(
+	from: string,
+	text: string,
+	mine: boolean,
+	sendState?: SendState,
+): ChatItem {
+	const item: ChatItem = { kind: "chat", from, text, mine, at: Date.now() };
+	if (sendState) item.state = sendState;
+	return item;
 }
 export function sysItem(text: string): Item {
 	return { kind: "sys", text, at: Date.now() };
-}
-export function noteItem(head: string, body: string): Item {
-	return { kind: "note", head, body, at: Date.now() };
 }

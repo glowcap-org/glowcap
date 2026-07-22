@@ -289,6 +289,15 @@ typedef struct PancakePendingDial {
    PANCAKE_ERR_INVALID_ARGUMENT. Host-owned views valid until pancake_host_dialed
    / pancake_host_dial_failed (or host teardown). */
 int32_t pancake_host_pending_dial(PancakeHost *host, uint64_t ticket, PancakePendingDial *out);
+/* Resolve a redeemed-handoff reply reference to the exporter session it routes
+   to, into *out_session — or *out_session = NULL when the reference names no
+   live redeemed route (an ordinary far reply, or an exporter connection already
+   gone). Deterministic: a redeeming send resolves the reply it holds to the exact
+   exporter session it should host its back-channel on, with no capture window and
+   no dependence on which dial completed first. The returned handle is host-owned
+   and lives with the exporter session; do not release it here. An unmarshalable
+   reference returns PANCAKE_ERR_INVALID_ARGUMENT. */
+int32_t pancake_host_reference_exporter(PancakeHost *host, const PancakeReference *reference, PancakeHostSession **out_session);
 /* Resolve a dial without opening a socket: the transport dispatch, designator
    validation, host:port resolution, and peer-id reachability decision every binding
    used to re-express, done once here. transport/designator are the locator's

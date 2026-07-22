@@ -63,11 +63,14 @@ pub const Error = error{
 /// dial; `key` means it is the peer's Ed25519 public key in canonical hex, so
 /// a dial pins the partner's session identity to it. Two spellings exist
 /// because `driver_core` is sans-io and holds transport *strings*, never
-/// netlayers: the netlayer vtable's `designator_scheme` is the authoritative
-/// declaration on every I/O path (`driver.connectVia` reads it), and this
-/// string table is the same fact for the byte-fed host tier
-/// (`Host.openDialedLocator`), which never sees a vtable. A transport added to
-/// one must be added to the other — `zig build meta-check` holds them in sync.
+/// netlayers: where a transport has a netlayer resident, that vtable's
+/// `designator_scheme` is the authoritative declaration on every I/O path
+/// (`driver.connectVia` reads it) and this string table mirrors it, so a
+/// transport added to one is added to the other — `zig build meta-check` holds
+/// the mirror in sync. A resident-less key transport has no vtable to mirror
+/// (`keyed-relay`, whose byte path is a browser WebSocket rendezvous rather
+/// than a Zig netlayer, ADR-0088): for it this byte-fed string table is the
+/// sole authority.
 pub const DesignatorScheme = enum { address, key };
 
 /// The designator scheme for a transport symbol (see `DesignatorScheme`).
@@ -80,6 +83,14 @@ pub const DesignatorScheme = enum { address, key };
 pub fn designatorSchemeForTransport(transport: []const u8) DesignatorScheme {
     if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) return .key;
     if (std.mem.eql(u8, transport, model.transport.iroh)) return .key;
+    // `webrtc` names a peer by its Ed25519 key; the channel comes up through a
+    // signaling exchange rather than a dialable address (ADR-0089), and the keyed
+    // handshake pins the designator exactly as keyed-tcp/iroh do.
+    if (std.mem.eql(u8, transport, model.transport.webrtc)) return .key;
+    // `keyed-relay` names a peer by key alone with no dialable address — its byte
+    // path is a relay rendezvous, not a socket (ADR-0088). The keyed handshake
+    // pins the designator exactly as keyed-tcp/iroh do.
+    if (std.mem.eql(u8, transport, model.transport.keyed_relay)) return .key;
     return .address;
 }
 

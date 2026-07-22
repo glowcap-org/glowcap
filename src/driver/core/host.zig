@@ -101,6 +101,15 @@ fn redeemOutcome(resolve: model.view.Resolve) engine.Node.RedeemOutcome {
     };
 }
 
+/// The far reference `arg` names, or null when `arg` is not a plain far
+/// capability — a break, a promise, a near, or a non-reference value. The one
+/// unwrap of the `reference → far` shape the foreign-proxy, enroll, and enliven
+/// paths each read off a fulfilled resolution.
+fn asFarRef(arg: model.Argument) ?@FieldType(model.Reference, "far") {
+    if (arg != .reference or arg.reference != .far) return null;
+    return arg.reference.far;
+}
+
 /// The served-reply interceptor body every host session shares: offer a
 /// fulfilled far capability to the node. A foreign **promise** token is
 /// rewritten to a third-party import-promise on this session (ADR-0009
@@ -117,8 +126,8 @@ fn interceptFulfilled(
     answer: model.AnswerPosition,
     fulfilled: model.Argument,
 ) !actors.InterceptOutcome {
-    if (fulfilled != .reference or fulfilled.reference != .far) return .{ .resolve = fulfilled };
-    const far_id = fulfilled.reference.far.import_position.int();
+    const far = asFarRef(fulfilled) orelse return .{ .resolve = fulfilled };
+    const far_id = far.import_position.int();
     // Break reasons reach the wire via vat `@errorName`; Node uses snake_case
     // (`session_not_open`) so the CapTP string is not Zig PascalCase.
     if (try node.proxyForeignPromiseFulfill(peer_id, far_id)) |proxy| {
@@ -402,13 +411,7 @@ pub const Host = struct {
         while (free_it.next()) |session| {
             // Drop index rows before freeing borrowed dialed-designator keys.
             self.unindexSession(session.*);
-            session.*.served.deinit();
-            session.*.feed_tail.deinit(self.allocator);
-            switch (session.*.role) {
-                .dialed => |designator| self.allocator.free(designator),
-                .accepted => {},
-            }
-            self.allocator.destroy(session.*);
+            self.freeSessionShell(session.*);
         }
         self.sessions.deinit(self.allocator);
         self.hellos.deinit(self.allocator);
@@ -690,13 +693,7 @@ pub const Host = struct {
         std.debug.assert(self.sessions.remove(session.peer_id));
         const peer_id = session.peer_id;
         self.dropVowRows(peer_id);
-        session.served.deinit();
-        session.feed_tail.deinit(self.allocator);
-        switch (session.role) {
-            .dialed => |designator| self.allocator.free(designator),
-            .accepted => {},
-        }
-        self.allocator.destroy(session);
+        self.freeSessionShell(session);
         self.node.removePeer(peer_id);
         try host_pump.finishVerb(self);
     }
@@ -774,13 +771,29 @@ pub const Host = struct {
     /// Unwind a failed open: retire the session id (running the node's
     /// fail-closed sweep) and free the shell. The dialed designator, when the
     /// caller already duped it, is the caller's own errdefer.
+    /// Free one session's owned shell after it has been unregistered from every
+    /// index: the served vat, the unconsumed feed tail, and a dialed session's
+    /// designator bytes, then the shell itself. Every session teardown funnels
+    /// through here so no path drops one of the three frees — the feed-tail and
+    /// designator leaks `failOpen` once carried. Call only after `unindexSession`
+    /// (and, for a dialed session, `hellos.unregister`): the designator bytes
+    /// back those index keys until this frees them.
+    fn freeSessionShell(self: *Host, session: *HostSession) void {
+        session.served.deinit();
+        session.feed_tail.deinit(self.allocator);
+        switch (session.role) {
+            .dialed => |designator| self.allocator.free(designator),
+            .accepted => {},
+        }
+        self.allocator.destroy(session);
+    }
+
     fn failOpen(self: *Host, session: *HostSession) void {
         self.unindexSession(session);
         // tolerant: enrolled only when the failure came after `enroll`.
         _ = self.sessions.remove(session.peer_id);
         const peer_id = session.peer_id;
-        session.served.deinit();
-        self.allocator.destroy(session);
+        self.freeSessionShell(session);
         self.node.removePeer(peer_id);
     }
 
@@ -928,6 +941,17 @@ pub const Host = struct {
         return self.node.pendingDial(ticket);
     }
 
+    /// The exporter `HostSession` a redeemed-handoff reply token routes to, or
+    /// null when `reference` names no live redeemed route (an ordinary far
+    /// reply, or an exporter connection already gone). Deterministic: a
+    /// redeem's originating send resolves the reply it holds to the exact
+    /// exporter session, with no capture window and no dependence on which dial
+    /// completed first — the reply token's route is the single source of truth.
+    pub fn exporterSessionFor(self: *Host, reference: model.Reference) ?*HostSession {
+        const peer = self.node.exporterPeerFor(reference) orelse return null;
+        return self.sessions.get(peer);
+    }
+
     /// Report a `dial` action's success: `session` is an `openDialedLocator`
     /// against that ticket's pending locator, driven to an open session. The
     /// node withdraws every give waiting on the ticket; the withdraws and
@@ -1072,25 +1096,19 @@ pub const Host = struct {
     /// action queue instead has no such window: the completion waits on the
     /// queue). A second listener on a live row is refused `AlreadyListening`.
     pub fn vowOn(self: *Host, vow_id: u64, listener: actors.Listener) !void {
-        self.assertOwner();
-        const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
-        const session = self.sessions.get(row.peer_id) orelse return HostError.NoSuchVow;
-        try checkLive(session);
-        if (row.inner != null) return actors.Error.AlreadyListening;
-        row.inner = listener;
+        const resolved = try self.resolveVowSession(vow_id);
+        if (resolved.row.inner != null) return actors.Error.AlreadyListening;
+        resolved.row.inner = listener;
     }
 
     /// Promise pipelining: eventual-send `msg` to a host vow before it
     /// resolves, minting a new vow for this call's own answer. A local vow has
     /// no wire answer to pipeline against (`NotPipelineable`).
     pub fn vowSend(self: *Host, vow_id: u64, msg: actors.Message) !u64 {
-        self.assertOwner();
-        const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
-        const session = self.sessions.get(row.peer_id) orelse return HostError.NoSuchVow;
-        try checkLive(session);
-        const vow = try session.served.sendToAnswer(row.vow, msg);
-        const id = try self.mintVow(session, vow, .plain);
-        try host_pump.dirtyThenPump(self, session.peer_id);
+        const resolved = try self.resolveVowSession(vow_id);
+        const vow = try resolved.session.served.sendToAnswer(resolved.row.vow, msg);
+        const id = try self.mintVow(resolved.session, vow, .plain);
+        try host_pump.dirtyThenPump(self, resolved.session.peer_id);
         return id;
     }
 
@@ -1258,14 +1276,14 @@ pub const Host = struct {
     /// unenrollable capability would mis-route a later re-gift, so it fails
     /// loud as a break rather than surfacing half-usable.
     fn enrollFetched(self: *Host, peer_id: engine.PeerId, resolution: actors.Resolution) actors.Resolution {
-        if (resolution == .fulfilled and resolution.fulfilled == .reference and resolution.fulfilled.reference == .far and
-            resolution.fulfilled.reference.far.import_position.int() < engine.Node.REDEEMED_TOKEN_BASE)
-        {
-            const token = self.node.enrollForeign(peer_id, .{ .far = resolution.fulfilled.reference.far }) catch |err| {
-                return .{ .broken = @errorName(err) };
-            };
-            return .{ .fulfilled = .{ .reference = token } };
-        }
+        if (resolution == .fulfilled) if (asFarRef(resolution.fulfilled)) |far| {
+            if (far.import_position.int() < engine.Node.REDEEMED_TOKEN_BASE) {
+                const token = self.node.enrollForeign(peer_id, .{ .far = far }) catch |err| {
+                    return .{ .broken = @errorName(err) };
+                };
+                return .{ .fulfilled = .{ .reference = token } };
+            }
+        };
         return resolution;
     }
 
@@ -1378,16 +1396,13 @@ pub const Host = struct {
     const Projection = union(enum) { index: i64, untag: []const u8, get: []const u8 };
 
     fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
-        self.assertOwner();
-        const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
-        const session = self.sessions.get(row.peer_id) orelse return HostError.NoSuchVow;
-        try checkLive(session);
-        const source = switch (row.vow) {
+        const resolved = try self.resolveVowSession(vow_id);
+        const source = switch (resolved.row.vow) {
             .far => |answer| answer,
             // A local vow has no wire answer to project against.
             .local => return vocab.Error.NotPipelineable,
         };
-        const peer = session.served.peer;
+        const peer = resolved.session.served.peer;
         const answer = model.AnswerPosition.from(peer.allocateAnswer());
         const receiver: model.Reference = .{ .promise = .{ .answer_position = source } };
         switch (projection) {
@@ -1395,9 +1410,22 @@ pub const Host = struct {
             .untag => |tag| try peer.sendCopying(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer } }),
             .get => |field| try peer.sendCopying(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer } }),
         }
-        const id = try self.mintVow(session, .{ .far = answer }, .plain);
-        try host_pump.dirtyThenPump(self, session.peer_id);
+        const id = try self.mintVow(resolved.session, .{ .far = answer }, .plain);
+        try host_pump.dirtyThenPump(self, resolved.session.peer_id);
         return id;
+    }
+
+    /// The live session and row a latch-legal vow verb operates on: assert the
+    /// owner, resolve the vow's row and its session, and refuse a settled or
+    /// unknown vow (its row already retired) or a dead session alike with
+    /// `NoSuchVow`. `vowOn`, `vowSend`, and `vowProjection` share this prelude
+    /// and differ only in the body that follows.
+    fn resolveVowSession(self: *Host, vow_id: u64) HostError!struct { row: *VowRow, session: *HostSession } {
+        self.assertOwner();
+        const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
+        const session = self.sessions.get(row.peer_id) orelse return HostError.NoSuchVow;
+        try checkLive(session);
+        return .{ .row = row, .session = session };
     }
 
     /// Test seam: session-tagged embedder FIFO dedupe (flush/close).
@@ -1530,12 +1558,12 @@ const EnlivenListener = struct {
         if (host.sessions.get(bridge.peer_id)) |session| {
             const peer = session.served.peer;
             if (peer.session_state.pendingEnlivenSwissnum(bridge.answer)) |swissnum| {
-                if (resolution == .fulfilled and resolution.fulfilled == .reference and resolution.fulfilled.reference == .far) {
+                if (if (resolution == .fulfilled) asFarRef(resolution.fulfilled) else null) |far| {
                     // The far is POD; `recordEnlivenment` caches it and clears
                     // the in-flight marker. It only errors on a non-far/broken
                     // outcome, which a `.far` fulfillment never is.
                     _ = engine.sturdyref.recordEnlivenment(peer.allocator, &peer.session_state, swissnum, .{
-                        .fulfilled = .{ .far = resolution.fulfilled.reference.far },
+                        .fulfilled = .{ .far = far },
                     }) catch unreachable;
                 } else {
                     peer.finishPendingEnliven(swissnum);

@@ -8,6 +8,7 @@
 import { driverS } from "./internal/ffi/driver.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, readBytes, releaseManagedFrame } from "./internal/seam.ts";
+import { enterDeliver, exitDeliver } from "./trampoline.ts";
 import {
 	type AbortDetail,
 	abortDomainLabel,
@@ -29,6 +30,10 @@ export interface PumpHandle {
 	readonly released: boolean;
 	/** True once the keyed handshake completed (`pancake_host_session_session_open`). */
 	readonly sessionOpen: boolean;
+	/** Identity of the Session this pump drives, exposed to the trampoline as the
+	 * arriving connection for a host-wide giftable's turn (so it can reply to its
+	 * live caller through `currentSession()`). */
+	readonly deliverOwner: object;
 	/** The Session `#closing` flag alone (not `#released`). */
 	closingFlag: boolean;
 	/** Teardown has begun: `closingFlag || released`. */
@@ -114,11 +119,25 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
  * session held behind its handshake open. */
 export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 	if (h.released) return;
-	const rc = driverS.pancake_host_session_feed_bytes(
-		h.ptr,
-		ab(chunk),
-		BigInt(chunk.length),
-	);
+	// Behaviors — including host-wide giftables with no session of their own —
+	// fire synchronously inside this call, so name the arriving connection for
+	// the trampoline across it. Saved and restored (not cleared) to mirror the
+	// trampoline's currentTurn idiom and stay correct if feed were ever entered
+	// re-entrantly; at this sole synchronous entry prev is null, so the restore
+	// is equivalent to clearing. A redeem dial's own handshake feed is not
+	// nested inside this bracket: the action drain that runs it (kickActions)
+	// fires after exitDeliver, as a separate top-level feed.
+	const prevDeliver = enterDeliver(h.deliverOwner);
+	let rc: number;
+	try {
+		rc = driverS.pancake_host_session_feed_bytes(
+			h.ptr,
+			ab(chunk),
+			BigInt(chunk.length),
+		);
+	} finally {
+		exitDeliver(prevDeliver);
+	}
 	// Parked releases drain before the refusal check, matching the Python
 	// and Rust pumps, so a mid-feed close's C release never waits behind a
 	// refused feed's raise.

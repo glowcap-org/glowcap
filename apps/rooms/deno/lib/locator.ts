@@ -12,12 +12,12 @@ import {
 	HINT_DIRECT_ADDRESSES,
 	type Host,
 	parseLocator,
+	Reachability,
 	type Session as SessionType,
 	socketAddrDesignator,
 	tcpLocator,
 	TRANSPORT_IROH,
 } from "@pancake/stack";
-import { Reachability } from "@pancake/iroh";
 
 /** Whether `locator` is an `ocapn://` URI (iroh) rather than a `hostname:port`. */
 export function isUriLocator(locator: string): boolean {
@@ -38,19 +38,46 @@ export function announceToLocator(token: string): string {
 	return /^\d+$/.test(token) ? loopbackTcpDesignator(Number(token)) : token;
 }
 
-// TERMINAL-ONLY: dial iroh directly through the sidecar. A URI carrying
-// direct-addresses dials those (Direct); a node-id-only URI resolves through
-// discovery, honoring the host's configured redeem posture when one is passed.
-function dialIrohDirect(locator: string, host?: Host): Promise<SessionType> {
-	type IrohReachability = (typeof Reachability)[keyof typeof Reachability];
+/** Read a rooms server child's first `ROOMS-SERVER-LISTENING <token>` line from
+ * its stdout and resolve it to a dial locator (a TCP `host:port`, or an iroh
+ * `ocapn://` URI), giving up after `deadlineMs`. The orchestrator and the web
+ * bridge both spawn a server and wait for this line, so the reader lives here
+ * beside the announce vocabulary it parses. */
+export async function readAnnouncedLocator(
+	proc: Deno.ChildProcess,
+	deadlineMs = 10_000,
+): Promise<string> {
+	const reader = proc.stdout.getReader();
+	const decoder = new TextDecoder();
+	let buf = "";
+	const deadline = Date.now() + deadlineMs;
+	try {
+		while (Date.now() < deadline) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			buf += decoder.decode(value);
+			const m = buf.match(ANNOUNCE_RE);
+			if (m) return announceToLocator(m[1]);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	throw new Error("rooms server never announced its locator");
+}
+
+// Dial an iroh URI with the posture the core requires for a peer-id open: a URI
+// carrying direct-addresses dials those (Direct); a node-id-only URI resolves
+// through discovery, honoring the host's configured redeem posture when one is
+// passed. A terminal dials the endpoint directly through the sidecar; a browser
+// rides the same `connect` to the relay (`init({ relayUrl })`), so both need the
+// posture and neither may pass `undefined`. `Reachability` is the stack's own
+// enum, so it carries real values in the browser (the `@pancake/iroh` re-export
+// is stubbed there).
+function dialIroh(locator: string, host?: Host): Promise<SessionType> {
 	const loc = parseLocator(locator);
 	const hints = loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
-	const fallback = host ? (host.redeemReachability as IrohReachability) : Reachability.Discovery;
-	return connect(
-		locator,
-		hints.length > 0 ? Reachability.Direct : fallback,
-		host,
-	);
+	const fallback = host ? host.redeemReachability : Reachability.Discovery;
+	return connect(locator, hints.length > 0 ? Reachability.Direct : fallback, host);
 }
 
 /** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh,
@@ -59,9 +86,8 @@ function dialIrohDirect(locator: string, host?: Host): Promise<SessionType> {
  * share one Host so register can `fetch("dm")` on the room session). Omitted,
  * the dial gets a fresh identity, which is all an ordinary client needs.
  *
- * In a browser (`window` present) an iroh URI dials through the stack's own
- * `connect`, whose browser arm rides the relay `init({ relayUrl })` named; in
- * a terminal it is dialed directly. */
+ * A browser and a terminal dial the same way; the browser's `connect` rides the
+ * relay transparently. */
 export function dial(locator: string, host?: Host): Promise<SessionType> {
 	if (isUriLocator(locator)) {
 		const loc = parseLocator(locator);
@@ -70,13 +96,7 @@ export function dial(locator: string, host?: Host): Promise<SessionType> {
 				`rooms expected an iroh ocapn:// URI, got "${loc.transport}": ${locator}`,
 			);
 		}
-		return typeof window !== "undefined"
-			? connect(
-				locator,
-				undefined,
-				host,
-			)
-			: dialIrohDirect(locator, host);
+		return dialIroh(locator, host);
 	}
 	const { hostname, port } = designatorHostPort(locator);
 	return connect(tcpLocator(hostname, port), undefined, host);

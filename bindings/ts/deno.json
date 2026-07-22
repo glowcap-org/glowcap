@@ -4,11 +4,12 @@
     "./stack",
     "./iroh",
     "./web",
+    "./webrtc",
     "./relay"
   ],
   "tasks": {
     "smoke": "deno run --allow-ffi --allow-read --allow-net --allow-env dogfood/zig_smoke.ts",
-    "check": "deno check abi/constants.ts stack/mod.ts stack/transport/tcp.ts stack/transport/inproc.ts stack/ffi.ts iroh/mod.ts iroh/internal.ts relay/mod.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts web/mod.ts web/adapter.ts web/test/web_peer_test.ts web/test/serve_ws_host.ts web/wasm_handshake_smoke.ts"
+    "check": "deno check abi/constants.ts stack/mod.ts stack/transport/tcp.ts stack/transport/inproc.ts stack/ffi.ts iroh/mod.ts iroh/internal.ts relay/mod.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts web/mod.ts web/adapter.ts web/test/web_peer_test.ts web/test/serve_ws_host.ts web/wasm_handshake_smoke.ts webrtc/mod.ts"
   },
   "fmt": {
     "useTabs": true,

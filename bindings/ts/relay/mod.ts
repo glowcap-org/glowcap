@@ -18,4 +18,11 @@ export {
 	type RelayChannel,
 	type RelayConfig,
 } from "./relay.ts";
-export { webSocketRelay } from "./ws_relay.ts";
+export { webSocketChannel, webSocketRelay } from "./ws_relay.ts";
+// The two far-side dials a Deno relay opens (a raw TCP socket, an iroh byte
+// channel), one hardened copy each, shared by the reference relay and an
+// embedding app relay.
+export { denoIrohChannel, denoTcpChannel, type IrohReach } from "./deno_channels.ts";
+// The cold-dial rendezvous (ADR-0088): let a peer that cannot be dialed register
+// its identity and be reached through the relay by another peer.
+export { Rendezvous } from "./rendezvous.ts";

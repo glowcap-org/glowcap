@@ -19,7 +19,12 @@ import { ensureRuntimeReady, ffi, net } from "./internal/ffi/runtime.ts";
 import { ab, readBytes } from "./internal/seam.ts";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Codec, Reachability } from "./value.ts";
-import { HINT_DIRECT_ADDRESSES, parseLocator } from "./locator.ts";
+import {
+	HINT_DIRECT_ADDRESSES,
+	parseLocator,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_TCP,
+} from "./locator.ts";
 import { L } from "./internal/layout.ts";
 import {
 	DIAL_POSTURE_EXPLICIT,
@@ -130,6 +135,42 @@ function planDial(
 	throw new PancakeError(INVALID_ARGUMENT, `unknown dial shape ${shape}`);
 }
 
+/** How a relay opens the byte channel for a target locator: a raw TCP socket to
+ * `hostname:port`, or the iroh companion dialed with the original locator. */
+export type RelayTarget =
+	| { readonly kind: "tcp"; readonly hostname: string; readonly port: number }
+	| { readonly kind: "iroh"; readonly locator: string };
+
+/** Sort a relay target locator into the channel to open, routing the decision
+ * through the core `pancake_host_plan_dial` so every runtime's relay classifies
+ * a locator identically (ADR-0086). The locator is a full `ocapn://` URI, or the
+ * bare `host:port` tcp shorthand; either way the core decides the shape, so a
+ * `tcp`-scheme URI sorts to TCP and an `iroh` one to the peer-id dial — the
+ * relay never enumerates transports. Throws `PancakeError` for a malformed
+ * locator. */
+export function classifyRelayTarget(locator: string): RelayTarget {
+	const parts = locator.includes("://")
+		? (() => {
+			const loc = parseLocator(locator);
+			return {
+				transport: loc.transport,
+				designator: loc.designator,
+				hint: loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "",
+			};
+		})()
+		: { transport: TRANSPORT_TCP, designator: locator, hint: "" };
+	const plan = planDial(
+		parts.transport,
+		parts.designator,
+		parts.hint,
+		DIAL_POSTURE_EXPLICIT,
+		Reachability.Direct,
+	);
+	return plan.tag === "host_port"
+		? { kind: "tcp", hostname: plan.hostname, port: plan.port }
+		: { kind: "iroh", locator };
+}
+
 /** The core resolved which posture to dial a peer-id open under; substitute the
  * host's configured value for the CONFIGURED marker (the core is postureless). */
 function reachOf(
@@ -149,6 +190,25 @@ function reachOf(
 /** The one dial path. Resolve the plan in the core, then open the byte channel
  * it names and drive the keyed handshake to a ready `Session`. */
 export async function dialResolved(host: Host, req: DialRequest): Promise<Session> {
+	// `keyed-relay` names a peer by key alone with no dialable address: its byte
+	// path is a relay rendezvous, not a socket, so it bypasses the socket-dial
+	// planner and opens the rendezvous channel through the adapter (ADR-0088).
+	// Only a rendezvous-capable runtime (the browser) provides one; elsewhere
+	// `connectRendezvous` fails loud.
+	if (req.transport === TRANSPORT_KEYED_RELAY) {
+		const channel = await net.connectRendezvous!(req.designator);
+		try {
+			return await Session.establishDialedLocator(
+				host,
+				req.transport,
+				req.designator,
+				channel,
+			);
+		} catch (err) {
+			channel.close();
+			throw err;
+		}
+	}
 	const [policy, value] = req.redeem
 		? [DIAL_POSTURE_REDEEM, 0]
 		: req.reachability !== undefined
@@ -253,6 +313,9 @@ export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
 		const hint = str(L.PENDING_DIAL_HINT_OFF, L.PENDING_DIAL_HINT_LEN_OFF);
 		const session = await dialExporter(transport, designator, hint, host);
 		session.hostDialed = true;
+		// The session self-registers in the host's session table (its constructor),
+		// so `Session.sendRedeeming` resolves it deterministically from the reply's
+		// route via `Host.exporterFor` (ADR-0088) — no capture window to feed here.
 		session.serve().catch(() => {});
 		checkHost(driverS.pancake_host_dialed(host.raw, ticket, session.raw));
 	} catch (err) {

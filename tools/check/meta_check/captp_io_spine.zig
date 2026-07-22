@@ -1076,7 +1076,7 @@ pub fn check(
         }{
             .{
                 .path = "apps/rooms/deno/lib/locator.ts",
-                .required = "connect(\n\t\tlocator,",
+                .required = "connect(locator,",
                 .banned = &.{ "connectIroh(", "import { connectIroh" },
             },
             .{

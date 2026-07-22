@@ -17,22 +17,16 @@
 
 import {
 	buildRust,
+	DENO_FLAGS,
 	onPath,
-	parseCliArgs,
-	readListeningPort,
+	type Participant,
 	requireZigClientPath,
-	runChild,
-	stopSpawnedServer,
+	runCrossLangDemo,
+	splitDemoArgs,
 	validatePortOptions,
 } from "../_demo/orchestrator.ts";
 
-const positional: string[] = [];
-const cliArgs: string[] = [];
-for (const a of Deno.args) {
-	if (a === "--attach" || a.startsWith("--port=")) cliArgs.push(a);
-	else positional.push(a);
-}
-const { pinPort, attach } = parseCliArgs(cliArgs);
+const { positional, options: { pinPort, attach } } = splitDemoArgs(Deno.args);
 const ZIG_CLIENT = requireZigClientPath(
 	positional,
 	"demo.ts: missing the Zig client path (run via `zig build demo-tasks`)",
@@ -40,16 +34,9 @@ const ZIG_CLIENT = requireZigClientPath(
 validatePortOptions(pinPort, attach, "demo.ts");
 
 const ROOT = Deno.cwd();
-const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net"];
 
-interface Member {
-	name: string;
-	cmd: string;
-	argv: (port: number) => string[];
-}
-
-async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
-	const members: Member[] = [
+async function roster(): Promise<{ participants: Participant[]; skipped: string[] }> {
+	const participants: Participant[] = [
 		{
 			name: "deno",
 			cmd: "deno",
@@ -73,7 +60,7 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	const skipped: string[] = [];
 
 	if (await onPath("python3")) {
-		members.push({
+		participants.push({
 			name: "python",
 			cmd: "python3",
 			argv: (
@@ -89,7 +76,7 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	} else skipped.push("python (no python3 on PATH)");
 
 	if (await onPath("racket")) {
-		members.push({
+		participants.push({
 			name: "racket",
 			cmd: "racket",
 			argv: (
@@ -107,7 +94,7 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 
 	if (await onPath("cargo")) {
 		if (await buildRust(ROOT, "apps/tasks/rust/Cargo.toml")) {
-			members.push({
+			participants.push({
 				name: "rust",
 				cmd: `${ROOT}/apps/tasks/rust/target/debug/tasks-client`,
 				argv: (
@@ -117,59 +104,23 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 		} else skipped.push("rust (cargo build failed)");
 	} else skipped.push("rust (no cargo on PATH)");
 
-	return { members, skipped };
+	return { participants, skipped };
 }
 
-const { members, skipped } = await roster();
-for (const s of skipped) console.log(`tasks demo: skipping ${s}`);
-
-const server = attach ? null : new Deno.Command("deno", {
-	args: [
-		...DENO_FLAGS,
-		`${ROOT}/apps/tasks/deno/server.ts`,
-		String(pinPort),
-	],
-	stdout: "piped",
-	stderr: "inherit",
-	cwd: ROOT,
-}).spawn();
-
-let failed = false;
-try {
-	const port = server
-		? await readListeningPort(
-			server,
-			/TASKS-SERVER-LISTENING (\d+)/,
-			"server never announced its port",
-		)
-		: pinPort;
-	console.log(
-		`tasks demo: server on 127.0.0.1:${port}; running ${members.length} client(s) (${
-			members.map((m) => m.name).join(", ")
-		})\n`,
-	);
-
-	for (const m of members) {
-		const r = await runChild(m.cmd, m.argv(port), ROOT);
-		console.log(`──────── ${m.name} (exit ${r.code}) ────────`);
-		console.log(r.out.trimEnd());
-		console.log("");
-		if (r.code !== 0) failed = true;
-	}
-
-	if (failed) {
-		console.error(
+await runCrossLangDemo(
+	{
+		label: "tasks",
+		serverNoun: "server",
+		clientNoun: "client",
+		serverScript: `${ROOT}/apps/tasks/deno/server.ts`,
+		listenPattern: /TASKS-SERVER-LISTENING (\d+)/,
+		listenMiss: "server never announced its port",
+		roster,
+		failLine:
 			"tasks demo FAILED: at least one client did not complete the add-list-done-list round trip",
-		);
-	} else {
-		const langs = members.length === 1 ? "1 language" : `${members.length} languages`;
-		console.log(
+		okLine: (langs) =>
 			`tasks demo OK: ${langs} held one capability-secure task board and every client completed a round trip`,
-		);
-		if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
-	}
-} finally {
-	await stopSpawnedServer(server);
-}
-
-Deno.exit(failed ? 1 : 0);
+	},
+	pinPort,
+	attach,
+);

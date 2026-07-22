@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport"
-			content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 		<title>pancake rooms</title>
 		<link rel="stylesheet" href="page.css" />
 	</head>
@@ -40,7 +40,7 @@
 					<ul id="dmList"></ul>
 				</div>
 				<div
-					class="sidebar-foot"><span id="dot" class="dot"></span><span id="status">connecting…</span></div>
+					class="sidebar-foot"><span id="dot" class="dot"></span><span id="status" role="status" aria-live="polite">connecting…</span></div>
 			</nav>
 
 			<div class="workarea">
@@ -85,8 +85,7 @@
 									<input id="nick" placeholder="your name"
 										aria-describedby="nickError"
 										maxlength="32" autofocus />
-									<p id="nickError" class="error" role="alert"
-										aria-live="polite"></p>
+									<p id="nickError" class="error" role="alert"></p>
 									<button id="joinBtn">Join room</button>
 									<button type="button" id="browseRoomsBtn"
 										class="ghost-link">Browse live rooms</button>
@@ -104,9 +103,9 @@
 				</div>
 
 				<div class="composer">
-					<div id="emojiPop" class="emoji-pop" role="menu"
+					<div id="emojiPop" class="emoji-pop" role="group"
 						aria-label="Emoji"></div>
-					<div id="typing" class="typing" aria-live="polite"></div>
+					<div id="typing" class="typing" aria-hidden="true"></div>
 					<form id="composer" hidden>
 						<textarea id="line" rows="1" placeholder="Message"
 							autocomplete="off"

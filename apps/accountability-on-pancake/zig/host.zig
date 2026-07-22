@@ -13,69 +13,17 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const identity = @import("identity.zig");
-const episode = @import("episode.zig");
 const accountable = @import("accountable.zig");
+const affordance = @import("affordance.zig");
 
-const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
 const driver = pancake.driver;
 const tcp = pancake.net.tcp;
 const ip = std.Io.net;
 
-const AFFORDANCE_NAME = "affordance";
-const frame_cap: usize = 1 << 16;
-const data_root = "apps/accountability-on-pancake/.data";
-
-fn strArg(a: model.Argument) ?[]const u8 {
-    return switch (a) {
-        .string => |s| s,
-        else => null,
-    };
-}
-
-fn decodeKey(b64: []const u8) ![32]u8 {
-    if (b64.len != 1 + std.base64.url_safe_no_pad.Encoder.calcSize(32)) return error.BadKey;
-    var out: [32]u8 = undefined;
-    try std.base64.url_safe_no_pad.Decoder.decode(&out, b64[1..]);
-    return out;
-}
-
-fn decodeSig(b64: []const u8) ![64]u8 {
-    if (b64.len != std.base64.url_safe_no_pad.Encoder.calcSize(64)) return error.BadSig;
-    var out: [64]u8 = undefined;
-    try std.base64.url_safe_no_pad.Decoder.decode(&out, b64);
-    return out;
-}
-
-fn attestation(buf: []u8, request: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "invoke|{s}", .{request}) catch unreachable;
-}
-
-const Affordance = struct {
-    store: *accountable.Store,
-    served: *usize,
-
-    pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "invoke")) return error.NoSuchMethod;
-        if (msg.args.len != 4) return error.BadInvocation;
-        const subject = strArg(msg.args[0]) orelse return error.BadInvocation;
-        const verkey_b64 = strArg(msg.args[1]) orelse return error.BadInvocation;
-        const request = strArg(msg.args[2]) orelse return error.BadInvocation;
-        const sig_b64 = strArg(msg.args[3]) orelse return error.BadInvocation;
-
-        const verkey = decodeKey(verkey_b64) catch return error.UnattestedCaller;
-        const sig = decodeSig(sig_b64) catch return error.UnattestedCaller;
-        var att_buf: [512]u8 = undefined;
-        const att = attestation(&att_buf, request);
-        identity.verify(verkey, att, sig) catch return error.UnattestedCaller;
-
-        const result = try std.fmt.allocPrint(turn.arena, "ack:{s}", .{request});
-        _ = try self.store.record(.outcome, subject, "demo", result);
-        self.served.* += 1;
-        return .{ .string = result };
-    }
-};
+const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
+const frame_cap = affordance.frame_cap;
+const data_root = affordance.data_root;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -133,7 +81,7 @@ pub fn main(init: std.process.Init) !void {
     var vat = try driver.acceptTcp(allocator, &peer, &listener, read_buf, write_buf);
     defer vat.deinit();
 
-    _ = try vat.publish(AFFORDANCE_NAME, Affordance, .{
+    _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
         .store = &store,
         .served = &served,
     });

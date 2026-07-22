@@ -9,7 +9,11 @@
 A transport, a *netlayer*, moves a session's bytes between two peers. The core
 hands each frame to whichever netlayer a
 [locator]($link.page('concepts'))'s transport symbol names, and never learns which
-one carried it. Four residents ship today.
+one carried it. The transports below ship today. A peer that cannot open a socket
+of its own, like a browser, reaches a socket transport through
+[the relay]($link.page('relay')), or holds a direct WebRTC DataChannel to another
+browser with no socket at all. If you are not sure which to reach for,
+[Choosing a transport]($link.page('transports/choosing')) walks the decision.
 
 > **Netlayer**: pancake's word for a transport, a resident you register with the
 > driver, met by a contract (produce a connection over a stream) rather than a
@@ -30,6 +34,7 @@ it.
 | Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal ([ADR-0075](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)) |
 | In-process | `inproc` | in-memory byte pipes, no sockets | a name within one process | tests and demos that run both peers in one process |
 | iroh | `iroh` | encrypted QUIC (separate artifact) | a self-authenticating node id in an `ocapn://` URI | you want an encrypted channel today, or peer-to-peer reach |
+| WebRTC | `webrtc` | encrypted DataChannel over DTLS (separate artifact) | an Ed25519 designator reached through a signaling capability, not a dialable address | two browsers speaking directly, or a peer-to-peer channel a NAT would otherwise block |
 
 ### TCP
 
@@ -73,13 +78,34 @@ node id alone over the public n0 relays and DNS/pkarr discovery. A loop host can
 serve many connections from one thread. The dedicated
 [iroh page]($link.page('transports/iroh')) covers all of it.
 
+### WebRTC
+
+A peer-to-peer transport for the browser and across NATs: a
+[WebRTC](https://www.w3.org/TR/webrtc/) DataChannel carried by a Rust sidecar
+staticlib on the native side and `RTCPeerConnection` in the browser, kept in a
+separate optional library, `libpancake_net_transport_webrtc`, so the base
+archives stay pure Zig. Unlike the other transports, a WebRTC peer has no
+dialable address. The two ends first exchange an offer, an answer, and ICE
+candidates through a signaling capability that both can reach, which is a room, a
+relay, or any OCapN object. The channel then opens directly between them, and the
+keyed handshake runs over it with the signaling host out of the byte path. The
+DataChannel is DTLS-encrypted, and the designator is pinned by the keyed
+handshake the same way keyed-tcp and iroh pin theirs. `@pancake/webrtc` drives
+the browser half: two browsers introduced by a room speak directly with the room
+out of the message path, and a native peer meets a browser the same way. A
+three-party handoff redeems over a WebRTC give by signaling-then-handshake, so a
+gifted capability is reached over a channel that never had an address. The
+dedicated [WebRTC page]($link.page('transports/webrtc')) covers the signaling
+exchange, the browser arm, and the handoff.
+
 ## Encryption is the netlayer's job
 
 Confidentiality is something a netlayer provides, not a flag the API sets. The
 contract a transport meets says nothing about whether the stream is encrypted, so
 each netlayer answers that for itself: `tcp` stays cleartext to match Goblins byte
-for byte, and `iroh` is encrypted because its QUIC channel is keyed. A confidential
-TCP (TLS over a socket) would be another netlayer under the same contract with its
-own transport symbol; nothing forbids it, and it is not written yet. Where pancake
-heads beyond today's transports lives in the
+for byte, while `iroh` is encrypted because its QUIC channel is keyed and `webrtc`
+because its DataChannel runs DTLS. A confidential TCP (TLS over a socket) would be
+another netlayer under the same contract with its own transport symbol; nothing
+forbids it, and it is not written yet. Where pancake heads beyond today's
+transports lives in the
 [vision](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md).

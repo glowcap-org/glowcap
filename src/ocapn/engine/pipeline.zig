@@ -196,14 +196,9 @@ fn enqueueNearObjectFire(
     const resolution: model.Resolution = .{ .fulfill = .{
         .reference = .{ .near = model.NearRef.object(export_position.int()) },
     } };
-    var args: [2]model.Argument = undefined;
-    const borrowed = borrowedListenerFire(listener_position, resolution, &args);
-    try peer.pending_send.ensureUnusedCapacityForOne(peer.allocator);
-    try peer.session_state.recordSend(borrowed);
-    peer.pending_send.pushAssumeCapacity(.{ .listener_fire = .{
-        .listener_position = listener_position,
-        .target = .{ .near_object = export_position },
-    } });
+    // The POD `fulfill(near)` is stack-lived for the call, which is all
+    // `enqueueFire`'s `borrowedListenerFire` + `recordSend` accounting need.
+    try enqueueFire(peer, listener_position, .{ .near_object = export_position }, resolution);
 }
 
 /// Handle an inbound `op:deliver` that pipelines against an answer we owe,

@@ -750,6 +750,20 @@ const session_family_home: []const Ban = &.{
     },
 };
 
+/// The monotonic clock is consolidated onto one seam, `src/net/clock.zig`, so a
+/// component that reads wall-clock or monotonic time goes through it rather than
+/// calling the OS clock by hand. A stray `clock_gettime` anywhere else in the
+/// core silently reopens the drift the consolidation closed.
+const clock_seam: []const Ban = &.{
+    .{
+        .where = .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"}, .exclude = &.{"src/net/clock.zig"} } },
+        .kind = .forbid,
+        .needles = &.{"clock_gettime"},
+        .check = "clock-seam",
+        .why = "read monotonic time through src/net/clock.zig's seam (nowMonotonicMs/nowMs), never a hand-rolled clock_gettime",
+    },
+};
+
 /// Every migrated table, run once per gate invocation.
 pub const all: []const Ban =
     captp_io_spine_table ++
@@ -758,7 +772,8 @@ pub const all: []const Ban =
     prerelease_language ++
     human_doc_voice ++
     diagram_wire_vocabulary ++
-    session_family_home;
+    session_family_home ++
+    clock_seam;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 

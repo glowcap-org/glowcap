@@ -49,11 +49,19 @@ export const LEAVE = "leave";
 export const REGISTER = "register";
 export const INTRODUCE = "introduce";
 
-/** The verb a member's exported `dm` object answers: `dm(from, text)` delivers
- * one direct message and names its sender. The whole point of the introduction
- * is that this call travels on the caller's own direct connection to the member,
- * never through the room. `from` is the sender's display nick; the authority to
- * reach this inbox at all is the redeemed capability, not the label. */
+/** The verb a member's exported `dm` object answers: `dm(from, text, reply?)`
+ * delivers one direct message and names its sender. The whole point of the
+ * introduction is that this call travels on the caller's own direct connection
+ * to the member, never through the room. `from` is the sender's display nick;
+ * the authority to reach this inbox at all is the redeemed capability, not the
+ * label.
+ *
+ * `reply` is an optional capability the sender hosts on this same direct
+ * connection: a `dm(from, text)` inbox the member answers over the arriving
+ * connection (`currentSession()`), so the two talk both ways without the member
+ * ever dialing the sender — which matters when the sender is a browser that
+ * cannot be dialed. A sender that wants no replies omits it; a member that does
+ * not reply ignores it. */
 export const DM = "dm";
 
 /** The one callback verb, on whatever inbox a client hands over.

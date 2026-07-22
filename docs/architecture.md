@@ -201,7 +201,8 @@ Opaque handles, fixed-width codes, `ptr + len` views, explicit release,
 callbacks with caller context. Archives compose à la carte (ADR-0059), no
 umbrella library: `libpancake_ocapn`, `libpancake_net`,
 `libpancake_net_transport_tcp`, `libpancake_net_transport_inproc`,
-`libpancake_net_transport_iroh`, `libpancake_driver`. Allocation rides a
+`libpancake_net_transport_iroh`, `libpancake_net_transport_webrtc`,
+`libpancake_driver`. Allocation rides a
 `PancakeContext` (ADR-0031). Archive table, link recipe, and first program:
 [consuming-from-c](consuming-from-c.md).
 

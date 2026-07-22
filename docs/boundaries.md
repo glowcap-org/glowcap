@@ -168,3 +168,21 @@ PowerShell completion, no typo suggestions. CapTP `listen` is argv-only
 exit `timeout` (finite handshake/settle budgets), not an unbounded hang.
 `ocapn listen` stops by polling `Listener.waitAcceptable` against the shared
 stop latch, never by closing the listen FD from another thread (Zig threaded Io panics on that BADF).
+
+## Browser peer completeness (ADR-0088)
+
+A browser is a full peer over every session it opens. It dials, hosts objects,
+answers calls, and redeems handoffs, and it answers a non-listening caller over
+the connection the call arrived on. That surface is inventoried in
+[shipped.md](shipped.md) and its mechanism is in
+[ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md). One edge it
+cannot cross alone:
+
+- **Cold-dial as an exporter.** A browser opens no listening socket, so a
+  stranger that names the browser reaches it only through a relay rendezvous: a
+  table from identity to a held inbound socket, a second byte-transparent bridge
+  leg. This is built and proven browser-to-browser on a shared relay
+  (`rooms-web-dm-tabs`, ADR-0088). Two forms are still designed, not built: a
+  native peer cold-dialing a browser (no native rendezvous adapter), and a
+  cross-relay cold-dial, where the locator names the identity rather than any one
+  relay.

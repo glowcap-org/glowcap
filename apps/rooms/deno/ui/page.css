@@ -567,6 +567,23 @@ button:focus-visible,
 	border-top-right-radius: 6px;
 	border-top-left-radius: 16px;
 }
+/* Our own optimistic sends. A line dims while "sending", waiting on the wire to confirm
+   it, and tints "failed" when the send rejects. A failed bubble is a button: tap it, or
+   focus it and press Enter or Space, to send the same line again. */
+.bubble.sending {
+	opacity: .55;
+}
+.bubble.failed {
+	cursor: pointer;
+}
+.row.mine .bubble.failed {
+	background: linear-gradient(135deg, var(--danger) 0%,
+		color-mix(in srgb, var(--danger) 78%, #000) 100%);
+}
+.bubble.failed:focus-visible {
+	outline: 2px solid var(--danger);
+	outline-offset: 2px;
+}
 .time {
 	font-size: 10.5px;
 	color: var(--ink-soft);

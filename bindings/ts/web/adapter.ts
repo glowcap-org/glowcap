@@ -73,8 +73,10 @@ export interface WebAdapter {
 export function makeWebAdapter(
 	exports: WasmExports,
 	descriptorWords: Uint32Array,
-	wsUrl: WsUrl = defaultWsUrl,
+	urls: { wsUrl?: WsUrl; rendezvousUrl?: (designator: string) => string } = {},
 ): WebAdapter {
+	const wsUrl = urls.wsUrl ?? defaultWsUrl;
+	const rendezvousUrl = urls.rendezvousUrl;
 	const layout: AbiLayout = layoutFromWasmDescriptor(descriptorWords);
 
 	// A memory view must be re-taken after any call that can grow memory.
@@ -310,6 +312,17 @@ export function makeWebAdapter(
 				"a browser cannot bind a listener; host the accepting side on a dlopen runtime",
 			);
 		},
+		// A `keyed-relay` peer is reached through the relay's rendezvous leg: the
+		// dialer opens `rendezvousUrl(designator)` and is bridged onto the held
+		// inbound socket the target registered (ADR-0088). Present only when the
+		// page configured a rendezvous URL; without it, `keyed-relay` fails loud.
+		...(rendezvousUrl !== undefined
+			? {
+				connectRendezvous(designator: string) {
+					return connectWebSocket(rendezvousUrl(designator));
+				},
+			}
+			: {}),
 	};
 
 	return { adapter: { ffi, net, layout }, trampolineImport };

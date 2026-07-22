@@ -17,6 +17,7 @@ const std = @import("std");
 // Force sidecar stubs so reflecting the iroh archive stays cargo-free.
 comptime {
     _ = @import("iroh_sidecar_stub");
+    _ = @import("webrtc_sidecar_stub");
 }
 
 const c = @import("c_abi");
@@ -24,6 +25,7 @@ const cd = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const cw = @import("c_abi_net_transport_webrtc");
 
 pub const step_name = "gen-binding-python-ffi";
 
@@ -88,6 +90,7 @@ fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 
             }
         },
         .int => switch (T) {
+            i32 => "i32",
             u16 => "u16",
             u32 => "u32",
             u64 => "u64",
@@ -267,5 +270,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try renderArchive(gpa, &out, cin, "inproc_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libpancake_net_transport_inproc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig" }, "``libpancake_net_transport_iroh`` signatures, in the inventory's order.", &.{});
+    try out.appendSlice(gpa, "\n\n");
+    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{}, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

@@ -22,7 +22,6 @@ const std = @import("std");
 const identity = @import("identity.zig");
 
 const enc = std.base64.url_safe_no_pad.Encoder;
-const dec = std.base64.url_safe_no_pad.Decoder;
 
 pub const Kind = enum {
     /// Emitted by the caller before delegating to the wire send: intent to invoke.
@@ -172,15 +171,9 @@ fn intField(obj: std.json.ObjectMap, key: []const u8) ?i64 {
 
 /// Decode a `code`-prefixed base64url verkey (drop the 1-char derivation code).
 fn decodeKey(b64: []const u8) Error![32]u8 {
-    if (b64.len != 1 + enc.calcSize(32)) return Error.BadEpisode;
-    var out: [32]u8 = undefined;
-    dec.decode(&out, b64[1..]) catch return Error.BadEpisode;
-    return out;
+    return identity.decodeVerkey(b64) catch Error.BadEpisode;
 }
 
 fn decodeSig(b64: []const u8) Error![64]u8 {
-    if (b64.len != enc.calcSize(64)) return Error.BadEpisode;
-    var out: [64]u8 = undefined;
-    dec.decode(&out, b64) catch return Error.BadEpisode;
-    return out;
+    return identity.decodeSig(b64) catch Error.BadEpisode;
 }

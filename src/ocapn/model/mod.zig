@@ -467,6 +467,35 @@ pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
     }
 }
 
+/// Bind two model unions by arm-name set: the owned (`model.*`) and borrowed
+/// (`model.view.*`) shapes of one wire value. `equality.zig` compares and
+/// hashes each shape with its own hand-written exhaustive switch — one for
+/// `Argument`, `Reference`, and `Handoff` per shape — because the owned path is
+/// an infallible `bool` with no allocator while the borrowed path is
+/// `Error!bool` over lazy sequences. That leaves the six switch pairs free to
+/// drift in *which arms exist*: a new arm added to `model.Argument` breaks its
+/// owned switch (forcing an edit) but nothing proves `view.Argument` gained the
+/// mirror arm. This assertion is that proof. It is order-independent, since a
+/// `view` union may legitimately declare the same arms in a different order.
+/// A new arm on one shape without its mirror is a compile error, so the paired
+/// switches cannot classify different arm sets.
+pub fn assertUnionArmsMirror(comptime A: type, comptime B: type) void {
+    const a_fields = @typeInfo(A).@"union".fields;
+    const b_fields = @typeInfo(B).@"union".fields;
+    if (a_fields.len != b_fields.len)
+        @compileError("union arm count drifted between " ++ @typeName(A) ++
+            " and its mirror " ++ @typeName(B));
+    inline for (a_fields) |af| {
+        comptime var found = false;
+        inline for (b_fields) |bf| {
+            if (std.mem.eql(u8, af.name, bf.name)) found = true;
+        }
+        if (!found)
+            @compileError(@typeName(A) ++ " arm '" ++ af.name ++
+                "' has no mirror arm in " ++ @typeName(B));
+    }
+}
+
 /// Bind a wire kind registry to a model union by *set*: every arm name appears
 /// on both sides and the counts match, without pinning the order. This is the
 /// order-independent sibling of `assertMirrorsMessageKinds`, for the one pair

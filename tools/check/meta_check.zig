@@ -54,6 +54,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.checkAgentsRouting(io, gpa, root, &violations);
     try docs.checkMarkdownLinks(io, gpa, root, &violations);
     try docs.checkSiteContentLinks(io, gpa, root, &violations);
+    try docs.checkSiteNavParity(io, gpa, root, &violations);
     try docs.checkQuickStartSnippet(io, gpa, root, &violations);
     try docs.checkDanglingReferenceLinks(io, gpa, root, &violations);
     try docs.checkMermaidBlocks(io, gpa, root, &violations);
@@ -76,6 +77,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try binding_spine.checkBindingEmbedderSpineDocs(io, gpa, root, &violations);
     try binding_spine.checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarAbi(io, gpa, root, &violations);
+    try binding_spine.checkWebrtcSidecarAbi(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarPins(io, gpa, root, &violations);
     try captp_product.checkApplicationSurfaceVerbs(io, gpa, root, &violations);
     try captp_product.checkPancakeCliSkillAuthority(io, gpa, root, &violations);
@@ -88,6 +90,8 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try bans.runBans(io, gpa, root, &violations, bans.all);
     try captp_product.checkTransportVocabulary(io, gpa, root, &violations);
     try captp_product.checkDesignatorSchemeSync(io, gpa, root, &violations);
+    try captp_product.checkReferenceRelayIrohLazy(io, gpa, root, &violations);
+    try captp_product.checkProductionRelayClassifierLockstep(io, gpa, root, &violations);
     try c_abi.checkCAbiResolve(io, gpa, root, &violations);
     try captp_product.checkRacketScriptBalance(io, gpa, root, &violations);
     try binding_spine.checkIrohLoopConvergence(io, gpa, root, &violations);

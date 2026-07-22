@@ -22,7 +22,7 @@
 // demo's own member roster, so an attached room may have other people in it,
 // chatting away — they are shown in the transcripts but never counted.
 
-import { ANNOUNCE_RE, announceToLocator, loopbackTcpDesignator } from "./deno/lib/locator.ts";
+import { loopbackTcpDesignator, readAnnouncedLocator } from "./deno/lib/locator.ts";
 import {
 	buildRust,
 	onPath,
@@ -164,27 +164,6 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	return { members, skipped };
 }
 
-/** Wait for the server's first line, "ROOMS-SERVER-LISTENING <token>", and
- * resolve it to a dial locator (a TCP host:port, or an iroh ocapn:// URI). */
-async function readLocator(server: Deno.ChildProcess): Promise<string> {
-	const reader = server.stdout.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value);
-		const m = buf.match(ANNOUNCE_RE);
-		if (m) {
-			reader.releaseLock();
-			return announceToLocator(m[1]);
-		}
-	}
-	reader.releaseLock();
-	throw new Error("server never announced its locator");
-}
-
 async function runMember(m: Member, locator: string, roster: string) {
 	const r = await runChild(m.cmd, m.argv(locator, roster), ROOT);
 	return { name: m.name, code: r.code, out: r.out };
@@ -217,7 +196,7 @@ let failed = false;
 try {
 	// No liveness probe in attach mode: on loopback a missing server refuses each
 	// client's connect immediately, which is already a loud, fast failure.
-	const locator = server ? await readLocator(server) : loopbackTcpDesignator(pinPort!);
+	const locator = server ? await readAnnouncedLocator(server) : loopbackTcpDesignator(pinPort!);
 	// Every client asserts against this roster — exactly the demo's own members —
 	// so residents of an attached room (and their chatter) are shown but never
 	// counted, and cannot fake or break the all-to-all proof.

@@ -175,34 +175,30 @@ Destination: [vision](vision.md).
   ([ADR-0043](decisions/adr/ADR-0043-netlayer-contract.md)).
   `net.netlayer.Netlayer` dials a locator to a `Connection` and binds a
   listener; `driver.connectVia` / `acceptVia` resolve the locator's transport
-  symbol against a caller-owned slice. Four residents prove the contract:
+  symbol against a caller-owned slice. The residents prove the dial contract:
   `net.tcp`, `net.tcp_keyed`
   ([ADR-0075](decisions/adr/ADR-0075-keyed-tcp-designator.md)), `net.inproc`
   ([ADR-0047](decisions/adr/ADR-0047-in-memory-netlayer.md)), and the `iroh`
-  sidecar ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
-- **Byte-transparent relay (browser peer).** Browser peers cannot dial native
-  sockets directly, so the rooms app serves a `/relay` endpoint that accepts a
-  WebSocket and forwards bytes to a TCP target without parsing CapTP frames;
-  the keyed handshake and session authority run end to end unchanged
-  ([ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md)). The relay is a
-  first-class capability, `@pancake/relay` (`bindings/ts/relay/`): `relayBytes`
-  is the pump and `webSocketRelay` adapts an upgraded WebSocket to it, over a
-  `RelayChannel` interface. The rooms endpoint that adds policy lives in
-  `apps/rooms/deno/relay_server.ts`. Each forwarded chunk is copied between
-  the two legs (the relay is not zero-copy), and either leg ending tears both
-  down. The endpoint allow-lists exactly the room server's own port for TCP
-  targets (iroh targets are `ocapn://` locators), checks
-  the `Origin` header on the upgrade, caps live sessions, times out idle
-  pairs, and bounds the bytes a session may forward.
-  The cross-runtime matrix `zig build bindings-relay` proves a browser peer
-  holding a keyed OCapN session and the backpressure clause through the Deno,
-  Python (`bindings/python/relay.py`), and Rust (`bindings/rust/relay`) relays;
-  `zig build bindings-relay-iroh` proves the iroh leg for all three against a
-  real iroh endpoint (`@pancake/iroh` exposes `dialLocatorForRelay` for relay
-  implementations). The `rooms-web-relay-peer` / `rooms-web-browser-peer` /
-  `rooms-web-page` steps drive the rooms directory through the Deno relay, real
-  Chromium included. Direct messages from the browser to a room member through
-  the relay are not built; the browser DM path shows a coming-later notice.
+  sidecar ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)). The
+  `webrtc` sidecar
+  ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)) meets the
+  same connection-over-stream contract but is reached by a signaling exchange
+  rather than a locator dial, so its resident's dial fails closed.
+- **Byte-transparent relay (browser peer).** A browser peer cannot dial a native
+  socket, so the rooms app serves a `/relay` endpoint that forwards its bytes to
+  a TCP or iroh target without parsing CapTP frames. The keyed handshake and
+  session authority run end to end, and the relay holds no capability. It ships
+  as `@pancake/relay` (`bindings/ts/relay/`), with the rooms policy endpoint in
+  `apps/rooms/deno/relay_server.ts`. Four runtimes implement it: Deno, Python
+  (`bindings/python/relay.py`), Rust (`bindings/rust/relay`), and Racket
+  (`bindings/racket/relay.rkt`). `zig build bindings-relay` proves TCP
+  forwarding, the backpressure clause, and idle reclaim across all four, and
+  `zig build bindings-relay-iroh` proves the iroh leg for each against a real
+  iroh endpoint. The `rooms-web-*` steps drive it through a real Chromium. The
+  contract and threat model are in
+  [ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md); the browser DM
+  and cold-dial story are in
+  [ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md).
 - **iroh.** `zig build iroh-interop` proves configurable `Reachability`
   (`direct` / `discovery` / `discovery_no_relay` / `local_discovery`) that
   dials by node id alone; opt-in `iroh-reachability` and
@@ -212,6 +208,46 @@ Destination: [vision](vision.md).
   endpoint and the `Host` (`driver.core.vocab`; ADR-0075). A sturdyref
   outlives an endpoint restart. `zig build iroh-mesh` proves three-party
   handoff by gifted node id.
+- **webrtc (ADR-0089, in progress).** A peer-to-peer WebRTC DataChannel carries
+  one keyed OCapN session. Two native peers hold a live keyed conversation over
+  a real DataChannel with `zig build webrtc-interop` (real ICE on loopback, DTLS,
+  the keyed handshake, a greet round-trip); the native Rust sidecar is
+  `libpancake_webrtc_sidecar.a` and the Zig resident is
+  `src/net/transport/webrtc.zig`. The public C ABI ships as
+  `libpancake_net_transport_webrtc` (`pancake_webrtc_*`) with a parity-checked
+  header. The `webrtc` transport is a key-designator scheme
+  (`driver.core.vocab`), the same as keyed-tcp and iroh, and it is a registerable
+  netlayer whose dial fails closed until signaling. A signaling hub routes the
+  offer, answer, and ICE candidates between two native peers by designator, and a
+  keyed session runs over the channel it brings up (`zig build webrtc-mesh`,
+  ADR-0089 phase 5's signaling mechanism). Those same signaling verbs also run as
+  a real OCapN capability over a keyed CapTP session: the exporter hosts a
+  signaling inbox behind a keyed session, the recipient drives the whole channel
+  bring-up through its capability calls, and a keyed session then runs over the
+  DataChannel (`zig build webrtc-signaling-captp`). A real headless Chromium is
+  the browser arm: `@pancake/webrtc` drives an `RTCPeerConnection`, the wasm Host
+  runs the keyed session, and it greets a native peer over the DataChannel (`zig
+  build webrtc-browser-peer`). Two browsers reach the same end state: two
+  headless Chromium peers exchange signaling through a byte relay, bring up a
+  direct DataChannel between them, and hold a keyed session over it with the
+  signaling host out of the byte path (`zig build webrtc-browser-to-browser`). A
+  three-party handoff redeems over webrtc too: a gifter signs a give naming the
+  exporter by webrtc designator, and the recipient redeems it by bringing up a
+  DataChannel through the exporter's signaling inbox, running the keyed
+  handshake, and presenting a `withdraw-gift` the exporter's engine verifies
+  before handing back the gifted capability, which the recipient calls over the
+  meshed session (`zig build webrtc-handoff`, webrtc's `iroh-mesh`). Unlike the
+  four mature transports, webrtc is not yet dialable by a bare locator: the
+  remaining phases are the dial classifier's signaling plan so the Host
+  auto-redeems a `webrtc` locator (the redeem mechanism itself is proven by
+  `webrtc-handoff`; what is missing is wiring it into `pancake_host_plan_dial`),
+  the room-hosted signaling topology, and the completion-loop scale tier, named
+  in [ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md) and
+  [roadmap](roadmap.md). The native binding FFI mirror for
+  `libpancake_net_transport_webrtc` is generated and gated across Python, Racket,
+  and Rust; the TypeScript binding is browser-native (`@pancake/webrtc`). Phase
+  1's de-risk proof is `zig build
+  webrtc-datachannel-test` (a real Chromium DataChannel against the sidecar).
 - **Scale loops.** iroh's event-driven completion loop
   ([ADR-0057](decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)) feeds
   the same `driver.Bridge` + `driver_core.Host` spine as TCP (ADR-0076) and
@@ -311,9 +347,34 @@ Destination: [vision](vision.md).
   `@pancake/web` peer over the byte-transparent relay: the browser drives
   `lib/room_client.ts` directly, holds the room capability, and sends messages
   over CapTP. Public chat is proven end to end with real Chromium
-  (`zig build rooms-web-browser-peer`, `zig build rooms-web-page`). Browser
-  DMs are not built: the browser DM path shows a coming-later notice, and
-  messaging from a member to a browser waits on WebRTC (Milestone 2).
+  (`zig build rooms-web-browser-peer`, `zig build rooms-web-page`).
+
+  **Bidirectional reply for a non-listening peer (ADR-0088).** A host-wide
+  `Host.publishGiftable` object answers its caller over the connection the call
+  arrived on, so a peer that never listens, such as a browser or a NAT'd peer,
+  receives the reply on the connection it opened (`zig build demo-rooms-dm-reply`).
+  The same holds across a redeemed introduction: the sender hosts its reply inbox
+  on the redeemed direct connection, and the member answers over it with no dial
+  back (`zig build demo-rooms-dm-back`, and end to end from a real browser with
+  `zig build rooms-web-dm`). This is C-ABI-neutral TypeScript in the shared
+  stack, so it covers both the wasm Host and native Deno and Bun peers.
+
+  **Cold-dial by relay rendezvous, browser to browser (ADR-0088).** A browser
+  opens no listening socket, so it cannot be dialed directly. It registers its
+  keyed identity and a held inbound socket at the relay under a resident-less
+  `keyed-relay` transport symbol, and advertises an `ocapn://<key>.keyed-relay`
+  locator. A second browser that redeems a room introduction to it cold-dials
+  that identity through the relay's rendezvous leg, and the keyed OCapN session
+  opens tab-to-tab through two byte-transparent relay legs with the room off the
+  message path — the relay parses nothing and, because the handshake authenticates
+  the designator end to end, cannot impersonate. `zig build rooms-web-dm-tabs`
+  proves it with two real Chromium tabs, including the reply riding back over the
+  arriving connection. The honest scope is browser-to-browser on a shared relay:
+  the cold-*dialer* is itself a browser (only the browser binding carries a
+  rendezvous adapter), and the locator names the identity, not the relay, so a
+  redeemer reaches it only through the relay it is already configured for. Native
+  cold-dial and cross-relay cold-dial stay designed, not built, in
+  [ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md).
 
 ## Apps/CLI
 

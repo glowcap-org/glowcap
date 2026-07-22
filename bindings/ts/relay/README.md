@@ -24,10 +24,14 @@ and the same five shapes appear in every language's relay.
    an accepted WebSocket to the pump, buffering the browser's first handshake bytes across the async
    dial and gating outbound flow on the socket's send buffer. The embedder supplies the accepted
    socket from its own HTTP server.
-4. **A dial dispatcher** (the embedder's): classify the target locator and open the matching
-   channel. This reference relay classifies locally today; routing the classification through the
-   shared core primitive `pancake_host_plan_dial` (so every binding's relay agrees) is part of the
-   cross-runtime build-out. Open an iroh channel or a socket per the shape.
+4. **A dial dispatcher** (the embedder's): open the matching channel for the target. This reference
+   relay dispatches on which query parameter the browser set — `?to=host:port` opens a socket,
+   `?locator=<uri>` an iroh channel — and deliberately stays dependency-light, reading no locator
+   grammar and loading iroh only on the `?locator=` path (a `meta-check` gate holds that lazy load).
+   Routing classification through the shared core `pancake_host_plan_dial` would link the capability
+   core for one bit the parameter already carries, so only the production rooms relay
+   (`apps/rooms/deno/relay_server.ts`) does that, to keep its SSRF allow-list in lockstep with the
+   dial it admits (ADR-0086).
 5. **Config** — `{ idleTimeoutMs, maxBytesPerSession }`. The embedding app supplies which targets
    may be dialed separately, as policy.
 
@@ -54,4 +58,5 @@ byte channel (a socket write, or the iroh channel's `WOULD_BLOCK`). The browser-
 drain event, so `webSocketRelay` holds its next read until the socket's `bufferedAmount` falls below
 a high-water. A relay in another runtime must gate the browser-bound leg the same way (Python
 `websockets`' awaited `send`, Rust `SinkExt::poll_ready`); ADR-0086 makes that gate a non-optional
-contract clause; a relay conformance test asserting it is part of the cross-runtime build-out.
+contract clause, and the cross-runtime matrix asserts it directly: `zig build bindings-relay` stalls
+a reader through each runtime's relay and fails if the far sender is not backpressured.

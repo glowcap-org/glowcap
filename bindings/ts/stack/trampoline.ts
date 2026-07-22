@@ -48,9 +48,13 @@ export interface BehaviorEntry {
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
-// The registry: ctx id -> entry. Entries live as long as the host may deliver
-// to them (a hosted object dies with its connection or host, and free = NULL
-// means no teardown callback), the same posture as the Racket keep table.
+// The registry: ctx id -> entry, process-global (not host-scoped). Nothing drops
+// an entry implicitly: a session-local actor (`spawn`/`publish` on a `Session`)
+// is unregistered when its connection tears down, and a host-wide giftable
+// (`Host.publishGiftable`) is unregistered by its `Host` in `release()` (see
+// `Host.#giftables`). An owner that forgets to unregister leaks a row for the
+// process's life. `free = NULL` means no native teardown callback, only this JS
+// row to reclaim.
 const registry = new Map<bigint, BehaviorEntry>();
 let nextId = 1n;
 
@@ -124,8 +128,13 @@ export function runHosted(
 	if (turn === null) {
 		return { result: chaseLocalForwards(entry, entry.run(verb, args)) };
 	}
+	// A session-bound actor carries its own connection; a host-wide giftable
+	// carries none, so its turn belongs to whichever session the deliver
+	// arrived on. `activeDeliverSession` names that arriving session (set around
+	// the feed the trampoline fires inside), so a giftable can reply to its live
+	// caller on the same connection through `currentSession()`.
 	const prev = currentTurn;
-	currentTurn = { turn, session: entry.session };
+	currentTurn = { turn, session: entry.session ?? activeDeliverSession };
 	try {
 		return { result: chaseLocalForwards(entry, entry.run(verb, args)) };
 	} finally {
@@ -253,12 +262,44 @@ export async function dispatchTell(
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
-// `PancakeHostTurn*` and the connection the turn arrived on (null for a
-// giftable), or null outside any turn. `Session.spawn` reads it to pick the
-// turn-time spawn over the top-level one (which the host refuses inside a
-// callback); `Host.kickActions` reads it to defer action drains to the
-// enclosing verb's unwind.
+// `PancakeHostTurn*` and the connection the turn arrived on (a giftable inherits
+// the arriving session; a session-bound actor carries its own), or null outside
+// any turn. `Session.spawn` reads it to pick the turn-time spawn over the
+// top-level one (which the host refuses inside a callback); `Host.kickActions`
+// reads it to defer action drains to the enclosing verb's unwind.
 let currentTurn: { turn: Ptr; session: object | null } | null = null;
+
+// The session whose inbound feed is running right now, set by the pump around
+// the synchronous `feed` FFI call (the one path a behavior trampoline fires
+// inside). A giftable's turn has no session of its own, so `runHosted` reads
+// this to give it the arriving connection; `currentSession()` surfaces it so a
+// giftable can reply to its live caller. Null outside a feed. Saved and restored
+// (not assumed null) to mirror the `currentTurn` idiom and stay correct if the
+// pump's feed bracket were ever entered re-entrantly; a redeem dial's own
+// handshake feed is a separate top-level bracket the action drain enters after
+// the outer feed's bracket exits, not a nesting inside it.
+let activeDeliverSession: object | null = null;
+
+/** Enter the feed of `session`: the trampoline reads this as the arriving
+ * connection for a host-wide giftable. Returns the prior value to restore.
+ * Binding-internal: the pump brackets the `feed` FFI call with it. */
+export function enterDeliver(session: object): object | null {
+	const prev = activeDeliverSession;
+	activeDeliverSession = session;
+	return prev;
+}
+
+/** Leave the current feed, restoring the enclosing one (or null). Binding-internal. */
+export function exitDeliver(prev: object | null): void {
+	activeDeliverSession = prev;
+}
+
+/** The connection the currently running hosted turn arrived on, or null outside
+ * any turn. `Session.currentSession()` casts it to the public `Session` type.
+ * Binding-internal. */
+export function currentTurnSession(): object | null {
+	return currentTurn !== null ? currentTurn.session : null;
+}
 
 /** The current turn pointer when it belongs to connection `session`, else null. */
 export function currentTurnFor(session: object): Ptr | null {

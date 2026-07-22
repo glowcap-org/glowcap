@@ -57,14 +57,24 @@ relay matrix (below) proves every runtime filled them the same way.
    `@pancake/relay` ships it; producing the accepted socket is the host's own
    HTTP server, and another language re-implements the wiring against its own
    WebSocket type.
-4. **A dial dispatcher** that classifies the target locator and opens the
-   matching channel. The classification should run through the shared core
-   primitive `pancake_host_plan_dial` (the same classifier the handoff
-   redeem-dial uses), which sorts any locator into a `host_port` or `peer_id`
-   shape, so every runtime's relay agrees. The Deno reference relay classifies
-   locally today; exporting that classifier and routing dispatch through it is
-   part of the cross-runtime build-out. The open is per-transport: a `host_port`
-   opens the runtime's socket, a `peer_id` composes the iroh channel.
+4. **A dial dispatcher** that opens the matching channel for the target. A
+   reference relay dispatches locally on which query parameter the browser's
+   WebSocket URL carries: `?to=host:port` opens the runtime's socket,
+   `?locator=<ocapn-uri>` composes the iroh channel. The transport-to-parameter
+   choice is the browser peer's (`wsUrl`), so the relay reads no locator grammar
+   and links no capability core, and iroh stays opt-in: the iroh binding loads
+   lazily, only when a `?locator=` dial needs it. `meta-check`
+   (`checkReferenceRelayIrohLazy`) holds that lazy load for every reference
+   relay, so a careless hoist to an eager import fails the gate. One relay
+   classifies through the shared core instead: the rooms production relay already
+   links the full stack, so it takes a single `?target=<locator>` and routes it
+   through `pancake_host_plan_dial` (the same classifier the handoff redeem-dial
+   uses), which is where transport-symbol parsing and fail-closed-on-unknown
+   live, because its SSRF allow-list must sort a target exactly as the dial it
+   admits will. A dependency-light reference relay must not, because routing a
+   byte pump's classification through the core would link the capability library
+   for one bit the parameter already carries, the fat entry point the constraints
+   below reject.
 5. **Config**: an idle timeout and a per-session byte cap. The app supplies the
    target admission policy separately.
 
@@ -144,14 +154,14 @@ the byte-fed Host rests on (ADR-0072, ADR-0057). So the relay is made consistent
 the same way the live Goblins conversation is: a per-runtime conformance matrix.
 The `bindings-goblins-interop` family swaps the consumer language per row and
 proves the same wire behavior by exit code; the relay matrix does the same. One
-shared parameterized harness per proof — TCP forwarding (`bindings-relay`), the
-backpressure clause (`bindings-relay`), and the iroh leg (`bindings-relay-iroh`)
-— runs against every runtime's relay, so proving a new runtime's relay is a row,
-never a forked test. The harness spawns the relay program named on its command
+shared parameterized harness per proof — TCP forwarding, the backpressure clause,
+and the idle-timeout reclaim, each under `zig build bindings-relay`, plus the iroh
+leg under `zig build bindings-relay-iroh` — runs against every runtime's relay, so
+proving a new runtime's relay is a row, never a forked test. The harness spawns the relay program named on its command
 line and drives a browser-shaped peer through it; only the program and its ready
 marker change per row.
 
-## Scoping boundaries (honest facts)
+## Scoping boundaries
 
 - **Zig has no WebSocket server.** "Relay across a Zig server" needs a Zig
   WebSocket (or WebTransport) server built first. The other three server
@@ -193,37 +203,32 @@ The relay matrix is the authority for which runtime is proven; the rows live in
 `build.zig`, not as a hand-maintained list here. Each cell is one shared harness
 against one runtime's relay, so this ADR names the shape and points at the gate.
 
-- **Shipped — Deno, Python, Rust, all three legs:** `zig build bindings-relay`
-  proves TCP forwarding and the backpressure clause for the Deno reference relay
+- **Shipped — Deno, Python, Rust, Racket, all three legs:** `zig build
+  bindings-relay` proves TCP forwarding, the backpressure clause, and the
+  idle-timeout bounded-resources clause for the Deno reference relay
   (`bindings/ts/relay/serve.ts`), the Python relay (`bindings/python/relay.py`,
-  `websockets` server), and the Rust relay (`bindings/rust/relay`,
-  tokio-tungstenite). `zig build bindings-relay-iroh` proves the iroh leg for all
-  three, each dialing a real iroh endpoint over QUIC — Deno and Python through the
-  binding's `dial_locator_for_relay`, Rust through `IrohNetlayer::connect_owned`
-  (behind an opt-in `iroh` feature so the TCP relay stays archive-free). A single
-  runtime's cells are also addressable on their own (`deno-relay-test`,
-  `python-relay-iroh-test`, and so on). Beyond the matrix, `rooms-web-relay-peer`,
-  `rooms-web-browser-peer`, and `rooms-web-page` drive the room directory through
-  the Deno relay with a real Chromium.
-- **Racket relay (not built):** a Racket relay is a matrix row waiting on two
-  pieces the other three runtimes already had. First, a WebSocket server: the
-  pinned Racket toolchain ships none (`net/rfc6455` is a separate package that is
-  not installed, and `web-server` has no WebSocket module), so the row needs
-  either that package added to the devcontainer or a hand-rolled RFC 6455 server.
-  Second, a bare iroh relay-channel dial: the Racket binding drives the iroh
-  readiness loop for sessions but exposes no `dial-locator-for-relay` returning a
-  raw byte channel, the way `@pancake/iroh`, the Python binding, and the Rust
-  binding do. The contract-level pieces do exist — the iroh conn and readiness
-  are C-ABI primitives the binding already drives, and the classifier is
-  `pancake_host_plan_dial` — so once a WebSocket server is on hand the row is the
-  shared harness plus a Racket pump.
+  `websockets` server), the Rust relay (`bindings/rust/relay`,
+  tokio-tungstenite), and the Racket relay (`bindings/racket/relay.rkt`,
+  `net/rfc6455` server). `zig build bindings-relay-iroh` proves the iroh leg for
+  all four, each dialing a real iroh endpoint over QUIC — Deno, Python, and
+  Racket through the binding's `dial_locator_for_relay` (`dial-locator-for-relay`
+  in Racket), Rust through `IrohNetlayer::connect_owned` (behind an opt-in `iroh`
+  feature so the TCP relay stays archive-free). A single runtime's cells are also
+  addressable on their own (`deno-relay-test`, `python-relay-iroh-test`,
+  `racket-relay-idle-test`, and so on). Beyond the matrix,
+  `rooms-web-relay-peer`, `rooms-web-browser-peer`, and `rooms-web-page` drive the
+  room directory through the Deno relay with a real Chromium.
 - **A named `PancakeRelayChannel` C-ABI shape (not built):** iroh's raw conn plus
   its readiness already satisfy the byte-channel contract; naming them as one
   documented `PancakeRelayChannel` (readiness fd, pump, `try_read`/`try_write`
   with `WOULD_BLOCK`, close, release), and adding the same for `inproc` so
   in-tree conformance is transport-uniform, is the remaining C-ABI work.
-- **Browser DMs through the relay (not built):** the allow-list admits no TCP
-  target beyond the room server's own port, so the browser DM path is a stub.
+- **Browser DMs through the relay (shipped over the iroh leg):** a browser
+  redeems a room introduction and dials the member over the relay's iroh path,
+  the room out of the message path (`zig build rooms-web-dm`, and
+  [ADR-0088](ADR-0088-fully-functioning-browser-peer.md)). The TCP relay leg
+  still admits only the room server's own port, so browser DM rides the iroh
+  leg, not a TCP target.
 - **Goblins through the relay (not built):** a live byte-transparency proof
   against a real Goblins peer has no build step.
 
@@ -239,10 +244,23 @@ the proxy would have to route introductions.
 relay. The classifier (`pancake_host_plan_dial`) is transport-neutral; the open
 stays per-transport.
 
-**A C-ABI pump.** Rejected: the pump straddles a runtime WebSocket the C ABI
-cannot touch, so it would need per-runtime callbacks that invert
-embedder-owns-the-loop, to move a forty-line accountant. The pump is a contract
-pinned by conformance instead.
+**A C-ABI pump.** Rejected, and not for a callback reason: the byte-fed Host
+(`feed`/`takeOutbound`, ADR-0072) shows a native core can be pull-based with no
+callbacks, so a pump could be shaped the same way without inverting who owns the
+loop. It is rejected because the browser-facing leg is a WebSocket pancake cannot
+own. Only the runtime that owns that socket can pause its reads, so the
+browser-bound backpressure has to live in the runtime however the pump is
+packaged. A native pump would export a cross-ABI high-water signal the runtime
+consults before every read, which is strictly more work than the runtime's own
+awaited write (or its `bufferedAmount` poll, since a WebSocket has no drain
+event). The pump also holds no capability and parses nothing, so writing it once
+protects no invariant the shared conformance harness does not already pin. And a
+native pump with real backpressure would have to own a far leg to reuse the
+completion loop's high-water parking, linking a transport archive into every
+relay and dragging the iroh sidecar into a TCP-only one, the à-la-carte split
+(ADR-0059) this ADR rejects elsewhere. The pump stays a per-runtime contract
+pinned by conformance; the byte channel it pumps over is the part worth naming in
+C (the `PancakeRelayChannel` shape noted above).
 
 **A blocking-with-thread channel.** Rejected: a thread per relay session
 contradicts the one-loop-serves-many-connections model (ADR-0057) and the

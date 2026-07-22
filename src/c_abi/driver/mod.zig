@@ -278,6 +278,7 @@ pub const pancake_host_set_self_designator = host.pancake_host_set_self_designat
 pub const pancake_host_set_session_limits = host.pancake_host_set_session_limits;
 pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
 pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
+pub const pancake_host_reference_exporter = host.pancake_host_reference_exporter;
 pub const pancake_host_plan_accept = host.pancake_host_plan_accept;
 pub const pancake_host_next_action = host.pancake_host_next_action;
 pub const pancake_host_dialed = host.pancake_host_dialed;

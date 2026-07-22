@@ -29,18 +29,58 @@ import {
 	statusEl,
 	typingEl,
 } from "./dom.ts";
-import type { ActionItem, ChatItem, Conv, Item, NoteItem, SysItem } from "./types.ts";
+import type { ActionItem, ChatItem, Conv, DmConv, Item, RoomConv, SysItem } from "./types.ts";
 import type { Presence } from "../../lib/limits.ts";
 import { activeConv, convKey, convs, dmablePeers, liveRooms, state } from "./state.ts";
 import { fmtTime, hueOf, initials, makeBubble, mentionsYou } from "./richtext.ts";
 import { autoGrow, insertMention, stopTyping } from "./composer.ts";
-import { pickRoom, startDm } from "./net.ts";
+import { pickRoom, retrySend, startDm } from "./net.ts";
 import { renderNotifyBtn } from "./notify.ts";
 
 // Grouping and divider state for the conversation currently painted in the log.
 let lastGroup: { from: string | null; at: number } = { from: null, at: 0 };
 let lastDayKey = "";
 let unreadDivider: HTMLElement | null = null;
+
+// The bubble painted for each of our own optimistic sends, so net.ts can reconcile a
+// line in place — clearing its "sending" tint when the wire confirms it, or tinting it
+// "failed" and making it tap-to-retry when the send rejects — without repainting the
+// whole log. The map is weak, so an item that scrolls out of a switched-away
+// conversation is collected with its history.
+const sendBubbles = new WeakMap<ChatItem, HTMLElement>();
+// Reflect an item's current send state onto its bubble: a "sending" line dims, a
+// "failed" line tints and becomes a button that re-sends on click or Enter/Space, and a
+// confirmed line (state cleared) returns to a plain bubble.
+function applySendState(item: ChatItem, bubble: HTMLElement) {
+	bubble.classList.toggle("sending", item.state === "sending");
+	bubble.classList.toggle("failed", item.state === "failed");
+	if (item.state === "failed") {
+		bubble.title = "Not sent — tap to retry";
+		bubble.setAttribute("role", "button");
+		bubble.setAttribute("tabindex", "0");
+		bubble.setAttribute("aria-label", "Message not sent, tap to retry");
+		bubble.onclick = () => retrySend(item);
+		bubble.onkeydown = (e) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				retrySend(item);
+			}
+		};
+	} else {
+		if (item.state === "sending") bubble.title = "Sending…";
+		else bubble.removeAttribute("title");
+		bubble.removeAttribute("role");
+		bubble.removeAttribute("tabindex");
+		bubble.removeAttribute("aria-label");
+		bubble.onclick = null;
+		bubble.onkeydown = null;
+	}
+}
+// Called by net.ts after it mutates an item's send state, to repaint just that bubble.
+export function refreshSendState(item: ChatItem) {
+	const bubble = sendBubbles.get(item);
+	if (bubble) applySendState(item, bubble);
+}
 
 // A small hover toolbar per message: copy the text, or drop an @mention of the
 // author into the composer.
@@ -125,7 +165,10 @@ function paintChat(item: ChatItem) {
 	if (grouped) {
 		const stack = last!.querySelector(".stack")!;
 		const time = stack.querySelector(".time")!;
-		stack.insertBefore(makeBubble(text, mentioned), time);
+		const bubble = makeBubble(text, mentioned);
+		stack.insertBefore(bubble, time);
+		sendBubbles.set(item, bubble);
+		applySendState(item, bubble);
 		time.textContent = fmtTime(new Date(now));
 	} else {
 		const row = document.createElement("div");
@@ -141,13 +184,21 @@ function paintChat(item: ChatItem) {
 		}
 		const time = document.createElement("div");
 		time.className = "time";
+		// The bubble already carries its author and the sidebar its arrival, so the
+		// per-line timestamp is decorative for a screen reader; hide it from the tree.
+		time.setAttribute("aria-hidden", "true");
 		time.textContent = fmtTime(new Date(now));
-		stack.append(makeBubble(text, mentioned), time);
+		const bubble = makeBubble(text, mentioned);
+		stack.append(bubble, time);
+		sendBubbles.set(item, bubble);
+		applySendState(item, bubble);
 		if (mine) {
 			row.append(stack);
 		} else {
 			const av = document.createElement("div");
 			av.className = "avatar";
+			// Purely a coloured initial; the author is already spoken in the `who` line.
+			av.setAttribute("aria-hidden", "true");
 			av.style.background = hueOf(from);
 			av.textContent = initials(from);
 			row.append(av, stack);
@@ -157,47 +208,27 @@ function paintChat(item: ChatItem) {
 	}
 	lastGroup = { from, at: now };
 }
-function paintAction(item: ActionItem) {
-	maybeDayDivider(item.at);
+// A single-line banner in the log (a system notice or a `/me` action): one
+// `<div class=cls><span>text</span>`, breaking any active message grouping.
+function paintBanner(cls: string, text: string, at: number) {
+	maybeDayDivider(at);
 	const box = document.createElement("div");
-	box.className = "sys action";
+	box.className = cls;
 	const span = document.createElement("span");
-	span.textContent = "✻ " + item.from + " " + item.text;
+	span.textContent = text;
 	box.append(span);
 	log.append(box);
 	lastGroup = { from: null, at: 0 };
+}
+function paintAction(item: ActionItem) {
+	paintBanner("sys action", "✻ " + item.from + " " + item.text, item.at);
 }
 function paintSys(item: SysItem) {
-	maybeDayDivider(item.at);
-	const box = document.createElement("div");
-	box.className = "sys";
-	const span = document.createElement("span");
-	span.textContent = item.text;
-	box.append(span);
-	log.append(box);
-	lastGroup = { from: null, at: 0 };
-}
-function paintNote(item: NoteItem) {
-	maybeDayDivider(item.at);
-	const box = document.createElement("div");
-	box.className = "note";
-	const head = document.createElement("div");
-	head.className = "head";
-	const lock = document.createElement("span");
-	lock.textContent = "🔒";
-	const htext = document.createElement("span");
-	htext.textContent = item.head;
-	head.append(lock, htext);
-	const body = document.createElement("div");
-	body.textContent = item.body;
-	box.append(head, body);
-	log.append(box);
-	lastGroup = { from: null, at: 0 };
+	paintBanner("sys", item.text, item.at);
 }
 function paint(item: Item) {
 	if (item.kind === "chat") paintChat(item);
 	else if (item.kind === "action") paintAction(item);
-	else if (item.kind === "note") paintNote(item);
 	else paintSys(item);
 }
 
@@ -236,11 +267,11 @@ export function deliver(conv: Conv, item: Item) {
 		paint(item);
 		afterAppend(pinned);
 	}
-	// Anything not on screen right now counts toward the unread badges: the
-	// sidebar entry and the tab title. Notes and system lines do not.
+	// Anything not on screen right now counts toward the unread badges: the DM
+	// sidebar entry (the room list shows member counts, not unread) and the tab
+	// title. System lines do not.
 	if (!onScreen && (item.kind === "chat" || item.kind === "action")) {
 		conv.unread += 1;
-		renderRooms();
 		renderDms();
 	}
 	updateTitle();
@@ -289,14 +320,18 @@ function activate(node: HTMLElement, label: string, fn: () => void) {
 		}
 	};
 }
+// The placeholder row a sidebar or roster shows when it has nothing to list.
+function appendEmpty(listEl: HTMLElement, text: string): void {
+	const empty = document.createElement("li");
+	empty.className = "empty";
+	empty.textContent = text;
+	listEl.append(empty);
+}
 export function renderRooms() {
 	const rows = [...liveRooms.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 	roomListEl.innerHTML = "";
 	if (rows.length === 0) {
-		const empty = document.createElement("li");
-		empty.className = "empty";
-		empty.textContent = "No rooms yet.";
-		roomListEl.append(empty);
+		appendEmpty(roomListEl, "No rooms yet.");
 		return;
 	}
 	for (const [name, count] of rows) {
@@ -322,16 +357,16 @@ export function renderRooms() {
 	}
 }
 export function renderDms() {
-	const rows = [...convs.values()].filter((c) => c.type === "dm")
+	const rows = [...convs.values()].filter((c): c is DmConv => c.type === "dm")
 		.sort((a, b) => a.id.localeCompare(b.id));
 	dmListEl.innerHTML = "";
 	if (rows.length === 0) {
-		const empty = document.createElement("li");
-		empty.className = "empty";
-		empty.textContent = state.joinedRoom
-			? "Message a member to start one."
-			: "Join a room first — then message someone from the roster.";
-		dmListEl.append(empty);
+		appendEmpty(
+			dmListEl,
+			state.joinedRoom
+				? "Message a member to start one."
+				: "Join a room first — then message someone from the roster.",
+		);
 		return;
 	}
 	for (const conv of rows) {
@@ -341,6 +376,7 @@ export function renderDms() {
 			(online ? "" : " off");
 		const av = document.createElement("span");
 		av.className = "dmavatar";
+		av.setAttribute("aria-hidden", "true"); // a coloured initial beside the name, decorative
 		av.style.background = hueOf(conv.id);
 		av.textContent = initials(conv.id);
 		const rname = document.createElement("span");
@@ -373,7 +409,7 @@ export function renderDms() {
 }
 
 // ── Member pane ───────────────────────────────────────────────────────────
-export function applyPresence(conv: Conv, event: Presence | null) {
+export function applyPresence(conv: RoomConv, event: Presence | null) {
 	if (!event) return;
 	if (event.kind === "roster") {
 		for (const name of conv.members.keys()) conv.members.set(name, false);
@@ -383,7 +419,7 @@ export function applyPresence(conv: Conv, event: Presence | null) {
 	}
 	if (conv.key === state.activeKey) renderPresence(conv);
 }
-export function renderPresence(conv: Conv | null) {
+export function renderPresence(conv: RoomConv | null) {
 	const members = conv ? conv.members : new Map<string, boolean>();
 	const rows = [...members.entries()].sort((a, b) =>
 		Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0])
@@ -393,12 +429,9 @@ export function renderPresence(conv: Conv | null) {
 	presenceSummary.textContent = rows.length === 0
 		? "Waiting for the room roster."
 		: online + " online · " + rows.length + " seen";
-	if (conv && conv.type === "room") roomMeta.textContent = online + " online";
+	if (conv) roomMeta.textContent = online + " online";
 	if (rows.length === 0) {
-		const empty = document.createElement("li");
-		empty.className = "empty";
-		empty.textContent = "No members yet.";
-		membersEl.append(empty);
+		appendEmpty(membersEl, "No members yet.");
 		return;
 	}
 	for (const [name, isOnline] of rows) {
@@ -406,6 +439,11 @@ export function renderPresence(conv: Conv | null) {
 		li.className = isOnline ? "online" : "offline";
 		const pip = document.createElement("span");
 		pip.className = "pip";
+		// Presence is not carried by colour alone: the pip is a filled dot when online
+		// and a hollow ring when offline, and it names the state for a screen reader.
+		pip.setAttribute("role", "img");
+		pip.setAttribute("aria-label", isOnline ? "online" : "offline");
+		pip.title = isOnline ? "online" : "offline";
 		const who = document.createElement("span");
 		who.className = "name";
 		who.textContent = name === state.nick ? name + " (you)" : name;
@@ -540,27 +578,25 @@ export function switchTo(key: string) {
 	if (!isMobile()) lineInput.focus();
 }
 
-export function transportLabel() {
-	return state.transport === "iroh" ? "encrypted iroh QUIC" : "a direct TCP connection";
-}
-export function showDmProvenance(conv: Conv) {
+export function showDmProvenance(conv: DmConv) {
 	const online = dmablePeers.has(conv.id.toLowerCase());
 	provenance.classList.toggle("offline", !online);
-	// A phone has no room for the full phrase in the header; shorten it there.
+	// A phone has no room for the full phrase in the header; shorten it there. A
+	// browser DM is redeemed over iroh (the relay dials iroh members), so a live
+	// direct line is always encrypted and peer-to-peer.
 	const short = isMobile();
 	provenanceText.textContent = !online
 		? "Offline"
 		: conv.ready
-		? (short ? (state.transport === "iroh" ? "Encrypted" : "Direct") : "Direct · " +
-			(state.transport === "iroh" ? "encrypted, peer-to-peer" : "peer-to-peer"))
+		? (short ? "Encrypted" : "Direct · encrypted, peer-to-peer")
 		: "Introducing…";
 	provenance.classList.toggle("show", true);
 }
 // Keep an open direct line's header — the roster-slot status word and the
 // provenance chip — in step with the peer's reachability. A no-op unless this
 // exact DM is the one on screen, so presence changes to other peers cost nothing.
-export function renderDmStatus(conv: Conv | null) {
-	if (!conv || conv.type !== "dm" || conv.key !== state.activeKey) return;
+export function renderDmStatus(conv: DmConv | null) {
+	if (!conv || conv.key !== state.activeKey) return;
 	roomMeta.textContent = dmablePeers.has(conv.id.toLowerCase()) ? "online" : "offline";
 	showDmProvenance(conv);
 }

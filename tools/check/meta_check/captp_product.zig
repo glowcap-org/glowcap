@@ -73,6 +73,7 @@ pub fn checkDesignatorSchemeSync(
         .{ .name = "keyed-tcp", .path = "src/net/transport/tcp_keyed.zig" },
         .{ .name = "inproc", .path = "src/net/transport/inproc.zig" },
         .{ .name = "iroh", .path = "src/net/transport/iroh.zig" },
+        .{ .name = "webrtc", .path = "src/net/transport/webrtc.zig" },
     };
 
     const vocab_path = "src/driver/core/vocab.zig";
@@ -133,6 +134,24 @@ pub fn checkDesignatorSchemeSync(
             search = at + 1;
             continue;
         };
+        // A resident-less key transport (keyed-relay, ADR-0088) has no netlayer
+        // vtable to sync against — its byte path is a browser WebSocket
+        // rendezvous, not a Zig resident — so exempt it from the resident-sync
+        // loop and the resident-required orphan arm, but assert its vocab arm
+        // still resolves to `.key`: the byte-fed table is its sole authority.
+        if (isResidentLessKeyTransport(name)) {
+            const scheme = designatorSchemeFromVocabBody(fn_body, name);
+            if (!std.mem.eql(u8, scheme, "key")) {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}: resident-less key transport `{s}` must resolve to `.key` in designatorSchemeForTransport (byte-fed sole authority)",
+                    .{ vocab_path, name },
+                );
+            }
+            search = at + 1;
+            continue;
+        }
         var known = false;
         for (transports) |t| {
             if (std.mem.eql(u8, t.name, name)) {
@@ -172,7 +191,18 @@ fn transportNameFromField(field: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, field, "keyed_tcp")) return "keyed-tcp";
     if (std.mem.eql(u8, field, "inproc")) return "inproc";
     if (std.mem.eql(u8, field, "iroh")) return "iroh";
+    if (std.mem.eql(u8, field, "webrtc")) return "webrtc";
+    if (std.mem.eql(u8, field, "keyed_relay")) return "keyed-relay";
     return null;
+}
+
+/// A transport named by key alone whose byte path is not a Zig netlayer
+/// resident (a browser WebSocket rendezvous, ADR-0088). The byte-fed vocab
+/// table is its sole designator-scheme authority, so it maps in
+/// `transportNameFromField` but is exempt from the resident-sync loop and the
+/// resident-required orphan arm.
+fn isResidentLessKeyTransport(name: []const u8) bool {
+    return std.mem.eql(u8, name, "keyed-relay");
 }
 
 fn designatorSchemeFromVocabBody(fn_body: []const u8, transport: []const u8) []const u8 {
@@ -191,6 +221,7 @@ fn transportSymbolField(transport: []const u8) []const u8 {
     if (std.mem.eql(u8, transport, "keyed-tcp")) return "keyed_tcp";
     if (std.mem.eql(u8, transport, "inproc")) return "inproc";
     if (std.mem.eql(u8, transport, "iroh")) return "iroh";
+    if (std.mem.eql(u8, transport, "keyed-relay")) return "keyed_relay";
     return transport;
 }
 
@@ -235,6 +266,132 @@ fn designatorSchemeFromResident(source: []const u8) []const u8 {
     if (std.mem.indexOf(u8, region, ".designator_scheme = .key") != null) return "key";
     if (std.mem.indexOf(u8, region, ".designator_scheme = .address") != null) return "address";
     return "address";
+}
+
+/// The reference relays (the Deno, Python, and Racket rows of the
+/// `bindings-relay` matrix) must load the iroh binding lazily, only on the
+/// `?locator=` dial path, so a `?to=`-only run links no iroh FFI and the
+/// à-la-carte archive split holds (ADR-0059, ADR-0086). Rust pins this at
+/// compile time (`#[cfg(feature = "iroh")]`); the other three defer the import
+/// by hand, so this keeps that convention a build-checked invariant rather than
+/// trusting three hand-written import sites. The rooms production relay is out
+/// of scope — it links the full stack deliberately.
+pub fn checkReferenceRelayIrohLazy(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const why = "load the iroh binding lazily on the `?locator=` dial path so a TCP-only relay links no iroh FFI (ADR-0086)";
+
+    // Deno: the `@pancake/iroh` specifier may appear only inside a dynamic
+    // `import(...)`; a static `from "@pancake/iroh"` would load iroh eagerly.
+    const deno_paths = [_][]const u8{ "bindings/ts/relay/serve.ts", "bindings/ts/relay/deno_channels.ts" };
+    for (deno_paths) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for reference-relay-iroh-lazy check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        var lines = std.mem.splitScalar(u8, contents, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.indexOf(u8, line, "\"@pancake/iroh\"") != null and
+                std.mem.indexOf(u8, line, "import(") == null)
+            {
+                try appendViolation(gpa, violations, "{s}: static import of `@pancake/iroh` — {s}", .{ path, why });
+            }
+        }
+    }
+
+    // Python: the `pancake.iroh` import must be indented (inside the dial
+    // function), never at module scope (column 0).
+    py: {
+        const path = "bindings/python/relay.py";
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for reference-relay-iroh-lazy check with {s}", .{ path, @errorName(err) });
+            break :py;
+        };
+        defer gpa.free(contents);
+        var lines = std.mem.splitScalar(u8, contents, '\n');
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trimStart(u8, line, " \t");
+            const is_import = std.mem.startsWith(u8, trimmed, "from pancake.iroh") or
+                std.mem.startsWith(u8, trimmed, "import pancake.iroh");
+            if (is_import and trimmed.len == line.len) {
+                try appendViolation(gpa, violations, "{s}: module-scope `pancake.iroh` import — {s}", .{ path, why });
+            }
+        }
+    }
+
+    // Racket: the iroh companion is named by its literal only on the
+    // `define-runtime-path` line; the lazy `dynamic-require` calls reach it
+    // through the `iroh-companion-path` variable. Any other line naming the
+    // literal is a static require that loads iroh eagerly.
+    rkt: {
+        const path = "bindings/racket/relay.rkt";
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for reference-relay-iroh-lazy check with {s}", .{ path, @errorName(err) });
+            break :rkt;
+        };
+        defer gpa.free(contents);
+        var lines = std.mem.splitScalar(u8, contents, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.indexOf(u8, line, "pancake-iroh") != null and
+                std.mem.indexOf(u8, line, "define-runtime-path") == null)
+            {
+                try appendViolation(gpa, violations, "{s}: static reference to the `pancake-iroh` companion — {s}", .{ path, why });
+            }
+        }
+    }
+}
+
+/// The rooms production relay funnels every dial through the shared
+/// `classifyRelayTarget` (over `pancake_host_plan_dial`), so its SSRF allow-list
+/// sorts a target exactly as the dial that follows: one classified value gates
+/// admission (`relayAllowed`) and drives the dial (`relayToTarget`). The
+/// reference relays' local `?to=` / `?locator=` parameter dispatch must not leak
+/// into the production path, where dialing a raw parameter would bypass the
+/// classifier and the allow-list and reopen the SSRF hole (ADR-0086).
+pub fn checkProductionRelayClassifierLockstep(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const web = "apps/rooms/deno/web.ts";
+    const server = "apps/rooms/deno/relay_server.ts";
+    // The reference relays' two-parameter dispatch; forbidden in the production
+    // path, which dials only a classified `?target=` and bridges `?rendezvous=`.
+    const params = [_][]const u8{ ".get(\"to\")", ".get(\"locator\")" };
+
+    web_blk: {
+        const contents = root.readFileAlloc(io, web, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for production-relay-classifier check with {s}", .{ web, @errorName(err) });
+            break :web_blk;
+        };
+        defer gpa.free(contents);
+        if (std.mem.indexOf(u8, contents, "classifyRelayTarget(") == null) {
+            try appendViolation(gpa, violations, "{s}: the production relay must classify its dial target through `classifyRelayTarget` (the plan_dial SSRF chokepoint) (ADR-0086)", .{web});
+        }
+        for (params) |param| {
+            if (std.mem.indexOf(u8, contents, param) != null) {
+                try appendViolation(gpa, violations, "{s}: reads a `{s}` parameter — the reference-relay dispatch; the production relay dials only a classified `?target=` (ADR-0086 SSRF lockstep)", .{ web, param });
+            }
+        }
+    }
+
+    srv_blk: {
+        const contents = root.readFileAlloc(io, server, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for production-relay-classifier check with {s}", .{ server, @errorName(err) });
+            break :srv_blk;
+        };
+        defer gpa.free(contents);
+        for (params) |param| {
+            if (std.mem.indexOf(u8, contents, param) != null) {
+                try appendViolation(gpa, violations, "{s}: reads a `{s}` parameter — the reference-relay dispatch; the production relay dials only a classified `?target=` (ADR-0086 SSRF lockstep)", .{ server, param });
+            }
+        }
+    }
 }
 
 /// Every Racket script under `conformance/goblins-peer/racket/` must read as

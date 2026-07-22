@@ -337,75 +337,98 @@ pub const Node = struct {
         // Evict the exporter-cache rows naming this CapTP session, so a later
         // give for the same exporter dials a fresh session instead of
         // failing against the dead one forever.
-        var evicted = true;
-        while (evicted) {
-            evicted = false;
-            var exporter_it = self.exporters.iterator();
-            while (exporter_it.next()) |entry| {
-                if (entry.value_ptr.* == peer_id) {
-                    const key = entry.key_ptr.*;
-                    self.exporters.removeByPtr(entry.key_ptr);
-                    self.allocator.free(key);
-                    evicted = true;
-                    break; // removal invalidates the iterator; rescan
-                }
+        self.removeRowsForPeer(&self.exporters, peer_id, struct {
+            fn match(_: []const u8, home: PeerId, dying: PeerId) bool {
+                return home == dying;
             }
-        }
+        }.match, struct {
+            fn cleanup(node: *Node, key: []const u8, _: PeerId) void {
+                node.allocator.free(key);
+            }
+        }.cleanup);
 
         // Break every withdraw still pending on this session: its resolve
         // can never arrive, so the recipient's answer fails closed instead of
         // hanging. Best-effort — an allocation failure during teardown queues
         // nothing, and the recipient's own disconnect handling breaks the vow.
-        var swept = true;
-        while (swept) {
-            swept = false;
-            var withdraw_it = self.pending_withdraws.iterator();
-            while (withdraw_it.next()) |entry| {
-                if (entry.key_ptr.peer_id == peer_id) {
-                    const pending = entry.value_ptr.*;
-                    self.pending_withdraws.removeByPtr(entry.key_ptr);
-                    self.queueFail(pending.recipient_peer, pending.answer, "handoff redeem failed: exporter connection closed") catch {};
-                    swept = true;
-                    break;
-                }
+        self.removeRowsForPeer(&self.pending_withdraws, peer_id, struct {
+            fn match(key: WithdrawKey, _: PendingWithdraw, dying: PeerId) bool {
+                return key.peer_id == dying;
             }
-        }
+        }.match, struct {
+            fn cleanup(node: *Node, _: WithdrawKey, pending: PendingWithdraw) void {
+                node.queueFail(pending.recipient_peer, pending.answer, "handoff redeem failed: exporter connection closed") catch {};
+            }
+        }.cleanup);
 
         // A claimed gifter origination whose recipient died settles nowhere;
         // retire its ticket so a late provideGiftId is a clean no-op.
-        var retired = true;
-        while (retired) {
-            retired = false;
-            var gift_it = self.pending_gifts.iterator();
-            while (gift_it.next()) |entry| {
-                if (entry.value_ptr.recipient_peer == peer_id) {
-                    self.pending_gifts.removeByPtr(entry.key_ptr);
-                    retired = true;
-                    break;
-                }
+        self.removeRowsForPeer(&self.pending_gifts, peer_id, struct {
+            fn match(_: u64, gift: PendingGift, dying: PeerId) bool {
+                return gift.recipient_peer == dying;
             }
-        }
+        }.match, struct {
+            fn cleanup(_: *Node, _: u64, _: PendingGift) void {}
+        }.cleanup);
 
         // Reclaim the foreign-import enrollments homed on this CapTP session
         // (ADR-0069): once the home is gone the token can never re-gift, so a
         // long-running broker does not accumulate stale routing rows.
-        var reclaimed = true;
-        while (reclaimed) {
-            reclaimed = false;
-            var foreign_it = self.foreign_imports.iterator();
-            while (foreign_it.next()) |entry| {
-                if (entry.value_ptr.peer_id == peer_id) {
-                    model.freeReference(self.allocator, entry.value_ptr.reference);
-                    self.foreign_imports.removeByPtr(entry.key_ptr);
-                    reclaimed = true;
-                    break;
-                }
+        self.removeRowsForPeer(&self.foreign_imports, peer_id, struct {
+            fn match(_: u64, route_row: Route, dying: PeerId) bool {
+                return route_row.peer_id == dying;
             }
-        }
+        }.match, struct {
+            fn cleanup(node: *Node, _: u64, route_row: Route) void {
+                model.freeReference(node.allocator, route_row.reference);
+            }
+        }.cleanup);
 
         // Drop promise proxies whose home or recipient peer died
         // recipient peer so a later home fire cannot relay onto a gone session.
         self.sweepPromiseProxiesForPeer(peer_id);
+    }
+
+    /// Remove every row of `map` tied to the dying `peer_id` in one O(n) pass:
+    /// collect the matching keys, then remove and clean up each. This is the
+    /// shape `sweepPromiseProxiesForPeer` uses; restarting the scan after each
+    /// removal is O(n·k) and repeats the same flag-and-break spine at every
+    /// teardown site. `match` reads a row against the dying peer; `cleanup` runs
+    /// on the removed key and value to free its owned bytes or break its pending
+    /// vow. A teardown allocation failure drops that key from the sweep — the
+    /// row is reclaimed at `deinit` — rather than failing the teardown.
+    fn removeRowsForPeer(
+        self: *Node,
+        map: anytype,
+        peer_id: PeerId,
+        comptime match: anytype,
+        comptime cleanup: anytype,
+    ) void {
+        const Key = @FieldType(@TypeOf(map.*).KV, "key");
+        var doomed: std.ArrayListUnmanaged(Key) = .empty;
+        defer doomed.deinit(self.allocator);
+        var it = map.iterator();
+        while (it.next()) |entry| {
+            if (match(entry.key_ptr.*, entry.value_ptr.*, peer_id)) {
+                doomed.append(self.allocator, entry.key_ptr.*) catch continue;
+            }
+        }
+        for (doomed.items) |key| {
+            if (map.fetchRemove(key)) |kv| cleanup(self, kv.key, kv.value);
+        }
+    }
+
+    /// The reserved token id `reference` names (ADR-0066), or null for any
+    /// reference outside the reserved range: an ordinary far import, a near, a
+    /// promise, a sturdyref. This is the one definition of "this far id is a node
+    /// token" that every routing and lowering entry shares, so the reserved-range
+    /// boundary is a single fact rather than four hand-inlined compares.
+    fn tokenIdOf(reference: model.Reference) ?u64 {
+        const id = switch (reference) {
+            .far => |far| far.import_position.int(),
+            else => return null,
+        };
+        return if (id >= REDEEMED_TOKEN_BASE) id else null;
     }
 
     /// The node-owned peer for `peer_id`, or null when the id names no live
@@ -446,16 +469,22 @@ pub const Node = struct {
     /// any reference outside the reserved token range, so an ordinary far import
     /// routes on its own connection.
     fn route(self: *Node, reference: model.Reference) ?Route {
-        const id = switch (reference) {
-            .far => |far| far.import_position.int(),
-            else => return null,
-        };
-        if (id < REDEEMED_TOKEN_BASE) return null;
+        const id = tokenIdOf(reference) orelse return null;
         if (self.redeemed.get(id)) |r| return r;
         // A foreign-import token (ADR-0069) routes to its home connection,
         // addressed with the real wire import — the same swap a redeemed token
         // gets, so a send to a fetched capability reaches its exporter.
         return self.foreign_imports.get(id);
+    }
+
+    /// The exporter peer a redeemed-handoff (or foreign-import) token routes to,
+    /// or null for any reference that names no such route. This is the
+    /// deterministic answer to "which connection does this handoff capability
+    /// live on," so a redeem's originating send can name that exporter session
+    /// from the reply it holds — never by guessing which dial was in flight.
+    pub fn exporterPeerFor(self: *Node, reference: model.Reference) ?PeerId {
+        const r = self.route(reference) orelse return null;
+        return r.peer_id;
     }
 
     // ── Foreign-import routing (the gifter half) ─────────────────────────────
@@ -503,11 +532,7 @@ pub const Node = struct {
     /// that verdict the bindings share, computed from the node's token enrollments
     /// instead of being hand-rolled per binding (ADR-0066/ADR-0069).
     pub fn argIsForeign(self: *Node, default_peer: PeerId, reference: model.Reference) bool {
-        const id = switch (reference) {
-            .far => |far| far.import_position.int(),
-            else => return false,
-        };
-        if (id < REDEEMED_TOKEN_BASE) return false;
+        const id = tokenIdOf(reference) orelse return false;
         // A foreign-import token is foreign only away from its home. A redeemed
         // token has no wire home and is foreign everywhere; an unknown high id
         // fails closed.
@@ -535,11 +560,7 @@ pub const Node = struct {
     /// different session. The lowered reference is a far (position-only, POD),
     /// so it is substituted into the message by value with no ownership transfer.
     pub fn lowerForConn(self: *Node, peer_id: PeerId, reference: model.Reference) engine.LoweringError!model.Reference {
-        const id = switch (reference) {
-            .far => |far| far.import_position.int(),
-            else => return reference,
-        };
-        if (id < REDEEMED_TOKEN_BASE) return reference;
+        if (tokenIdOf(reference) == null) return reference;
         const r = self.route(reference) orelse return error.TokenNotLiftable;
         if (r.peer_id != peer_id) return error.TokenNotLiftable;
         return r.reference;
@@ -580,9 +601,7 @@ pub const Node = struct {
     /// connection the application is addressing) unchanged. Returns null when a
     /// redeemed token names an exporter connection that is gone.
     pub fn routeReference(self: *Node, default_peer: PeerId, target: model.Reference) ?Routed {
-        if (target == .far and target.far.import_position.int() >= REDEEMED_TOKEN_BASE) {
-            return self.routeToken(target.far.import_position.int());
-        }
+        if (tokenIdOf(target)) |id| return self.routeToken(id);
         return .{ .peer_id = default_peer, .target = target };
     }
 

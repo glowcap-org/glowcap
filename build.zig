@@ -35,6 +35,7 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
     .{ .name = "c_abi", .prefix = "c_abi/ocapn/", .imports = &.{ "foundation", "model", "engine", "c_abi_shared" }, .core = false },
     .{ .name = "c_abi_net_transport_iroh", .prefix = "c_abi/net_transport/iroh/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_net_transport_webrtc", .prefix = "c_abi/net_transport/webrtc/", .imports = &.{"c_abi_shared"}, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_tcp", .prefix = "c_abi/net_transport/tcp/", .imports = &.{ "net", "driver", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_inproc", .prefix = "c_abi/net_transport/inproc/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
@@ -71,6 +72,7 @@ const archive_table = [_]ArchiveSpec{
     .{ .artifact = "pancake_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "pancake_net_transport_inproc.h" },
     .{ .artifact = "pancake_driver", .layer = "c_abi_driver" },
     .{ .artifact = "pancake_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "pancake_net_transport_iroh.h", .default_install = false },
+    .{ .artifact = "pancake_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "pancake_net_transport_webrtc.h", .default_install = false },
 };
 
 comptime {
@@ -509,6 +511,24 @@ fn irohAbiModule(
     });
 }
 
+/// The webrtc C ABI module: `transportAbiModule` over
+/// `src/c_abi/net_transport/webrtc/mod.zig` with the injected `webrtc` resident
+/// alongside the shared vocabulary leaf, keeping
+/// `libpancake_net_transport_webrtc` symbol-disjoint from `libpancake_ocapn`
+/// (ADR-0089 phase 3, mirroring `irohAbiModule`).
+fn webrtcAbiModule(
+    b: *std.Build,
+    t: std.Build.ResolvedTarget,
+    o: std.builtin.OptimizeMode,
+    host_mods: []*std.Build.Module,
+    resident: *std.Build.Module,
+) *std.Build.Module {
+    return transportAbiModule(b, t, o, "src/c_abi/net_transport/webrtc/mod.zig", &.{
+        .{ .name = "webrtc", .module = resident },
+        .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+    });
+}
+
 /// Link the iroh Rust sidecar staticlib into `mod`, plus the libc and unwind
 /// runtime its panic machinery needs (ADR-0055). Every runnable iroh artifact
 /// shares this recipe: the drivers and bench, the public C ABI companion, and
@@ -516,6 +536,15 @@ fn irohAbiModule(
 /// depend on the `iroh-lib` cargo step so the staticlib exists before the link.
 fn linkIrohSidecar(b: *std.Build, mod: *std.Build.Module) void {
     mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
+    mod.link_libc = true;
+    mod.linkSystemLibrary("unwind", .{});
+}
+
+/// Link the WebRTC sidecar staticlib into a runnable module, the same posture as
+/// `linkIrohSidecar` (ADR-0089 phase 2). The hermetic compile-only object leaves
+/// this off, so its externs stay unresolved and it needs no cargo.
+fn linkWebrtcSidecar(b: *std.Build, mod: *std.Build.Module) void {
+    mod.addObjectFile(b.path("transports/webrtc/target/release/libpancake_webrtc_sidecar.a"));
     mod.link_libc = true;
     mod.linkSystemLibrary("unwind", .{});
 }
@@ -905,6 +934,10 @@ pub fn build(b: *std.Build) void {
         extra3_import_module: ?*std.Build.Module = null,
         extra4_import_name: ?[]const u8 = null,
         extra4_import_module: ?*std.Build.Module = null,
+        /// Sixth reflected module (the FFI generators also mirror the webrtc
+        /// transport archive).
+        extra5_import_name: ?[]const u8 = null,
+        extra5_import_module: ?*std.Build.Module = null,
     };
     const header_gens = [_]HeaderGen{
         .{
@@ -974,10 +1007,17 @@ pub fn build(b: *std.Build) void {
             if (hg.extra2_import_name) |extra2| gen_mod.addImport(extra2, hg.extra2_import_module.?);
             if (hg.extra3_import_name) |extra3| gen_mod.addImport(extra3, hg.extra3_import_module.?);
             if (hg.extra4_import_name) |extra4| gen_mod.addImport(extra4, hg.extra4_import_module.?);
-            // Available to every generator; iroh header + FFI layouts force-link it
-            // so reflection stays cargo-free.
+            if (hg.extra5_import_name) |extra5| gen_mod.addImport(extra5, hg.extra5_import_module.?);
+            // Available to every generator; the iroh and webrtc headers plus the
+            // FFI mirrors force-link these so reflecting a transport archive that
+            // calls a Rust sidecar stays cargo-free.
             gen_mod.addImport("iroh_sidecar_stub", bb.createModule(.{
                 .root_source_file = bb.path("tools/gen/stub/iroh_sidecar.zig"),
+                .target = tgt,
+                .optimize = opt,
+            }));
+            gen_mod.addImport("webrtc_sidecar_stub", bb.createModule(.{
+                .root_source_file = bb.path("tools/gen/stub/webrtc_sidecar.zig"),
                 .target = tgt,
                 .optimize = opt,
             }));
@@ -1405,6 +1445,254 @@ pub fn build(b: *std.Build) void {
     const iroh_sidecar_test_step = b.step("iroh-sidecar-test", "Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)");
     iroh_sidecar_test_step.dependOn(&iroh_sidecar_test.step);
 
+    // ── WebRTC DataChannel netlayer (ADR-0089) ───────────────────────────────
+    // One cargo build of `transports/webrtc/` produces both the phase-1 probe
+    // binary and the phase-2 sidecar staticlib `libpancake_webrtc_sidecar.a`.
+    // Phase 1 de-risks the transport: the probe binary plus a Deno/Playwright
+    // harness drive a real headless Chromium RTCDataChannel on loopback and
+    // assert a byte round-trip, proving the crate, the browser RTCDataChannel
+    // API, ICE on loopback in a headless container, and the DTLS channel.
+    // Phase 2 adds the sidecar's blocking C ABI (`pancake_webrtc_sidecar_*`),
+    // the private byte-level seam the Zig resident drives, mirroring the iroh
+    // sidecar. Signaling is out of band, not yet the OCapN capability (phase 5).
+    // Sibling steps, not folded into `check`: they need cargo, deno, and a
+    // browser binary.
+    const webrtc_probe_build = b.addSystemCommand(&.{
+        "cargo", "build", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
+    });
+    const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and phase-1 probe binary (ADR-0089; needs cargo)");
+    webrtc_lib_step.dependOn(&webrtc_probe_build.step);
+
+    const webrtc_datachannel_test = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "transports/webrtc/test/datachannel_roundtrip_test.ts",
+    });
+    webrtc_datachannel_test.setCwd(b.path("."));
+    webrtc_datachannel_test.has_side_effects = true;
+    webrtc_datachannel_test.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a native webrtc-crate peer on loopback (ADR-0089 phase 1; needs cargo + deno + a Playwright Chromium)");
+    webrtc_datachannel_test_step.dependOn(&webrtc_datachannel_test.step);
+
+    // The phase-2 resident compiles as its own module over the same layer
+    // instances, outside the `pancake` root namespace: its externs resolve only
+    // when the sidecar staticlib links, so exporting it would drag the Rust
+    // sidecar into every gate. A hermetic object build type-checks it under plain
+    // `zig build check` with no cargo, catching resident rot the same way the
+    // iroh resident check does (ADR-0089 phase 2).
+    const webrtc_resident_mod = b.createModule(.{
+        .root_source_file = b.path("src/net/transport/webrtc.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_resident_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
+    webrtc_resident_mod.addImport("model", host_mods[layerIndex("model")]);
+    webrtc_resident_mod.addImport("engine", host_mods[layerIndex("engine")]);
+    webrtc_resident_mod.addImport("net", host_mods[layerIndex("net")]);
+    const webrtc_resident_check = b.addObject(.{
+        .name = "webrtc-resident-check",
+        .root_module = webrtc_resident_mod,
+    });
+    check_step.dependOn(&webrtc_resident_check.step);
+    b.step("webrtc-resident-check", "Type-check the WebRTC DataChannel netlayer resident (ADR-0089 phase 2), compile-only, no cargo").dependOn(&webrtc_resident_check.step);
+
+    // The webrtc-interop driver: two native pancake peers hold a keyed OCapN
+    // session over a real DataChannel, with signaling ferried in-process (phase
+    // 2). It rides `check` as a hermetic compile-only object (no sidecar, externs
+    // unresolved) so a core or resident API change cannot silently rot it, and
+    // runs as the sibling step `webrtc-interop`, which links the sidecar (cargo).
+    const webrtc_interop_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_interop/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_interop_compile_mod.addImport("pancake", lib_mod);
+    webrtc_interop_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    const webrtc_interop_compile = b.addObject(.{ .name = "pancake-webrtc-interop-compile", .root_module = webrtc_interop_compile_mod });
+    check_step.dependOn(&webrtc_interop_compile.step);
+
+    const webrtc_interop_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_interop/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_interop_run_mod.addImport("pancake", lib_mod);
+    webrtc_interop_run_mod.addImport("webrtc", webrtc_resident_mod);
+    linkWebrtcSidecar(b, webrtc_interop_run_mod);
+    const webrtc_interop_exe = b.addExecutable(.{ .name = "pancake-webrtc-interop", .root_module = webrtc_interop_run_mod });
+    webrtc_interop_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_interop_run = b.addRunArtifact(webrtc_interop_exe);
+    webrtc_interop_run.setCwd(b.path("."));
+    webrtc_interop_run.has_side_effects = true;
+    b.step("webrtc-interop", "Live WebRTC: two native pancake peers hold a keyed OCapN session over a real DataChannel (ADR-0089 phase 2; needs cargo)").dependOn(&webrtc_interop_run.step);
+
+    // The signaling mesh (ADR-0089 phase 5): the same two-peer keyed session,
+    // but the channel comes up through an OCapN-shaped signaling hub routing
+    // offer/answer/candidate by designator, not a direct ferry. webrtc's
+    // `iroh-mesh`. Rides `check` as a hermetic compile-only object and runs as a
+    // sidecar-linked sibling.
+    const webrtc_mesh_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_mesh/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_mesh_compile_mod.addImport("pancake", lib_mod);
+    webrtc_mesh_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    const webrtc_mesh_compile = b.addObject(.{ .name = "pancake-webrtc-mesh-compile", .root_module = webrtc_mesh_compile_mod });
+    check_step.dependOn(&webrtc_mesh_compile.step);
+
+    const webrtc_mesh_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_mesh/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_mesh_run_mod.addImport("pancake", lib_mod);
+    webrtc_mesh_run_mod.addImport("webrtc", webrtc_resident_mod);
+    linkWebrtcSidecar(b, webrtc_mesh_run_mod);
+    const webrtc_mesh_exe = b.addExecutable(.{ .name = "pancake-webrtc-mesh", .root_module = webrtc_mesh_run_mod });
+    webrtc_mesh_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_mesh_run = b.addRunArtifact(webrtc_mesh_exe);
+    webrtc_mesh_run.setCwd(b.path("."));
+    webrtc_mesh_run.has_side_effects = true;
+    b.step("webrtc-mesh", "Live WebRTC signaling mesh: two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089 phase 5; needs cargo)").dependOn(&webrtc_mesh_run.step);
+
+    // The shared WebRTC signaling core (interop/webrtc_common.zig): the one
+    // signaling inbox and channel-bring-up client that both CapTP-signaling
+    // drivers below call, instead of a byte-identical copy in each.
+    const webrtc_common_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_common.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_common_mod.addImport("pancake", lib_mod);
+    webrtc_common_mod.addImport("webrtc", webrtc_resident_mod);
+
+    // The signaling object as a real OCapN capability over CapTP (ADR-0089 phase
+    // 6, native half): the exporter hosts a signaling inbox behind a keyed
+    // session, and the recipient drives offer/answer/candidate over that session
+    // to bring the DataChannel up, then holds the direct keyed session over it.
+    // The wire-capability shape the browser arm and a room-introduction redeem
+    // build on. Rides `check` as a hermetic compile-only object and runs as a
+    // sidecar-linked sibling.
+    const webrtc_signaling_captp_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_signaling_captp/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_signaling_captp_compile_mod.addImport("pancake", lib_mod);
+    webrtc_signaling_captp_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_signaling_captp_compile_mod.addImport("webrtc_common", webrtc_common_mod);
+    const webrtc_signaling_captp_compile = b.addObject(.{ .name = "pancake-webrtc-signaling-captp-compile", .root_module = webrtc_signaling_captp_compile_mod });
+    check_step.dependOn(&webrtc_signaling_captp_compile.step);
+
+    const webrtc_signaling_captp_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_signaling_captp/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_signaling_captp_run_mod.addImport("pancake", lib_mod);
+    webrtc_signaling_captp_run_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_signaling_captp_run_mod.addImport("webrtc_common", webrtc_common_mod);
+    linkWebrtcSidecar(b, webrtc_signaling_captp_run_mod);
+    const webrtc_signaling_captp_exe = b.addExecutable(.{ .name = "pancake-webrtc-signaling-captp", .root_module = webrtc_signaling_captp_run_mod });
+    webrtc_signaling_captp_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_signaling_captp_run = b.addRunArtifact(webrtc_signaling_captp_exe);
+    webrtc_signaling_captp_run.setCwd(b.path("."));
+    webrtc_signaling_captp_run.has_side_effects = true;
+    b.step("webrtc-signaling-captp", "Live WebRTC signaling capability over CapTP: the exporter hosts a signaling inbox behind a keyed session, the recipient drives offer/answer/candidate over it to open a DataChannel, then holds a keyed session over it (ADR-0089 phase 6; needs cargo)").dependOn(&webrtc_signaling_captp_run.step);
+
+    // A three-party handoff redeemed over WebRTC (ADR-0089): a gifter signs a
+    // give naming the exporter by webrtc designator, and the recipient redeems it
+    // by bringing up a DataChannel through the exporter's signaling inbox, running
+    // the keyed handshake, and presenting a withdraw-gift the exporter's engine
+    // verifies before handing back the gifted capability. webrtc's iroh-mesh.
+    // Rides `check` as a hermetic compile-only object and runs as a sidecar-linked
+    // sibling.
+    const webrtc_handoff_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_handoff/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_handoff_compile_mod.addImport("pancake", lib_mod);
+    webrtc_handoff_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_handoff_compile_mod.addImport("webrtc_common", webrtc_common_mod);
+    const webrtc_handoff_compile = b.addObject(.{ .name = "pancake-webrtc-handoff-compile", .root_module = webrtc_handoff_compile_mod });
+    check_step.dependOn(&webrtc_handoff_compile.step);
+
+    const webrtc_handoff_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_handoff/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_handoff_run_mod.addImport("pancake", lib_mod);
+    webrtc_handoff_run_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_handoff_run_mod.addImport("webrtc_common", webrtc_common_mod);
+    linkWebrtcSidecar(b, webrtc_handoff_run_mod);
+    const webrtc_handoff_exe = b.addExecutable(.{ .name = "pancake-webrtc-handoff", .root_module = webrtc_handoff_run_mod });
+    webrtc_handoff_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_handoff_run = b.addRunArtifact(webrtc_handoff_exe);
+    webrtc_handoff_run.setCwd(b.path("."));
+    webrtc_handoff_run.has_side_effects = true;
+    b.step("webrtc-handoff", "Live WebRTC three-party handoff: a gifter signs a give naming the exporter by webrtc designator, and the recipient redeems it by signaling-then-handshake, withdraws the gifted capability, and calls it over the DataChannel (ADR-0089; needs cargo)").dependOn(&webrtc_handoff_run.step);
+
+    // The native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6):
+    // it serves a keyed session over the sidecar with signaling ferried over
+    // stdio, so a real browser (@pancake/webrtc + the wasm Host) is the offerer.
+    // Rides `check` as a hermetic compile object; the sidecar-linked binary is
+    // installed for the Playwright harness (added with the webrtc-browser-peer
+    // step) to drive.
+    const webrtc_answerer_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_browser_peer/answerer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_answerer_compile_mod.addImport("pancake", lib_mod);
+    webrtc_answerer_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    const webrtc_answerer_compile = b.addObject(.{ .name = "pancake-webrtc-answerer-compile", .root_module = webrtc_answerer_compile_mod });
+    check_step.dependOn(&webrtc_answerer_compile.step);
+
+    const webrtc_answerer_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_browser_peer/answerer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_answerer_run_mod.addImport("pancake", lib_mod);
+    webrtc_answerer_run_mod.addImport("webrtc", webrtc_resident_mod);
+    linkWebrtcSidecar(b, webrtc_answerer_run_mod);
+    const webrtc_answerer_exe = b.addExecutable(.{ .name = "pancake-webrtc-answerer", .root_module = webrtc_answerer_run_mod });
+    webrtc_answerer_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_answerer_install = b.addInstallArtifact(webrtc_answerer_exe, .{});
+    b.step("webrtc-answerer", "Build the native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6; needs cargo)").dependOn(&webrtc_answerer_install.step);
+
+    // The full browser-peer proof: a real headless Chromium bundles @pancake/web
+    // and @pancake/webrtc, brings up a DataChannel to the native answerer through
+    // the harness's stdio signaling ferry, and runs a keyed OCapN session over it
+    // — fetch, call, check the reply. The browser twin of `webrtc-interop`. Needs
+    // deno, the wasm module, the sidecar-linked answerer, and a Playwright
+    // Chromium. A sibling step, not folded into `check` (it needs cargo + a
+    // browser binary).
+    const webrtc_browser_peer = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "interop/webrtc_browser_peer/browser_peer_test.ts",
+    });
+    webrtc_browser_peer.setCwd(b.path("."));
+    webrtc_browser_peer.has_side_effects = true;
+    webrtc_browser_peer.step.dependOn(&wasm_driver_install.step);
+    webrtc_browser_peer.step.dependOn(&webrtc_answerer_install.step);
+    b.step("webrtc-browser-peer", "Prove a real headless Chromium runs @pancake/web + @pancake/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)").dependOn(&webrtc_browser_peer.step);
+
+    // The two-browser end state: two headless Chromium contexts each run
+    // @pancake/web + @pancake/webrtc, exchange signaling through a byte relay, and
+    // bring up a direct DataChannel between them that carries a keyed OCapN
+    // session — the answerer publishes a greeter and accepts, the offerer dials
+    // its key and greets. No sidecar (both peers are browsers), so it is
+    // deno-only: needs the wasm module and a Playwright Chromium. A sibling step,
+    // not folded into `check`.
+    const webrtc_browser_to_browser = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "interop/webrtc_browser_to_browser/browser_to_browser_test.ts",
+    });
+    webrtc_browser_to_browser.setCwd(b.path("."));
+    webrtc_browser_to_browser.has_side_effects = true;
+    webrtc_browser_to_browser.step.dependOn(&wasm_driver_install.step);
+    b.step("webrtc-browser-to-browser", "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the signaling host out of the byte path (ADR-0089 phase 6; needs deno + a Playwright Chromium)").dependOn(&webrtc_browser_to_browser.step);
+
     // The resident compiles as its own module over the same layer-module
     // instances, *outside* the `pancake` root namespace: its externs resolve
     // only when the staticlib links, and the api-surface test references every
@@ -1516,6 +1804,27 @@ pub fn build(b: *std.Build) void {
     iroh_abi_step.dependOn(&iroh_abi_install.step);
     iroh_abi_step.dependOn(&iroh_abi_header_install.step);
 
+    // libpancake_net_transport_webrtc: the WebRTC transport's public C ABI
+    // companion (ADR-0089 phase 3). Like the iroh companion it links the Rust
+    // sidecar and exports only its own `pancake_webrtc_*` family, sharing the
+    // base ABI by layout, so it is a sibling of `check` (needs cargo). The header
+    // generator and its staleness check are the next phase-3 piece; this step
+    // builds and installs the library.
+    const webrtc_abi_link_mod = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod);
+    linkWebrtcSidecar(b, webrtc_abi_link_mod);
+    const webrtc_abi_shared = b.addLibrary(.{
+        .name = "pancake_net_transport_webrtc",
+        .linkage = .dynamic,
+        .root_module = webrtc_abi_link_mod,
+        .version = abi_version,
+    });
+    webrtc_abi_shared.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_abi_install = b.addInstallArtifact(webrtc_abi_shared, .{});
+    const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/pancake_net_transport_webrtc.h"), "pancake_net_transport_webrtc.h");
+    const webrtc_abi_step = b.step("webrtc-abi", "Build libpancake_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089 phase 3; needs cargo)");
+    webrtc_abi_step.dependOn(&webrtc_abi_install.step);
+    webrtc_abi_step.dependOn(&webrtc_abi_header_install.step);
+
     // The cross-runtime relay matrix (ADR-0086). One shared harness per proof —
     // TCP forwarding, the non-optional backpressure clause, and the iroh leg —
     // runs against every runtime's relay: the Deno reference relay
@@ -1540,12 +1849,15 @@ pub fn build(b: *std.Build) void {
     const deno_relay_iroh = [_][]const u8{ "deno", "run", "--allow-net", "--allow-read", "--allow-ffi", "--unstable-ffi", "--allow-env", "bindings/ts/relay/serve.ts", "0" };
     const python_relay = [_][]const u8{ "uv", "run", "--with", "websockets", "python3", "bindings/python/relay.py", "0" };
     const rust_relay = [_][]const u8{ "bindings/rust/relay/target/release/pancake-relay", "0" };
+    // `-y` warms the binding's compiled bytecode so the relay starts promptly on
+    // repeat runs; the iroh leg loads the iroh companion from zig-out/lib lazily.
+    const racket_relay = [_][]const u8{ "racket", "-y", "bindings/racket/relay.rkt", "0" };
 
     // The core contract: byte-transparent TCP forwarding and the backpressure
     // clause, across every runtime's relay.
     addRelayFamily(b, .{
         .aggregate_name = "bindings-relay",
-        .aggregate_desc = "Prove the byte-transparent relay contract (TCP forwarding + backpressure + the idle-timeout bounded-resources clause) across every runtime's relay: Deno, Python, Rust (needs deno + uv + cargo)",
+        .aggregate_desc = "Prove the byte-transparent relay contract (TCP forwarding + backpressure + the idle-timeout bounded-resources clause) across every runtime's relay: Deno, Python, Rust, Racket (needs deno + uv + cargo + racket)",
         .rows = &.{
             .{ .step_name = "deno-relay-test", .description = "Prove a browser peer holds a keyed session through the Deno reference relay (needs deno)", .harness = .tcp, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp },
             .{ .step_name = "python-relay-test", .description = "Prove a browser peer holds a keyed session through the Python relay (needs deno + uv)", .harness = .tcp, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay },
@@ -1556,6 +1868,9 @@ pub fn build(b: *std.Build) void {
             .{ .step_name = "deno-relay-idle-test", .description = "Prove the Deno relay reclaims an idle session (the bounded-resources clause) (needs deno)", .harness = .idle, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
             .{ .step_name = "python-relay-idle-test", .description = "Prove the Python relay reclaims an idle session (the bounded-resources clause) (needs deno + uv)", .harness = .idle, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
             .{ .step_name = "rust-relay-idle-test", .description = "Prove the Rust relay reclaims an idle session (the bounded-resources clause) (needs deno + cargo)", .harness = .idle, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
+            .{ .step_name = "racket-relay-test", .description = "Prove a browser peer holds a keyed session through the Racket relay (net/rfc6455) (needs deno + racket)", .harness = .tcp, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay },
+            .{ .step_name = "racket-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Racket relay (needs deno + racket)", .harness = .backpressure, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay },
+            .{ .step_name = "racket-relay-idle-test", .description = "Prove the Racket relay reclaims an idle session (the bounded-resources clause) (needs deno + racket)", .harness = .idle, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
         },
     }, &wasm_driver_install.step, iroh_abi_step);
 
@@ -1564,11 +1879,12 @@ pub fn build(b: *std.Build) void {
     // bundled with the browser mapping so @pancake/iroh resolves to its browser arm.
     addRelayFamily(b, .{
         .aggregate_name = "bindings-relay-iroh",
-        .aggregate_desc = "Prove the relay's iroh leg across every runtime's relay: a browser peer holds a live iroh session through Deno, Python, Rust relays (needs deno + uv + cargo)",
+        .aggregate_desc = "Prove the relay's iroh leg across every runtime's relay: a browser peer holds a live iroh session through Deno, Python, Rust, Racket relays (needs deno + uv + cargo + racket)",
         .rows = &.{
             .{ .step_name = "deno-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Deno reference relay (needs deno + cargo)", .harness = .iroh, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_iroh },
             .{ .step_name = "python-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Python relay (needs deno + uv + cargo)", .harness = .iroh, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay },
             .{ .step_name = "rust-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Rust relay (needs deno + cargo)", .harness = .iroh, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_iroh_build.step, .needs_iroh_lib_path = true },
+            .{ .step_name = "racket-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Racket relay, dialing iroh via the binding's dial-locator-for-relay (needs deno + cargo + racket)", .harness = .iroh, .label = "Racket", .marker = "RACKET-RELAY-READY", .relay_argv = &racket_relay },
         },
     }, &wasm_driver_install.step, iroh_abi_step);
 
@@ -1909,6 +2225,17 @@ pub fn build(b: *std.Build) void {
         .import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
     });
     addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-header-net-transport-webrtc-check",
+        .check_desc = "Verify include/pancake_net_transport_webrtc.h matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale)",
+        .write_step_name = "gen-header-net-transport-webrtc",
+        .write_desc = "Regenerate include/pancake_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig",
+        .generator = "tools/gen/header/webrtc.zig",
+        .import_name = "c_abi_net_transport_webrtc",
+        .import_module = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod),
+        .extra_import_name = "webrtc_sidecar_stub",
+        .extra_import_module = b.createModule(.{ .root_source_file = b.path("tools/gen/stub/webrtc_sidecar.zig"), .target = target, .optimize = optimize }),
+    });
+    addHeaderGen(b, check_step, target, optimize, .{
         .check_step_name = "gen-binding-rust-ffi-check",
         .check_desc = "Verify the generated Rust extern blocks match src/c_abi (fails if stale)",
         .write_step_name = "gen-binding-rust-ffi",
@@ -1932,6 +2259,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "net", .module = host_mods[layerIndex("net")] },
             .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         }),
+        .extra5_import_name = "c_abi_net_transport_webrtc",
+        .extra5_import_module = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod),
     });
     addHeaderGen(b, check_step, target, optimize, .{
         .check_step_name = "gen-binding-racket-ffi-check",
@@ -1957,6 +2286,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "net", .module = host_mods[layerIndex("net")] },
             .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         }),
+        .extra5_import_name = "c_abi_net_transport_webrtc",
+        .extra5_import_module = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod),
     });
     addHeaderGen(b, check_step, target, optimize, .{
         .check_step_name = "gen-binding-python-ffi-check",
@@ -1982,6 +2313,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "net", .module = host_mods[layerIndex("net")] },
             .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         }),
+        .extra5_import_name = "c_abi_net_transport_webrtc",
+        .extra5_import_module = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod),
     });
     addHeaderGen(b, check_step, target, optimize, .{
         .check_step_name = "gen-binding-ffi-layouts-check",
@@ -2157,6 +2490,44 @@ pub fn build(b: *std.Build) void {
     run_rooms_dm.step.dependOn(b.getInstallStep());
     b.step("demo-rooms-dm", "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)")
         .dependOn(&run_rooms_dm.step);
+
+    // The bidirectional completion of the introduction: a host-wide giftable
+    // reads its caller's connection through `currentSession()` and replies over
+    // it, so a non-listening caller (a browser peer) receives the reply on the
+    // connection it opened. Direct 2-party TCP, no room, no dial-back.
+    const run_rooms_dm_reply = b.addSystemCommand(&.{
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "apps/rooms/dm_reply_demo.ts",
+    });
+    run_rooms_dm_reply.step.dependOn(b.getInstallStep());
+    b.step("demo-rooms-dm-reply", "A host-wide giftable replies to its caller over the arriving connection via currentSession(), so a non-listening peer receives the reply (needs deno)")
+        .dependOn(&run_rooms_dm_reply.step);
+
+    // The redeemed-introduction back-channel: a member answers a non-listening
+    // sender across a three-party handoff. The sender hosts a reply inbox on the
+    // redeemed direct connection (`Session.sendRedeeming`), so the member replies
+    // over it without dialing the sender. The native, Chromium-free sibling of
+    // `rooms-web-dm`, driving the same `room_client.ts` DirectMessage.
+    const run_rooms_dm_back = b.addSystemCommand(&.{
+        "deno",                       "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "apps/rooms/dm_back_demo.ts",
+    });
+    run_rooms_dm_back.step.dependOn(b.getInstallStep());
+    b.step("demo-rooms-dm-back", "A member replies to a non-listening sender across a redeemed introduction: the sender hosts a reply inbox on the redeemed direct connection (sendRedeeming), room out of the path (needs deno)")
+        .dependOn(&run_rooms_dm_back.step);
+
+    // Redeem attribution is deterministic: `Session.sendRedeeming` resolves the
+    // direct exporter session from the reply's own route, so a re-redeem to an
+    // already-dialed exporter resolves the same live session even though it runs
+    // no new dial — the case a capture-window heuristic would surface as null
+    // (ADR-0088).
+    const run_rooms_dm_reredeem = b.addSystemCommand(&.{
+        "deno",                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "apps/rooms/dm_reredeem_test.ts",
+    });
+    run_rooms_dm_reredeem.step.dependOn(b.getInstallStep());
+    b.step("demo-rooms-dm-reredeem", "sendRedeeming resolves the direct exporter from the reply's route: a re-redeem to an already-dialed exporter resolves the same live session with no second dial (needs deno)")
+        .dependOn(&run_rooms_dm_reredeem.step);
 
     // The same rooms demo over iroh's encrypted QUIC. The Zig client is built as
     // a second, iroh-enabled artifact that links the Rust sidecar (so it can dial
@@ -2391,6 +2762,24 @@ pub fn build(b: *std.Build) void {
     const rooms_web_dm_step = b.step("rooms-web-dm", "Prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)");
     rooms_web_dm_step.dependOn(&rooms_web_dm.step);
 
+    // Two browser tabs cold-dial each other by relay rendezvous (ADR-0088
+    // capability 5): each registers its keyed identity at the relay and
+    // advertises a `keyed-relay` locator, one redeems the room's introduction by
+    // cold-dialing the other tab-to-tab through the relay off-room, the keyed
+    // session opens end to end, and the reply rides back over the arriving
+    // connection. Browser-to-browser on a shared relay, not a general stranger
+    // cold-dial. Plain TCP-through-relay for the room, rendezvous-over-relay for
+    // the DM, so it is deno-only (no cargo/iroh). Same needs as rooms-web-page.
+    const rooms_web_dm_tabs = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/deno/web_dm_tabs_test.ts",
+    });
+    rooms_web_dm_tabs.setCwd(b.path("."));
+    rooms_web_dm_tabs.has_side_effects = true;
+    rooms_web_dm_tabs.step.dependOn(&wasm_driver_install.step);
+    rooms_web_dm_tabs.step.dependOn(b.getInstallStep());
+    const rooms_web_dm_tabs_step = b.step("rooms-web-dm-tabs", "Prove two browser tabs direct-message each other by cold-dial relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser on a shared relay, deno-only (needs deno + a Playwright Chromium)");
+    rooms_web_dm_tabs_step.dependOn(&rooms_web_dm_tabs.step);
+
     // The same browser UI with its rooms and its direct-message members over iroh's
     // encrypted QUIC instead of TCP. The bridge announces and dials ocapn:// URIs,
     // so it needs the iroh C ABI companion built first, and thus `cargo`.
@@ -2597,6 +2986,7 @@ pub fn build(b: *std.Build) void {
         "apps/tasks/rust/Cargo.toml",
         "apps/rooms/rust/Cargo.toml",
         "transports/iroh/Cargo.toml",
+        "transports/webrtc/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust + TypeScript formatting, the TypeScript lint rules, and the TypeScript type-check without writing (needs cargo + deno)");

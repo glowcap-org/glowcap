@@ -80,6 +80,7 @@ def driver_sigs(
         "pancake_host_session_open_accepted": ([P, P, size, P, size, P, size, ctypes.POINTER(P)], i32),
         "pancake_host_plan_dial": ([P, size, P, size, P, size, u32, u32, ctypes.POINTER(_DialPlan)], i32),
         "pancake_host_pending_dial": ([P, u64, ctypes.POINTER(_PendingDial)], i32),
+        "pancake_host_reference_exporter": ([P, ctypes.POINTER(_Reference), ctypes.POINTER(P)], i32),
         "pancake_host_plan_accept": ([P, size, P, size, P, size, ctypes.POINTER(_AcceptPlan)], i32),
         "pancake_host_session_release": ([P], None),
         "pancake_host_session_session_open": ([P], i32),
@@ -175,4 +176,28 @@ def iroh_sigs(_IrohReadyEvent, _IrohConfig):
         "pancake_iroh_netlayer_try_connect": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
         "pancake_iroh_conn_try_read": ([P, P, size, size_p], i32),
         "pancake_iroh_conn_try_write": ([P, P, size, size_p], i32),
+    }
+
+
+def webrtc_sigs():
+    """``libpancake_net_transport_webrtc`` signatures, in the inventory's order."""
+    P = ctypes.c_void_p
+    size = ctypes.c_size_t
+    u64 = ctypes.c_uint64
+    i32 = ctypes.c_int32
+    size_p = ctypes.POINTER(size)
+    return {
+        "pancake_webrtc_last_error": ([P, size], size),
+        "pancake_webrtc_peer_new": ([i32, ctypes.POINTER(P)], i32),
+        "pancake_webrtc_peer_create_offer": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_create_answer": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_set_remote_offer": ([P, P, size], i32),
+        "pancake_webrtc_peer_set_remote_answer": ([P, P, size], i32),
+        "pancake_webrtc_peer_add_remote_candidate": ([P, P, size], i32),
+        "pancake_webrtc_peer_next_local_candidate": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_wait_open": ([P, u64], i32),
+        "pancake_webrtc_peer_read": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_write": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_close": ([P], None),
+        "pancake_webrtc_peer_release": ([P], None),
     }

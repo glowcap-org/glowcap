@@ -189,6 +189,57 @@ fn checkSiteContentLinksInFile(
     }
 }
 
+/// Every SuperMD page under `site/content/**` must be reachable from the site
+/// navigation, so a new page cannot ship orphaned: built and URL-reachable, but
+/// absent from the sidebar every reader browses by. The nav lives in one
+/// template, `site/layouts/templates/base.shtml`, and links a page as
+/// `$site.page('<id>')`, where `<id>` is the content path without `.smd` (a
+/// trailing `/index.smd` collapses to its directory, and the root `index.smd` is
+/// the home page, id `''`, linked as the brand). Adding a page and forgetting its
+/// nav entry was a real hazard the relay page had to sidestep by hand; this makes
+/// the reachability an invariant instead of a convention.
+pub fn checkSiteNavParity(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const nav_path = "site/layouts/templates/base.shtml";
+    const nav = root.readFileAlloc(io, nav_path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for site nav parity check with {s}", .{ nav_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(nav);
+
+    var dir = root.openDir(io, "site/content", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/content: failed to open for site nav parity check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
+
+        // Page id: the content path minus `.smd`, with a bare `index` (the home
+        // page) or a trailing `/index` collapsed to its directory.
+        var id = entry.path[0 .. entry.path.len - ".smd".len];
+        if (std.mem.eql(u8, id, "index")) {
+            id = "";
+        } else if (std.mem.endsWith(u8, id, "/index")) {
+            id = id[0 .. id.len - "/index".len];
+        }
+
+        const needle = try std.fmt.allocPrint(gpa, "site.page('{s}')", .{id});
+        defer gpa.free(needle);
+        if (std.mem.indexOf(u8, nav, needle) == null) {
+            try appendViolation(gpa, violations, "site/content/{s}: orphaned page, {s} has no `{s}` nav entry, so the page ships invisible in the sidebar", .{ entry.path, nav_path, needle });
+        }
+    }
+}
+
 /// The README and the start page both quote the tcp quick-start snippet and
 /// claim `examples/zig/readme_quick_start.zig` carries it verbatim. This makes
 /// the claim mechanical: each doc's fenced block must equal the example's

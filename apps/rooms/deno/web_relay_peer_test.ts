@@ -12,7 +12,7 @@
 //
 // The trick is one line: the wasm binding dials by mapping a locator's
 // host:port to a WebSocket URL (`wsUrl`), so pointing that at
-// `ws://<web-host>/relay?to=host:port` sends the whole keyed OCapN session
+// `ws://<web-host>/relay?target=host:port` sends the whole keyed OCapN session
 // through the relay to the room's TCP socket. The browser peer holds the
 // directory capability itself; the relay only moves bytes.
 
@@ -73,10 +73,10 @@ try {
 	await waitForHttp(httpPort);
 
 	// Load the stack over the wasm peer, dialing every locator through the
-	// relay: host:port becomes ws://<web-host>/relay?to=host:port.
+	// relay: host:port becomes ws://<web-host>/relay?target=host:port.
 	const stack = await init({
 		wasm: await Deno.readFile(WASM),
-		wsUrl: (host, port) => `ws://127.0.0.1:${httpPort}/relay?to=${host}:${port}`,
+		wsUrl: (host, port) => `ws://127.0.0.1:${httpPort}/relay?target=${host}:${port}`,
 	});
 
 	// A plain tcp locator to the room server, dialed through the relay. The

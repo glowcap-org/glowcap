@@ -133,17 +133,22 @@ source and checked against drift.
 ## Step 5: The Netlayer Frontier
 
 The netlayer is a pluggable contract, not a privileged built-in (ADR-0043),
-with four residents today. `tcp` is the cleartext socket transport.
+with these residents today. `tcp` is the cleartext socket transport.
 `keyed-tcp` (ADR-0075) reuses those sockets under a key designator.
 `net.inproc` (ADR-0047) wires in-process byte pipes with no sockets or file
 descriptors. `iroh` (`net/transport/iroh.zig`, ADR-0055) dials a real iroh
 endpoint by Ed25519 id over an encrypted QUIC stream, carried by the
 `transports/iroh` Rust sidecar so the pure-Zig archives stay pure Zig,
-proven live by `zig build iroh-interop`. All four drive through the same
-`connectVia`/`acceptVia` dispatch and handshake over one transport-generic
-`Connection`. Adding each transport touched no driver, core, or contract
-file, which is why the contract counts as transport-general rather than
-socket-shaped. `net` owns `std.Io` behind the core/adapters boundary, on
+proven live by `zig build iroh-interop`. `webrtc`
+(`net/transport/webrtc.zig`, ADR-0089) carries a session over a peer-to-peer
+DataChannel, DTLS-encrypted and carried by the `transports/webrtc` Rust
+sidecar, proven live by `zig build webrtc-interop`. Every resident but `webrtc`
+drives through the same `connectVia`/`acceptVia` dispatch and handshake over one
+transport-generic `Connection`; `webrtc` has no dialable address, so it is
+reached by a signaling exchange first and then runs the identical keyed
+handshake over the opened channel. Adding each transport touched no driver,
+core, or contract file, which is why the contract counts as transport-general
+rather than socket-shaped. `net` owns `std.Io` behind the core/adapters boundary, on
 io_uring for Linux and kqueue for macOS/BSD.
 
 Server-side hosting is at parity across residents: the native driver hosts

@@ -13,9 +13,10 @@
 
 const std = @import("std");
 
-// Force sidecar stubs so reflecting the iroh archive stays cargo-free.
+// Force sidecar stubs so reflecting the iroh and webrtc archives stays cargo-free.
 comptime {
     _ = @import("iroh_sidecar_stub");
+    _ = @import("webrtc_sidecar_stub");
 }
 
 const c = @import("c_abi");
@@ -23,6 +24,7 @@ const cd = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const cw = @import("c_abi_net_transport_webrtc");
 
 pub const step_name = "gen-binding-rust-ffi";
 
@@ -37,6 +39,7 @@ pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/tcp_fns_gen.rs", .generate = generateTcp },
     .{ .path = "bindings/rust/src/sys/inproc_fns_gen.rs", .generate = generateInproc },
     .{ .path = "bindings/rust/src/sys/iroh_fns_gen.rs", .generate = generateIroh },
+    .{ .path = "bindings/rust/src/sys/webrtc_fns_gen.rs", .generate = generateWebrtc },
 };
 
 /// `module.PancakeIrohNetlayer` → `PancakeIrohNetlayer`.
@@ -81,6 +84,7 @@ fn rustParamType(comptime T: type, comptime specials: []const Special) []const u
             break :blk mutability ++ child_name;
         },
         .int => switch (T) {
+            i32 => "c_int",
             u16 => "u16",
             u32 => "c_uint",
             u64 => "u64",
@@ -265,6 +269,22 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
         \\use core::ffi::{c_int, c_uchar};
         \\
         \\use super::iroh::{PancakeIrohConfig, PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent};
+        \\
+    , &.{});
+}
+
+fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, cw, "include/pancake_net_transport_webrtc.h",
+        \\// The raw extern block of `libpancake_net_transport_webrtc`. The
+        \\// hand-written sibling (`webrtc.rs`) owns the opaque `PancakeWebrtcPeer`
+        \\// type and re-exports this block, so consumers keep their
+        \\// `sys::webrtc::pancake_webrtc_*` paths.
+        \\
+        \\
+    ,
+        \\use core::ffi::{c_int, c_uchar};
+        \\
+        \\use super::webrtc::PancakeWebrtcPeer;
         \\
     , &.{});
 }

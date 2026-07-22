@@ -43,10 +43,12 @@ export function webSocketChannel(ws: WebSocket): Channel {
 	}).getReader();
 	return {
 		async read(): Promise<Uint8Array | null> {
-			const { value, done } = await reader.read().catch(() => ({
-				value: undefined,
-				done: true,
-			}));
+			// A clean close arrives as `done` via `controller.close()` (onclose); a
+			// transport error arrives as a rejection via `controller.error()`
+			// (onerror). Let the rejection propagate — the native adapters do, and
+			// `Session.serve` promises to reject on a transport error. Swallowing it
+			// into an EOF here would make a dropped socket look like a graceful close.
+			const { value, done } = await reader.read();
 			return done ? null : value ?? null;
 		},
 		async write(data: Uint8Array): Promise<void> {

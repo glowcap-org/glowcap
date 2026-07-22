@@ -155,6 +155,11 @@ where
 			if transferred_b.fetch_add(n, Ordering::Relaxed) + n > MAX_BYTES_PER_SESSION {
 				break;
 			}
+			// Named boundary copy: tokio-tungstenite's `Message::binary` owns its
+			// bytes, so the read chunk is copied once into an owned buffer before
+			// the async send. Bounded by `READ_CHUNK` (64 KiB) and off pancake's
+			// own wire path — the WebSocket-sink shape of memory.md's binding
+			// outbound flush copy.
 			if ws_write
 				.send(Message::binary(buf[..n].to_vec()))
 				.await

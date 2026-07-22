@@ -3,10 +3,12 @@
 First-party applications built entirely on the public application surface —
 the same `connect` / `publish` / `fetch` / `send` / `serve` verbs the
 bindings ship — never on `libpancake_*` internals. The cross-language demo
-apps live here beside any product app that ships as its own binary; each has
-a dedicated `zig build` step that fails when it drifts (the demo steps are
-listed in [`examples/README.md`](../examples/README.md), which walks what
-each app proves).
+apps live here beside any product app that ships as its own binary. Each has a
+dedicated `zig build` step: the accountability application runs inside
+`zig build check`, while the cross-language demos run as siblings, since they
+need extra language runtimes on PATH. The demo steps are listed in
+[`examples/README.md`](../examples/README.md), which walks what each app
+proves.
 
 - [`rooms/`](rooms/): capability-secure chat, with the browser UI
   (`zig build demo-rooms`, `rooms-web`).

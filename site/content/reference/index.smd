@@ -31,6 +31,7 @@ archive compiles.
 | `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_tcp.h) | cleartext TCP |
 | `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
 | `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
+| `libpancake_net_transport_webrtc` | [`pancake_net_transport_webrtc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
 
 The iroh header is a companion: it `#include`s `pancake_ocapn.h` and adds only the
 `pancake_iroh_*` family, and a consumer links its archive alongside the core ones.

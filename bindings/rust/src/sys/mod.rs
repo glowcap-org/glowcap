@@ -45,3 +45,7 @@ mod iroh_fns_gen;
 pub mod tcp;
 #[cfg(feature = "tcp")]
 mod tcp_fns_gen;
+#[cfg(feature = "webrtc")]
+pub mod webrtc;
+#[cfg(feature = "webrtc")]
+mod webrtc_fns_gen;

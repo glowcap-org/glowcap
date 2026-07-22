@@ -43,13 +43,15 @@ export async function runClient(
 ): Promise<string[]> {
 	const dir = await Directory.connect(locator, dial);
 	const session = dir.session;
-	// Discovery: show the rooms that already have people in them before we enter.
+	// Discovery: show the rooms that already have people in them, then follow the
+	// live list, both the snapshot (`list`) and the change feed (`watch`).
 	const live = await dir.list();
 	console.log(
 		`[${nick}] rooms: ${
 			live.length ? live.map((r) => `${r.name} (${r.count})`).join(", ") : "(none yet)"
 		}`,
 	);
+	await dir.watch((e) => console.log(`[${nick}] directory: ${e.kind} ${e.name} (${e.count})`));
 	const room = await enterOrOpen(dir, roomName);
 
 	const chatLines: string[] = [];

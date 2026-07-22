@@ -1704,6 +1704,7 @@ fn extractAnchoredAbi(
     text: []const u8,
     anchor: []const u8,
     ret_end: u8,
+    prefix: []const u8,
     out: *std.StringHashMap([]const u8),
 ) !void {
     var search: usize = 0;
@@ -1713,7 +1714,7 @@ fn extractAnchoredAbi(
         while (name_end < text.len and isAbiIdentChar(text[name_end])) name_end += 1;
         search = name_end;
         const name = text[name_start..name_end];
-        if (!std.mem.startsWith(u8, name, "pancake_iroh_sidecar_")) continue;
+        if (!std.mem.startsWith(u8, name, prefix)) continue;
         if (name_end >= text.len or text[name_end] != '(') continue;
         const params_end = std.mem.indexOfScalarPos(u8, text, name_end + 1, ')') orelse continue;
         const ret_stop = std.mem.indexOfScalarPos(u8, text, params_end + 1, ret_end) orelse continue;
@@ -1732,6 +1733,7 @@ fn extractAnchoredAbi(
 fn extractCHeaderAbi(
     arena: std.mem.Allocator,
     contents: []const u8,
+    prefix: []const u8,
     out: *std.StringHashMap([]const u8),
 ) !void {
     const text = try arena.dupe(u8, contents);
@@ -1742,7 +1744,7 @@ fn extractCHeaderAbi(
         i = close + 2;
     }
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, text, search, "pancake_iroh_sidecar_")) |start| {
+    while (std.mem.indexOfPos(u8, text, search, prefix)) |start| {
         var name_end = start;
         while (name_end < text.len and isAbiIdentChar(text[name_end])) name_end += 1;
         search = name_end;
@@ -1786,6 +1788,70 @@ fn nextQuotedString(text: []const u8, from: usize) ?[]const u8 {
     return text[open + 1 .. close];
 }
 
+/// One hand-spelled surface of a sidecar C ABI: its file, the anchor before each
+/// declaration (`null` for a C header, read backward to the previous `;`), and
+/// the char the return type runs to.
+const SidecarAbiSurface = struct { path: []const u8, anchor: ?[]const u8, ret_end: u8 };
+
+/// Hold every hand-spelled surface of a sidecar C ABI to the same function set,
+/// arity, and coarse type shape. `prefix` is the shared symbol prefix
+/// (`pancake_iroh_sidecar_`, `pancake_webrtc_sidecar_`); `label` names the
+/// sidecar in the diagnostics. The iroh and webrtc checks are thin callers of
+/// this one spine.
+fn checkSidecarAbiParity(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    label: []const u8,
+    prefix: []const u8,
+    surfaces: []const SidecarAbiSurface,
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const maps = try arena.alloc(std.StringHashMap([]const u8), surfaces.len);
+    for (surfaces, 0..) |surface, idx| {
+        maps[idx] = std.StringHashMap([]const u8).init(arena);
+        const contents = root.readFileAlloc(io, surface.path, arena, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for {s} ABI parity with {s}", .{ surface.path, label, @errorName(err) });
+            return;
+        };
+        if (surface.anchor) |anchor| {
+            try extractAnchoredAbi(arena, contents, anchor, surface.ret_end, prefix, &maps[idx]);
+        } else {
+            try extractCHeaderAbi(arena, contents, prefix, &maps[idx]);
+        }
+        if (maps[idx].count() == 0) {
+            try appendViolation(gpa, violations, "{s}: found no {s} declarations, the {s} ABI parity scanner no longer matches this surface", .{ surface.path, prefix, label });
+            return;
+        }
+    }
+
+    var names = std.StringHashMap(void).init(arena);
+    for (maps) |*map| {
+        var it = map.keyIterator();
+        while (it.next()) |key| try names.put(key.*, {});
+    }
+    var name_it = names.keyIterator();
+    while (name_it.next()) |key| {
+        const name = key.*;
+        for (surfaces, maps) |surface, *map| {
+            if (map.get(name) == null) {
+                try appendViolation(gpa, violations, "{s}: {s} sidecar ABI function `{s}` is missing from this surface", .{ surface.path, label, name });
+            }
+        }
+        const reference = maps[0].get(name) orelse continue;
+        for (surfaces[1..], maps[1..]) |surface, *map| {
+            const other = map.get(name) orelse continue;
+            if (!std.mem.eql(u8, reference, other)) {
+                try appendViolation(gpa, violations, "{s}: `{s}` is `{s}` here but `{s}` in {s}", .{ surface.path, name, other, reference, surfaces[0].path });
+            }
+        }
+    }
+}
+
 /// Hold the three hand-spelled surfaces of the iroh sidecar C ABI (ADR-0055)
 /// to the same function set, arity, and coarse type shape.
 pub fn checkIrohSidecarAbi(
@@ -1794,56 +1860,27 @@ pub fn checkIrohSidecarAbi(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const surfaces = [_]struct { path: []const u8, anchor: ?[]const u8, ret_end: u8 }{
+    try checkSidecarAbiParity(io, gpa, root, violations, "iroh", "pancake_iroh_sidecar_", &.{
         .{ .path = "transports/iroh/src/lib.rs", .anchor = "pub extern \"C\" fn ", .ret_end = '{' },
         .{ .path = "transports/iroh/include/pancake_iroh_sidecar.h", .anchor = null, .ret_end = ';' },
         .{ .path = "src/net/transport/iroh.zig", .anchor = "extern fn ", .ret_end = ';' },
-    };
-    var maps: [surfaces.len]std.StringHashMap([]const u8) = undefined;
-    for (surfaces, 0..) |surface, idx| {
-        maps[idx] = std.StringHashMap([]const u8).init(arena);
-        const contents = root.readFileAlloc(io, surface.path, arena, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for iroh ABI parity with {s}", .{ surface.path, @errorName(err) });
-            return;
-        };
-        if (surface.anchor) |anchor| {
-            try extractAnchoredAbi(arena, contents, anchor, surface.ret_end, &maps[idx]);
-        } else {
-            try extractCHeaderAbi(arena, contents, &maps[idx]);
-        }
-        if (maps[idx].count() == 0) {
-            try appendViolation(gpa, violations, "{s}: found no pancake_iroh_sidecar_ declarations, the ABI parity scanner no longer matches this surface", .{surface.path});
-            return;
-        }
-    }
+    });
+}
 
-    var names = std.StringHashMap(void).init(arena);
-    for (&maps) |*map| {
-        var it = map.keyIterator();
-        while (it.next()) |key| try names.put(key.*, {});
-    }
-    var name_it = names.keyIterator();
-    while (name_it.next()) |key| {
-        const name = key.*;
-        var sigs: [surfaces.len]?[]const u8 = undefined;
-        for (&maps, 0..) |*map, idx| sigs[idx] = map.get(name);
-        for (surfaces, sigs) |surface, sig| {
-            if (sig == null) {
-                try appendViolation(gpa, violations, "{s}: iroh sidecar ABI function `{s}` is missing from this surface", .{ surface.path, name });
-            }
-        }
-        const reference = sigs[0] orelse continue;
-        for (surfaces[1..], sigs[1..]) |surface, sig| {
-            const other = sig orelse continue;
-            if (!std.mem.eql(u8, reference, other)) {
-                try appendViolation(gpa, violations, "{s}: `{s}` is `{s}` here but `{s}` in {s}", .{ surface.path, name, other, reference, surfaces[0].path });
-            }
-        }
-    }
+/// Hold the two hand-spelled surfaces of the webrtc sidecar C ABI (ADR-0089) to
+/// the same function set, arity, and coarse type shape. The webrtc sidecar has no
+/// private C header (its resident's `extern fn` block is the only C-side spelling
+/// besides the Rust exports), so it is a two-surface parity, not three.
+pub fn checkWebrtcSidecarAbi(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    try checkSidecarAbiParity(io, gpa, root, violations, "webrtc", "pancake_webrtc_sidecar_", &.{
+        .{ .path = "transports/webrtc/src/lib.rs", .anchor = "extern \"C\" fn ", .ret_end = '{' },
+        .{ .path = "src/net/transport/webrtc.zig", .anchor = "extern fn ", .ret_end = ';' },
+    });
 }
 
 /// ADR-0055 commits the sidecar to reproducible dependency resolution: the

@@ -69,6 +69,7 @@ export const driverS = lazySymbols(() => libPath("pancake_driver"), {
 		outBuffers: [8],
 	},
 	pancake_host_pending_dial: { parameters: [P, U64, B], result: I, outBuffers: [2] },
+	pancake_host_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	pancake_host_plan_accept: { parameters: [B, U, B, U, B, U, B], result: I, outBuffers: [6] },
 	pancake_host_session_release: { parameters: [P], result: V },
 	pancake_host_session_session_open: { parameters: [P], result: I },

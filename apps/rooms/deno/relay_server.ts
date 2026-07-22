@@ -1,36 +1,61 @@
-// DENO-SPECIFIC: the rooms relay endpoint's server side. It adapts an upgraded
-// WebSocket to the byte relay in @pancake/relay and dials the far side: TCP for a
-// `host:port` locator, iroh for an `ocapn://` URI. The bytes are never parsed,
-// so the keyed OCapN session rides through end to end.
+// DENO-SPECIFIC: the rooms relay endpoint's server side. It has two jobs, kept
+// distinct: dial a far side and relay to it (`relayToTarget`, over a target the
+// shared classifier already sorted into TCP or iroh), and bridge a cold-dialer to
+// a browser that holds an inbound socket here (`bridgeRendezvous`, ADR-0088). The
+// bytes are never parsed, so the keyed OCapN session rides through end to end.
+//
+// The relay never enumerates transports itself: `@pancake/stack`'s
+// `classifyRelayTarget` routes the target locator through the core
+// `pancake_host_plan_dial`, the same classifier the handoff redeem-dial uses, so
+// this relay sorts a locator exactly as every other runtime's relay does
+// (ADR-0086).
 
-import { type RelayChannel, type RelayConfig, webSocketRelay } from "@pancake/relay";
-import { isUriLocator } from "./lib/locator.ts";
+import {
+	denoIrohChannel,
+	denoTcpChannel,
+	type RelayChannel,
+	type RelayConfig,
+	Rendezvous,
+	webSocketRelay,
+} from "@pancake/relay";
+import { type RelayTarget } from "@pancake/stack";
 
-const idleTimeoutMs = 60_000;
+// A chat session is a persistent, mostly-quiet byte pipe: a peer can sit in a
+// room for a long time without typing, so no CapTP bytes cross the relay. A
+// byte-traffic idle timeout cannot tell that live-but-quiet peer from a dead one
+// and would reclaim it, forcing the page to reconnect every idle window. So the
+// relay's own idle timeout is off (0 disables it in `relayBytes`); liveness is
+// the WebSocket ping/pong instead, set as `idleTimeout` on the /relay upgrade in
+// web.ts — a live browser auto-pongs and stays connected, a dead one is reclaimed
+// by that. Resources stay bounded by `maxRelaySessions` and the ping/pong reclaim.
+const idleTimeoutMs = 0;
 // Instantaneous memory is bounded by the WebSocket send-buffer backpressure in
-// @pancake/relay, and liveness by the idle timeout; this per-session byte total
-// is only a runaway backstop, set far above any real chat session's traffic so
-// a peer sitting in a room for hours is never dropped mid-conversation.
+// @pancake/relay; this per-session byte total is only a runaway backstop over the
+// session's life, set far above any real chat session's traffic so a peer sitting
+// in a room for hours is never dropped mid-conversation.
 const maxBytesPerSession = 1024 * 1024 * 1024;
 const tcpDialTimeoutMs = 5_000;
 const maxRelaySessions = 100;
+// Held registered sockets are idle memory until a cold-dial bridges them, so a
+// cap bounds them independently of the live-session cap (ADR-0086 bounded
+// resources, carried to the rendezvous leg, ADR-0088).
+const maxRegistrations = 200;
 
 // Live relay sessions, counted from capacity admission until the relay's
 // pair-atomic teardown finishes (dial failures included).
 let activeRelaySessions = 0;
 
-/** Whether the relay may dial `locator`. An `ocapn://` URI is allowed to any
- * iroh node: node ids are key-verified and the keyed handshake carries session
- * authority end to end. That open-destination policy is deliberate for the demo,
- * and it is named attack surface: it makes the relay a bandwidth amplifier to
- * any iroh peer, bounded only by capacity and per-session backpressure. A real
- * deployment pins the iroh destination set the way TCP is already pinned to the
- * room server itself, `127.0.0.1:<roomPort>`. */
-export function relayAllowed(locator: string, roomPort: number): boolean {
-	if (isUriLocator(locator)) {
-		return locator.startsWith("ocapn://");
-	}
-	return locator === `127.0.0.1:${roomPort}`;
+/** Whether the relay may dial `target`. An iroh target is allowed to any node:
+ * node ids are key-verified and the keyed handshake carries session authority end
+ * to end. That open-destination policy is deliberate for the demo, and it is named
+ * attack surface: it makes the relay a bandwidth amplifier to any iroh peer,
+ * bounded only by capacity and per-session backpressure. A TCP target is pinned to
+ * the room server itself, `127.0.0.1:<roomPort>`, so a locator that classifies to
+ * a TCP dial (a bare `host:port`, or a `tcp`/`keyed-tcp` URI whose hint names an
+ * address) can only ever reach the room, never an arbitrary host. */
+export function relayAllowed(target: RelayTarget, roomPort: number): boolean {
+	return target.kind === "iroh" ||
+		(target.hostname === "127.0.0.1" && target.port === roomPort);
 }
 
 /** Whether a browser `Origin` header may drive the relay: absent (non-browser
@@ -46,6 +71,25 @@ export function relayOriginAllowed(origin: string | null, host: string | null): 
 	}
 }
 
+/** Whether a new relay session fits under the live-session cap: admit below the
+ * ceiling, refuse at or above it. The cap is the embedder's admission policy
+ * (ADR-0086 bounded resources); the reference relay leaves it unset. */
+export function relaySessionAdmitted(active: number, cap: number): boolean {
+	return active < cap;
+}
+
+/** Whether a rendezvous registration is admitted. An identity already holding a
+ * socket replenishes its own queue freely; a new identity must fit under the
+ * registration cap, so a flood of fresh identities cannot pin unbounded held
+ * sockets (ADR-0086 bounded resources, carried to the rendezvous leg). */
+export function rendezvousAdmitted(
+	registered: number,
+	alreadyPresent: boolean,
+	cap: number,
+): boolean {
+	return alreadyPresent || registered < cap;
+}
+
 const relayConfig: RelayConfig = { idleTimeoutMs, maxBytesPerSession };
 
 /** Admit a relay session under the capacity cap, then hand the WebSocket to the
@@ -57,7 +101,7 @@ function relayViaChannel(
 	getChannel: () => Promise<RelayChannel>,
 	dialFailReason: string,
 ): void {
-	if (activeRelaySessions >= maxRelaySessions) {
+	if (!relaySessionAdmitted(activeRelaySessions, maxRelaySessions)) {
 		socket.close(1008, "relay capacity exceeded");
 		return;
 	}
@@ -71,90 +115,71 @@ function relayViaChannel(
 	});
 }
 
-async function dialTcp(locator: string): Promise<RelayChannel> {
-	const colonIdx = locator.lastIndexOf(":");
-	if (colonIdx === -1) throw new Error("invalid TCP target format");
-	const host = locator.slice(0, colonIdx);
-	const port = Number(locator.slice(colonIdx + 1));
-	if (!Number.isInteger(port) || port < 1 || port > 65535) {
-		throw new Error("invalid port");
-	}
-	const connecting = Deno.connect({ hostname: host, port });
-	let dialTimer: number | undefined;
-	let timedOut = false;
-	let tcp: Deno.TcpConn;
-	try {
-		tcp = await Promise.race([
-			connecting,
-			new Promise<never>((_, reject) => {
-				dialTimer = setTimeout(() => {
-					timedOut = true;
-					reject(new Error("TCP dial timeout"));
-				}, tcpDialTimeoutMs) as unknown as number;
-			}),
-		]);
-	} finally {
-		// Disarm the timer on the happy path (or it would later close the live
-		// connection). If it already won the race, close the abandoned connect
-		// when it lands late so a slow dial leaks no fd.
-		clearTimeout(dialTimer);
-		if (timedOut) connecting.then((late) => late.close()).catch(() => {});
-	}
-	let reader;
-	try {
-		reader = tcp.readable.getReader();
-	} catch (err) {
-		tcp.close();
-		throw err;
-	}
-	let writer;
-	try {
-		writer = tcp.writable.getWriter();
-	} catch (err) {
-		reader.releaseLock();
-		tcp.close();
-		throw err;
-	}
-	return {
-		read: async () => {
-			const result = await reader.read();
-			return result.done ? null : result.value;
-		},
-		write: (chunk) => writer.write(chunk),
-		close: () => {
-			reader.releaseLock();
-			writer.releaseLock();
-			tcp.close();
-		},
-	};
-}
+// The cold-dial rendezvous (ADR-0088). A browser that opens no listening socket
+// registers its keyed identity and a held inbound socket here; a peer that
+// redeems an introduction naming that identity is bridged onto the held socket
+// through the same byte pump every other leg uses. The relay still parses no
+// frame and holds no capability — the keyed handshake runs end to end between
+// the dialer and the registered browser through two relay legs.
+const rendezvous = new Rendezvous();
 
-type IrohRelayModule = {
-	dialLocatorForRelay: (locator: string, reachability: unknown) => Promise<RelayChannel>;
-	Reachability: Record<string, unknown>;
-};
-// Cache the promise, not the result, so concurrent dials load the module once.
-let irohModulePromise: Promise<IrohRelayModule> | null = null;
-async function dialIroh(locator: string): Promise<RelayChannel> {
-	irohModulePromise ??= import("@pancake/iroh") as Promise<IrohRelayModule>;
-	const irohModule = await irohModulePromise;
-	return await irohModule.dialLocatorForRelay(locator, irohModule.Reachability.Discovery);
-}
-
-/** Relay an upgraded WebSocket to `locator`: TCP for `host:port`, iroh for an
- * `ocapn://` URI. The caller has already checked `relayAllowed`. */
-export function relayToLocator(socket: WebSocket, locator: string): void {
-	if (locator.length > 2048) {
-		socket.close(1008, "locator too long");
+/** Hold `socket` as the inbound accept socket for the peer identified by
+ * `designator`, under the registration cap. The registered peer waits to be
+ * cold-dialed; a bridge consumes the registration, so the peer registers a fresh
+ * socket for the next dial (one held socket carries one inbound session). */
+export function registerRendezvous(socket: WebSocket, designator: string): void {
+	if (
+		!rendezvousAdmitted(
+			rendezvous.registered().length,
+			rendezvous.has(designator),
+			maxRegistrations,
+		)
+	) {
+		socket.close(1008, "rendezvous capacity exceeded");
 		return;
 	}
-	if (isUriLocator(locator)) {
-		if (!locator.startsWith("ocapn://")) {
-			socket.close(1008, "unsupported URI scheme");
-			return;
-		}
-		relayViaChannel(socket, () => dialIroh(locator), "iroh relay dial failed");
+	rendezvous.register(designator, socket);
+}
+
+/** Bridge `socket` (a dialer) to the browser registered under `designator`,
+ * consuming that registration and piping the two through the shared byte pump.
+ * Closes the dialer when the peer is not present, so the caller learns the
+ * target is offline rather than the session failing silently. The cold-dial
+ * side of the relay: a bridge to a held socket, distinct from dialing a far
+ * side (`relayToTarget`). */
+export function bridgeRendezvous(socket: WebSocket, designator: string): void {
+	const held = rendezvous.take(designator);
+	if (held === undefined) {
+		socket.close(1011, "rendezvous: peer not registered");
+		return;
+	}
+	// `held` is already a buffering channel over the registered peer's socket, so
+	// the accept side's early hello is captured; pipe the dialer to it.
+	relayViaChannel(
+		socket,
+		() => Promise.resolve(held),
+		"rendezvous: registered peer went away",
+	);
+}
+
+/** Dial the far side the classified `target` names and relay the WebSocket to it:
+ * TCP for a `host_port` shape, iroh for a `peer_id` one. The classification is the
+ * shared `classifyRelayTarget`, so this relay never re-decides the transport. The
+ * cold-dial rendezvous is a *bridge* to a held socket, not a dial, so it is a
+ * separate path (`bridgeRendezvous`), not an arm here. The caller has already
+ * checked `relayAllowed`. */
+export function relayToTarget(socket: WebSocket, target: RelayTarget): void {
+	if (target.kind === "tcp") {
+		relayViaChannel(
+			socket,
+			() => denoTcpChannel(target.hostname, target.port, { dialTimeoutMs: tcpDialTimeoutMs }),
+			"TCP relay target unreachable",
+		);
 	} else {
-		relayViaChannel(socket, () => dialTcp(locator), "TCP relay target unreachable");
+		relayViaChannel(
+			socket,
+			() => denoIrohChannel(target.locator, "discovery"),
+			"iroh relay dial failed",
+		);
 	}
 }

@@ -156,15 +156,6 @@ lineInput.addEventListener("focus", () => {
 	setTimeout(toBottom, 300);
 });
 
-// iOS Safari ignores user-scalable=no in the viewport meta, so disable
-// pinch-zoom by preventing its proprietary gesture events. Double-tap zoom is
-// dropped by touch-action: manipulation in the CSS. Scrolling the log, which is
-// a single-touch pan, is unaffected. (These events never fire on desktop.)
-for (const ev of ["gesturestart", "gesturechange", "gestureend"]) {
-	document.addEventListener(ev, (e) => e.preventDefault(), {
-		passive: false,
-	});
-}
 document.addEventListener("visibilitychange", () => {
 	if (document.hidden) return;
 	const c = activeConv();

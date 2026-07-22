@@ -22,12 +22,16 @@
          "private/constants.rkt"
          "private/errors.rkt"
          "private/ffi-iroh.rkt"
-         "private/seam.rkt")
+         "private/seam.rkt"
+         "private/relay-channel.rkt"
+         (only-in "private/locator.rkt"
+                  parse-locator locator-transport locator-designator locator-hints))
 
 (provide listen-iroh
          IROH-REACH-DIRECT IROH-REACH-DISCOVERY IROH-REACH-DISCOVERY-NO-RELAY IROH-REACH-LOCAL-DISCOVERY
          iroh-server-node-id iroh-server-direct-addresses
-         iroh-server-host iroh-server-accept iroh-server-close!)
+         iroh-server-host iroh-server-accept iroh-server-close!
+         dial-locator-for-relay)
 
 ;; Reachability posture, REQUIRED on every public iroh constructor, with NO
 ;; default: a peer states how it is reachable, the binding never guesses. The
@@ -471,6 +475,38 @@
   ;; rooting the very object whose collection triggers it.
   (register-finalizer c (lambda (_) ((async-transport-close! transport))))
   c)
+
+;; Dial an iroh `ocapn://` locator to a `relay-channel`, completing NO CapTP
+;; handshake: the relay only pipes bytes, and the two ends key the session end to
+;; end. This is the Racket sibling of the TypeScript `dialLocatorForRelay` and the
+;; Python `dial_locator_for_relay`; the iroh readiness compose lives in each
+;; binding over the same C-ABI conn and readiness primitives the serve loop
+;; drives. The direct-address hint reaches the conformance host over loopback
+;; (Direct); a deployment relay resolves node ids by discovery.
+(define (dial-locator-for-relay locator reachability)
+  (define loc (parse-locator locator))
+  (unless (string=? (locator-transport loc) TRANSPORT-IROH)
+    (error 'dial-locator-for-relay
+           "expected an iroh locator, got transport ~a" (locator-transport loc)))
+  (define node-id (locator-designator loc))
+  (define direct-addresses (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
+  (define-values (netlayer _) (iroh-netlayer-new reachability))
+  (define lp (make-iroh-loop netlayer))
+  (define conn
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
+      (dial-resolving netlayer node-id direct-addresses
+                      (or (= reachability IROH-REACH-DISCOVERY)
+                          (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
+  (loop-register! lp conn)
+  ;; The dialer owns its ephemeral netlayer and loop, so the transport's close
+  ;; tears both down. `read-some!` parks on the connection's readability; a
+  ;; never-ready wake event means it only ever returns bytes or eof, never 'woke.
+  (define transport (iroh-loop-transport lp conn netlayer #t))
+  (relay-channel
+   (lambda () ((async-transport-read-some! transport) never-evt))
+   (lambda (data) ((async-transport-write-frame! transport) data))
+   (lambda () ((async-transport-close! transport)))))
 
 ;; ── host ─────────────────────────────────────────────────────────────────────
 ;; `host` is the one CapTP host shared by every session this server

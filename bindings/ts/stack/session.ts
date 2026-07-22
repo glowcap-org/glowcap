@@ -14,6 +14,7 @@
 import {
 	attenuateProxy,
 	caretakerProxy,
+	currentTurnSession,
 	dispatchSend,
 	dispatchTell,
 	type HostingHandle,
@@ -132,6 +133,7 @@ export class Session {
 		// deno-lint-ignore no-this-alias -- object-literal getters cannot see Session `#` fields without a closed-over instance
 		const s = this;
 		return {
+			deliverOwner: s,
 			get ptr() {
 				return s.#ptr;
 			},
@@ -545,6 +547,38 @@ export class Session {
 		);
 	}
 
+	/** Eventual-send `verb(args)` to `target`, await the reply, and also surface
+	 * the direct `Session` a three-party-handoff redeem opened to answer it.
+	 *
+	 * When `target` answers with a `desc:handoff-give` (a rooms `introduce`, say),
+	 * the binding redeems it by dialing the exporter, and the reply resolves to a
+	 * capability that routes over that fresh direct connection. That connection is
+	 * otherwise internal. This returns it as `via`, so a caller can host its own
+	 * objects on the very connection the redeemed capability lives on — the one
+	 * place a reply capability handed back to the exporter is valid, since an
+	 * OCapN near export names a position on one specific connection's peer. `via`
+	 * is resolved from the reply's own route (the token carries which exporter
+	 * connection it lives on), so it is correct with several redeems in flight at
+	 * once and it finds an exporter a prior redeem already dialed — a cache hit
+	 * that opens no new connection. `via` is null when the reply is not a
+	 * redeemed-handoff capability (an ordinary far reply) or its exporter
+	 * connection is already gone.
+	 *
+	 *   const { reply, via } = await conn.sendRedeeming(directory, "introduce", [nick]);
+	 *   const inbox = (via ?? conn).spawn(replyBehavior);   // hosted where the reply lives
+	 *   await (via ?? conn).send(reply as Ref, "dm", [text, inbox]);
+	 */
+	async sendRedeeming(
+		target: Ref | RemotePromise,
+		verb: string,
+		args: AppValue[] = [],
+	): Promise<{ reply: AppValue; via: Session | null }> {
+		this.#guardOpen();
+		const reply = await this.send(target, verb, args);
+		const via = reply instanceof Ref ? this.#host.exporterFor(reply) : null;
+		return { reply, via };
+	}
+
 	/** Send `verb(args)` to `target` without awaiting a reply, the
 	 * fire-and-forget eventual-send (Goblins `<-np`). No answer is allocated
 	 * and none comes back, so it is the right call for a notification or a
@@ -597,4 +631,32 @@ export class Session {
 		this.#gc.enable();
 		return this;
 	}
+}
+
+/** The live connection whose inbound call is running right now, or null outside
+ * any hosted turn.
+ *
+ * A behavior published with {@link Host.publishGiftable} is bound to no single
+ * session — the same object answers calls that arrive on every connection — so
+ * it cannot close over one the way a `Session.spawn`/`Session.publish` actor
+ * does. When such a behavior must reply to its caller (send to a reply
+ * capability it was handed, or hand back a fresh one), it reads the arriving
+ * connection here:
+ *
+ *   host.publishGiftable("dm", (verb, args) => {
+ *     const from = String(args[0]), text = String(args[1]);
+ *     const reply = args[2];                     // a Ref the caller passed
+ *     const session = currentSession();          // the connection it arrived on
+ *     if (session && reply instanceof Ref) {
+ *       session.send(reply, "ack", [from]);      // reply on the same session
+ *     }
+ *   });
+ *
+ * The reply capability is a far import on the arriving connection, so it must be
+ * sent on that same connection. Capture the session synchronously inside the
+ * turn (it is null once the turn returns) to reply on a later turn. A
+ * session-bound actor already holds its own connection and does not need this. */
+export function currentSession(): Session | null {
+	const s = currentTurnSession();
+	return s instanceof Session ? s : null;
 }

@@ -17,6 +17,10 @@ export const TRANSPORT_TCP = "tcp";
 export const TRANSPORT_KEYED_TCP = "keyed-tcp";
 export const TRANSPORT_INPROC = "inproc";
 export const TRANSPORT_IROH = "iroh";
+/** A peer named by key alone, reached through a relay rendezvous rather than a
+ * dialable address (ADR-0088 cold-dial): a browser holds an inbound socket at a
+ * relay under this key and a dialer is bridged onto it. */
+export const TRANSPORT_KEYED_RELAY = "keyed-relay";
 
 //
 // The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN

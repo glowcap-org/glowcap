@@ -17,7 +17,7 @@ const roomPort = Number(params.get("roomPort") ?? "0");
 async function main(status: HTMLElement): Promise<void> {
 	const stack = await init({
 		wasm: fetch("/pancake_driver.wasm"),
-		wsUrl: (host, port) => `ws://${relay}/relay?to=${host}:${port}`,
+		wsUrl: (host, port) => `ws://${relay}/relay?target=${host}:${port}`,
 	});
 	const session = await stack.connect(stack.tcpLocator(roomHost, roomPort));
 	session.serve().catch(() => {});

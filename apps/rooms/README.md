@@ -133,9 +133,11 @@ says so with a lock and the transport it runs over. This is the same capability 
 A handed capability does not depend on the room that handed it over, so the direct line outlives the
 room: leave for another room, or watch the other person leave, and it keeps working. When the person
 you are messaging disconnects, the conversation marks them offline and dims their dot; when they
-return, your next message opens a fresh line. Each tab is itself a full, dialable member, so two
-browsers can message each other this way, and a browser can message a terminal member that
-registered itself the same way.
+return, your next message opens a fresh line. The line runs over iroh — the relay dials the member's
+iroh endpoint — so a browser reaches any member that registered an iroh locator, the way
+`zig build rooms-web-iroh` runs it and `zig build rooms-web-dm` proves it end to end. The reverse
+direction waits on browser reachability: a browser has no address another peer can dial, so a member
+cannot open the line to a browser first.
 
 ### What else the page does
 
@@ -165,9 +167,15 @@ without parsing them, so the keyed OCapN session rides through end to end and th
 a capability.
 
 The relay is `ws://` on loopback in development and `wss://` when the page is served over HTTPS. Its
-allow-list reaches only the room server today, so public rooms run as a browser peer; a browser
-dialing an introduced member for a direct message is a later milestone (the browser has no address
-another peer can dial, and the relay does not yet reach members).
+allow-list depends on the transport: the TCP relay is pinned to the room server itself
+(`127.0.0.1:<roomPort>`), while the iroh relay accepts any `ocapn://` node, since node ids are
+key-verified and the keyed handshake carries session authority end to end. That open iroh
+destination is deliberate for the demo and named as attack surface in the code: it makes the relay a
+bandwidth amplifier to any iroh peer, so a real deployment pins the iroh destination set the way TCP
+is already pinned. Public rooms run as a browser peer, and a browser sends direct messages too: it
+redeems a room introduction and dials the member's iroh endpoint through the relay, delivered
+off-room (`zig build rooms-web-dm` proves it in a real browser). The one direction still open is a
+member dialing a browser first, which waits on the browser having an address another peer can reach.
 
 ```text
 browser peer ──WebSocket (/relay)──▶ web.ts ──TCP──▶ rooms server
@@ -273,18 +281,20 @@ That one move is the whole object-capability story made concrete:
 
 ```
 apps/rooms/
-├── deno/                 the reference server, the browser peer host, the Deno client, and the shared library
+├── lib/                  the transport-neutral shared core, imported by the server, the Deno clients, and the browser peer
+│   ├── protocol.ts       the wire contract: directory verbs (open/enter/list/watch + register/introduce) + room verbs (subscribe/post/leave) + the member dm verb
+│   ├── room_client.ts    the Room client (the OCapN layer), used by the terminal clients and the browser peer alike
+│   ├── errors.ts         the room failure taxonomy: typed codes carried at the front of a break reason
+│   └── limits.ts         the transport-neutral room shapes (length caps, presence)
+├── deno/                 the reference server, the browser peer host, the Deno client, and the Deno-specific glue
 │   ├── server.ts         the server (directory of rooms, multi-connection, capability callbacks, watchers, member introductions)
 │   ├── web.ts            serves the browser peer page + the wasm module + the /relay byte pipe, and supervises the room server (zig build rooms-web)
 │   ├── chat.ts           the interactive terminal client (/open /enter /leave /list)
 │   ├── client.ts         the one-shot demo client in Deno (lists rooms, then enters)
-│   ├── lib/              the shared modules the entries and the other-language orchestrators import
-│   │   ├── protocol.ts   the wire contract: directory verbs (open/enter/list/watch + register/introduce) + room verbs (subscribe/post/leave) + the member dm verb
-│   │   ├── room_client.ts the Room client (the OCapN layer), used by the terminal clients and the browser peer alike
+│   ├── lib/              the Deno-specific glue over the transport-neutral core
 │   │   ├── enter_room.ts the CLI's friendly enter-or-open, composed from those strict verbs
-│   │   ├── errors.ts     the room failure taxonomy: typed codes carried at the front of a break reason
-│   │   ├── limits.ts     the transport-neutral room shapes (length caps, presence)
-│   │   └── locator.ts    the transport-neutral rooms locator
+│   │   ├── errors.ts     unwraps a binding VowBroken into the shared room failure taxonomy
+│   │   └── locator.ts    the Deno rooms dialer (TCP or iroh) and the server-announce reader
 │   ├── ui/               the browser peer: page.html + page.css + TypeScript modules (net.ts drives room_client over @pancake/web; bundled to /page.js)
 │   └── deploy/           serve the browser UI behind a Cloudflare tunnel from a small container (compose + Dockerfile)
 ├── python/room_client.py + client.py    the same, in Python
@@ -292,6 +302,7 @@ apps/rooms/
 ├── rust/room.rs + client.rs             the same, in Rust (its own crate)
 ├── zig/client.zig        the same in native Zig, over the real TCP netlayer
 ├── demo.ts               the orchestrator `zig build demo-rooms` runs
+├── dm_handoff.ts         the shared three-party-handoff choreography the three dm_demo* orchestrators drive
 ├── dm_demo.ts            the direct-message-by-introduction orchestrator `zig build demo-rooms-dm` runs
 ├── dm_demo_iroh.ts       the same introduction over iroh, cross-endpoint, that `zig build demo-rooms-dm-iroh` runs
 └── dm_demo_iroh_discovery.ts  the node-id-only variant `zig build demo-rooms-dm-iroh-discovery` runs

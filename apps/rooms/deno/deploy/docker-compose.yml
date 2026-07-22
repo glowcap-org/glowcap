@@ -40,6 +40,11 @@ services:
       - run
       - -A
       - --unstable-ffi
+      # The repo mounts read-only, so deno cannot write deno.lock (which is
+      # gitignored and drifts as the workspace gains deps); skip the lockfile
+      # entirely. The source is pinned by the read-only mount, and the one npm
+      # dep (zod) is version-pinned in the import map, so nothing here needs it.
+      - --no-lock
       - apps/rooms/deno/web.ts
       - "8000"
       - --transport=iroh

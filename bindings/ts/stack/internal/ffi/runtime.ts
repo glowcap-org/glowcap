@@ -134,6 +134,12 @@ export interface NetListener {
 export interface RuntimeNet {
 	connect(host: string, port: number): Promise<NetConn>;
 	listen(host: string, port: number): Promise<NetListener>;
+	/** Open the byte channel to a `keyed-relay` peer by its key `designator` — a
+	 * peer that opens no socket and holds an inbound socket at a relay under that
+	 * key (ADR-0088 cold-dial rendezvous). Only a rendezvous-capable adapter (the
+	 * browser) provides it; absent on a socket runtime, where `keyed-relay` fails
+	 * loud. `localAddr` is never read on a dial, so the channel need not have one. */
+	connectRendezvous?(designator: string): Promise<NetConn>;
 }
 
 /** The adapter a runtime provides: its FFI seam and its socket seam, plus an
@@ -186,7 +192,34 @@ function resolveSync(): RuntimeAdapter | undefined {
 let selected: RuntimeAdapter | undefined = resolveSync();
 if (selected) setActiveLayout(selected.layout ?? layout64);
 
+// True once the active adapter has been used for real work (`active()` handed
+// it to an FFI or socket op). Before this, an explicit injection may still
+// override an auto-resolved adapter; after it, the adapter is committed and can
+// never be swapped, because a cached symbol table would point at the wrong
+// runtime.
+let committed = false;
+
 let readying: Promise<RuntimeAdapter> | undefined;
+
+// Adopt an adapter injected after this module loaded. The browser binding sets
+// its global then imports the stack, but a static import chain may have
+// evaluated this module first, so the injection can land after `resolveSync`
+// already picked the host's own adapter. An explicit injection (the wasm
+// browser binding, ADR-0070) is authoritative: it overrides an adapter
+// auto-resolved from the host runtime, so a Deno or Bun process that
+// instantiates a wasm peer — a browser peer under test, or a relay harness —
+// runs on the injected adapter instead of its own native FFI. The override is
+// safe only before the auto-resolved adapter is committed to real work; after
+// that its symbol tables are live, so a committed adapter is never swapped.
+// Both the synchronous `active()` and the async `ensureRuntimeReady()` resolve
+// through here. Idempotent once the injected adapter is the selected one.
+function adoptInjectedAdapter(): void {
+	const injected = (globalThis as Record<symbol, unknown>)[injected_adapter_key];
+	if (injected === undefined || selected === injected) return;
+	if (selected !== undefined && committed) return;
+	selected = injected as RuntimeAdapter;
+	setActiveLayout(selected.layout ?? layout64);
+}
 
 /** Ensure the FFI runtime is resolved. Deno and the injected browser adapter
  * are ready synchronously at import; Bun loads its adapter here (its `bun:ffi`
@@ -194,6 +227,11 @@ let readying: Promise<RuntimeAdapter> | undefined;
  * use on Bun; the async public entry points (`connect`, `listen`, a `Server`'s
  * accept) already do. Idempotent. */
 export function ensureRuntimeReady(): Promise<RuntimeAdapter> {
+	// A browser adapter injected after this module loaded resolves here too: the
+	// async `connect`/`listen` path awaits this before its first dial, so without
+	// this check it would fall through to `detectRuntime()` and wrongly reject the
+	// injected wasm adapter as an unsupported runtime.
+	adoptInjectedAdapter();
 	if (selected) return Promise.resolve(selected);
 	readying ??= (async () => {
 		const file = `./adapters/${detectRuntime()}.ts`;
@@ -206,24 +244,16 @@ export function ensureRuntimeReady(): Promise<RuntimeAdapter> {
 }
 
 function active(): RuntimeAdapter {
-	// An adapter injected after this module loaded — the browser binding sets
-	// its global, then imports the stack, but a static import chain may have
-	// evaluated this module first — is picked up on first real use. Deno's
-	// adapter was already resolved synchronously; Bun's arrives through
-	// `ensureRuntimeReady`.
-	if (!selected) {
-		const injected = (globalThis as Record<symbol, unknown>)[injected_adapter_key];
-		if (injected !== undefined) {
-			selected = injected as RuntimeAdapter;
-			setActiveLayout(selected.layout ?? layout64);
-		}
-	}
+	adoptInjectedAdapter();
 	if (!selected) {
 		throw new Error(
 			"pancake: FFI runtime not ready — await ensureRuntimeReady() before " +
 				"the first FFI/socket use (Bun); Deno and the browser resolve synchronously",
 		);
 	}
+	// The adapter is now handed to a real FFI/socket op; lock it so a later
+	// injection cannot swap a runtime whose symbol tables are already live.
+	committed = true;
 	return selected;
 }
 
@@ -245,6 +275,15 @@ export const ffi: RuntimeFfi = {
 export const net: RuntimeNet = {
 	connect: (host, port) => active().net.connect(host, port),
 	listen: (host, port) => active().net.listen(host, port),
+	connectRendezvous: (designator) => {
+		const rendezvous = active().net.connectRendezvous;
+		if (rendezvous === undefined) {
+			throw new Error(
+				"keyed-relay is a browser rendezvous transport; the active runtime has no rendezvous adapter",
+			);
+		}
+		return rendezvous(designator);
+	},
 };
 
 /** A lazily-opened archive: the library is `dlopen`ed on first symbol access,

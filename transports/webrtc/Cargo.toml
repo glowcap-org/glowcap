@@ -1,0 +1,43 @@
+# The WebRTC DataChannel netlayer sidecar (ADR-0089). Phase 1 shipped the
+# de-risk probe binary below; phase 2 adds the staticlib C ABI
+# `libpancake_webrtc_sidecar.a` that the Zig resident
+# (`src/net/transport/webrtc.zig`) drives, the same private byte-level seam the
+# iroh sidecar ships. The probe binary stays for the phase-1 datachannel gate.
+#
+# Cargo.lock is committed, like transports/iroh's: the webrtc crate pulls a
+# large transitive tree (DTLS, SCTP, ICE, STUN, SDP), and the lockfile is what
+# makes `zig build webrtc-datachannel-test` resolve the same dependencies on
+# every machine. The direct dependencies are pinned exactly below so an
+# intentional bump is visible here, not only in the lockfile.
+[package]
+name = "pancake-webrtc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+# The staticlib is named `pancake_webrtc_sidecar` so it emits
+# `libpancake_webrtc_sidecar.a`: the private byte-level seam the Zig resident
+# links, distinct from the public frame-level archive
+# `libpancake_net_transport_webrtc` (ADR-0059, phase 3).
+name = "pancake_webrtc_sidecar"
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+# The native answerer the browser peer connects to. Named
+# `pancake-webrtc-datachannel-probe` so the build step and the harness address
+# it unambiguously.
+name = "pancake-webrtc-datachannel-probe"
+path = "src/probe.rs"
+
+[dependencies]
+webrtc = "=0.14.0"
+tokio = { version = "=1.52.3", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync", "time"] }
+serde_json = "1"
+bytes = "1"
+
+[profile.release]
+# Matches the iroh sidecar's posture: thin LTO keeps the binary lean without
+# cross-language LTO assumptions.
+lto = "thin"

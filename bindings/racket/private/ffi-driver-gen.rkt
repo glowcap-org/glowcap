@@ -17,6 +17,7 @@
                      pancake_host_new*
                      pancake_host_session_open_dialed_locator*
                      pancake_host_session_open_accepted*
+                     pancake_host_reference_exporter*
                      pancake_host_pump_drain*
                      pancake_host_session_publish*
                      pancake_host_session_spawn*
@@ -57,6 +58,10 @@
 (define-driver pancake_host_pending_dial*
   (_fun _pointer _uint64 _PancakePendingDial-pointer -> _int32)
   #:c-id pancake_host_pending_dial)
+(define-driver pancake_host_reference_exporter*
+  (_fun _pointer _PancakeReference-pointer _pointer -> _int32)
+  #:c-id pancake_host_reference_exporter)
+(define pancake_host_reference_exporter (wrap-out1 pancake_host_reference_exporter* _pointer #f))
 (define-driver pancake_host_plan_accept
   (_fun _pointer _size _pointer _size _pointer _size _PancakeAcceptPlan-pointer -> _int32))
 (define-driver pancake_host_session_release (_fun _pointer -> _void))

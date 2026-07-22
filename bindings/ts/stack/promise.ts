@@ -15,11 +15,12 @@ import { checkHost, FetchFailed, PancakeError } from "./errors.ts";
 import { encodeArgs, refStruct } from "./codec.ts";
 import { type AppValue, type Argument, isReference, liftArg, lowerArg, Ref } from "./value.ts";
 
-/** Session callbacks the fetch/enliven wait needs without importing Session
- * (avoids a promise ↔ session cycle). */
-export interface MintAwaitHandle {
-	guardOpen(): void;
-	drainGc(): void;
+/** The Session callbacks every vow wait needs, named here so this module stays
+ * off the Session type itself (a direct dependency would form a promise ↔
+ * session import cycle): register the minted vow, drive the inbound loop the
+ * settle's bytes arrive on, kick the action drain, and await the drain-routed
+ * outcome. */
+export interface VowWaitHandle {
 	readonly ptr: Ptr;
 	vowMinted(vow: bigint): void;
 	serve(): void;
@@ -27,14 +28,16 @@ export interface MintAwaitHandle {
 	kickActions(): Promise<void>;
 }
 
-/** Session callbacks the far-send `promiseFor` / `sendFar` path needs. */
-export interface PromiseFactoryHandle {
-	serve(): void;
-	awaitVow(vow: bigint): Promise<Argument>;
-	kickActions(): Promise<void>;
-	vowMinted(vow: bigint): void;
+/** The fetch/enliven wait adds an open-guard and a GC drain before the mint. */
+export interface MintAwaitHandle extends VowWaitHandle {
+	guardOpen(): void;
+	drainGc(): void;
+}
+
+/** The far-send `promiseFor` / `sendFar` path adds the raw host handle its
+ * `index` / `untag` / `get` projections mint sibling vows through. */
+export interface PromiseFactoryHandle extends VowWaitHandle {
 	readonly hostRaw: Ptr;
-	readonly ptr: Ptr;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -72,7 +75,7 @@ function projectVow(
  * (the completion's bytes arrive on it), kick the drain so the deliver leaves
  * now, and await the drain-routed outcome. */
 export async function awaitMinted(
-	h: MintAwaitHandle,
+	h: VowWaitHandle,
 	vow: bigint,
 ): Promise<Argument> {
 	h.vowMinted(vow);

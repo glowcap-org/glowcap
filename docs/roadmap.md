@@ -84,22 +84,45 @@ machine work on that step too ([ladder](ladder.md)).
     wired.
   - **Until then:** the kqueue compile path stays covered by `cross-check`.
 - **Browser binding via WebAssembly (ADR-0070).**
-  - **Landed:** Milestone 1. The byte-fed Host compiles to one freestanding
-    `wasm32` module (`zig build wasm-driver`), and `@pancake/web`
-    (`bindings/ts/web`) runs the whole `@pancake/stack` surface over it: the
-    wasm FFI adapter, the module-reported struct layout, and a WebSocket byte
-    channel. `zig build web-peer-test` proves a browser-shaped peer holding a
-    keyed session against a native WebSocket-accepting host, with calls in
-    both directions; `wasm-driver-test`, `wasm-abi-layout-check`, and
-    `wasm-import-check` hold the layers under it.
-  - **Also landed:** the rooms web demo runs the browser peer over the
-    byte-transparent relay ([shipped.md](shipped.md)); the plan is
-    [rooms-web-browser-peer](planning/rooms-web-browser-peer.md).
-  - **Next:** browser DMs through the relay (the relay item in section 3
-    below), then Milestone 2 (WebRTC DataChannel with
-    room-relayed signaling, the browser-to-browser handoff).
+  - **Landed:** Milestone 1, and the full browser-peer surface over the
+    byte-transparent relay. The browser dials, hosts objects, redeems handoffs,
+    answers a non-listening caller on the connection the call arrived on, and is
+    cold-dialed by another browser through the relay rendezvous — a resident-less
+    `keyed-relay` transport keyed by identity (ADR-0088; `zig build
+    rooms-web-dm-tabs`). [shipped.md](shipped.md) inventories it with the checks
+    that hold it.
+  - **Next:** cold-dial by a *native* peer and *across relays* (ADR-0088: the
+    native runtimes carry no rendezvous adapter, and the `keyed-relay` locator
+    names the identity, not the relay), then Milestone 2, the WebRTC DataChannel
+    netlayer with signaling carried by an OCapN capability and the
+    browser-to-browser handoff
+    ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)). Phases 1
+    through 3, the phase-5 signaling proof, the signaling capability over CapTP,
+    and the browser arm have landed: the phase-1 de-risk proof (`zig build
+    webrtc-datachannel-test`); the phase-2 sidecar, Zig resident, and a live keyed
+    OCapN session between two native peers over a real DataChannel (`zig build
+    webrtc-interop`); the phase-3 public C ABI archive
+    `libpancake_net_transport_webrtc` with its parity-checked header; a signaling
+    hub that brings up the channel between two native peers by designator (`zig
+    build webrtc-mesh`); the same signaling verbs hosted as an OCapN capability
+    and driven over a keyed CapTP session (`zig build webrtc-signaling-captp`);
+    and a real headless Chromium running `@pancake/webrtc` and the wasm Host to
+    greet a native peer over a DataChannel (`zig build webrtc-browser-peer`), and
+    two headless Chromium peers holding a keyed session over a direct DataChannel
+    with the signaling host out of the byte path (`zig build
+    webrtc-browser-to-browser`), and a three-party handoff where a `webrtc` give
+    redeems over CapTP by signaling-then-handshake and the exporter's engine
+    verifies both certificates before handing back the gifted capability (`zig
+    build webrtc-handoff`, webrtc's `iroh-mesh`). The native binding FFI mirror is
+    generated and gated across Python, Racket, and Rust; the TypeScript binding is
+    browser-native. What remains is the dial classifier's signaling plan so the
+    Host auto-redeems a bare `webrtc` locator (the redeem mechanism itself is
+    proven by `webrtc-handoff`), the room-hosted signaling topology, and the
+    completion-loop scale tier, with their gates named in the ADR.
   - **Depends on:** nothing upstream; the remaining work is in-tree.
-    See [ADR-0070](decisions/adr/ADR-0070-browser-binding-via-wasm.md).
+    See [ADR-0070](decisions/adr/ADR-0070-browser-binding-via-wasm.md),
+    [ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md), and
+    [ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md).
 
 ## 3. Scale, packaging, and external blocks
 
@@ -129,37 +152,14 @@ remains:
   before the GitHub assets exist.
 - **Byte-transparent relay: the open legs.** The relay is a first-class
   capability, `@pancake/relay`, governed by
-  [ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md)'s contract, and
-  proven across three runtimes ([shipped.md](shipped.md)). The cross-runtime
-  matrix `zig build bindings-relay` holds TCP forwarding and the backpressure
-  clause for the Deno reference relay, the Python relay
-  (`bindings/python/relay.py`), and the Rust relay (`bindings/rust/relay`);
-  `zig build bindings-relay-iroh` holds the iroh leg for all three, each dialing
-  a real iroh endpoint over QUIC. The `rooms-web-*` steps drive the Deno relay
-  through a real Chromium. What remains:
-  - **A Racket relay row.** ADR-0086 makes the relay a per-runtime pump over a
-    shared contract, added to the matrix as a row. Racket needs two pieces first:
-    a WebSocket server (the pinned toolchain ships none, so the row needs the
-    `rfc6455` package added to the devcontainer or a hand-rolled RFC 6455 server),
-    and a bare iroh relay-channel dial in the binding (it drives the iroh
-    readiness loop for sessions but exposes no raw-channel dial like the other
-    three bindings). The contract-level pieces already exist. Zig has no
-    WebSocket server yet either, so a Zig relay needs one built first.
-  - **Dispatch through the shared classifier.** Each relay classifies its target
-    locator locally today. Routing that dispatch through the shared
-    `pancake_host_plan_dial` (the same classifier the handoff redeem-dial uses),
-    so every runtime's relay sorts a locator identically, is the remaining
-    consistency step ADR-0086 names.
+  [ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md)'s contract and
+  proven across every binding runtime; [shipped.md](shipped.md) inventories the
+  runtimes and the checks that hold them. What remains:
   - **A named `PancakeRelayChannel` C-ABI shape.** iroh's raw conn plus readiness
     already satisfy the byte-channel contract; naming them as one documented
     channel (readiness fd, pump, `try_read`/`try_write` with `WOULD_BLOCK`,
     close, release) and adding the same for `inproc` makes in-tree relay
     conformance transport-uniform.
-  - **Browser-to-member DMs through the relay.** The relay allow-list admits
-    only the room server's own port, so the browser DM path is a stub that
-    says the feature is coming later. Opening it needs a source for member
-    ports (for example, the room server exposing live-introduction locators
-    over a session) plus a live proof.
   - **A live Goblins-through-relay proof.** Byte transparency against a real
     Goblins peer through the relay has no build step yet.
 - **Goblins interop over iroh.**

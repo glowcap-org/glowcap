@@ -1,0 +1,48 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 760 300"
+  width="760"
+  height="300"
+  role="img"
+  aria-label="Two browsers meet through the relay when neither can be dialed. One browser registers its keyed identity and leaves an inbound socket held at the relay; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers."
+>
+  <defs>
+    <marker id="rr-accent" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
+    </marker>
+    <marker id="rr-teal" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
+    </marker>
+  </defs>
+  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .head { font-size: 15px; font-weight: 700; }
+    .label { font-size: 13.5px; }
+    .sub { font-size: 11px; fill: #6b5d4d; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }</style>
+
+  <line x1="130" y1="100" x2="130" y2="288" stroke="#e7d4b7" stroke-width="2"></line>
+  <line x1="380" y1="100" x2="380" y2="288" stroke="#e7d4b7" stroke-width="2"></line>
+  <line x1="630" y1="100" x2="630" y2="288" stroke="#e7d4b7" stroke-width="2"></line>
+
+  <rect x="55" y="24" width="150" height="44" rx="11" fill="#fff9ee" stroke="#c76f18"></rect>
+  <text x="130" y="51" text-anchor="middle" class="head" fill="#a4560c">browser A</text>
+  <text x="130" y="86" text-anchor="middle" class="sub">registers, then waits</text>
+
+  <rect x="305" y="24" width="150" height="44" rx="11" fill="#faf3e7" stroke="#8a7862"></rect>
+  <text x="380" y="51" text-anchor="middle" class="head" fill="#6b5d4d">relay</text>
+  <text x="380" y="86" text-anchor="middle" class="sub">matches name to held socket</text>
+
+  <rect x="555" y="24" width="150" height="44" rx="11" fill="#fff9ee" stroke="#c76f18"></rect>
+  <text x="630" y="51" text-anchor="middle" class="head" fill="#a4560c">browser B</text>
+  <text x="630" y="86" text-anchor="middle" class="sub">redeems an introduction</text>
+
+  <path d="M130 132 L 376 132" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#rr-accent)"></path>
+  <text x="253" y="124" text-anchor="middle" class="label" fill="#a4560c">register <tspan class="mono">?register=idA</tspan></text>
+
+  <path d="M630 172 L 384 172" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#rr-accent)"></path>
+  <text x="507" y="164" text-anchor="middle" class="label" fill="#a4560c">cold-dial <tspan class="mono">?rendezvous=idA</tspan></text>
+
+  <path d="M132 248 L 628 248" fill="none" stroke="#1b5f66" stroke-width="2.5" marker-start="url(#rr-teal)" marker-end="url(#rr-teal)"></path>
+  <text x="380" y="240" text-anchor="middle" class="label" fill="#1b5f66">keyed CapTP session, A and B bridged end to end</text>
+  <text x="380" y="272" text-anchor="middle" class="sub">the room that introduced them is off the path</text>
+</svg>
