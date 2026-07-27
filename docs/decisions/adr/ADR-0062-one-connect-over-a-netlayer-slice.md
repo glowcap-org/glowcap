@@ -94,8 +94,11 @@ Target front-door call site, nothing hidden and no ritual:
 
 ```zig
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-var session = try driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
-defer session.close();
+var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{
+    .handshake_timeout_ms = 10_000,
+    .settle_timeout_ms = 10_000,
+});
+defer session.deinit();
 const greeter = try session.fetch("greeter");
 const reply = try session.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena);
 ```

@@ -1,7 +1,7 @@
 """Python caller for the accountability-on-pancake cross-seam demo.
 
 Connects to a running Zig host, generates an Ed25519 identity with PyNaCl,
-signs the request with the attestation preimage ``invoke|<request>``, and
+signs the request with the attestation preimage ``invoke|<subject>|<request>``, and
 invokes the Affordance capability. The host verifies the attestation and
 returns an ack, or refuses an unattested call with a broken promise.
 
@@ -49,7 +49,9 @@ async def run(port: int) -> None:
 
     # --- Legitimate invocation ------------------------------------------------
     request = "read-thermostat"
-    preimage = f"invoke|{request}".encode()
+    # The subject is in the signed bytes so the host can tell that this caller
+    # really is claiming this AID, and not borrowing someone else's.
+    preimage = f"invoke|{subject}|{request}".encode()
     sig_raw = signing_key.sign(preimage).signature
     sig_b64 = b64url(sig_raw)
 

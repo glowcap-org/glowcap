@@ -1,8 +1,8 @@
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 760 320"
+  viewBox="0 0 760 280"
   width="760"
-  height="320"
+  height="280"
   role="img"
   aria-label="Two interop situations. Talking to a Goblins peer, pancake speaks the canonical dialect, CapTP 1.0 over Syrup, the interop floor. Talking to another pancake peer, both ends can choose pancake's native profile and the Cap'n Proto codec, and still drop to 1.0 over Syrup."
 >
@@ -12,39 +12,39 @@
       viewBox="0 0 10 10"
       refX="7.5"
       refY="5"
-      markerWidth="7"
-      markerHeight="7"
+      markerWidth="5"
+      markerHeight="5"
       orient="auto-start-reverse"
     >
-      <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
+      <path d="M0 0L10 5L0 10z" fill="var(--teal-deep, #1b5f66)"></path>
     </marker>
     <marker
       id="dia-amber"
       viewBox="0 0 10 10"
       refX="7.5"
       refY="5"
-      markerWidth="7"
-      markerHeight="7"
+      markerWidth="5"
+      markerHeight="5"
       orient="auto-start-reverse"
     >
-      <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
+      <path d="M0 0L10 5L0 10z" fill="var(--accent-deep, #a4560c)"></path>
     </marker>
   </defs>
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .ptitle { font-size: 15px; font-weight: 700; }
     .node { font-size: 14px; font-weight: 700; }
     .label { font-size: 12.5px; }
-    .muted { fill: #6b5d4d; }
+    .muted { fill: var(--ink-soft, #6b5d4d); }
     .result { font-size: 14px; font-weight: 700; }</style>
 
   <rect
     x="16"
     y="16"
     width="352"
-    height="288"
+    height="248"
     rx="16"
-    fill="#f1f7f6"
-    stroke="#cfe4e1"
+    fill="var(--dia-cool-fill, #f1f7f6)"
+    stroke="var(--dia-cool-strong, #cfe4e1)"
   >
   </rect>
   <text
@@ -52,7 +52,7 @@
     y="46"
     text-anchor="middle"
     class="ptitle"
-    fill="#1b5f66"
+    fill="var(--teal-deep, #1b5f66)"
   >Talking to Goblins</text>
   <text
     x="192"
@@ -67,8 +67,8 @@
     width="120"
     height="46"
     rx="11"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
   >
   </rect>
   <text
@@ -76,7 +76,7 @@
     y="121"
     text-anchor="middle"
     class="node"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >pancake</text>
   <rect
     x="220"
@@ -84,8 +84,8 @@
     width="120"
     height="46"
     rx="11"
-    fill="#eef6f1"
-    stroke="#257f88"
+    fill="var(--dia-cool-fill, #eef6f1)"
+    stroke="var(--teal, #257f88)"
   >
   </rect>
   <text
@@ -93,21 +93,21 @@
     y="121"
     text-anchor="middle"
     class="node"
-    fill="#1b5f66"
+    fill="var(--teal-deep, #1b5f66)"
   >Goblins</text>
 
   <path
-    d="M168 106 L 216 106"
+    d="M168 106 L 210 106"
     fill="none"
-    stroke="#1b5f66"
+    stroke="var(--teal-deep, #1b5f66)"
     stroke-width="2"
     marker-end="url(#dia-teal)"
   >
   </path>
   <path
-    d="M216 124 L 168 124"
+    d="M216 124 L 174 124"
     fill="none"
-    stroke="#1b5f66"
+    stroke="var(--teal-deep, #1b5f66)"
     stroke-width="2"
     marker-end="url(#dia-teal)"
   >
@@ -121,24 +121,24 @@
 
   <rect
     x="56"
-    y="226"
+    y="196"
     width="272"
     height="58"
     rx="12"
-    fill="#eef6f1"
-    stroke="#257f88"
+    fill="var(--dia-cool-fill, #eef6f1)"
+    stroke="var(--teal, #257f88)"
   >
   </rect>
   <text
     x="192"
-    y="252"
+    y="222"
     text-anchor="middle"
     class="result"
-    fill="#1b5f66"
+    fill="var(--teal-deep, #1b5f66)"
   >CapTP 1.0 &#183; Syrup</text>
   <text
     x="192"
-    y="272"
+    y="242"
     text-anchor="middle"
     class="label muted"
   >exactly what Goblins speaks</text>
@@ -147,10 +147,10 @@
     x="392"
     y="16"
     width="352"
-    height="288"
+    height="248"
     rx="16"
-    fill="#fdf9f1"
-    stroke="#ead9bb"
+    fill="var(--dia-warm-fill, #fdf9f1)"
+    stroke="var(--dia-warm-rule, #ead9bb)"
   >
   </rect>
   <text
@@ -158,7 +158,7 @@
     y="46"
     text-anchor="middle"
     class="ptitle"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >Talking to another pancake</text>
   <text
     x="568"
@@ -173,8 +173,8 @@
     width="120"
     height="46"
     rx="11"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
   >
   </rect>
   <text
@@ -182,7 +182,7 @@
     y="121"
     text-anchor="middle"
     class="node"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >pancake</text>
   <rect
     x="596"
@@ -190,8 +190,8 @@
     width="120"
     height="46"
     rx="11"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
   >
   </rect>
   <text
@@ -199,21 +199,21 @@
     y="121"
     text-anchor="middle"
     class="node"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >pancake</text>
 
   <path
-    d="M544 106 L 592 106"
+    d="M544 106 L 586 106"
     fill="none"
-    stroke="#a4560c"
+    stroke="var(--accent-deep, #a4560c)"
     stroke-width="2"
     marker-end="url(#dia-amber)"
   >
   </path>
   <path
-    d="M592 124 L 544 124"
+    d="M592 124 L 550 124"
     fill="none"
-    stroke="#a4560c"
+    stroke="var(--accent-deep, #a4560c)"
     stroke-width="2"
     marker-end="url(#dia-amber)"
   >
@@ -227,24 +227,24 @@
 
   <rect
     x="432"
-    y="226"
+    y="196"
     width="272"
     height="58"
     rx="12"
-    fill="#fff4e4"
-    stroke="#c76f18"
+    fill="var(--dia-warm-fill, #fff4e4)"
+    stroke="var(--accent, #c76f18)"
   >
   </rect>
   <text
     x="568"
-    y="252"
+    y="222"
     text-anchor="middle"
     class="result"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >pancake-next &#183; Cap'n Proto</text>
   <text
     x="568"
-    y="272"
+    y="242"
     text-anchor="middle"
     class="label muted"
   >1.0 &#183; Syrup still on offer</text>

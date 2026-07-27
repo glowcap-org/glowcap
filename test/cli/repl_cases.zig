@@ -317,14 +317,12 @@ test "history prev next draft" {
     try std.testing.expectEqualStrings("call greeter greet", h.next().?);
 }
 
-test "ecs world spawn rect hit components" {
+test "ecs world spawns an entity and stores its screen rectangle" {
     var lab = cli.repl_ecs.LabWorld.init(std.testing.allocator);
     defer lab.deinit();
     const e = try lab.entities.spawn();
     lab.rect.set(e, .{ .x = 2, .y = 3, .w = 10, .h = 4 });
-    lab.hit.set(e, .{ .enabled = true });
     try std.testing.expect(lab.rect.get(e).?.contains(5, 4));
-    try std.testing.expect(lab.hit.get(e).?.enabled);
 }
 
 test "session forEach export import answer views" {

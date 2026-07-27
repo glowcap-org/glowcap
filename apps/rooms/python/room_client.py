@@ -40,6 +40,13 @@ REGISTER, INTRODUCE = "register", "introduce"
 SUBSCRIBE, POST, LEAVE, NOTIFY = "subscribe", "post", "leave", "notify"
 DM = "dm"
 
+# How long `register` waits for the directory's `notify("registered")` before it
+# gives up. Matches the TypeScript client's `REGISTER_ACK_TIMEOUT_MS`: a
+# registration whose ack never lands must surface as a failure the caller can
+# retry, not a silent hang, and the window sits far above the round-trip a
+# healthy directory answers within.
+REGISTER_ACK_TIMEOUT_S = 10.0
+
 
 def _rooms(raw) -> "list[tuple[str, int]]":
     """The wire shape of ``list``/``watch`` is a list of ``[name, count]`` pairs;
@@ -119,7 +126,10 @@ class Directory:
 
     async def register(self, nick: str, locator: str) -> None:
         """Announce a dialable DM member (publish ``dm`` on this session first).
-        Resolves once the directory acks ``registered``."""
+        Resolves once the directory acks ``registered``, and raises
+        :class:`TimeoutError` if that ack never lands, so a caller can retry
+        instead of waiting forever on a directory that failed the registration
+        after accepting the message."""
         done = asyncio.get_running_loop().create_future()
 
         def inbox(verb: str, args: list):
@@ -129,7 +139,7 @@ class Directory:
 
         observer = self.session.spawn(inbox)
         await self.session.send(self._directory, REGISTER, [nick, locator, observer])
-        await done
+        await asyncio.wait_for(done, REGISTER_ACK_TIMEOUT_S)
 
     async def introduce(self, nick: str):
         """Ask the directory to introduce us to a registered member; returns a

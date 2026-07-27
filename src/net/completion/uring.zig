@@ -1,7 +1,7 @@
 //! The Linux io_uring completion backend for `completion.Loop`.
 //!
 //! This file is one implementation of the completion-backend interface documented
-//! in [`completion`](completion.zig): it provides the platform completion
+//! in `completion.Loop` (`loop.zig`): it provides the platform completion
 //! primitive (io_uring) and the loopback socket primitives, and nothing else. All
 //! the portable connection orchestration lives in `completion.Loop`, which is
 //! generic over this backend. The kqueue (macOS/BSD) sibling is a separate file
@@ -53,6 +53,11 @@ pub const Backend = struct {
     buffers: []u8,
     buf_bytes: u32,
     buf_count: u16,
+    /// Backing for the poll timeout SQE. Owned here rather than by `poll`,
+    /// because a submit that fails leaves the SQE published with this pointer
+    /// still in it while `poll`'s frame goes away. One per loop, not per
+    /// connection.
+    poll_ts: linux.kernel_timespec = .{ .sec = 0, .nsec = 0 },
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -178,14 +183,23 @@ pub const Backend = struct {
     /// returns 0 when nothing completes in time.
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
         const poll_timeout_sentinel: u64 = std.math.maxInt(u64);
-        const etime_res: i32 = -@as(i32, @intFromEnum(linux.E.TIME));
 
+        // The SQE holds a pointer to the timespec, and the kernel does not read
+        // it until `submit_and_wait` below, so the storage has to outlive this
+        // call — the same rule `submitConnect` obeys for its sockaddr, but a
+        // stack local cannot serve here: a submit that fails returns from
+        // `poll` with the entry published.
         if (timeout_ms >= 0) {
-            const ts = linux.kernel_timespec{
+            self.poll_ts = .{
                 .sec = @divTrunc(timeout_ms, 1000),
                 .nsec = @as(i64, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
             };
-            _ = try self.ring.timeout(poll_timeout_sentinel, &ts, 1, 0);
+            // Through `getSqe`, not `ring.timeout`, so a full submission queue
+            // is drained and retried like every other op here. Failing instead
+            // would take down the loop, and with it every connection on it.
+            const sqe = try self.getSqe();
+            sqe.prep_timeout(&self.poll_ts, 1, 0);
+            sqe.user_data = poll_timeout_sentinel;
         }
         _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
             error.SignalInterrupt => return 0,
@@ -196,7 +210,13 @@ pub const Backend = struct {
         const n = try self.ring.copy_cqes(cqes[0..want], 0);
         var produced: usize = 0;
         for (cqes[0..n]) |cqe| {
-            if (cqe.user_data == poll_timeout_sentinel or cqe.res == etime_res) continue;
+            // Only the poll timeout itself is dropped, identified by its
+            // sentinel. Dropping every `-ETIME` completion would also swallow a
+            // real op's, and the loop counts an op as in flight until its
+            // completion arrives. One swallowed completion leaves that count
+            // permanently non-zero, which hangs `closeAndDrain` and trips the
+            // in-flight assertion at teardown.
+            if (cqe.user_data == poll_timeout_sentinel) continue;
             var comp: completion.Completion = .{ .user_data = cqe.user_data, .result = cqe.res };
             if (cqe.flags & linux.IORING_CQE_F_BUFFER != 0) {
                 // A recv that selected a pool buffer (possibly zero bytes on

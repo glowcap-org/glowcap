@@ -107,10 +107,11 @@
 
 ;; <op:listen <desc:export 5> <desc:import-object 9>>.
 ;;
-;; Wire-shape fixture for an export-target listen. CapTP fires the
-;; listener immediately when the target is already settled; pancake's
-;; engine does not yet implement export-side listen on its own exports
-;; (ADR-0007). This fixture locks the Syrup bytes only.
+;; Wire-shape fixture for an export-target listen. CapTP fires the listener
+;; immediately when the target is already settled, and pancake's engine does
+;; that for a live object export (ADR-0007; a bare promise export refuses).
+;; This fixture locks the Syrup bytes; the firing behavior is covered by the
+;; engine scenarios and by `goblins-interop`'s export-listen leg.
 (define (op-listen-export-target)
   (record* 'op:listen
            (record* 'desc:export 5)

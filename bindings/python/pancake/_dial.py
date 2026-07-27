@@ -97,6 +97,9 @@ def _plan_dial(transport_name: str, designator: str, hint: str,
             host=_decode_plan_view(sources, plan.host, plan.host_len),
             port=plan.port,
         )
+    if plan.shape == _abi.DIAL_SHAPE_SIGNALING:
+        raise PancakeError(_ERR_INVALID_ARGUMENT,
+            "webrtc signaling dial shape cannot be opened from a bare locator; use a handoff give")
     raise PancakeError(_ERR_INVALID_ARGUMENT, f"unknown dial shape {plan.shape}")
 
 
@@ -141,10 +144,14 @@ async def dial_parsed_locator(
     reachability=None,
     redeem: bool = False,
     codec: "Optional[str]" = None,
+    handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS,
 ):
     """The dial entry for ``connect`` and handoff redeem alike: no dispatch,
     no grammar, no posture — the core resolves all of that in
-    ``pancake_host_plan_dial``, and this opens the channel it names."""
+    ``pancake_host_plan_dial``, and this opens the channel it names. Every dial
+    through here bounds its handshake, so a peer that accepts the connection and
+    then never finishes the OCapN handshake fails the dial rather than parking
+    the caller."""
     # Session owns mint/handshake; import at call time so the session ↔ dial
     # module-load edge stays acyclic.
     from ._session import Session
@@ -163,31 +170,42 @@ async def dial_parsed_locator(
     plan = _plan_dial(transport_name, designator, direct_addresses_hint, policy, value)
     if isinstance(plan, _PeerIdDial):
         from . import iroh as _iroh
+        reach: _iroh.Reachability
         if plan.reach_kind == _abi.DIAL_REACH_DIRECT:
             reach = _iroh.Reachability.DIRECT
         elif plan.reach_kind == _abi.DIAL_REACH_CONFIGURED:
-            reach = dial_host.redeem_reachability
+            reach = _iroh.Reachability(dial_host.redeem_reachability)
         else:
-            reach = plan.reach_value
-        return await _iroh._connect_iroh_with_host(designator, plan.addresses, reach, dial_host)
+            # The plan carried the posture as its raw wire integer; converting
+            # rather than assigning refuses a value outside the enum here, where
+            # the locator that produced it is still in hand.
+            reach = _iroh.Reachability(plan.reach_value)
+        return await _iroh._connect_iroh_with_host(
+            designator, plan.addresses, reach, dial_host, handshake_timeout_ms,
+        )
     reader, writer = await asyncio.open_connection(plan.host, plan.port)
     transport = _StreamTransport(reader, writer)
     try:
-        return await Session.establish_dialed_locator(dial_host, transport_name, designator, transport)
+        return await Session.establish_dialed_locator(
+            dial_host, transport_name, designator, transport, handshake_timeout_ms,
+        )
     except BaseException:
         transport.close()
         raise
 
 
 async def dial_exporter(transport_name: str, designator: str,
-                        direct_addresses_hint: str, host: Host):
+                        direct_addresses_hint: str, host: Host,
+                        handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS):
     """Dial an exporter a DIAL action names, keyed with ``host``'s retained
     identity, and bind the result to that same Host so the redeemed
     capability and any further handoff it triggers share one identity and
     session table. Binding-internal: the Host's action drain calls this to
-    redeem a give."""
+    redeem a give. An exporter that never finishes the handshake breaks the
+    redeem on ``handshake_timeout_ms`` rather than stalling the drain."""
     return await dial_parsed_locator(
         transport_name, designator, direct_addresses_hint, host, redeem=True,
+        handshake_timeout_ms=handshake_timeout_ms,
     )
 
 
@@ -218,7 +236,8 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
 
 
 async def connect(uri: str, reachability: "Optional[int]" = None,
-                  host: "Optional[Host]" = None, codec: Optional[str] = None):
+                  host: "Optional[Host]" = None, codec: Optional[str] = None,
+                  *, handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS):
     """Dial a partner from its ``ocapn://`` locator: parse once, call
     ``pancake_host_plan_dial``, and open the byte channel the plan names.
     There is no other dial: a literal address is a ``tcp`` locator, built with
@@ -237,7 +256,15 @@ async def connect(uri: str, reachability: "Optional[int]" = None,
     dialed sibling sessions — the gifter half of a three-party handoff (read
     it as ``server.host``). ``codec`` picks the wire grammar for a dial on a
     fresh Host; a supplied ``host`` already carries one, and a conflicting
-    explicit codec is refused."""
+    explicit codec is refused.
+
+    ``handshake_timeout_ms`` bounds the OCapN handshake once the byte channel
+    is open, at :data:`HANDSHAKE_TIMEOUT_MS` by default. A peer that accepts
+    the connection and then says nothing raises :class:`PancakeError` with
+    ``ERR_TIMEOUT`` instead of parking the caller; pass ``None`` or ``0`` to
+    wait without a bound. It does not cover opening the channel itself: a TCP
+    connect is the OS's timeout, and an iroh dial-by-id keeps its own discovery
+    retry budget (ADR-0082) before the handshake starts."""
     loc = parse_locator(uri)
     # Fail closed on options a branch cannot honor: dropping a shared Host
     # silently would dial on a different identity than `host`, so a capability
@@ -255,4 +282,5 @@ async def connect(uri: str, reachability: "Optional[int]" = None,
         host,
         reachability=reachability,
         codec=codec,
+        handshake_timeout_ms=handshake_timeout_ms,
     )

@@ -31,7 +31,7 @@ const HOST: &str = "127.0.0.1";
 /// Alice's port; Bob (the exporter) listens on PORT+1. `--port=N` (from
 /// `zig build rust-goblins-handoff -Dport=N`) moves the pair when 22115 is taken.
 const DEFAULT_PORT: u16 = 22115;
-const RACKET: &str = "/usr/local/bin/racket";
+const RACKET: &str = "racket";
 const HOST_SCRIPT: &str = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
 
 fn parse_port() -> Result<u16, Fail> {

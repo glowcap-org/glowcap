@@ -36,6 +36,11 @@ pub const Progress = struct {
     guide_active: bool = false,
     /// Suppress the one-line workbench greeting (`PANCAKE_REPL_QUIET=1`).
     quiet: bool = false,
+    /// Hashes of the verbs whose gloss has already been shown, so a lesson the
+    /// user has read once does not repeat on every later turn. Bounded: a full
+    /// table simply stops suppressing, which is the harmless direction.
+    glossed: [32]u64 = @splat(0),
+    glossed_len: u8 = 0,
 
     pub fn fromEnv(environ: *const std.process.Environ.Map) Progress {
         return .{ .quiet = environ.get("PANCAKE_REPL_QUIET") != null };
@@ -47,6 +52,23 @@ pub const Progress = struct {
 
     pub fn exitGuide(self: *Progress) void {
         self.guide_active = false;
+    }
+
+    /// The one-line gloss to print after `verb` succeeded, or null when this
+    /// session has already shown it. A workbench teaches a verb the first time
+    /// it works; the opt-in walkthrough (`guide`) repeats it every time.
+    pub fn glossOnce(self: *Progress, verb: []const u8) ?[]const u8 {
+        const text = gloss(verb);
+        if (self.guide_active) return text;
+        const h = std.hash.Wyhash.hash(0, verb);
+        for (self.glossed[0..self.glossed_len]) |seen| {
+            if (seen == h) return null;
+        }
+        if (self.glossed_len < self.glossed.len) {
+            self.glossed[self.glossed_len] = h;
+            self.glossed_len += 1;
+        }
+        return text;
     }
 
     pub fn noteVerb(self: *Progress, verb: []const u8, ctx: *Ctx) void {

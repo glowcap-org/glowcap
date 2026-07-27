@@ -42,7 +42,7 @@ const model = pancake.ocapn.model;
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The enforced ceiling for one warm inbound dispatch turn under `--gate`
-/// (ReleaseFast). docs/ladder.md rung 2 owns this number. It is a tripwire at
+/// (ReleaseFast). docs/ladder.md step 2 owns this number. It is a tripwire at
 /// roughly an order of magnitude over the measured figure, so crossing it
 /// means a structural regression (an accidental copy in the loop, a Debug-only
 /// path leaking into hot code, an asymptotic slip), never machine noise —
@@ -73,7 +73,7 @@ fn runGate(io: std.Io, backing: std.mem.Allocator) !void {
 
     if (min_ns > gate_warm_dispatch_ceiling_ns) {
         std.debug.print(
-            "perf_gate FAIL warm_dispatch min_ns={d:.1} ceiling_ns={d:.1} — docs/ladder.md rung 2\n",
+            "perf_gate FAIL warm_dispatch min_ns={d:.1} ceiling_ns={d:.1} — docs/ladder.md step 2\n",
             .{ min_ns, gate_warm_dispatch_ceiling_ns },
         );
         std.process.exit(1);

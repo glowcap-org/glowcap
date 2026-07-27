@@ -2,7 +2,9 @@
 
 This page is the on-ramp. It assumes you are a competent programmer who has
 never met object-capability security. If you already know what a vat and a
-sturdyref are, skip back to the [README](../README.md) quickstart.
+sturdyref are, skip back to the [README](../README.md) quickstart. The site's
+Why OCapN page makes the same argument from the protocols you already run,
+with a step-through picture (`zig build docs-serve`, then Explore).
 
 ## What a capability is
 
@@ -35,12 +37,14 @@ discipline taken seriously. CapTP is what lets it cross a network.
 [CapTP](http://erights.org/elib/distrib/captp/) (the Capability Transport
 Protocol, from the E language) extends those references over a connection. Two
 programs open a session and hand each other references to local objects. A
-reference that crosses the wire arrives unforgeable on the far side: the
-protocol's tables make it impossible to name an object you were never given.
+peer can name only the references it was handed, because the session tables
+mint every one of them and there is no directory to guess at. Confidentiality
+on the wire is the netlayer's job, not the protocol's.
 
-The trust boundary sits at the wire and its session tables. Within a single vat,
-code that holds the vat handle can reach any object the vat hosts. Capability
-discipline begins where two mutually suspicious parties meet.
+The trust boundary sits at the wire and its session tables. A vat is one
+program's container of objects, running one message at a time. Within a single
+vat, code that holds the vat handle can reach any object the vat hosts.
+Capability discipline begins where two mutually suspicious parties meet.
 
 CapTP also carries promises. Calling a remote object returns immediately with a
 promise for the answer. You may call methods on that promise before it resolves;
@@ -68,10 +72,11 @@ repository; this repository vendors a copy under
 
 [Spritely Goblins](https://spritely.institute/goblins/) is the reference
 implementation in practice. Its wire behavior defines what interoperating means
-today. pancake treats Goblins as its conformance authority:
-Native `zig build goblins-interop` holds a live Syrup/TCP conversation with a
-real Goblins vat in both directions; binding `*-goblins-interop` steps prove
-client direction only (see [`community-review.md`](community-review.md)). The
+today. pancake treats Goblins as the authority on what correct looks like.
+`zig build goblins-interop` holds a live conversation with a real Goblins vat
+in both directions, over Syrup and TCP. The per-binding steps cover the client
+direction only; [`community-review.md`](community-review.md) says what each one
+does and does not prove. The
 [protocol diagrams](protocol-diagrams/README.md) flag the few places where
 pancake speaks a Goblins convention the draft spec does not yet pin down.
 
@@ -100,6 +105,9 @@ budgets.
 | sturdyref          | A durable, out-of-band token (peer plus swiss number) that can be turned back into a live reference later.                        |
 | locator            | The `ocapn://` URI form that names a peer (and optionally a sturdyref) so a netlayer can dial it.                                 |
 | handoff            | The signed three-party introduction that moves a capability from one session to another without proxying.                         |
-| netlayer           | A locator transport symbol bound to a byte path. CapTP is transport-agnostic; pancake ships `tcp`, `keyed-tcp`, `inproc`, and iroh. |
+| designator         | The part of a locator that names _which_ peer, usually a public key; the hints beside it say how to reach it.                     |
+| give               | The signed introduction a handoff produces. The recipient presents it to the exporter to withdraw the capability it names.        |
+| vow                | A promise for a value that has not settled yet; you may call through it before it does.                                           |
+| netlayer           | The transport a locator names, bound to a byte stream. CapTP itself names no transport; pancake ships `tcp`, `keyed-tcp`, `inproc`, iroh, and webrtc. |
 | codec              | The wire encoding of the message model; pancake ships Syrup and Cap'n Proto behind one dispatch boundary.                         |
 | Syrup              | The S-expression-flavored binary encoding Goblins speaks; the default OCapN wire format.                                          |

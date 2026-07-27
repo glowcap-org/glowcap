@@ -72,3 +72,19 @@ pub const Command = struct {
         return null;
     }
 };
+
+/// Gather the persistent flags visible at `path`'s node: every flag an
+/// ancestor (typically root) declared persistent is accepted at any depth, so
+/// parsing and help both need the same set. Fills `buf` and writes the count
+/// to `n`, stopping at capacity rather than growing.
+pub fn collectPersistent(path: []const *const Command, buf: *[48]Flag, n: *usize) void {
+    n.* = 0;
+    for (path) |cmd| {
+        for (cmd.flags) |f| {
+            if (!f.persistent) continue;
+            if (n.* >= buf.len) return;
+            buf[n.*] = f;
+            n.* += 1;
+        }
+    }
+}

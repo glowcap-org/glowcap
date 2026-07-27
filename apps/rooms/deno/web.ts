@@ -55,9 +55,16 @@ const envAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_TR
 const chosenTransport = flagTransport ?? (envAllowed ? Deno.env.get("ROOMS_TRANSPORT") : undefined);
 const TRANSPORT = chosenTransport === "iroh" ? "iroh" : "tcp";
 const ROOT = new URL(".", import.meta.url).pathname;
+// `--no-lock` on both arms, because this process spawns the room server as a
+// child and the child needs the same posture the parent was given. The deploy
+// runs with the repository mounted read-only and passes `--no-lock` on the
+// command line for that reason; without it here, the parent starts, every child
+// dies writing `deno.lock`, and the supervisor respawns it forever. Nothing
+// needs the lockfile: it is gitignored, and the one npm dependency is version
+// pinned in the import map.
 const DENO_FLAGS = TRANSPORT === "iroh"
-	? ["run", "-A", "--unstable-ffi"]
-	: ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
+	? ["run", "-A", "--unstable-ffi", "--no-lock"]
+	: ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", "--no-lock"];
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -244,9 +251,9 @@ console.log(
 // module edit needs a restart to re-bundle). Everything is served with no-store, so a
 // browser always fetches the current build.
 const UI_DIR = `${ROOT}ui/`;
-// Not minified, so the served bundle stays readable in the browser's view-source; the
-// bundle carries zod, so it is roughly 150 KB. A production build can shrink it a lot
-// by adding "--minify" to a pre-built page.js (see deploy/README.md).
+// Not minified, so the served bundle stays readable in the browser's view-source.
+// A production build can shrink it a lot by adding "--minify" to a pre-built
+// page.js (see deploy/README.md).
 const BROWSER_BUNDLE_CONFIG = `${ROOT}../../../bindings/ts/web/browser-bundle.json`;
 const WASM_PATH = `${ROOT}../../../zig-out/wasm/pancake_driver.wasm`;
 async function bundleClient(): Promise<string> {
@@ -269,12 +276,48 @@ async function bundleClient(): Promise<string> {
 	}
 	return new TextDecoder().decode(stdout);
 }
-async function clientJs(): Promise<string> {
+// The newest modification time across the UI sources, or null if none can be read.
+// Used only to tell a current prebuilt bundle from a stale one.
+async function newestSourceTime(): Promise<number | null> {
+	let newest: number | null = null;
 	try {
-		return await Deno.readTextFile(`${UI_DIR}page.js`); // pre-built (the deploy path)
+		for await (const entry of Deno.readDir(UI_DIR)) {
+			if (!entry.isFile) continue;
+			if (!/\.(ts|css|html)$/.test(entry.name)) continue;
+			const stat = await Deno.stat(`${UI_DIR}${entry.name}`);
+			const at = stat.mtime?.getTime();
+			if (at !== undefined && (newest === null || at > newest)) newest = at;
+		}
 	} catch {
-		return await bundleClient(); // bundle on the fly (the dev default)
+		return null;
 	}
+	return newest;
+}
+async function clientJs(): Promise<string> {
+	let prebuilt: string | null = null;
+	let prebuiltAt: number | null = null;
+	try {
+		prebuilt = await Deno.readTextFile(`${UI_DIR}page.js`); // the deploy path
+		prebuiltAt = (await Deno.stat(`${UI_DIR}page.js`)).mtime?.getTime() ?? null;
+	} catch {
+		return await bundleClient(); // no prebuilt: bundle on the fly (the dev default)
+	}
+	// A prebuilt bundle older than a source module is the trap this guard exists
+	// for: an edit to ui/net.ts appears to do nothing, because the stale bundle
+	// wins silently. Rebuild it. The deploy container has no network and cannot,
+	// so a failed rebuild serves the prebuilt rather than refusing to start.
+	const sourceAt = await newestSourceTime();
+	if (prebuiltAt !== null && sourceAt !== null && sourceAt > prebuiltAt) {
+		console.warn("rooms: ui/page.js is older than the UI sources — rebundling");
+		try {
+			return await bundleClient();
+		} catch (err) {
+			console.warn(
+				`rooms: could not rebundle (${reasonOf(err)}); serving ui/page.js as built`,
+			);
+		}
+	}
+	return prebuilt;
 }
 let pageJs: string;
 try {
@@ -298,6 +341,32 @@ function asset(body: string, type: string): Response {
 		headers: { "content-type": type, "cache-control": "no-store" },
 	});
 }
+// The typefaces ui/tokens.css names, by exact filename. Fonts are immutable once
+// published, so unlike the page assets they are cached hard.
+const FONTS = new Set([
+	"ibm-plex-sans-latin-wght-normal.woff2",
+	"ibm-plex-sans-latin-wght-italic.woff2",
+	"ibm-plex-mono-latin-400-normal.woff2",
+	"ibm-plex-mono-latin-400-italic.woff2",
+	"ibm-plex-mono-latin-600-normal.woff2",
+]);
+
+async function serveFont(name: string): Promise<Response> {
+	if (!FONTS.has(name)) return new Response("not found\n", { status: 404 });
+	try {
+		return new Response(await Deno.readFile(`${UI_DIR}fonts/${name}`), {
+			headers: {
+				"content-type": "font/woff2",
+				"cache-control": "public, max-age=31536000, immutable",
+			},
+		});
+	} catch (err) {
+		return new Response(`rooms: could not read ui/fonts/${name}: ${reasonOf(err)}`, {
+			status: 500,
+		});
+	}
+}
+
 // Read a UI file fresh for each request, so editing page.html or page.css shows on a
 // browser refresh without restarting this process.
 async function serveUi(name: string, type: string): Promise<Response> {
@@ -444,6 +513,14 @@ try {
 			})();
 		}
 		if (url.pathname === "/page.css") return serveUi("page.css", "text/css; charset=utf-8");
+		// The shared UI core (ui/tokens.css), reached through a symlink in ui/.
+		if (url.pathname === "/tokens.css") return serveUi("tokens.css", "text/css; charset=utf-8");
+		// The typefaces ui/tokens.css declares. Served from an allowlist rather than
+		// by joining the request path onto a directory, so a crafted path cannot
+		// walk out of ui/fonts and read the rest of the machine.
+		if (url.pathname.startsWith("/fonts/")) {
+			return serveFont(url.pathname.slice("/fonts/".length));
+		}
 		return serveUi("page.html", "text/html; charset=utf-8");
 	});
 } catch (err) {

@@ -1,25 +1,40 @@
-//! The WebRTC DataChannel netlayer resident (ADR-0089, phase 2).
+//! WebRTC DataChannel transport: a peer-to-peer channel for keyed OCapN
+//! sessions. Unlike TCP or iroh, there is no dialable address — the channel is
+//! established by an SDP signaling exchange (offer, answer, ICE candidates).
+//! Callers drive the signaling directly through this file's `Peer` struct, then
+//! run the session bytes over the open DataChannel.
 //!
-//! This wraps the `pancake_webrtc_sidecar` C ABI (`transports/webrtc/`) so a
-//! keyed OCapN session runs byte-for-byte over a reliable, ordered
-//! `RTCDataChannel`. The byte path mirrors the iroh resident (ADR-0055): the
-//! sidecar connection is presented as the same `*std.Io.Reader` /
-//! `*std.Io.Writer` pair every transport hands the engine, pinned so the vtable
-//! can recover the concrete reader and writer by field offset.
+//! The byte path mirrors every other transport: the sidecar connection is
+//! presented as a `*std.Io.Reader` / `*std.Io.Writer` pair, pinned so the
+//! vtable can recover the concrete reader and writer by field offset.
 //!
-//! WebRTC differs from iroh in how a channel comes up. A peer has no dialable
-//! address, so there is no `connect(locator)` here yet. The channel is
-//! established by an out-of-band signaling exchange the caller drives: the
-//! offerer produces an SDP offer, the answerer an SDP answer, and both trickle
-//! ICE candidates until the channel opens. Phase 2 carries those strings through
-//! a test harness; phase 4 routes a `webrtc` locator through the netlayer
-//! dispatch, and phase 5 carries signaling over an OCapN capability (ADR-0089).
-//! Until then this resident is compiled and type-checked but not registered as a
-//! `Netlayer`, exactly as the ADR sequences the phases.
+//! ## Usage sequence
 //!
-//! The resident compiles as its own module outside the `pancake` root namespace,
-//! so its externs resolve only when the sidecar staticlib links. A hermetic
-//! object build type-checks it under plain `zig build check` with no cargo.
+//! 1. `Peer.init(is_offerer)` — create a sidecar peer in one of the two roles
+//! 2. Signaling exchange: `createOffer` / `createAnswer`, `setRemoteOffer` /
+//!    `setRemoteAnswer`, `addRemoteCandidate` / `nextLocalCandidate` both ways
+//! 3. `waitOpen` — block until the data channel opens
+//! 4. `connection()` — present the channel as a `net.Connection` the session runs
+//!    over, or `read`/`write` directly for the byte-fed C ABI path
+//!
+//! ## Dial posture
+//!
+//! `Resident.dial()` and `listen()` return `error.InvalidAddress`: a bare webrtc
+//! locator names no address, so a channel only opens through a signaling
+//! exchange. The dial classifier still recognizes the transport symbol and
+//! validates the key designator — `driver_core.planDial` returns
+//! `DialPlan.signaling`, and `PANCAKE_DIAL_SHAPE_SIGNALING` ships in every
+//! binding's constants table. The resident compiles and type-checks under
+//! `zig build check` but is not registered as a `Netlayer`. A peer reaches
+//! another over webrtc today by redeeming a handoff give, which carries the
+//! signaling reference the bare locator lacks (`zig build webrtc-handoff`).
+//!
+//! ## Sidecar posture
+//!
+//! The resident wraps the `pancake_webrtc_sidecar` C ABI (`transports/webrtc/`).
+//! It compiles as its own module outside the `pancake` root namespace, so its
+//! externs resolve only when the sidecar staticlib links. A hermetic object build
+//! type-checks it under plain `zig build check` with no cargo.
 
 const std = @import("std");
 
@@ -33,8 +48,9 @@ const Connection = net.Connection;
 const Buffers = net.netlayer.Buffers;
 const Netlayer = net.netlayer.Netlayer;
 
-/// The transport symbol this resident registers under once phase 4 wires it into
-/// the netlayer dispatch, and signs into `op:start-session`.
+/// The transport symbol this resident signs into `op:start-session`. The dial
+/// classifier recognizes it; the resident is not registered as a `Netlayer`
+/// (see "Dial posture" above).
 pub const transport_name = model.transport.webrtc;
 
 /// The peer's Ed25519 designator length, the same key width keyed-tcp and iroh
@@ -251,9 +267,10 @@ pub const Peer = struct {
 // checks against the byte-fed `driver_core.vocab` table. Dialing a `webrtc`
 // locator through the plain netlayer is not wired yet: a channel comes up
 // through a signaling exchange (offer, answer, ICE), not a synchronous dial of a
-// dialable address, so `dial` and `listen` fail closed until the signaling
-// capability lands (ADR-0089 phase 5). The live phase-2 path drives a `Peer` and
-// its signaling methods directly, above this seam.
+// dialable address, so `dial` and `listen` fail closed by design. The signaling
+// capability has landed (ADR-0089 phase 5); what remains is phase 4, the
+// locator's route through the netlayer dispatch. The live path drives a `Peer`
+// and its signaling methods directly, above this seam.
 
 const netlayer_vtable = Netlayer.VTable{
     .transport_name = transport_name,

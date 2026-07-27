@@ -8,8 +8,9 @@
 ;; `raise-pancake`), the pin/copy helpers (`pin-immobile`, `bytes<-c`),
 ;; `codec-id`, the session-construction seam (`async-transport`,
 ;; `establish-dialed-locator-session`,
-;; `establish-accepted-session`,
-;; `make-fresh-host`, `make-host`, `host-set-self-designator!`), and the shared frame
+;; `establish-accepted-session`, `accept-next-session`,
+;; `make-fresh-host`, `make-host`, `host-set-self-designator!`), the handshake
+;; bound both halves default to (`HANDSHAKE-TIMEOUT-MS`), and the shared frame
 ;; cstructs with their managed-frame release. Not a public API: `pancake.rkt`'s
 ;; public provide never exports these, and an application reaches a transport
 ;; through its companion module's own surface.

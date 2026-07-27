@@ -1,22 +1,24 @@
 ---
 .title = "Python",
+.description = "The Python binding: Session and Host with native Python values over ctypes, with TCP, in-process, and lazily loaded iroh transports.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-`Session` / `Host` with native Python values over `ctypes`
+The Python binding gives you `Session` and `Host` with native Python values over
+`ctypes`
 ([`pancake`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake)).
-Transports: `pancake.tcp`, `pancake.inproc`, lazy `pancake.iroh`. Install:
-[Bindings]($link.page('bindings')).
+The transport modules are `pancake.tcp`, `pancake.inproc`, and lazy
+`pancake.iroh`, and the [Bindings]($link.page('bindings')) page covers install.
 
 ## The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, send,
-handle the reply) reads like this in Python. Start `serve` yourself (Rust
-auto-serves on `connect`); `fetch` / `send` also start the inbound loop on
-demand.
+handle the reply) reads like this in Python. `serve` runs the inbound loop as a
+background task, and `fetch` and `send` start it on demand, so a pure caller
+can skip the explicit call.
 
 > []($block.attrs('code-tabs'))
 > **tcp**
@@ -60,20 +62,26 @@ demand.
 > await session.close()
 > ```
 
-The iroh tab is a bare node id plus posture; fetch/send match the tcp tab.
-Dial-by-id and discovery: [iroh]($link.page('transports/iroh')).
+The iroh snippet changes only the locator: a bare node id plus the reachability
+posture. `fetch` and `send` are unchanged. For dial-by-id and discovery, see
+[iroh]($link.page('transports/iroh')).
+
+Hosting works from Python too: `listen` binds a port and accepts sessions that
+publish and serve, and `listen_keyed_tcp` is the restart-stable keyed flavor.
 
 ## Async
 
-[`asyncio`](https://docs.python.org/3/library/asyncio.html). Hold a `Session`;
-`await session.send(...)` for a result; `session.serve()` runs the inbound loop
-until close (start it yourself, unlike Rust). CapTP ideas:
-[Concepts]($link.page('concepts')).
+Everything rides plain
+[`asyncio`](https://docs.python.org/3/library/asyncio.html).
+`await session.send(...)` settles with the reply, and `session.serve()` runs
+the inbound loop as a background task until the session closes.
+[Concepts]($link.page('concepts')) covers the CapTP ideas.
 
 ## Actors
 
-`behavior(verb, args)` on `session.spawn` / `session.publish`. One trampoline
-into Python per deliver.
+`session.spawn` and `session.publish` take a `behavior(verb, args)` callable. A
+raise breaks the answer with the exception's own words, and each deliver
+crosses into Python once, through one trampoline.
 
 ## Binding check and example
 
@@ -85,4 +93,4 @@ The full surface lives in the
 [Python binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/README.md),
 and the
 [rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/python/room_client.py)
-builds a small capability-secure room on this surface.
+shows the rest.

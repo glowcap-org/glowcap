@@ -1,15 +1,16 @@
 ---
 .title = "API reference",
+.description = "The generated API reference for pancake: both the Zig declarations and the C ABI, kept from going stale by a build check.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-This is the exact, machine-generated API: both halves produced from the same Zig
-declarations the library compiles, so neither can drift from the code it
-describes. For *which* surface to reach for and how to start, see
-[Surfaces]($link.page('surfaces')); this page is the lookup.
+Both halves of this reference are generated from the same Zig declarations the
+library compiles, and a build check fails when either goes stale, so what you
+read here matches the code. For *which* surface to reach for and how to start,
+see [Surfaces]($link.page('surfaces')); this page is the lookup.
 
 ## The Zig API
 
@@ -33,7 +34,8 @@ archive compiles.
 | `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
 | `libpancake_net_transport_webrtc` | [`pancake_net_transport_webrtc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
 
-The iroh header is a companion: it `#include`s `pancake_ocapn.h` and adds only the
-`pancake_iroh_*` family, and a consumer links its archive alongside the core ones.
+The driver and transport headers are companions, not supersets: each one
+`#include`s `pancake_ocapn.h`, declares only its own family, and expects its
+archive to be linked alongside `libpancake_ocapn`.
 For the route from a build to a first complete C program, read
 [consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).

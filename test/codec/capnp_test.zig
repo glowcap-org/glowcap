@@ -381,7 +381,7 @@ test "Cap'n Proto round-trips a sturdyref locator carrying hint entries" {
     };
 
     try expectRoundTrip(.{ .deliver = .{
-        .target = .{ .sturdy = .{
+        .target = .{ .sturdy = &.{
             .peer = .{
                 .transport = "tcp",
                 .designator = "127.0.0.1:9001",
@@ -405,7 +405,7 @@ test "resolve round-trips fulfill and break" {
 test "reference arms round-trip through deliver target" {
     try expectRoundTrip(.{ .deliver = .{ .target = .{ .near = model.NearRef.promise(3) }, .args = &.{} } });
     try expectRoundTrip(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(4) }, .args = &.{} } });
-    try expectRoundTrip(.{ .deliver = .{ .target = .{ .sturdy = .{
+    try expectRoundTrip(.{ .deliver = .{ .target = .{ .sturdy = &.{
         .peer = .{ .transport = "tcp", .designator = "host:9000" },
         .swissnum = &.{ 0xde, 0xad },
     } }, .args = &.{} } });
@@ -547,7 +547,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
             .args = &.{},
         } },
         .{ .deliver = .{
-            .target = .{ .sturdy = .{
+            .target = .{ .sturdy = &.{
                 .peer = .{ .transport = "tcp", .designator = "host:9000" },
                 .swissnum = &.{ 0xde, 0xad },
             } },
@@ -775,4 +775,129 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // walk performs ~2^31 element resolutions.
     try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(frame.view()));
     try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, frame.view()));
+}
+
+test "an aliasing hint list is charged against the traversal budget" {
+    const allocator = std.testing.allocator;
+
+    // The hint list is the one composite list the charge pass never enumerated.
+    // `neutralPeerLocator` reads the list header and packs a *lazy* view, so a
+    // list of N entries cost O(1) to charge, and `capnpMaterializeHintList`
+    // then built its own unmetered reader and duped a name and a value per
+    // entry. Every entry here aliases one blob, which Cap'n Proto pointers
+    // permit and every individual read bounds-checks cleanly, so nothing but a
+    // budget can refuse it.
+    //
+    // Every other field is deliberately valid and small, so the frame reaches
+    // hint materialization rather than being turned away for an unrelated
+    // reason, and so the hints are the only pressure on the budget.
+    //
+    // It rides an `op:start-session`, which is the worst placement: the
+    // handshake materializes the locator hints to rebuild the signing domain,
+    // so this runs before the partner signature is verified.
+    const entry_count: usize = 1024;
+    const blob_words: usize = 512; // 4 KiB, aliased by every entry, twice
+    const data_words: u16 = 2;
+    const ptr_words: u16 = 2;
+    const stride: usize = data_words + ptr_words;
+
+    var b = wire.Builder{};
+    defer b.deinit(allocator);
+
+    const root = try b.allocWords(allocator, 1);
+    const env = try b.allocWords(allocator, 2);
+    const body = try b.allocWords(allocator, 4); // start-session: 0 data, 4 ptrs
+    const loc = try b.allocWords(allocator, 4); // locator: 1 data, 3 ptrs
+    const ver = try b.allocWords(allocator, 1);
+    const small = try b.allocWords(allocator, 4);
+    const blob = try b.allocWords(allocator, blob_words);
+    const tag = try b.allocWords(allocator, 1);
+    const block = try b.allocWords(allocator, entry_count * stride);
+
+    b.setBytes(ver, "1.0");
+    b.setBytes(small, "aaaaaaaa");
+
+    b.set(root, wire.encodeStructPointer(wire.Builder.offsetTo(root, env), 1, 1));
+    b.set(env, @intFromEnum(capnp.shared.Kind.start_session));
+    b.set(env + 1, wire.encodeStructPointer(wire.Builder.offsetTo(env + 1, body), 0, 4));
+
+    b.set(body, wire.encodeListPointer(wire.Builder.offsetTo(body, ver), .byte, 3));
+    b.set(body + 1, wire.encodeListPointer(wire.Builder.offsetTo(body + 1, small), .byte, 8));
+    b.set(body + 2, wire.encodeStructPointer(wire.Builder.offsetTo(body + 2, loc), 1, 3));
+    b.set(body + 3, wire.encodeListPointer(wire.Builder.offsetTo(body + 3, small), .byte, 8));
+
+    b.set(loc, 0); // hints present, map form
+    b.set(loc + 1, wire.encodeListPointer(wire.Builder.offsetTo(loc + 1, small), .byte, 8));
+    b.set(loc + 2, wire.encodeListPointer(wire.Builder.offsetTo(loc + 2, small), .byte, 8));
+    b.set(loc + 3, wire.encodeListPointer(wire.Builder.offsetTo(loc + 3, tag), .composite, @intCast(entry_count * stride)));
+
+    b.set(tag, wire.Builder.compositeTag(@intCast(entry_count), data_words, ptr_words));
+    for (0..entry_count) |i| {
+        const e = block + i * stride;
+        b.set(e, @intFromEnum(capnp.shared.HintValueKind.string));
+        b.set(e + 1, 0);
+        // Name and value both point at the one shared blob: the aliasing edge.
+        b.set(e + 2, wire.encodeListPointer(wire.Builder.offsetTo(e + 2, blob), .byte, @intCast(blob_words * 8)));
+        b.set(e + 3, wire.encodeListPointer(wire.Builder.offsetTo(e + 3, blob), .byte, @intCast(blob_words * 8)));
+    }
+
+    var frame = try b.finish(allocator);
+    defer frame.deinit();
+
+    // Materializing this unbudgeted dupes entry_count * 2 * 4 KiB from a frame
+    // a fraction of that size. The budget refuses it instead.
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(frame.view()));
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, frame.view()));
+}
+
+test "a decoded frame must be exactly the length its header declares" {
+    const allocator = std.testing.allocator;
+    var frame = try capnp.encodeMessage(allocator, .{ .gc_answer = .{ .positions = &.{7} } });
+    defer frame.deinit();
+
+    // The frame itself decodes.
+    _ = try capnp.decodeBody(frame.view());
+
+    // The same bytes with anything appended do not. Syrup refuses trailing
+    // bytes too; without the rule these two byte strings name one message, and
+    // anything treating a frame's bytes as its identity sees two of it.
+    const padded = try allocator.alloc(u8, frame.bytes().len + 8);
+    defer allocator.free(padded);
+    @memcpy(padded[0..frame.bytes().len], frame.bytes());
+    @memset(padded[frame.bytes().len..], 0);
+    const aligned = try allocator.alignedAlloc(u8, .@"8", padded.len);
+    defer allocator.free(aligned);
+    @memcpy(aligned, padded);
+    try std.testing.expectError(
+        error.MalformedFrame,
+        capnp.decodeBody(.{ .bytes = aligned, .shape = .word }),
+    );
+}
+
+test "a locator carrying the same hint name twice is refused" {
+    // Hints are a dictionary, so a repeated name is malformed. It matters more
+    // than tidiness: the encoder emits hint entries in model order with no
+    // uniqueness pass, so a duplicate admitted here would be re-emitted, as
+    // part of a handoff give's exporter location, into a dictionary pancake's
+    // own decoder rejects.
+    const allocator = std.testing.allocator;
+    const entries = [_]model.HintEntry{
+        .{ .name = "direct-addresses", .value = .{ .string = "10.0.0.1:9000" } },
+        .{ .name = "direct-addresses", .value = .{ .string = "10.0.0.2:9000" } },
+    };
+    var frame = try capnp.encodeMessage(allocator, .{ .start_session = .{
+        .captp_version = .v1_0,
+        .session_pubkey = .{ .bytes = &([_]u8{0x11} ** 32) },
+        .acceptable_location = .{
+            .transport = "tcp",
+            .designator = "127.0.0.1:9000",
+            .hints = .{ .entries = entries[0..] },
+        },
+        .acceptable_location_sig = .{ .bytes = &([_]u8{0x22} ** 64) },
+    } });
+    defer frame.deinit();
+
+    // Borrowed decode leaves the list lazy, so the refusal lands where the
+    // entries are actually materialized.
+    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, frame.view()));
 }

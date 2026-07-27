@@ -24,7 +24,7 @@
 // (`npx playwright install chromium && sudo npx playwright install-deps`).
 // Run: `deno run --allow-all apps/rooms/deno/web_dm_tabs_test.ts`.
 
-import { type Browser, type BrowserContext, chromium, type Page } from "npm:playwright@1.61.1";
+import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 
 const WEB = new URL("./web.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;

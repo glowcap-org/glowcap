@@ -1,11 +1,12 @@
 import { notifyToggle } from "./dom.ts";
+import { setIcon } from "./icons.ts";
 import { LS, sysItem } from "./state.ts";
 import { toActive } from "./render.ts";
 
 // ── Desktop notifications when you are @mentioned or DMed (opt-in) ─────────
 let notifyOn = LS.get("rooms.notify") === "1";
 export function renderNotifyBtn() {
-	notifyToggle.textContent = notifyOn ? "🔔" : "🔕";
+	setIcon(notifyToggle, notifyOn ? "bell" : "bellOff");
 	notifyToggle.classList.toggle("on", notifyOn);
 	notifyToggle.setAttribute("aria-pressed", String(notifyOn));
 }

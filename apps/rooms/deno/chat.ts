@@ -42,8 +42,14 @@ const dir = await Directory.connect(locator, dial);
 const liveRooms = new Map<string, number>();
 for (
 	const room of await dir.watch((event) => {
+		// The directory carries direct-message nick registrations on the same
+		// stream as rooms ("registered" / "unregistered"). Only the three room
+		// kinds belong in this map; folding a registration in would list a
+		// person's nick as a room nobody can enter.
 		if (event.kind === "closed") liveRooms.delete(event.name);
-		else liveRooms.set(event.name, event.count);
+		else if (event.kind === "opened" || event.kind === "count") {
+			liveRooms.set(event.name, event.count);
+		}
 	})
 ) liveRooms.set(room.name, room.count);
 
@@ -87,8 +93,17 @@ async function pump(room: Room): Promise<void> {
 async function handle(line: string): Promise<void> {
 	if (line.length === 0) return;
 	if (!line.startsWith("/")) {
-		if (session.room) await session.room.say(line);
-		else console.log("* not in a room — /enter or /open one first");
+		if (!session.room) {
+			console.log("* not in a room — /enter or /open one first");
+			return;
+		}
+		// A `say` that fails is one line lost, not a reason to end the session:
+		// let it print and keep the prompt alive.
+		try {
+			await session.room.say(line);
+		} catch (err) {
+			console.log("* could not send that line: " + String(err));
+		}
 		return;
 	}
 	const [cmd, ...rest] = line.slice(1).split(/\s+/);

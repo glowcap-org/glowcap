@@ -1,5 +1,6 @@
 ---
 .title = "Choosing a transport",
+.description = "Which transport to use comes down to one question: who are the two peers, and what can each of them open? The session on top is identical either way.",
 .date = @date("2026-07-22T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -28,16 +29,24 @@ first question is not "which transport" but "can both peers open a channel?"
 
 | You have | Reach for | Because |
 | --- | --- | --- |
-| Two hosts on a network, and one is a Goblins peer | `tcp` | it speaks Goblins' cleartext wire byte for byte |
-| Two hosts, and you want a stable key identity that survives a restart | `keyed-tcp` | the designator is the peer's key, re-dialable across restarts, and a squatter is refused |
+| Two hosts on a network, and one is a [Goblins](https://spritely.institute/goblins/) peer | `tcp` | it speaks the Scheme object-capability system pancake interoperates with, on its cleartext wire byte for byte |
+| Two hosts, and you want a stable identity that survives a restart | `keyed-tcp` | the name you dial (the *designator*) is the peer's public key, so another peer cannot claim your identity and you can re-dial the same one after a restart |
 | Both peers in one process, or a test | `inproc` | in-memory pipes, no socket, no port to bind |
 | Two hosts that want an encrypted channel, or that sit behind NAT | `iroh` | encrypted QUIC, dial-by-key, and discovery across the open internet |
-| Many connections from one host without a thread apiece | `iroh` or the TCP loop | one readiness loop drives them all |
+| Many connections from one host without a thread apiece | `iroh`, or `tcp` driven by its completion loop | one readiness loop drives them all |
 
 If you just want "a real network connection to a peer you can address," `tcp` is the
 default. Reach past it when you need one specific thing it does not give you: a key
 identity (`keyed-tcp`), encryption or NAT traversal (`iroh`), or no socket at all
 (`inproc`).
+
+One thing the default does *not* give you: `tcp` and `keyed-tcp` are **cleartext**,
+with no encryption on the wire. There is no TLS-over-TCP transport today, so "I just
+want an encrypted socket" currently means `iroh`, whose QUIC channel is encrypted (at
+the cost of linking its Rust sidecar). You do not have to decide this up front, though:
+because the session on top is identical, moving from `tcp` to `iroh` later changes only
+the locator you dial, not your application. Start on `tcp`, switch when you need the
+channel confidential.
 
 ## If a browser is involved
 
@@ -53,29 +62,30 @@ complementary, not competing.
   between two browsers when a direct channel cannot form.
 - **WebRTC** opens a **direct** DataChannel between two peers, most usefully two
   browsers, with no server on the byte path once it is up. It needs a signaling
-  capability to exchange the setup (a room, or the relay), and it needs ICE to find a
-  path between the two ends. Use it when you want two browser peers talking directly
-  and the setup can succeed.
+  capability to exchange the setup (a room, or any object both peers can reach), and
+  it needs ICE to find a path between the two ends. Use it when you want two browser
+  peers talking directly and the setup can succeed.
 
 So the browser rule of thumb: **a direct WebRTC DataChannel when it can form and you
 want the peers direct; the relay when a browser must reach a native peer, or as the
 fallback when WebRTC cannot.** The relay always works as long as a relay is reachable;
 WebRTC removes the relay from the byte path but depends on signaling and connectivity.
-A deployment can offer both and prefer the direct channel.
+Weigh the cost before offering both: WebRTC links its own Rust sidecar (needs `cargo`
+to build), and crossing real NAT means standing up a STUN server. If you are not going
+browser-to-browser, the relay alone is less to operate.
 
 ## The relay bridges channels; it does not translate the protocol
 
-One clarification worth making, because it is easy to assume otherwise. The relay
-does translate **channels**: it turns a browser's WebSocket into a far peer's TCP or
-QUIC stream and moves bytes between them. It does **not** translate the OCapN
-protocol, parse a frame, or hold a capability. The keyed handshake and every
-capability that follows run end to end between the browser and the far peer; the
-relay is a pipe. That is why a browser can reach any socket transport through one
-relay without the relay understanding the session at all.
+The relay translates
+**channels**: it turns a browser's WebSocket into a far peer's TCP or QUIC stream and
+moves bytes between them. It does **not** translate the protocol, parse a frame, or
+hold a capability. That is why a browser can reach any socket transport through one
+relay, and why the relay is never party to the session it carries. [The
+relay]($link.page('relay')) covers that byte-transparency in full.
 
-## Where transports overlap on purpose
+## Where transports overlap
 
-Two pairs look redundant at a glance. Each pair is a deliberate trade, not
+A few pairs look redundant at a glance. Each pair is a different trade, not
 duplication.
 
 - **`keyed-tcp` and `iroh` both name a peer by its key.** `keyed-tcp` is plain
@@ -85,21 +95,27 @@ duplication.
   when you want a stable key identity on an ordinary socket and nothing more; choose
   `iroh` when you want the channel encrypted and reachable across NAT. Same key-as-name
   idea, different channel underneath.
+- **`iroh` and `webrtc` are both encrypted peer-to-peer channels.** What splits
+  them is what each peer can run. A browser cannot open a QUIC endpoint or link
+  iroh's native sidecar, so its only direct encrypted channel is a WebRTC
+  DataChannel. Two native hosts reach for `iroh` instead, because it finds a path by
+  discovery and dial-by-key with no external signaling, where WebRTC needs a
+  signaling capability and ICE to pair. So `webrtc` is the browser's peer-to-peer
+  channel and `iroh` is the native one, and they meet only when a native peer talks
+  directly to a browser.
 - **`tcp` and `keyed-tcp` are the same sockets, addressed differently.** `tcp`
   addresses a peer by `host:port` and speaks Goblins' wire; `keyed-tcp` addresses it
   by key. If you are talking to Goblins or to a fixed address, `tcp`; if you want the
   identity to be the key rather than the address, `keyed-tcp`.
 
-The relay ships a reference implementation in every binding runtime (Deno, Python,
-Rust, Racket, plus `@pancake/relay`) for the same reason: an app written in one of
-them gets a working relay without dragging in a foreign runtime. That overlap is
-cross-runtime parity, held identical by one test matrix, not four drifting copies.
+The relay ships a reference implementation in every binding runtime (Deno, which is
+`@pancake/relay`, plus Python, Rust, and Racket) for the same reason: an app written in one of
+them gets a working relay without dragging in a foreign runtime. One test
+matrix keeps the four relays identical.
 
-## The pages
-
-The [Transports]($link.page('transports')) overview lists every resident with its
-addressing and channel. [iroh]($link.page('transports/iroh')) and
-[WebRTC]($link.page('transports/webrtc')) have their own pages, and
-[the relay]($link.page('relay')) explains the browser bridge in full.
-[Concepts]($link.page('concepts')) covers locators, designators, and handoffs that
-are the same across all of them.
+Whichever you pick, the session and every capability on top of it are identical;
+only the path the bytes take changes, which is why you can defer the decision and
+change it later. The [iroh]($link.page('transports/iroh')) and
+[WebRTC]($link.page('transports/webrtc')) pages cover their mechanics in depth, and
+[Concepts]($link.page('concepts')) explains the locators, designators, and handoffs
+they all share.

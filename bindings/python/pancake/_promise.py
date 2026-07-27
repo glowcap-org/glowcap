@@ -90,8 +90,9 @@ def _promise_for(session, vow: int) -> RemotePromise:
 
 
 class PromiseState:
-    """Sum state for :class:`RemotePromise`: ``Far`` (host vow) or ``Local``.
-    Discriminant is the arm type — not a nullable vow field."""
+    """Sum state for :class:`RemotePromise`: ``Far`` (host vow), ``Local``, or
+    ``Failed`` (the send never left). Discriminant is the arm type — not a
+    nullable vow field."""
 
     @dataclass(frozen=True, slots=True)
     class Far:
@@ -102,7 +103,20 @@ class PromiseState:
     class Local:
         tag: str = "local"
 
-    Kind = Union["PromiseState.Far", "PromiseState.Local"]
+    @dataclass(frozen=True, slots=True)
+    class Failed:
+        """A send that could not be issued at all — a closed session, an
+        argument that would not lower. It is a state rather than a raised
+        exception because ``send`` must return its handle synchronously, so
+        pipelining can project at the answer before it settles (ADR-0050).
+        Raising instead put a synchronous failure channel on an awaitable, and
+        a comprehension building sends raised before ``gather`` was ever
+        entered, so ``return_exceptions`` could not help."""
+
+        error: BaseException
+        tag: str = "failed"
+
+    Kind = Union["PromiseState.Far", "PromiseState.Local", "PromiseState.Failed"]
 
     @staticmethod
     def far(vow: int) -> "PromiseState.Far":
@@ -111,6 +125,10 @@ class PromiseState:
     @staticmethod
     def local() -> "PromiseState.Local":
         return PromiseState.Local()
+
+    @staticmethod
+    def failed(error: BaseException) -> "PromiseState.Failed":
+        return PromiseState.Failed(error)
 
 
 class RemotePromise(asyncio.Future):
@@ -170,6 +188,18 @@ class RemotePromise(asyncio.Future):
     def local(cls, begin) -> "RemotePromise":
         return cls(PromiseState.local(), begin, None)
 
+    @classmethod
+    def failed(cls, error: BaseException) -> "RemotePromise":
+        """A handle for a send that never left: awaiting it raises ``error``,
+        and projecting at it yields another failed handle carrying the same
+        reason, so a pipeline built behind a dead anchor fails where it is
+        awaited rather than where it was written."""
+
+        async def _raise():
+            raise error
+
+        return cls(PromiseState.failed(error), _raise, None)
+
     @property
     def vow(self) -> Optional[int]:
         """Host vow when far; ``None`` when local (convenience, not the discriminant)."""
@@ -177,6 +207,10 @@ class RemotePromise(asyncio.Future):
 
     def far_vow(self) -> int:
         """The host vow for pipelining, or a typed refusal when this is local."""
+        # A failed handle keeps its own reason rather than reporting the
+        # generic local-send refusal, so a caller sees why the send never left.
+        if isinstance(self._kind, PromiseState.Failed):
+            raise self._kind.error
         if not isinstance(self._kind, PromiseState.Far):
             raise PancakeError(
                 _ERR_UNSUPPORTED_VALUE,
@@ -185,6 +219,11 @@ class RemotePromise(asyncio.Future):
         return self._kind.vow
 
     def _project_op(self, op: str, key) -> "RemotePromise":
+        # A pipeline behind a send that never left is itself a send that never
+        # left. Carrying the same reason forward means the whole chain fails
+        # where it is awaited rather than raising at the link that was written.
+        if isinstance(self._kind, PromiseState.Failed):
+            return RemotePromise.failed(self._kind.error)
         if not isinstance(self._kind, PromiseState.Far) or self._project is None:
             raise PancakeError(_ERR_UNSUPPORTED_VALUE, "cannot project a local-send promise; await it for a value")
         return self._project(op, key)

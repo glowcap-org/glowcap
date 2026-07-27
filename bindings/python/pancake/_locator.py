@@ -18,7 +18,7 @@ from typing import NamedTuple, Optional
 import ctypes
 
 from . import _constants as _abi
-from ._errors import PancakeError, _check
+from ._errors import _check
 from ._ffi_ocapn import _lib
 
 _OK = _abi.OK
@@ -123,6 +123,12 @@ def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, 
     keys = [k.encode("utf-8") for k, _ in items]
     vals = [v.encode("utf-8") for _, v in items]
     n = len(items)
+    # Null pointers when there are no hints: the C side reads the four arrays
+    # only when the count is non-zero.
+    key_ptr: ctypes.c_void_p | None
+    val_ptr: ctypes.c_void_p | None
+    key_len_ptr: ctypes.c_void_p | None
+    val_len_ptr: ctypes.c_void_p | None
     if n:
         key_arr = (ctypes.c_char_p * n)(*keys)
         val_arr = (ctypes.c_char_p * n)(*vals)

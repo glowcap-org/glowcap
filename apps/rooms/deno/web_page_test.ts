@@ -11,7 +11,7 @@
 // (`npx playwright install chromium && sudo npx playwright install-deps`).
 // Run: `deno run --allow-all apps/rooms/deno/web_page_test.ts`.
 
-import { chromium } from "npm:playwright@1.61.1";
+import { chromium } from "playwright";
 
 const WEB = new URL("./web.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;

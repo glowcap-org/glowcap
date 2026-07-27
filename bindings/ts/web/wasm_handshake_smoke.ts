@@ -62,7 +62,7 @@ type Exports = {
 		outSession: number,
 	) => number;
 	pancake_host_session_release: (session: number) => void;
-	pancake_host_session_session_open: (session: number) => number;
+	pancake_host_session_is_open: (session: number) => number;
 	pancake_host_session_feed_bytes: (
 		session: number,
 		bytes: number,
@@ -221,7 +221,7 @@ function openDialed(host: number, transport: string, designator: string): number
 	}
 }
 
-const sessionOpen = (session: number) => ex.pancake_host_session_session_open(session) !== 0;
+const sessionOpen = (session: number) => ex.pancake_host_session_is_open(session) !== 0;
 
 // Drain every encoded outbound frame the session has queued, copying each out of
 // wasm memory before releasing its managed frame.

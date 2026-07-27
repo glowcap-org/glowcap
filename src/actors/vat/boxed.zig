@@ -118,13 +118,12 @@ pub fn releaseBox(allocator: std.mem.Allocator, box: *StateBox) void {
 }
 
 /// A captured local actor heap: a point-in-time sharing of each actor's
-/// `StateBox` (refcount raised, no bytes copied) plus the `next_actor` counter.
+/// `StateBox` (refcount raised, no bytes copied).
 /// Reusable across repeated `restore`s. The owner frees it with `deinit`, which
 /// drops the snapshot's reference to every shared box. Captures local state
 /// only, never `peer`, `exports`, far listeners, or the turn arenas.
 pub const Snapshot = struct {
     boxes: std.AutoHashMapUnmanaged(u64, *StateBox) = .{},
-    next_actor: u64 = 1,
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *Snapshot) void {
@@ -262,6 +261,18 @@ pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behav
         .far => return Error.NotLocal,
     };
     const box = try makeBox(self, Behavior, next);
+    errdefer releaseBox(self.allocator, box);
+    // Reserve the slots the installs will need to retire their outgoing boxes.
+    // An install runs during frame unwind, which cannot fail, so the room has to
+    // be taken here where a failure is still the caller's to see.
+    //
+    // One slot is not enough. Every frame open right now can hold a staged
+    // become, and none of them has installed yet, so they all see the same list
+    // length: reserving one slot per stage reserves one slot in total, and the
+    // unwind then appends once per frame. An actor installs at most once per
+    // run and every install is preceded by a stage in some open frame, so the
+    // number of appends still to come is bounded by the open frame count.
+    try self.retired_boxes.ensureUnusedCapacity(self.allocator, self.turn_depth);
     // Last become in a turn wins: release any value staged earlier this turn.
     if (turn.pending_become) |prev| releaseBox(self.allocator, prev.box);
     turn.pending_become = .{ .id = id, .box = box };
@@ -288,7 +299,7 @@ fn quiescent(self: *const Vat) bool {
 
 /// Capture the local actor heap: share every actor's `StateBox` (refcount up,
 /// no bytes copied, O(objects), Goblins's `snapshot-whactormap` shape) and
-/// the `next_actor` counter. Requires quiescence (`NotQuiescent`) and every
+/// Requires quiescence (`NotQuiescent`) and every
 /// actor to be cloneable or persistent (`NotSnapshottable`); on either failure
 /// nothing is left shared. The returned `Snapshot` is the owner's to `deinit`.
 pub fn snapshot(self: *Vat) Error!Snapshot {
@@ -302,12 +313,11 @@ pub fn snapshot(self: *Vat) Error!Snapshot {
         try snap.boxes.put(self.allocator, entry.key_ptr.*, box);
         box.refs += 1;
     }
-    snap.next_actor = self.next_actor;
     return snap;
 }
 
 /// Rewind the local actor heap to `snap`: re-point every actor at the
-/// snapshot's shared boxes and restore `next_actor`. Requires quiescence. The
+/// snapshot's shared boxes. Requires quiescence. The
 /// new table is built (sharing the snapshot's boxes) before the live boxes are
 /// released, so a mid-build failure leaves the live heap intact. `snap` stays
 /// reusable across repeated restores. Touches local actor state only, never
@@ -331,5 +341,12 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     while (lit.next()) |cell| releaseBox(self.allocator, cell.box);
     self.actors.deinit(self.allocator);
     self.actors = rebuilt;
-    self.next_actor = snap.next_actor;
+    // `next_actor` is deliberately *not* rewound. An actor id is what the
+    // export table maps a wire position to, and that table is not part of a
+    // snapshot: rewinding it would rewind authority a partner already holds,
+    // which is not local state. But rewinding only the counter is worse than
+    // either choice, because the next spawn then takes an id a live export
+    // still names, and the partner's capability quietly reaches a different
+    // object. Leaving the counter alone costs nothing but reproducible ids
+    // across repeated restores, which nothing relies on.
 }

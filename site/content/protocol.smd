@@ -1,5 +1,6 @@
 ---
 .title = "Protocol cheatsheet",
+.description = "A one-glance map of the OCapN vocabulary pancake speaks: CapTP messages, the descriptors they carry, and the locators that say where a peer lives.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -29,7 +30,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:deliver` | Calls a method on a reference and registers an answer, so the caller holds a promise as soon as the call goes out. |
 | `op:resolve` | Settles a promise to its final value, or to a break if the call failed. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
-| `op:abort` | Ends the session with a typed reason. It also answers a refused handshake, where the refusing side stays negotiating. |
+| `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
 | `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
 | `op:index` | Projects a positional element off an answer. |
 | `op:untag` | Unwraps a tagged value projected off an answer. |
@@ -46,7 +47,7 @@ handoff rides *inside* a message, naming what a slot points at.
 | `desc:export` | A reference back to an object the receiver exports: how the sender names something it was given earlier (position 0 is the bootstrap object). |
 | `desc:answer` | A reference to a pending answer from an earlier `op:deliver`, the target of promise pipelining. |
 | `desc:import-object` | An object the sender hosts and is introducing; the receiver records it as an import. |
-| `desc:import-promise` | A promised reference the sender is introducing, settled later by the exporting side's resolution notification. |
+| `desc:import-promise` | A promised reference the sender is introducing, settled later when the sender resolves it. |
 | `desc:handoff-give` | The gifter's half of a three-party introduction: "go meet this peer, on my word." |
 | `desc:handoff-receive` | The recipient's half of that introduction, redeemed with the third party. |
 | `desc:sig-envelope` | A signed wrapper that makes a handoff unforgeable as it crosses between the three parties. |
@@ -54,15 +55,28 @@ handoff rides *inside* a message, naming what a slot points at.
 ## Locators
 
 A locator (`ocapn-...`) is neither a message nor a reference. It is an *address*:
-where a peer lives, and, for a sturdyref, which object to ask it for. It rides
+where a peer lives, and, for a sturdyref, which object to ask it for. The
+*designator* inside it is the peer's name on its transport: a `host:port` for
+`tcp`, a public key for the keyed transports. A locator rides
 inside `op:start-session` as the location each side announces, and travels as an
-argument when one peer hands another a long-lived reference to enliven later. The
+argument when one peer hands another a long-lived reference to bring back to
+life later. The
 `ocapn://` URI you paste into a config is one of these records, in text.
 
 | Locator | What it addresses |
 | --- | --- |
 | `ocapn-peer` | A peer's location: its transport (`tcp`, `iroh`), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
 | `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
+
+Worked examples, as the URIs actually print. Reserved characters inside a
+designator are URI-encoded, which is why a `tcp` peer's `host:port` shows a
+`%3A` where the colon is:
+
+```
+ocapn://127.0.0.1%3A46659.tcp
+ocapn://<64 hex chars>.keyed-tcp?direct-addresses=127.0.0.1%3A9099
+ocapn://<64 hex chars>.iroh/s/<swiss>
+```
 
 If a name here is new, start with [Concepts]($link.page('concepts')). The
 [Transports]($link.page('transports')) page covers the netlayers a locator can name.

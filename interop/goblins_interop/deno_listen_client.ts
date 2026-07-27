@@ -8,7 +8,7 @@ import { listen, type Session } from "@pancake/stack";
 import { fail } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
-const RACKET = "/usr/local/bin/racket";
+const RACKET = "racket";
 const DIALER_SCRIPT = "conformance/goblins-peer/racket/pancake-actor-call.rkt";
 // Same swiss-num the other listener scenarios register on the pancake side.
 const ACTOR_SWISS = "pancakeActorSwissnumABCDEFGH1234";

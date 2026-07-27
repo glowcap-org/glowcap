@@ -313,6 +313,13 @@ fn capnpMaterializeHintList(
     errdefer for (entries[0..initialized]) |entry| model.freeHintEntry(allocator, entry);
     while (initialized < count) : (initialized += 1) {
         const borrowed = hintEntryAt(reader, hl, initialized) catch return error.MalformedView;
+        // A repeated name is malformed: hints are a dictionary. The encoder
+        // emits entries in model order with no uniqueness pass, so a duplicate
+        // admitted here would be re-emitted as a dict pancake's own decoder
+        // rejects.
+        for (entries[0..initialized]) |seen| {
+            if (std.mem.eql(u8, seen.name, borrowed.name)) return error.MalformedView;
+        }
         const name = try allocator.dupe(u8, borrowed.name);
         errdefer allocator.free(name);
         entries[initialized] = .{
@@ -353,6 +360,26 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocat
             .hints = .{ .empty = wire_form },
         };
     }
+    // The hint list is packed lazily below, which means the eager walk reads
+    // its header and nothing else. That is the one composite list a naive
+    // charge pass never enumerates, while `capnpMaterializeHintList` later
+    // dupes a name and a value for every entry, so N entries aliasing one blob
+    // amplify a small frame into an arbitrarily large heap. A locator rides
+    // `op:start-session`, and the handshake materializes its hints to rebuild
+    // the signing domain, so that runs before the partner's signature is
+    // checked. Charge the entries here, on the metered pass, so hints answer to
+    // the same counter every other list does.
+    //
+    // Only when a budget is attached: the lazy re-walk that `toOwned` performs
+    // runs unmetered by design, having already been proven to fit, and
+    // repeating the enumeration there would be pure duplicate work.
+    if (reader.budget != null) {
+        for (0..clist.element_count) |i| {
+            try reader.spend(1);
+            _ = try decodeHintEntry(reader, clist.elem(i));
+        }
+    }
+
     // Cap'n Proto encodes hint entries on the PeerLocator; project them through
     // a lazy list so borrowed decode stays allocation-free and `toOwned`
     // materializes full fidelity (encode/decode symmetry for start-session).
@@ -540,8 +567,21 @@ fn neutralStartSession(reader: Reader, body: StructLoc) Error!model.view.StartSe
 }
 
 /// Project the borrowed codec-neutral `model.view.Body` over `frame`.
+/// Decode one delimited frame.
+///
+/// The frame must be exactly the length its own header declares. Syrup refuses
+/// trailing bytes the same way (`expectEnd`), and without the rule two
+/// different byte strings decode to the same message, so anything that treats
+/// a frame's bytes as its identity ends up with two names for one thing. The
+/// framing layer is where a buffer legitimately holds more than one frame;
+/// `shared.readerFromFrame` stays lenient for it, and this is the entry point
+/// that has already been handed a single frame.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
-    return neutralBody(try decodeMessageView(frame));
+    const view = try decodeMessageView(frame);
+    // After the shape and truncation checks, so those keep reporting their own
+    // specific refusals rather than being shadowed by this one.
+    try shared.expectExactFrameLength(frame.bytes);
+    return neutralBody(view);
 }
 
 /// Decode-time recursion bound for the eager traversal charge pass, the capnp
@@ -668,9 +708,10 @@ fn chargeBody(reader: Reader, kind: Kind, body: StructLoc, depth: usize) Error!v
         .resolve => try chargeResolveBody(reader, body, depth),
         .listen => try chargeListenBody(reader, body, depth),
         .get, .index, .untag => try chargeReceiverBody(reader, body, depth),
-        // No composite-list amplification vector: their reads are O(1) or
-        // bounded by the segment length checks. Delegate to `projectBody` so the
-        // metered reader still charges and validates every leaf read.
+        // No composite-list amplification vector of their own. Delegate to
+        // `projectBody` so the metered reader charges and validates every leaf
+        // read; the hint list a `start_session` or `handoff` locator carries is
+        // charged by `neutralPeerLocator` on this same metered pass.
         .gc_export, .gc_answer, .abort, .start_session, .handoff => _ = try projectBody(reader, kind, body),
     }
 }

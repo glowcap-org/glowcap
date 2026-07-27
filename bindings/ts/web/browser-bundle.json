@@ -8,7 +8,6 @@
 		"@pancake/iroh/internal": "./browser_iroh_stub.ts",
 		"@pancake/webrtc": "../webrtc/mod.ts",
 		"@pancake/webrtc/channel": "../webrtc/channel.ts",
-		"zod": "npm:zod@4.4.3",
 		"node:net": "./browser_ffi_stubs.ts",
 		"bun:ffi": "./browser_ffi_stubs.ts",
 		"node:process": "./browser_ffi_stubs.ts",

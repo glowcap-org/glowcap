@@ -27,6 +27,15 @@ extern "C" {
    decision — routing, three-party redeem, gift origination — and the embedder
    moves bytes: feed inbound frames with pancake_host_session_feed, write what
    pancake_host_session_take_outbound drains, and honor the action queue.
+   examples/c/host_embedder_pump.c is a complete embedder built from exactly
+   these calls, and the host section of docs/consuming-from-c.md is the
+   guided route; read one before wiring the action queue below.
+
+   A vow is this tier's name for the eventual result of a send: the same
+   thing pancake_ocapn.h calls a promise and the CapTP wire calls an answer.
+   A session_send / session_fetch returns a vow; you pipeline more sends
+   against it (vow_send / vow_get / …) before it settles, and its outcome
+   arrives later as a SETTLE or FAIL action naming that vow's ticket.
 
    THE ONE LOOP RULE. After any top-level pancake_host_* call returns OK,
    drain pancake_host_next_action until PANCAKE_ERR_WOULD_BLOCK, honoring each
@@ -47,7 +56,7 @@ extern "C" {
    a deliver — fires on the thread executing the enclosing pancake_host_*
    call. Inside it the enqueueing verbs are legal — session_send/session_tell,
    vow_send/vow_index/vow_untag/vow_get, the turn verbs (with the callback's own turn),
-   gc_release, session_set_exporter_location, session_session_open, the error
+   gc_release, session_set_exporter_location, session_is_open, the error
    readers — and their effects encode and pump when the enclosing call
    unwinds. The host-driving verbs (feed, feed_bytes, take_outbound,
    next_action, dialed/dial_failed/provide_gift_id, open_*, publish/spawn,
@@ -175,7 +184,7 @@ int32_t pancake_host_new_in(PancakeContext *context, const uint8_t *seed, size_t
    a no-op. Session (PancakeHostSession) handles this host minted are freed with it —
    never touch one after its host is gone. Refused (last error set, nothing freed) from
    inside a callback. */
-void pancake_host_release(PancakeHost *host);
+int32_t pancake_host_release(PancakeHost *host);
 /* Derive the canonical key designator (exactly 64 lowercase hex digits) from a
    32-byte Ed25519 identity seed — the public half of the key pancake_host_new
    signs with. Writes 64 bytes into out (out_len must be at least 64). Used by a
@@ -216,6 +225,8 @@ int32_t pancake_host_session_open_accepted(PancakeHost *host, const uint8_t *tra
 #define PANCAKE_DIAL_SHAPE_HOST_PORT 0
 /* PancakeDialPlan.shape: peer-id open (node-id designator + addresses + reach; today from the iroh locator scheme). */
 #define PANCAKE_DIAL_SHAPE_PEER_ID 1
+/* PancakeDialPlan.shape: signaling-mediated open (webrtc); no dialable address, the channel comes up through offer/answer/ICE (ADR-0089 phase 4). */
+#define PANCAKE_DIAL_SHAPE_SIGNALING 2
 /* PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture. */
 #define PANCAKE_DIAL_REACH_DIRECT 0
 /* PancakeDialPlan.reach_kind (peer-id shape): the node's own configured redeem posture. */
@@ -324,9 +335,9 @@ int32_t pancake_host_plan_accept(const uint8_t *transport, size_t transport_len,
    withdraws fail closed, so SIBLING sessions' vows may break here too — and
    the shell is freed. NULL is a no-op; refused (last error set, the session
    kept) from inside a callback. */
-void pancake_host_session_release(PancakeHostSession *session);
+int32_t pancake_host_session_release(PancakeHostSession *session);
 /* Nonzero once the keyed handshake has completed and the session is open. */
-int32_t pancake_host_session_session_open(PancakeHostSession *session);
+int32_t pancake_host_session_is_open(PancakeHostSession *session);
 /* Feed one inbound frame you read from your own transport (borrowed for the
    call): behavior callbacks fire and vow completions queue inside, then the
    node actions the dispatch queued pump and every touched session's

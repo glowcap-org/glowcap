@@ -36,6 +36,11 @@ const pancake = @import("pancake");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
+/// A finite handshake budget for the signaling dial. Unbounded would turn a
+/// signaling host that accepts and then stalls into a hang rather than a
+/// failure.
+const handshake_budget_ms: i32 = 15_000;
+
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -93,7 +98,7 @@ fn exporterHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf);
+        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf, handshake_budget_ms);
         defer sig.deinit();
         _ = try sig.publish("signaling", SignalingInbox, .{ .peer = peer });
         try sig.serve();
@@ -156,7 +161,7 @@ fn recipientHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.connectTcp(allocator, io, &sig_peer, signaling_address, read_buf, write_buf);
+        var sig = try driver.connectTcp(allocator, io, &sig_peer, signaling_address, read_buf, write_buf, handshake_budget_ms);
         defer sig.deinit();
         const inbox = try sig.fetch("signaling");
         try bringUpViaCapTP(&sig, inbox, offerer, allocator);

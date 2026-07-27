@@ -27,9 +27,10 @@ Engages the [First Principles](../../../AGENTS.md#first-principles): _session
 state is authoritative_ is clarified, not relaxed: the session spine still
 validates handoff well-formedness and the generic inbound path still moves no
 withdrawal authority; the registry is vat-scoped authority that only the
-verified callers consult. _Conformance is load-bearing_: the live
-`goblins-interop` / `goblins-handoff` gates and the upstream OCapN suite
-exercise exactly this seam.
+verified callers consult. _Conformance is load-bearing_: the upstream suite and
+`test/engine/gift_registry_test.zig` / `cross_peer_test.zig` exercise this
+registry directly. The live Goblins recipient and gifter checks cover adjacent
+wire roles; pancake is not the exporter-side registry in those checks.
 
 ## Decision
 

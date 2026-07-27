@@ -52,6 +52,7 @@
          drain-effects?
          no-drain-effects
          current-defer-drain-effects
+         HANDSHAKE-TIMEOUT-MS
          drain-outbound!
          write-pending!
          feed-bytes!
@@ -81,6 +82,34 @@
 ;; here (not session) so `parameterize` sees a real parameter; lazy-require
 ;; would wrap it as a procedure.
 (define current-defer-drain-effects (make-parameter #f))
+
+;; ── The bounded wait ──────────────────────────────────────────────────────────
+;; How long a partner has to finish the keyed handshake once its byte channel
+;; is open. Matches the CLI's own product default, and the Rust binding's
+;; `HANDSHAKE_TIMEOUT`. Something finite is the point: an unbounded CapTP wait
+;; is a hang rather than a slow success. It lives here, beside the deadline it
+;; feeds, because dial and accept bound their handshake with the one constant.
+(define HANDSHAKE-TIMEOUT-MS 10000)
+
+;; The absolute `current-inexact-milliseconds` a bounded pump must not outlive,
+;; or #f for an unbounded one. A partner that connects and then says nothing
+;; never fails, so no error path ends that wait — only a deadline does, and it
+;; has to reach the blocked reader as an event, not a poll. `pump-wake-evt`
+;; folds the deadline into the wake event every transport's `read-some!`
+;; already waits on beside its own bytes, so a silent stream still wakes;
+;; `pump-until` then raises. Same parameter-lives-in-pump rule as above.
+(define current-pump-deadline (make-parameter #f))
+
+;; `alarm-evt` stays ready once it fires, so a passed deadline costs at most
+;; one extra loop before the raise rather than spinning.
+(define (pump-wake-evt m)
+  (define gen (host-progress-evt m))
+  (define deadline (current-pump-deadline))
+  (if deadline (choice-evt gen (alarm-evt deadline)) gen))
+
+(define (pump-deadline-passed?)
+  (define deadline (current-pump-deadline))
+  (and deadline (>= (current-inexact-milliseconds) deadline) #t))
 
 ;; The typed cause of this CapTP session's most recent local dispatch failure, or
 ;; #f — the host counterpart of the Zig `Peer.lastAbort`, read through the
@@ -214,9 +243,10 @@
 ;; One reader step. The first step on an open session resumes the frames the
 ;; core held behind the handshake hello (an empty feed) and returns without
 ;; waiting, so the resume's deferred effects run before any park. Every later
-;; step waits on the transport and the host's progress event together —
-;; 'woke means another thread moved the host, so the caller re-checks its
-;; predicate.
+;; step waits on the transport and the wake event together — the host's
+;; progress, plus the deadline alarm when the pump is bounded. 'woke means
+;; another thread moved the host or the deadline passed, so the caller
+;; re-checks its predicate.
 ;;
 ;; Snapshot the wake evt only before the wait. Under the reader, feed parks
 ;; drain effects (no bump); bumping before the read would wake waiters while
@@ -230,7 +260,7 @@
      (set-box! (async-connection-tail-resumed? ac) #t)
      (feed-bytes! c #"")]
     [else
-     (define gen (host-progress-evt m))
+     (define gen (pump-wake-evt m))
      (define got
        ;; A port closed under us (another thread's `session-close!`) is an
        ;; end of stream, not a fault.
@@ -243,20 +273,25 @@
 
 ;; Drive the connection until `done` returns non-#f, returning that value.
 ;; Exactly one thread reads the transport at a time (the reader gate); every
-;; other pump on this host parks on the progress event and re-checks. The
+;; other pump on this host parks on the wake event and re-checks. The
 ;; closed check runs after `done`, so a predicate satisfied by the closure
 ;; itself (a vow broken by the disconnect, `session-serve`'s own exit) wins over
-;; the typed ERR-CLOSED refusal.
+;; the typed ERR-CLOSED refusal; the deadline is checked last of the three, so
+;; a partner that both hung up and overran is reported as the closure it is.
 ;;
 ;; Reader contract: under the gate, lock+feed may only queue `drain-effects`.
 ;; Clears the gate, then runs writes/fires, then bumps — so a waiter never
 ;; sees a retired generation while the gate is still held, and a blocking
 ;; write never shares the reader window.
-(define (pump-until c done who #:closed-message [closed-message #f])
+(define (pump-until c done who
+                    #:closed-message [closed-message #f]
+                    #:timeout-message [timeout-message #f])
   (define m (session-host c))
   (define ac (session-async c))
   (define (raise-closed)
     (raise-pancake who ERR-CLOSED "~a" (or closed-message "connection closed")))
+  (define (raise-timed-out)
+    (raise-pancake who ERR-TIMEOUT "~a" (or timeout-message "the wait timed out")))
   (define (run-reader)
     (define deferred (box no-drain-effects))
     (dynamic-wind
@@ -286,21 +321,34 @@
     (cond
       [r r]
       [(unbox (async-connection-closed? ac)) (raise-closed)]
+      [(pump-deadline-passed?) (raise-timed-out)]
       [(claim-reader?) (run-reader) (loop)]
       [else
        ;; Snapshot under the host lock, then recheck before waiting so a
        ;; released gate cannot retire the generation this waiter will sync.
-       (define gen (host-progress-evt m))
+       (define gen (pump-wake-evt m))
        (cond
          [(done) => (lambda (v) v)]
          [(unbox (async-connection-closed? ac)) (raise-closed)]
+         [(pump-deadline-passed?) (raise-timed-out)]
          [(claim-reader?) (run-reader) (loop)]
          [else (sync gen) (loop)])])))
 
 ;; Drive a freshly opened connection's keyed handshake to an open session.
 ;; The signed op:start-session leaves on the first drain-host!; pump-until
-;; feeds until session-open?. Abandonment on failure stays on finish-establish!.
-(define (run-handshake! c)
+;; feeds until session-open?. `timeout-ms` bounds the wait and raises
+;; ERR-TIMEOUT when the partner overruns it. Both #f and 0 leave it unbounded:
+;; 0 is how the C ABI and the sibling bindings spell "no bound", so a caller
+;; passing it through must not land on a deadline of right now.
+;; Abandonment on failure stays on finish-establish!.
+(define (run-handshake! c [timeout-ms #f])
+  (define bound (and timeout-ms (> timeout-ms 0) timeout-ms))
   (drain-host! (session-host c))
-  (pump-until c (lambda () (session-open? c)) 'connect
-              #:closed-message "connection closed during the OCapN handshake"))
+  (parameterize ([current-pump-deadline
+                  (and bound (+ (current-inexact-milliseconds) bound))])
+    (pump-until c (lambda () (session-open? c)) 'connect
+                #:closed-message "connection closed during the OCapN handshake"
+                #:timeout-message
+                (and bound
+                     (format "the partner did not finish the OCapN handshake within ~ams"
+                             bound)))))

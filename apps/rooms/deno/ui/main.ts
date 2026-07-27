@@ -9,6 +9,7 @@ import {
 	backBtn,
 	browseRoomsBtn,
 	content,
+	emojiBtn,
 	isMobile,
 	joinBtn,
 	joinForm,
@@ -24,6 +25,7 @@ import {
 	newRoomBtn,
 	newRoomInput,
 	nickInput,
+	provenanceLock,
 	roomInput,
 	sheetScrim,
 	themeToggle,
@@ -41,15 +43,25 @@ import {
 	updateTitle,
 } from "./render.ts";
 import { renderNotifyBtn } from "./notify.ts";
+import { setIcon } from "./icons.ts";
 import { connect, join, pickRoom, startDm } from "./net.ts";
 import { MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
 
 // ── Light / "syrup" dark theme, remembered across visits ──────────────────
 function applyTheme(t: string) {
 	document.documentElement.dataset.theme = t;
-	themeToggle.textContent = t === "dark" ? "☀︎" : "🌙";
+	setIcon(themeToggle, t === "dark" ? "sun" : "moon");
 	themeToggle.title = t === "dark" ? "Switch to light" : "Switch to syrup (dark)";
 }
+// The icons the markup used to carry inline. `icons.ts` owns every path now:
+// duplicating six of them in page.html meant editing the module left the copies
+// stale, and two of the six were overwritten on load anyway. The theme and
+// notify buttons are painted by applyTheme and renderNotifyBtn below.
+setIcon(backBtn, "menu");
+setIcon(emojiBtn, "smile");
+setIcon(jumpBtn, "arrowDown", 15);
+setIcon(provenanceLock, "lock", 12);
+
 let theme = LS.get("rooms.theme") ||
 	(matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 applyTheme(theme);
@@ -109,7 +121,10 @@ for (const p of inlinePanels) {
 			return;
 		}
 		p.input.value = "";
-		closeInlinePanel(p);
+		// Refocus the toggle: closing the panel takes its input out of the tab
+		// order, and without this the keyboard user is left on `<body>` with
+		// nowhere to tab from.
+		closeInlinePanel(p, true);
 		p.submit(name);
 	};
 }
@@ -125,7 +140,11 @@ membersToggle.onclick = () => {
 	// On mobile the roster is a bottom sheet toggled by members-open; on desktop
 	// it is the collapsible right column driven by the no-members preference.
 	if (isMobile()) {
-		app.classList.toggle("members-open");
+		// The sheet's open state is what the button reports here, not the desktop
+		// column preference: a screen reader on the narrow layout was hearing the
+		// desktop answer to a question about the sheet.
+		const open = app.classList.toggle("members-open");
+		membersToggle.setAttribute("aria-pressed", String(open));
 		return;
 	}
 	state.membersHidden = content.classList.toggle("no-members");

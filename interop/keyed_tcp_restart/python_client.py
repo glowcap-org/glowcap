@@ -52,7 +52,7 @@ async def call_greeter(uri: str) -> None:
         greeter_ref = await conn.fetch("greeter")
         reply = await conn.send(greeter_ref, "greet", [])
         if reply != GREETING:
-            fail(f"unexpected greeting: {reply!r}")
+            fail("keyed-tcp-restart", f"unexpected greeting: {reply!r}")
     finally:
         await conn.close()
 
@@ -76,7 +76,7 @@ async def scene_squatter() -> None:
     uri = keyed_tcp_locator(designator, "127.0.0.1", squatter.port)
     try:
         await call_greeter(uri)
-        fail("squatter dial should have been refused")
+        fail("keyed-tcp-restart", "squatter dial should have been refused")
     except PancakeError as e:
         print(f"python-keyed-tcp-restart: squatter refused ({e})")
     await asyncio.wait([task], timeout=2)
@@ -94,7 +94,7 @@ async def scene_restart() -> None:
 
     second = await listen_keyed_tcp("127.0.0.1", 0, seed=SEED_RESTART)
     if second.designator != designator:
-        fail(f"restart designator drifted: {designator} vs {second.designator}")
+        fail("keyed-tcp-restart", f"restart designator drifted: {designator} vs {second.designator}")
     task = asyncio.create_task(serve_once(second))
     # Same designator, only the hint (port) updated.
     await call_greeter(keyed_tcp_locator(designator, "127.0.0.1", second.port))

@@ -12,210 +12,210 @@
       viewBox="0 0 10 10"
       refX="7.5"
       refY="5"
-      markerWidth="7"
-      markerHeight="7"
+      markerWidth="5"
+      markerHeight="5"
       orient="auto-start-reverse"
     >
-      <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
+      <path d="M0 0L10 5L0 10z" fill="var(--accent-deep, #a4560c)"></path>
     </marker>
     <marker
       id="codec-teal"
       viewBox="0 0 10 10"
       refX="7.5"
       refY="5"
-      markerWidth="7"
-      markerHeight="7"
+      markerWidth="5"
+      markerHeight="5"
       orient="auto-start-reverse"
     >
-      <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
+      <path d="M0 0L10 5L0 10z" fill="var(--teal-deep, #1b5f66)"></path>
     </marker>
   </defs>
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .head { font-size: 16px; font-weight: 700; }
     .chip { font-size: 15px; font-weight: 700; }
-    .sub { font-size: 13px; fill: #6b5d4d; }</style>
+    .sub { font-size: 13px; fill: var(--ink-soft, #6b5d4d); }</style>
 
   <rect
-    x="70"
+    x="30"
     y="44"
     width="270"
     height="146"
     rx="16"
-    fill="#fdf4e3"
-    stroke="#ead9bb"
+    fill="var(--dia-warm-fill, #fdf4e3)"
+    stroke="var(--dia-warm-rule, #ead9bb)"
   >
   </rect>
-  <text x="96" y="78" class="head" fill="#a4560c">Syrup</text>
-  <text x="96" y="99" class="sub">byte records, variable length</text>
+  <text x="56" y="78" class="head" fill="var(--accent-deep, #a4560c)">Syrup</text>
+  <text x="56" y="99" class="sub">byte records, variable length</text>
   <rect
-    x="96"
+    x="56"
     y="120"
     width="34"
     height="34"
     rx="5"
-    fill="#ffffff"
-    stroke="#c76f18"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="138"
+    x="98"
     y="120"
     width="52"
     height="34"
     rx="5"
-    fill="#ffffff"
-    stroke="#c76f18"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="198"
+    x="158"
     y="120"
     width="26"
     height="34"
     rx="5"
-    fill="#ffffff"
-    stroke="#c76f18"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="232"
+    x="192"
     y="120"
     width="44"
     height="34"
     rx="5"
-    fill="#ffffff"
-    stroke="#c76f18"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="284"
+    x="244"
     y="120"
     width="30"
     height="34"
     rx="5"
-    fill="#ffffff"
-    stroke="#c76f18"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.5"
   >
   </rect>
 
   <rect
-    x="420"
+    x="460"
     y="44"
     width="270"
     height="146"
     rx="16"
-    fill="#edf5f3"
-    stroke="#cfe4e1"
+    fill="var(--dia-cool-fill, #edf5f3)"
+    stroke="var(--dia-cool-strong, #cfe4e1)"
   >
   </rect>
-  <text x="446" y="78" class="head" fill="#1b5f66">Cap'n Proto</text>
-  <text x="446" y="99" class="sub">8-byte words, fixed</text>
+  <text x="486" y="78" class="head" fill="var(--teal-deep, #1b5f66)">Cap'n Proto</text>
+  <text x="486" y="99" class="sub">8-byte words, fixed</text>
   <rect
-    x="446"
+    x="486"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="471"
+    x="511"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="496"
+    x="536"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="521"
+    x="561"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="554"
+    x="594"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="579"
+    x="619"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="604"
+    x="644"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
   <rect
-    x="629"
+    x="669"
     y="120"
     width="20"
     height="34"
     rx="4"
-    fill="#ffffff"
-    stroke="#257f88"
+    fill="var(--dia-card, #ffffff)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.5"
   >
   </rect>
 
   <path
-    d="M200 190 C 232 228, 312 228, 346 250"
+    d="M160 190 C 195 240, 220 272, 267 272"
     fill="none"
-    stroke="#a4560c"
+    stroke="var(--accent-deep, #a4560c)"
     stroke-width="2"
     marker-end="url(#codec-amber)"
   >
   </path>
   <path
-    d="M558 190 C 526 228, 448 228, 414 250"
+    d="M600 190 C 565 240, 540 272, 493 272"
     fill="none"
-    stroke="#1b5f66"
+    stroke="var(--teal-deep, #1b5f66)"
     stroke-width="2"
     marker-end="url(#codec-teal)"
   >
@@ -233,8 +233,8 @@
     width="210"
     height="60"
     rx="14"
-    fill="#fff9ee"
-    stroke="#8a7862"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--dia-muted, #8a7862)"
     stroke-width="1.8"
   >
   </rect>
@@ -243,7 +243,7 @@
     y="280"
     text-anchor="middle"
     class="chip"
-    fill="#3a3027"
+    fill="var(--ink, #3a3027)"
   >the same message</text>
   <text
     x="380"

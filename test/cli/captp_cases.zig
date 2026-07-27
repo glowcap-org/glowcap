@@ -348,7 +348,7 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     var queue = cli.repl_await_queue.Queue.init(gpa);
     defer queue.deinit();
 
-    try queue.enqueue(&client, "call greeter greet boom", &store);
+    try queue.enqueue(&client, "call greeter greet boom", &store, &progress);
     var spins: usize = 0;
     while (queue.busy() and spins < 1_000) : (spins += 1) {
         _ = queue.tick(&client, &store, &progress, &complete_state) catch {};

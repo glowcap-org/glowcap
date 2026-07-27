@@ -1,15 +1,19 @@
 ---
 .title = "The modules",
+.description = "Each of pancake's layers and what it owns, from the byte foundation to the driver, with a one-way import table the build enforces.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "modules.shtml",
 .draft = false,
 ---
 
-You do not have to keep this layering in your head; the build keeps it for you.
-Each layer is its own module with a one-way import table, so a reach across layers
-is a compile error. The diagram above is the map. The full account:
-[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md).
+This page names each of pancake's layers and what it owns, so you know which
+module a job belongs to. You do not have to keep the layering in your head; the
+build keeps it for you. Each layer is its own module with a one-way import
+table, so a reach across layers is a compile error. The diagram above is the
+map, and
+[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
+is the full account.
 
 ## Four names that confuse newcomers
 
@@ -17,12 +21,12 @@ is a compile error. The diagram above is the map. The full account:
 | --- | --- |
 | **Peer** | Caller-owned engine handle: feed inbound frames, `step`, drain outbound, read events. No sockets. |
 | **Session** | One-partner application object: `connect` / `listen`, `fetch`, blocking `call`. Owns one live conversation. |
-| **Host** | Multi-session CapTP product: one identity, many sessions, vows, handoff router, crossed-hello tiebreak. Sans-io core lives in `driver/core`. |
+| **Host** | Multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
 | **Bridge** | Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_driver`. |
 
 Ordinary apps stay on `Session`. Introductions and many peers need a Host (Zig
-`Bridge`, or a binding's host). Three-party settle-as-capability:
-[Concepts]($link.page('concepts')).
+`Bridge`, or a binding's host). Three-party introductions that settle as a live
+capability are covered in [Concepts]($link.page('concepts')).
 
 ## The protocol core
 
@@ -34,23 +38,25 @@ you can test it without a host runtime.
 - **model** is the CapTP vocabulary, independent of the bytes that carried it.
 - **codec** turns model values into wire bytes and back.
   [Syrup](https://github.com/ocapn/syrup) is the Goblins floor;
-  [Cap'n Proto](https://capnproto.org/) is the second spelling.
-  [Codecs]($link.page('codecs')). Sibling codecs cannot import each other.
+  [Cap'n Proto](https://capnproto.org/) is the second spelling, and the
+  [Codecs]($link.page('codecs')) page compares them. Sibling codecs cannot
+  import each other.
 - **session** is the authority: import, export, and answer tables, and what is
   valid. A codec never decides whether a reference is allowed.
 - **engine** is the `Peer` above: feed frames, `step`, drain outbound, read
-  events. Dispatch only.
+  events. It dispatches, and decides nothing.
 
 ## Above the core
 
 - **actors** is a Goblins-shaped `Vat`: near-call `$`, eventual-send `<-`, and
   promises. It adds no protocol semantics the engine lacks.
-- **driver/core** is the sans-io multi-session serve (`Served`, byte-fed
-  `Host`). The build bans sockets here.
-- **net** is where `std.Io` enters. Residents today: cleartext TCP, keyed-tcp,
-  inproc, [iroh](https://www.iroh.computer/) QUIC as an optional artifact, and a
-  [WebRTC]($link.page('transports/webrtc')) DataChannel reached by signaling.
-  [Transports]($link.page('transports')).
+- **driver/core** is the multi-session serve core with no sockets of its own:
+  `Served`, and the byte-fed `Host` an embedder drives with raw frames. A build
+  check keeps I/O out of it.
+- **net** is where `std.Io` enters. The residents today are cleartext TCP,
+  keyed-tcp, inproc, [iroh](https://www.iroh.computer/) QUIC as an optional
+  artifact, and a [WebRTC]($link.page('transports/webrtc')) DataChannel reached
+  by signaling. The [Transports]($link.page('transports')) page covers them all.
 
 > **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and the wider ocap
@@ -64,10 +70,10 @@ you can test it without a host runtime.
 
 ## Surfaces out of the core
 
-Consumer view: [Surfaces]($link.page('surfaces')).
+The [Surfaces]($link.page('surfaces')) page is the consumer's view of these.
 
 - **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
-  release. `libpancake_driver` is the multi-session host bindings wrap.
+  release. `libpancake_driver` is the multi-session host the bindings wrap.
 - **driver** is native Zig above `driver/core`: one-session `Session`, and
   `Bridge` + Host over `net.TcpLoop` / iroh Backend.
 

@@ -22,7 +22,7 @@ fn encodeFulfillRef(allocator: std.mem.Allocator, reference: model.Reference) ![
 
 test "pending inbound answer is Slot.remote_unresolved" {
     const s = answers.pendingInboundSlot(.from(11));
-    try std.testing.expectEqual(slot.WireDescriptor.desc_answer, slot.wireDescriptor(s).?);
+    try std.testing.expect(slot.toReference(s).? == .promise);
     try std.testing.expectEqual(@as(slot.Position, 11), slot.position(s));
 }
 
@@ -133,7 +133,7 @@ test "storeResolution pending → broken matches slot.breakSlot" {
         s.inboundAnswerSlot(.from(13)).?,
     );
     try std.testing.expectEqual(answers.AnswerStatus.broken, s.inboundAnswer(.from(13)).?.status);
-    try std.testing.expect(slot.wireDescriptor(s.inboundAnswerSlot(.from(13)).?) == null);
+    try std.testing.expect(slot.toReference(s.inboundAnswerSlot(.from(13)).?) == null);
 }
 
 test "Session exportSlot and importSlot read live table cells" {
@@ -146,12 +146,12 @@ test "Session exportSlot and importSlot read live table cells" {
 
     const export_pos = try s.allocateExport();
     try std.testing.expectEqual(slot.Slot{ .local_value = export_pos.int() }, s.exportSlot(export_pos).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_import_object, slot.wireDescriptor(s.exportSlot(export_pos).?).?);
+    try std.testing.expect(slot.toReference(s.exportSlot(export_pos).?).?.near.kind == .object);
 
     // Imports are partner-retained via registerImport.
     try s.registerImport(.from(5));
     try std.testing.expectEqual(slot.Slot{ .remote_value = 5 }, s.importSlot(.from(5)).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_export, slot.wireDescriptor(s.importSlot(.from(5)).?).?);
+    try std.testing.expect(slot.toReference(s.importSlot(.from(5)).?).?.far.kind == .object);
 }
 
 test "Session retainSentExportRef leaves a live export cell authoritative — a re-mention never rebinds it" {
@@ -189,9 +189,9 @@ test "Session retainSentExportRef mints an absent export's cell from the first w
     // resolve fulfill or a cross-session re-export; ADR-0080).
     try s.retainSentExportRef(.{ .near = .{ .export_position = .from(7), .kind = .object } });
     try std.testing.expectEqual(slot.Slot{ .local_value = 7 }, s.exportSlot(.from(7)).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_import_object, slot.wireDescriptor(s.exportSlot(.from(7)).?).?);
+    try std.testing.expect(slot.toReference(s.exportSlot(.from(7)).?).?.near.kind == .object);
 
     try s.retainSentExportRef(.{ .near = .{ .export_position = .from(8), .kind = .promise } });
     try std.testing.expectEqual(slot.Slot{ .local_unresolved = 8 }, s.exportSlot(.from(8)).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_import_promise, slot.wireDescriptor(s.exportSlot(.from(8)).?).?);
+    try std.testing.expect(slot.toReference(s.exportSlot(.from(8)).?).?.near.kind == .promise);
 }

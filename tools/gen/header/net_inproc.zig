@@ -18,7 +18,10 @@ const std = @import("std");
 const c = @import("c_abi_net_transport_inproc");
 const header_emit = @import("header_emit.zig");
 
-pub const header_path = "include/pancake_net_transport_inproc.h";
+const Output = @import("output").Output;
+pub const outputs = [_]Output{
+    .{ .path = "include/pancake_net_transport_inproc.h", .generate = generate },
+};
 pub const step_name = "gen-header-net-transport-inproc";
 
 // Every prototype the header emits, in order. `emitFn` refuses a name missing
@@ -60,7 +63,7 @@ comptime {
 }
 
 /// Build the full header text. Caller owns the returned bytes.
-pub fn generate(gpa: std.mem.Allocator) ![]u8 {
+fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: Buf = .empty;
     errdefer b.deinit(gpa);
 

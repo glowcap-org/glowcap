@@ -20,10 +20,20 @@ fn writeMessage(io: std.Io, body: []const u8) !void {
     try std.Io.File.stdout().writeStreamingAll(io, "\n");
 }
 
+/// One JSON-RPC message, or null at end of stream.
+///
+/// A line longer than the read buffer raises `MessageTooLong` rather than
+/// killing the server. The rest of that line is discarded first, so the next
+/// read starts at a message boundary instead of part-way through the one we
+/// refused; the caller answers with an invalid-request error and carries on.
 fn readMessage(gpa: std.mem.Allocator, reader: anytype) !?[]u8 {
     while (true) {
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => return null,
+            error.StreamTooLong => {
+                _ = reader.interface.discardDelimiterInclusive('\n') catch {};
+                return error.MessageTooLong;
+            },
             else => return err,
         };
         const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -51,7 +61,74 @@ fn appendToolSchema(out: *std.ArrayList(u8), gpa: std.mem.Allocator, cmd: *const
     try out.append(gpa, '}');
 }
 
-fn handleInitialize(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8) !void {
+/// The MCP revisions this server answers to, newest first.
+///
+/// Everything it implements is the tools half of the protocol over standard
+/// input and output: `initialize`, `ping`, `tools/list`, and `tools/call`.
+/// Those four have the same request and result shapes in both revisions listed
+/// here, so a client asking for either gets a server that behaves the way its
+/// revision describes. Revisions differ elsewhere, in features this server does
+/// not offer, and a client learns that from the empty capabilities it gets
+/// back.
+///
+/// `2025-03-26` is deliberately absent even though its four methods match. It
+/// requires a server to accept a batch of requests in one array, and this one
+/// reads a single request per line. Claiming it would be claiming something the
+/// server does not do.
+const supported_protocol_versions = [_][]const u8{
+    "2025-06-18",
+    "2024-11-05",
+};
+
+/// The newest revision this server speaks, offered to a client that named one
+/// it does not.
+const newest_protocol_version = supported_protocol_versions[0];
+/// The oldest, which a client that named nothing gets: the safest guess about
+/// what an unknown client can read.
+const oldest_protocol_version = supported_protocol_versions[supported_protocol_versions.len - 1];
+
+comptime {
+    // "Newest first" is what those two names mean. Revisions are ISO dates, so
+    // descending lexicographic order is descending chronological order.
+    for (supported_protocol_versions[1..], 0..) |version, i| {
+        std.debug.assert(std.mem.order(u8, supported_protocol_versions[i], version) == .gt);
+    }
+}
+
+/// The revision to answer with. A client names the one it wants; the protocol
+/// says to echo it back when we speak it, and otherwise to name one we do
+/// speak so the client can decide whether to carry on. A client that names
+/// nothing gets the oldest, which is the safest guess about what it can read.
+fn negotiateProtocolVersion(root: std.json.Value) []const u8 {
+    const asked = askedProtocolVersion(root) orelse return oldest_protocol_version;
+    for (supported_protocol_versions) |known| {
+        if (std.mem.eql(u8, known, asked)) return known;
+    }
+    return newest_protocol_version;
+}
+
+/// The revision the client named, or null if it named none this server can read.
+fn askedProtocolVersion(root: std.json.Value) ?[]const u8 {
+    const params = jsonGet(root, "params") orelse return null;
+    return switch (jsonGet(params, "protocolVersion") orelse return null) {
+        .string => |v| v,
+        else => null,
+    };
+}
+
+fn handleInitialize(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, root: std.json.Value) !void {
+    // A client that asked for a revision this server does not speak may simply
+    // hang up, and the person running it sees an empty terminal. Standard
+    // output is the protocol here, so say it on standard error instead. The
+    // comparison stays out of `negotiateProtocolVersion` so that function is
+    // still a pure answer its tests can ask for.
+    const answering = negotiateProtocolVersion(root);
+    if (askedProtocolVersion(root)) |asked| {
+        if (!std.mem.eql(u8, asked, answering)) {
+            log.err(io, "client asked for MCP revision \"{s}\", which this server does not speak; answering \"{s}\"", .{ asked, answering });
+        }
+    }
+
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(gpa);
     var ver_buf: [32]u8 = undefined;
@@ -60,7 +137,7 @@ fn handleInitialize(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8) !vo
         build_options.version_minor,
         build_options.version_patch,
     });
-    try body.print(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{{\"tools\":{{}}}},\"serverInfo\":{{\"name\":\"pancake\",\"version\":\"{s}\"}}}}}}", .{ id_json, ver });
+    try body.print(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"protocolVersion\":\"{s}\",\"capabilities\":{{\"tools\":{{}}}},\"serverInfo\":{{\"name\":\"pancake\",\"version\":\"{s}\"}}}}}}", .{ id_json, answering, ver });
     try writeMessage(io, body.items);
 }
 
@@ -82,7 +159,14 @@ fn handleToolsList(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, cata
     try writeMessage(io, body.items);
 }
 
-fn idToJson(gpa: std.mem.Allocator, id: ?std.json.Value) ![]u8 {
+/// Render a request's `id` for the reply, or null when there is no `id` at all.
+///
+/// The distinction matters: JSON-RPC 2.0 calls a request with no `id` a
+/// notification, and says a server must not answer one. Rendering a missing
+/// `id` as the literal `null` erases that difference and makes every
+/// notification look like a request whose id happens to be null, which is a
+/// different thing and does get a reply.
+pub fn idToJson(gpa: std.mem.Allocator, id: ?std.json.Value) !?[]u8 {
     if (id) |v| {
         return switch (v) {
             .integer => |n| try std.fmt.allocPrint(gpa, "{d}", .{n}),
@@ -97,7 +181,15 @@ fn idToJson(gpa: std.mem.Allocator, id: ?std.json.Value) ![]u8 {
             else => try gpa.dupe(u8, "null"),
         };
     }
-    return try gpa.dupe(u8, "null");
+    return null;
+}
+
+/// Answer a request that parsed as JSON but is not a request this server can
+/// act on. A notification carries no id and JSON-RPC forbids answering it, so
+/// that one stays silent; everything else gets told why.
+fn refuseMalformedRequest(ctx: *Ctx, maybe_id: ?[]const u8, why: []const u8) !void {
+    const id = maybe_id orelse return;
+    try writeError(ctx.io, ctx.gpa, id, -32600, why);
 }
 
 fn jsonGet(obj: std.json.Value, key: []const u8) ?std.json.Value {
@@ -133,7 +225,12 @@ fn handleToolsCall(ctx: *Ctx, id_json: []const u8, root: std.json.Value, catalog
     }
 
     var tool_parsed: Parsed = undefined;
-    try schema.fillParsed(ctx.gpa, cmd, jsonGet(params, "arguments"), &tool_parsed);
+    // A server that dies on one bad or oversized call takes every other tool
+    // with it, so a failure here is this request's error, not the process's.
+    schema.fillParsed(ctx.gpa, cmd, jsonGet(params, "arguments"), &tool_parsed) catch |err| {
+        try writeError(ctx.io, ctx.gpa, id_json, -32603, @errorName(err));
+        return;
+    };
     defer tool_parsed.deinit();
 
     var capture: std.ArrayList(u8) = .empty;
@@ -178,10 +275,18 @@ pub fn appendToolsCallResult(
     try out.appendSlice(gpa, "}}");
 }
 
+/// Write a JSON-RPC error reply.
+///
+/// The message goes through the escaper rather than straight into the format
+/// string. Some of these messages quote what the client sent, and a message
+/// with a quote in it used to produce a reply that was not JSON at all, which
+/// is a worse outcome than the error it was reporting.
 fn writeError(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, code: i32, message: []const u8) !void {
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(gpa);
-    try body.print(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{{\"code\":{d},\"message\":\"{s}\"}}}}", .{ id_json, code, message });
+    try body.print(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{{\"code\":{d},\"message\":", .{ id_json, code });
+    try argv.writeJsonString(&body, gpa, message);
+    try body.appendSlice(gpa, "}}");
     try writeMessage(io, body.items);
 }
 
@@ -303,6 +408,14 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
     while (!signals.stopRequested()) {
         const body = readMessage(ctx.gpa, &reader) catch |err| {
             if (signals.stopRequested()) break;
+            if (err == error.MessageTooLong) {
+                // Refuse the one message, keep the session. The id is
+                // unknowable here because the line was never parsed, and
+                // JSON-RPC 2.0 says to answer with a null id in exactly that
+                // case.
+                try writeError(ctx.io, ctx.gpa, "null", -32600, "request exceeds the maximum message size");
+                continue;
+            }
             return err;
         } orelse break;
         defer ctx.gpa.free(body);
@@ -315,16 +428,33 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
         defer msg.deinit();
         const root = msg.value;
 
-        const method_val = jsonGet(root, "method") orelse continue;
-        const method = switch (method_val) {
-            .string => |s| s,
-            else => continue,
+        // Everything below needs an id to answer with, and a well-formed
+        // method to answer about. A request that has one but not the other used
+        // to fall out of the loop in silence, and the client waited on a reply
+        // that was never coming. Say what is wrong instead.
+        const maybe_id = try idToJson(ctx.gpa, jsonGet(root, "id"));
+        defer if (maybe_id) |owned| ctx.gpa.free(owned);
+
+        const method = method: {
+            const method_val = jsonGet(root, "method") orelse {
+                try refuseMalformedRequest(ctx, maybe_id, "request has no \"method\"");
+                continue;
+            };
+            switch (method_val) {
+                .string => |s| break :method s,
+                else => {
+                    try refuseMalformedRequest(ctx, maybe_id, "\"method\" must be a string");
+                    continue;
+                },
+            }
         };
-        const id_json = try idToJson(ctx.gpa, jsonGet(root, "id"));
-        defer ctx.gpa.free(id_json);
+        // No `id` means a notification, and JSON-RPC 2.0 forbids answering
+        // one. Everything below writes a reply, so there is nothing here a
+        // notification could ask for.
+        const id_json = maybe_id orelse continue;
 
         if (std.mem.eql(u8, method, "initialize")) {
-            try handleInitialize(ctx.io, ctx.gpa, id_json);
+            try handleInitialize(ctx.io, ctx.gpa, id_json, root);
         } else if (std.mem.eql(u8, method, "notifications/initialized") or std.mem.eql(u8, method, "initialized")) {
             // no-op
         } else if (std.mem.eql(u8, method, "tools/list")) {
@@ -341,4 +471,70 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
         }
     }
     return exit_codes.ok;
+}
+
+test "the version a client asks for comes back when we speak it" {
+    const gpa = std.testing.allocator;
+    for (supported_protocol_versions) |want| {
+        const body = try std.fmt.allocPrint(gpa, "{{\"params\":{{\"protocolVersion\":\"{s}\"}}}}", .{want});
+        defer gpa.free(body);
+        const parsed = try std.json.parseFromSlice(std.json.Value, gpa, body, .{});
+        defer parsed.deinit();
+        try std.testing.expectEqualStrings(want, negotiateProtocolVersion(parsed.value));
+    }
+}
+
+test "a version we do not speak gets one we do, so the client can decide" {
+    const gpa = std.testing.allocator;
+    const parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        gpa,
+        "{\"params\":{\"protocolVersion\":\"1999-01-01\"}}",
+        .{},
+    );
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings(supported_protocol_versions[0], negotiateProtocolVersion(parsed.value));
+}
+
+test "a client that names no version gets the oldest one we speak" {
+    // It is the safest guess about what an unknown client can read.
+    const gpa = std.testing.allocator;
+    const oldest = supported_protocol_versions[supported_protocol_versions.len - 1];
+    for ([_][]const u8{ "{}", "{\"params\":{}}", "{\"params\":{\"protocolVersion\":7}}" }) |body| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, gpa, body, .{});
+        defer parsed.deinit();
+        try std.testing.expectEqualStrings(oldest, negotiateProtocolVersion(parsed.value));
+    }
+}
+
+test "a request with an id but no usable method gets an answer, not silence" {
+    // It used to fall out of the loop without a reply, and the client waited on
+    // one that was never coming. Every other failure on this loop answers.
+    const gpa = std.testing.allocator;
+    for ([_][]const u8{
+        "{\"jsonrpc\":\"2.0\",\"id\":1}",
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":7}",
+    }) |body| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, gpa, body, .{});
+        defer parsed.deinit();
+        const id = try idToJson(gpa, jsonGet(parsed.value, "id"));
+        defer if (id) |owned| gpa.free(owned);
+        try std.testing.expect(id != null);
+
+        // A method that is absent or not a string is what the loop refuses on.
+        const method_val = jsonGet(parsed.value, "method");
+        const usable = method_val != null and method_val.? == .string;
+        try std.testing.expect(!usable);
+    }
+}
+
+test "a notification is still answered with silence" {
+    // JSON-RPC forbids replying to a message with no id, however malformed the
+    // rest of it is.
+    const gpa = std.testing.allocator;
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, "{\"jsonrpc\":\"2.0\"}", .{});
+    defer parsed.deinit();
+    const id = try idToJson(gpa, jsonGet(parsed.value, "id"));
+    defer if (id) |owned| gpa.free(owned);
+    try std.testing.expect(id == null);
 }

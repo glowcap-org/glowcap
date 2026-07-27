@@ -747,15 +747,22 @@ pub fn checkBindingPromiseSpine(
     }{
         .{
             .path = "bindings/ts/stack/promise.ts",
-            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "pancake_host_vow_index", "pancake_host_vow_untag", "pancake_host_vow_get" },
+            // `failed` is the third state arm: a send that could not be issued
+            // at all. It has to exist in every binding that has the other two,
+            // because `send` returns its handle synchronously — so without it
+            // the only way to report a closed session is to throw, which is a
+            // synchronous failure channel on a promise and escapes the caller's
+            // own `.catch`. Rust carried this arm alone for a while, and the
+            // two that lacked it both shipped that trap.
+            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "static failed", "\"failed\"", "pancake_host_vow_index", "pancake_host_vow_untag", "pancake_host_vow_get" },
         },
         .{
             .path = "bindings/python/pancake/_promise.py",
-            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "pancake_host_vow_get" },
+            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def failed", "class Failed", "pancake_host_vow_get" },
         },
         .{
             .path = "bindings/rust/src/promise.rs",
-            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "pancake_host_vow_index", "pancake_host_vow_get", "await_minted", "fetch_like", "fn send_promise" },
+            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "pancake_host_vow_index", "pancake_host_vow_get", "await_minted", "fetch_like", "fn send_promise", "Failed(" },
         },
         .{
             .path = "bindings/racket/private/promise.rkt",
@@ -1032,7 +1039,10 @@ pub fn checkBindingListenSpine(
         },
         .{
             .path = "bindings/racket/private/listen.rkt",
-            .markers = &.{ "(struct server", "listen-keyed-tcp", "(define (listen", "(define (accept", "establish-accepted-session", "socket-addr-designator" },
+            // Racket reaches the establish spine through `accept-next-session`,
+            // which owns the handshake bound and the close-on-failure rule for
+            // every accept surface; this module supplies only the socket.
+            .markers = &.{ "(struct server", "listen-keyed-tcp", "(define (listen", "(define (accept", "accept-next-session", "socket-addr-designator" },
         },
     };
     for (mods) |mod| {
@@ -1187,6 +1197,14 @@ pub fn checkBindingEmbedderPump(
         // that respells it ships a divergent consumer-facing error.
         if (std.mem.indexOf(u8, contents, "connection closed during the OCapN handshake") == null) {
             try appendViolation(gpa, violations, "{s}: pump missing the canonical handshake closed-message (`connection closed during the OCapN handshake`)", .{path});
+        }
+        // The EOF break-far-vows closed-message is one cross-language string too:
+        // it settles the app's pending far vows broken, so a pump that respells
+        // it (Rust once said `session closed`) ships a divergent consumer-facing
+        // broken reason. The trailing quote distinguishes it from the handshake
+        // message above, whose next word is `during`.
+        if (std.mem.indexOf(u8, contents, "connection closed\"") == null) {
+            try appendViolation(gpa, violations, "{s}: pump missing the canonical EOF break-far-vows closed-message (`connection closed`)", .{path});
         }
     }
 
@@ -1502,18 +1520,21 @@ pub fn checkBindingEmbedderSpineDocs(
         .{
             .path = "docs/shipped.md",
             .needles = &.{
-                "named `pump`",
-                "named `action`",
-                "named `promise`",
+                // The module names themselves, not a phrasing around them: the
+                // inventory has to name each one, and how the sentence reads is
+                // the writer's business.
+                "`pump`",
+                "`action`",
+                "`promise`",
                 "promiseFor",
                 "sendFar",
-                "named `gc`",
-                "named `dial`",
-                "named `listen`",
+                "`gc`",
+                "`dial`",
+                "`listen`",
                 "embedder-spine module split is complete",
                 "trampoline",
                 "caretaker",
-                "named `session_shared`",
+                "`session_shared`",
                 "embedder_pump",
                 "pancake_host_pump_drain",
                 "handshake",
@@ -1524,18 +1545,18 @@ pub fn checkBindingEmbedderSpineDocs(
             .needles = &.{
                 "**pump module**",
                 "**action module**",
-                "named **promise**",
+                "`promise`",
                 "promiseFor",
                 "sendFar",
-                "**gc** module",
-                "named **dial**",
-                "named **listen**",
+                "`gc`",
+                "`dial`",
+                "`listen`",
                 "**trampoline** module",
                 "embedder-spine module split is complete",
                 "trampoline",
                 "caretaker/attenuate",
                 "spawn/publish",
-                "**session_shared** module",
+                "`session_shared`",
                 "embedder_pump",
                 "pancake_host_pump_drain",
                 "handshake",
@@ -1639,6 +1660,159 @@ pub fn checkBindingMagicErrorCodes(
                 if (c < '0' or c > '9') continue;
                 const line = 1 + std.mem.count(u8, contents[0..start], "\n");
                 try appendViolation(gpa, violations, "{s}:{d}: numeric error code at a raise site (`{s}{c}…`) — name the mirrored ABI constant instead", .{ path, line, pattern, c });
+            }
+        }
+    }
+}
+
+/// One binding's generated driver FFI table and where its hand code lives. The
+/// table `gen_ffi` declares every `pancake_host_*` extern the binding can call;
+/// a `pancake_host_*` symbol that appears nowhere else in the binding's tree is
+/// reflected but dead.
+const ReflectedFfiBinding = struct {
+    name: []const u8,
+    /// The binding's subtree under `bindings/`, matched as an `entry.path` prefix.
+    prefix: []const u8,
+    /// The generated driver FFI declaration file, relative to `bindings/`. It is
+    /// skipped while scanning for use: it declares the symbols, it does not wire
+    /// them.
+    gen_ffi: []const u8,
+};
+
+const reflected_ffi_bindings = [_]ReflectedFfiBinding{
+    .{ .name = "rust", .prefix = "rust/", .gen_ffi = "rust/src/sys/driver_fns_gen.rs" },
+    .{ .name = "python", .prefix = "python/", .gen_ffi = "python/pancake/_sigs_gen.py" },
+    .{ .name = "ts", .prefix = "ts/", .gen_ffi = "ts/stack/internal/ffi/driver.ts" },
+    .{ .name = "racket", .prefix = "racket/", .gen_ffi = "racket/private/ffi-driver-gen.rkt" },
+};
+
+/// A driver FFI symbol reflected into a binding but deliberately not wired there,
+/// named with the reason so the state reads as a decision rather than the
+/// oversight a silently-dead generated symbol otherwise would.
+const DeclaredDeferredFfi = struct {
+    binding: []const u8,
+    symbol: []const u8,
+    reason: []const u8,
+};
+
+const declared_deferred_ffi = [_]DeclaredDeferredFfi{};
+
+fn declaredDeferredReason(binding: []const u8, symbol: []const u8) ?[]const u8 {
+    for (declared_deferred_ffi) |d| {
+        if (std.mem.eql(u8, d.binding, binding) and std.mem.eql(u8, d.symbol, symbol)) return d.reason;
+    }
+    return null;
+}
+
+/// One reflected driver symbol and whether the binding wires it anywhere.
+const ReflectedSymbol = struct { name: []const u8, seen: bool = false };
+
+/// Every `pancake_host_*` symbol a binding's generated driver FFI table declares
+/// must be wired by that binding (referenced somewhere outside the declaration
+/// file) or listed in `declared_deferred_ffi` with a reason. A symbol reflected
+/// into the table but called nowhere is dead generated FFI: a capability the C
+/// ABI hands the binding that the binding silently never exposes, and a
+/// per-binding product gap the presence-needle checks above cannot see (the
+/// module and its markers are all still there). A declared-deferred symbol that
+/// becomes wired must drop its allowlist row, so the allowlist cannot rot into
+/// rent.
+pub fn checkBindingReflectedFfiWired(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var per_binding: [reflected_ffi_bindings.len]std.ArrayList(ReflectedSymbol) = undefined;
+    for (&per_binding) |*p| p.* = .empty;
+    defer for (&per_binding) |*p| {
+        for (p.items) |e| gpa.free(e.name);
+        p.deinit(gpa);
+    };
+
+    // 1. Collect the declared `pancake_host_*` symbols per binding, from its
+    //    generated driver FFI table.
+    for (reflected_ffi_bindings, 0..) |b, bi| {
+        const gen_path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{b.gen_ffi});
+        defer gpa.free(gen_path);
+        const gen = root.readFileAlloc(io, gen_path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read generated FFI table for reflected-wired check with {s}", .{ gen_path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(gen);
+        const needle = "pancake_host_";
+        var rest = gen;
+        while (std.mem.indexOf(u8, rest, needle)) |start| {
+            const after = rest[start..];
+            var end: usize = needle.len;
+            while (end < after.len) : (end += 1) {
+                const c = after[end];
+                if (!((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_')) break;
+            }
+            const sym = after[0..end];
+            rest = after[end..];
+            var already = false;
+            for (per_binding[bi].items) |e| {
+                if (std.mem.eql(u8, e.name, sym)) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) try per_binding[bi].append(gpa, .{ .name = try gpa.dupe(u8, sym) });
+        }
+    }
+
+    // 2. Walk the binding sources; a symbol is wired once it appears in any file
+    //    other than its own declaration table.
+    var dir = root.openDir(io, "bindings", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "bindings: failed to open for reflected-wired check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (std.mem.indexOf(u8, entry.path, "target/") != null) continue;
+        if (std.mem.indexOf(u8, entry.path, "__pycache__/") != null) continue;
+        if (std.mem.indexOf(u8, entry.path, "compiled/") != null) continue;
+        if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
+        const is_source = std.mem.endsWith(u8, entry.path, ".rs") or
+            std.mem.endsWith(u8, entry.path, ".py") or
+            std.mem.endsWith(u8, entry.path, ".ts") or
+            std.mem.endsWith(u8, entry.path, ".rkt");
+        if (!is_source) continue;
+        var bi_opt: ?usize = null;
+        for (reflected_ffi_bindings, 0..) |b, bi| {
+            if (std.mem.startsWith(u8, entry.path, b.prefix)) {
+                bi_opt = bi;
+                break;
+            }
+        }
+        const bi = bi_opt orelse continue;
+        if (std.mem.eql(u8, entry.path, reflected_ffi_bindings[bi].gen_ffi)) continue;
+        const path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{entry.path});
+        defer gpa.free(path);
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for reflected-wired check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (per_binding[bi].items) |*e| {
+            if (!e.seen and std.mem.indexOf(u8, contents, e.name) != null) e.seen = true;
+        }
+    }
+
+    // 3. Every declared symbol is wired or declared-deferred; a declared-deferred
+    //    symbol that is now wired must drop its allowlist row.
+    for (reflected_ffi_bindings, 0..) |b, bi| {
+        for (per_binding[bi].items) |e| {
+            const deferred = declaredDeferredReason(b.name, e.name);
+            if (e.seen) {
+                if (deferred != null) {
+                    try appendViolation(gpa, violations, "binding_spine.zig: `{s}` is now wired in the {s} binding but still listed declared-deferred; drop the allowlist row", .{ e.name, b.name });
+                }
+            } else if (deferred == null) {
+                try appendViolation(gpa, violations, "bindings/{s}: `{s}` is reflected into the generated driver FFI table but wired nowhere in the binding; wire it or add a declared-deferred row (with a reason) in binding_spine.zig", .{ b.name, e.name });
             }
         }
     }
@@ -1881,6 +2055,44 @@ pub fn checkWebrtcSidecarAbi(
         .{ .path = "transports/webrtc/src/lib.rs", .anchor = "extern \"C\" fn ", .ret_end = '{' },
         .{ .path = "src/net/transport/webrtc.zig", .anchor = "extern fn ", .ret_end = ';' },
     });
+}
+
+/// Hold the steady-buffer bound the Zig loop and the Rust sidecar each keep.
+///
+/// Both sides retain the same per-connection steady capacity and free the
+/// burst above it (ADR-0042's posture, ADR-0057's sidecar). The two constants
+/// live in different languages and nothing links them, so the 500k footprint
+/// budget could split between them silently: the sidecar's buffer is
+/// per-connection too, and a number raised on one side is a withdrawal the
+/// ladder never sees.
+pub fn checkSidecarSteadyBytes(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const zig_path = "src/net/frame_stream.zig";
+    const rust_path = "transports/iroh/src/lib.rs";
+    const zig_needle = "pub const steady_outbound_bytes: usize = 16 * 1024;";
+    const rust_needle = "const NB_STEADY_BYTES: usize = 16 * 1024;";
+
+    if (root.readFileAlloc(io, zig_path, gpa, .limited(1 << 20))) |contents| {
+        defer gpa.free(contents);
+        if (std.mem.indexOf(u8, contents, zig_needle) == null) {
+            try appendViolation(gpa, violations, "{s}: `steady_outbound_bytes` moved off 16 KiB; {s}'s `NB_STEADY_BYTES` mirrors it by hand, so move both and re-weigh the ladder's per-connection budget", .{ zig_path, rust_path });
+        }
+    } else |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for steady-bytes parity with {s}", .{ zig_path, @errorName(err) });
+    }
+
+    if (root.readFileAlloc(io, rust_path, gpa, .limited(2 << 20))) |contents| {
+        defer gpa.free(contents);
+        if (std.mem.indexOf(u8, contents, rust_needle) == null) {
+            try appendViolation(gpa, violations, "{s}: `NB_STEADY_BYTES` moved off 16 KiB; it mirrors `steady_outbound_bytes` in {s} by hand, so move both and re-weigh the ladder's per-connection budget", .{ rust_path, zig_path });
+        }
+    } else |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for steady-bytes parity with {s}", .{ rust_path, @errorName(err) });
+    }
 }
 
 /// ADR-0055 commits the sidecar to reproducible dependency resolution: the

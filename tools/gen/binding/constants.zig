@@ -34,10 +34,7 @@ const c = @import("c_abi");
 const cd = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 
-pub const Output = struct {
-    path: []const u8,
-    generate: *const fn (std.mem.Allocator) anyerror![]u8,
-};
+const Output = @import("output").Output;
 
 pub const step_name = "gen-binding-constants";
 
@@ -110,6 +107,7 @@ const constants = [_]Const{
     con("ERR_BROKEN", c.PANCAKE_ERR_BROKEN, .int, null),
     con("ERR_NOT_FOUND", c.PANCAKE_ERR_NOT_FOUND, .int, null),
     con("ERR_BUFFER_TOO_SMALL", c.PANCAKE_ERR_BUFFER_TOO_SMALL, .int, null),
+    con("ERR_TIMEOUT", c.PANCAKE_ERR_TIMEOUT, .int, null),
     // Frame shape (c_uint).
     con("FRAME_SHAPE_BYTE", c.PANCAKE_FRAME_SHAPE_BYTE, .uint, null),
     // Reference kinds (c_uint).
@@ -151,6 +149,7 @@ const constants = [_]Const{
     // (c_uint, libpancake_driver).
     con("DIAL_SHAPE_HOST_PORT", cd.PANCAKE_DIAL_SHAPE_HOST_PORT, .uint, null),
     con("DIAL_SHAPE_PEER_ID", cd.PANCAKE_DIAL_SHAPE_PEER_ID, .uint, null),
+    con("DIAL_SHAPE_SIGNALING", cd.PANCAKE_DIAL_SHAPE_SIGNALING, .uint, null),
     con("DIAL_REACH_DIRECT", cd.PANCAKE_DIAL_REACH_DIRECT, .uint, null),
     con("DIAL_REACH_CONFIGURED", cd.PANCAKE_DIAL_REACH_CONFIGURED, .uint, null),
     con("DIAL_REACH_EXPLICIT", cd.PANCAKE_DIAL_REACH_EXPLICIT, .uint, null),

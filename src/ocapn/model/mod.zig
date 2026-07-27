@@ -54,11 +54,11 @@ pub const freeHintValue = owned.freeHintValue;
 /// See `view`.
 pub const view = @import("view.zig");
 
-/// Whether two value trees are structurally equal. This is the in-memory
-/// evidence behind distributed equality: per ADR-0012, two references that name
-/// the same thing compare equal here. See `equality`.
+/// Whether two reference representations are structurally equal. Far and
+/// promise positions are meaningful only in their session; this does not
+/// canonicalize targets across sessions or arbitrary network paths.
 pub const equality = @import("equality.zig");
-pub const referencesEqual = equality.referencesEqual;
+pub const referencesStructurallyEqual = equality.referencesStructurallyEqual;
 pub const argumentsEqual = equality.argumentsEqual;
 pub const peerLocatorsEqual = equality.peerLocatorsEqual;
 pub const handoffsEqual = equality.handoffsEqual;
@@ -202,19 +202,17 @@ pub const Reference = union(enum) {
     near: NearRef,
     far: FarRef,
     promise: PromiseRef,
-    // This arm is inline, not boxed, and unlike `Argument.handoff` that is
-    // deliberate. At 72 bytes (a `PeerLocator` plus a swissnum slice) `sturdy`
-    // does set the width of the whole union — `Reference` is 80 bytes and
-    // `Argument` 88, where every other reference arm is at most 32 — so a
-    // `*SturdyRef` box would roughly halve both, exactly the handoff-box
-    // arithmetic. But a `Reference` is a plain value constructed all over the
-    // codebase, including as a deliver *target* and as a `referencesEqual`
-    // operand, on the stack with no allocator in reach. A handoff never appears
-    // as a reference value — only in argument position, always built through the
-    // owned-clone path — so boxing it costs an allocation nothing else pays. A
-    // sturdyref would pay that allocation on every construction. The 40 bytes on
-    // a rare arm are cheaper than an owner on a common value type.
-    sturdy: SturdyRef,
+    // Boxed, like `Argument.handoff`, and for the same reason. A `SturdyRef` is a
+    // `PeerLocator` plus a swissnum, ~72 bytes, so inline it sets the width of the
+    // whole union: every `near`/`far`/`promise`/`broken` `Reference` — the common
+    // arms, and a value type stored in session tables under the per-session
+    // footprint budget — would carry ~48 bytes it never uses, just to keep the rare
+    // sturdy arm inline. An *owned* `Reference` is only ever minted from the wire
+    // through `view.toOwned`, which already holds an allocator and already dupes the
+    // peer and swissnum, so the box costs one `create` there and one `destroy` in
+    // `freeReference`, and nothing else pays for it. The borrowed `view.Reference`
+    // keeps its `sturdy` inline: it never allocates, so the boxing is owned-side only.
+    sturdy: *const SturdyRef,
     broken: BrokenRef,
 
     /// The raw wire position this reference names: a near export's

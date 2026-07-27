@@ -13,6 +13,11 @@ const std = @import("std");
 const pancake = @import("pancake");
 const support_actors = @import("../support/actors.zig");
 
+/// A finite handshake budget for every dial in this file. Unbounded is the
+/// library default and the wrong thing in a test: a partner that connects and
+/// then goes quiet would park the suite instead of failing it.
+const handshake_budget_ms: i32 = 10_000;
+
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
@@ -109,7 +114,7 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(serveBoardOnce, .{&server});
     const client_result = pipelineUnitOnce(io, address, allocator);
@@ -131,7 +136,7 @@ fn hostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf);
+    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -177,7 +182,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -242,7 +247,7 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(serveOnce, .{&server});
     const client_result = connectOnce(io, address, allocator);
@@ -292,7 +297,7 @@ fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
     defer allocator.free(write_buf);
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var cv = try driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, uri, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, uri, .ephemeral, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -339,7 +344,7 @@ fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     try std.testing.expectError(driver.Error.FetchBroken, cv.fetch("nobody-published-this"));
@@ -416,7 +421,7 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(serveOnce, .{&server});
     const client_result = callLocalOnce(io, address, allocator);
@@ -441,7 +446,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf);
+    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     const cap = try cv.publish("greeter", Greeter, .{});
@@ -480,7 +485,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -530,7 +535,7 @@ test "connectUri fails closed on a URI whose transport has no registered residen
     // the dial refuses rather than silently falling back to tcp.
     try std.testing.expectError(
         driver.Error.UnknownTransport,
-        driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf),
+        driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf, handshake_budget_ms),
     );
 }
 
@@ -548,7 +553,7 @@ const Adder = struct {
     pub fn handle(self: *Adder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "add")) return error.NoSuchMethod;
-        self.n += msg.arg(0).integer;
+        self.n += try msg.argInt(0);
         return .{ .integer = self.n };
     }
 };
@@ -729,7 +734,7 @@ test "driver loopback: a spawned capability is unreachable until first marshaled
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(serveGrantOnMarshalOnce, .{&server});
     const client_result = probeReservedOnce(io, address, allocator);
@@ -816,7 +821,7 @@ const FaultHarness = struct {
 
     fn init(allocator: std.mem.Allocator, io: std.Io, inbound: []const u8) !*FaultHarness {
         const self = try allocator.create(FaultHarness);
-        self.pair = try engine.pairing.pairedGoblins(allocator);
+        self.pair = try engine.pairing.pairedV1_0Syrup(allocator);
         // A far import the questioner can address; the send mints a far vow.
         try self.pair.p1.importObject(7);
         self.reader = std.Io.Reader.fixed(inbound);
@@ -887,11 +892,13 @@ test "faultToClosed: a non-transport fault during a blocking call breaks far vow
     try std.testing.expect(capture.reasonHas("connection failed"));
 }
 
-/// Manual dial (not `connectTcp`, whose bundled handshake is unbounded): dial
-/// the socket, bind the vat over it, arm the deadline, then drive the keyed
-/// handshake ourselves so the timeout has an entry point. A partner that
-/// completes connect and then never speaks must break the handshake, not park
-/// the fiber (ADR-0081, contract 2).
+/// Manual dial rather than `connectTcp`: dial the socket, bind the vat over it,
+/// arm the deadline, then drive the keyed handshake here, so the timeout has an
+/// entry point this test can name and assert on. `connectTcp` takes the same
+/// budget and would break the same way, but it breaks inside the constructor,
+/// which leaves nothing to inspect afterwards. A partner that completes connect
+/// and then never speaks must break the handshake, not park the fiber
+/// (ADR-0081, contract 2).
 fn silentPartnerHandshakeTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
@@ -971,7 +978,7 @@ test "driver loopback: a partner that opens then stalls breaks settle with WaitT
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     const host_thread = try std.Thread.spawn(.{}, hostAcceptPublishThenStall, .{ &server, io });
     defer host_thread.join();

@@ -7,7 +7,7 @@
 use tokio::net::{TcpListener, ToSocketAddrs};
 
 use crate::host::Host;
-use crate::session::{io_err, Session};
+use crate::session::{io_err, Session, HANDSHAKE_TIMEOUT};
 use crate::Result;
 
 /// A listening server, the host-side counterpart of [`crate::connect`]. Call
@@ -22,11 +22,17 @@ pub struct Server {
 
 impl Server {
 	/// Accept the next partner as a ready [`Session`], sharing this server's
-	/// [`Host`]. The keyed handshake completes before this resolves; a
-	/// partner that fails it — a rude probe that connects and hangs up, or a
-	/// stray port scan — is that session's failure, never the listener's, so
-	/// the accept skips it and keeps serving. Must be called inside a `LocalSet`
-	/// (the handle graph is `!Send`).
+	/// [`Host`]. The keyed handshake completes before this resolves; a partner
+	/// that fails it — a rude probe that connects and hangs up, or a stray port
+	/// scan — is that session's failure, never the listener's, so the accept
+	/// skips it and keeps serving. Must be called inside a `LocalSet` (the
+	/// handle graph is `!Send`).
+	///
+	/// A partner that connects and then says nothing is the case a failure
+	/// check cannot catch, because nothing fails: the handshake simply waits.
+	/// It runs inline here, so one such client would park every later
+	/// connection behind it. [`HANDSHAKE_TIMEOUT`] bounds that wait inside
+	/// establish, and a partner that overruns it fails like any other bad one.
 	pub async fn accept(&self) -> Result<Session> {
 		loop {
 			let (stream, _) = self.listener.accept().await.map_err(io_err)?;
@@ -34,17 +40,17 @@ impl Server {
 				Ok(addr) => crate::uri::socket_addr_designator(&addr.ip().to_string(), addr.port()),
 				Err(_) => crate::uri::socket_addr_designator("127.0.0.1", 0),
 			};
-			match Session::establish_accepted(
+			if let Ok(conn) = Session::establish_accepted(
 				self.host.shared(),
 				crate::abi_constants::TRANSPORT_TCP,
 				"",
 				stream,
 				&local,
+				Some(HANDSHAKE_TIMEOUT),
 			)
 			.await
 			{
-				Ok(conn) => return Ok(conn),
-				Err(_) => continue,
+				return Ok(conn);
 			}
 		}
 	}
@@ -100,6 +106,8 @@ pub struct KeyedTcpServer {
 impl KeyedTcpServer {
 	/// Accept the next partner as a ready [`Session`], signing this Host's
 	/// key designator with the bound address riding the `direct-addresses` hint.
+	/// The handshake runs inline under [`HANDSHAKE_TIMEOUT`], so a partner that
+	/// fails it or overruns the bound is skipped and the listener keeps serving.
 	pub async fn accept(&self) -> Result<Session> {
 		loop {
 			let (stream, _) = self.listener.accept().await.map_err(io_err)?;
@@ -107,17 +115,17 @@ impl KeyedTcpServer {
 				Ok(addr) => crate::uri::socket_addr_designator(&addr.ip().to_string(), addr.port()),
 				Err(_) => crate::uri::socket_addr_designator("127.0.0.1", 0),
 			};
-			match Session::establish_accepted(
+			if let Ok(conn) = Session::establish_accepted(
 				self.host.shared(),
 				crate::abi_constants::TRANSPORT_KEYED_TCP,
 				&self.designator,
 				stream,
 				&hint,
+				Some(HANDSHAKE_TIMEOUT),
 			)
 			.await
 			{
-				Ok(conn) => return Ok(conn),
-				Err(_) => continue,
+				return Ok(conn);
 			}
 		}
 	}

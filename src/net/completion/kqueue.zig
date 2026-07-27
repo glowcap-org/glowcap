@@ -1,10 +1,10 @@
 //! The macOS / BSD kqueue completion backend for `completion.Loop`.
 //!
 //! One implementation of the completion-backend interface documented in
-//! [`completion`](completion.zig). The portable connection orchestration lives in
+//! `completion.Loop` (`loop.zig`). The portable connection orchestration lives in
 //! `completion.Loop`; this file provides only the platform completion primitive
 //! and the loopback socket primitives. The io_uring (Linux) sibling is
-//! [`uring`](uring.zig); the server logic does not change between them.
+//! `uring.zig`; the server logic does not change between them.
 //!
 //! kqueue is a *readiness* interface, not a completion one: `kevent` reports that
 //! an fd is ready to read or write, not that a transfer finished. This backend
@@ -79,7 +79,7 @@ pub const Backend = struct {
     kq: c.fd_t,
     pending: std.AutoHashMap(c.fd_t, Pending),
     /// Completions that need no readiness (closes), drained before blocking.
-    ready: std.ArrayList(completion.Completion),
+    ready: completion.ReadyQueue,
     /// The shared recv scratch pool (ADR-0054).
     scratch_pool: ScratchPool,
 
@@ -104,7 +104,7 @@ pub const Backend = struct {
             .allocator = allocator,
             .kq = kq,
             .pending = std.AutoHashMap(c.fd_t, Pending).init(allocator),
-            .ready = .empty,
+            .ready = .{},
             .scratch_pool = scratch_pool,
         };
     }
@@ -229,15 +229,15 @@ pub const Backend = struct {
 
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
         // Drain readiness-free completions (closes) first; never block if any.
-        if (self.ready.items.len > 0) return completion.drainReady(&self.ready, out);
+        if (self.ready.len() > 0) return self.ready.drain(out);
 
         var events: [256]c.Kevent = undefined;
         const want: c_int = @intCast(@min(out.len, events.len));
         var ts: c.timespec = undefined;
         const timeout_ptr: ?*const c.timespec = if (timeout_ms >= 0) blk: {
             ts = .{
-                .tv_sec = @divTrunc(timeout_ms, 1000),
-                .tv_nsec = @as(c_long, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
+                .sec = @divTrunc(timeout_ms, 1000),
+                .nsec = @as(c_long, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
             };
             break :blk &ts;
         } else null;
@@ -259,8 +259,31 @@ pub const Backend = struct {
                             // result stays -1
                         } else if (self.scratch_pool.acquire()) |idx| {
                             const buf = self.scratch_pool.buffer(idx);
-                            const r: i32 = @intCast(c.recv(fd, buf.ptr, buf.len, 0));
-                            comp.result = r;
+                            const r = c.recv(fd, buf.ptr, buf.len, 0);
+                            if (r < 0) switch (std.posix.errno(r)) {
+                                // Readiness is a hint, not a promise, and a
+                                // signal can land between the wakeup and the
+                                // syscall. Neither is a connection failure, but
+                                // both return -1, and the loop reads a negative
+                                // result as fatal. Re-arm and produce nothing:
+                                // the operation is still outstanding, so the
+                                // contract that every submitted op eventually
+                                // yields a completion still holds.
+                                .AGAIN, .INTR => {
+                                    self.scratch_pool.release(idx);
+                                    self.register(fd, c.EVFILT.READ) catch {
+                                        // The re-arm is the only way this op
+                                        // can ever complete, so a failure here
+                                        // does have to end the connection.
+                                        p.read = .idle;
+                                        out[produced] = comp;
+                                        produced += 1;
+                                    };
+                                    continue;
+                                },
+                                else => {},
+                            };
+                            comp.result = @intCast(r);
                             if (r > 0) {
                                 comp.recv_bytes = buf[0..@intCast(r)];
                                 comp.recv_token = idx;

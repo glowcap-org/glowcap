@@ -1,16 +1,18 @@
 ---
 .title = "Racket",
+.description = "The Racket binding: a Goblins-shaped session surface with native Racket values, including a live conversation against a real Goblins vat.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Goblins-shaped `session` surface with native values
+The Racket binding gives you a Goblins-shaped `session` surface with native
+values
 ([`pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt)).
-Transports: `pancake-tcp.rkt`, `pancake-inproc.rkt`, lazy `pancake-iroh.rkt`.
-Install: [Bindings]($link.page('bindings')). Actor vocabulary:
-[modules]($link.page('modules')).
+The transport modules are `pancake-tcp.rkt`, `pancake-inproc.rkt`, and lazy
+`pancake-iroh.rkt`. The [Bindings]($link.page('bindings')) page covers install,
+and [modules]($link.page('modules')) has the actor vocabulary.
 
 ## The same round-trip
 
@@ -46,30 +48,33 @@ shadow `session-fetch` / `session-send`.
 > (session-close! sess)
 > ```
 
-The iroh tab is a bare node id plus posture; fetch/send match the tcp tab.
-Dial-by-id and discovery: [iroh]($link.page('transports/iroh')).
+The iroh snippet changes only the locator: a bare node id plus the reachability
+posture. `session-fetch` and `session-send` are unchanged. For dial-by-id and
+discovery, see [iroh]($link.page('transports/iroh')).
 
 ## A Goblins-faithful actor layer
 
-Racket keeps the Goblins verbs intact. You define an actor constructor with
+Racket keeps the Goblins verbs intact. The verbs are Goblins's; the substrate
+is pancake. This is not a Goblins compatibility layer, and an existing Goblins
+program will not run on it unchanged. You define an actor constructor with
 `(define (^name bcom arg ...) ...)`, return its `methods` behavior, and then
 `spawn` it. You call it near with `$`, send it eventually with `<-` or `<-np`,
 observe a promise with `on`, and become a new behavior with `bcom`, all inside
 `with-vat`. On top of that, `connect`, `session-fetch`, and `session-send` reach
-a partner, and `(accept (listen bind_host port))` hands back the same `session`
-that `connect` returns.
+a partner, and `(accept (listen "127.0.0.1" 9099))` hands back the same
+`session` that `connect` returns.
 
-> **Near-call (`$`) and eventual-send (`<-`)**: the two ways to invoke an object,
-> straight from the [E language](http://erights.org/). `$` calls a near object now
-> and returns its result, because it lives in your own vat. `<-` queues the call
-> for a later turn and hands back a promise (`<-np` when you do not need the
-> promise back). It is the only way to reach across a session, since a partner's
-> object is never in your vat.
+> **`$` and `<-`**, near-call and eventual-send, come straight from the
+> [E language](http://erights.org/), and [The modules]($link.page('modules'))
+> page defines both. Across a session only `<-` works, since a partner's object
+> is never in your vat.
 
 ## Async
 
-Green threads and ports. `(session-serve sess)` pumps inbound; `(on vow …)`
-fires on settle. CapTP ideas: [Concepts]($link.page('concepts')).
+Concurrency is Racket's own green threads and ports. `(session-serve sess)`
+pumps the inbound loop, so run it on its own green thread, and `(on vow ...)`
+runs a callback when the vow (Goblins's word for a promise) settles.
+[Concepts]($link.page('concepts')) covers the CapTP ideas.
 
 ## Binding check and example
 
@@ -79,6 +84,7 @@ zig build racket-dogfood    # the Racket consumer against the pancake archives
 
 The full surface lives in the
 [Racket binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/README.md),
-and the
+and of the four bindings this is the one that keeps Goblins's own verbs, so
+the
 [rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/racket/room-client.rkt)
-builds a small capability-secure room on this surface.
+reads almost like Goblins code.

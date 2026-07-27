@@ -113,9 +113,9 @@
 
 ;; ── Callback retention ────────────────────────────────────────────────────────
 ;; Strongly retain `cb` (a behavior closure whose C trampoline the host
-;; holds) until `host-retire!` drops it — in practice never: a behavior lives
-;; as long as its host. Settlements retain nothing; they ride the action
-;; queue.
+;; holds); `host-retire!` drops a row a refused mint never installed. An
+;; accepted behavior lives as long as its host. Settlements retain nothing;
+;; they ride the action queue.
 (define (host-retain! m cb) (hash-set! (host-keep m) cb #t))
 (define (host-retire! m cb) (hash-remove! (host-keep m) cb))
 
@@ -124,6 +124,28 @@
 (define (host-register-session! m ptr c) (hash-set! (host-sessions m) (conn-key ptr) c))
 (define (host-unregister-session! m ptr) (hash-remove! (host-sessions m) (conn-key ptr)))
 (define (host-session-for-ptr m ptr) (hash-ref (host-sessions m) (conn-key ptr) #f))
+
+;; The `session` a capability `ref` actually lives on, whenever `ref` carries a
+;; routing token this host minted: a redeemed handoff resolves to the exporter
+;; connection the host dialed to withdraw it, and a fetched capability resolves
+;; to the connection it was fetched from. Everything else answers #f — a local
+;; near capability, an ordinary far import of the session it arrived over, or a
+;; route whose connection has already gone. Binding-internal;
+;; `session-send-redeeming` is the application surface over it.
+;;
+;; The answer comes from the reference's own routing token, not from whichever
+;; exporter this host dialed most recently, so it is exact with several redeems
+;; in flight at once. It is also a lookup rather than a dial: a reference whose
+;; exporter an earlier redeem already reached resolves to that same live
+;; session and opens no second connection.
+(define (host-exporter-for m ref)
+  (define ptr
+    (call-with-host m
+      (lambda ()
+        (define-values (rc p) (pancake_host_reference_exporter (host-ptr m) (ref->c ref)))
+        (check/host rc)
+        p)))
+  (and ptr (host-session-for-ptr m ptr)))
 
 ;; Releases the C tier refused inside a behavior callback park here
 ;; (`pancake_host_session_release` is refused mid-turn); the drain runs them once
@@ -202,10 +224,14 @@
   (define tramp (make-giftable-trampoline behavior))
   (host-retain! m tramp)
   (define nb (string->bytes/utf-8 name))
-  (call-with-host m
-    (lambda ()
-      (check/host (pancake_host_publish (host-ptr m) (pin-immobile nb) (bytes-length nb)
-                                        tramp #f #f)))))
+  ;; The host never owns the row (the free callback is #f), so a refused
+  ;; publish must retire the retained closure or it leaks for the host's life.
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e) (host-retire! m tramp) (raise e))])
+    (call-with-host m
+      (lambda ()
+        (check/host (pancake_host_publish (host-ptr m) (pin-immobile nb) (bytes-length nb)
+                                          tramp #f #f))))))
 
 ;; ── The hint-less iroh redeem posture ─────────────────────────────────────────
 ;; The iroh reachability posture this host uses to redeem a hint-less handoff

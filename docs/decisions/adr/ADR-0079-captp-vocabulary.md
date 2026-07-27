@@ -82,7 +82,7 @@ owning/borrowing Session.
 |------|----------------|
 | Dual `HostAction` / `Node.Action` queue | **Reject merge.** Two contracts, different lifetimes (`docs/boundaries.md`). Both use `engine.ActionFifo`; projection is the lifetime boundary. |
 | `Session` ⊃ `BlockingSession` | **Keep.** Owning Session embeds BlockingSession; no mode flag. Shared verbs via forwarders are intentional ownership tiers (ADR-0062). |
-| `PancakeHostSession` vs `PancakeHostSession` | **Keep Conn.** Session/Conn/Slot settlement: Conn is the host-registered shell; Session is the app/CapTP partner object. |
+| `Conn` vs `PancakeHostSession` | **Keep Conn.** Session/Conn/Slot settlement: Conn is the host-registered shell; Session is the app/CapTP partner object. |
 | C `pancake_designator_host_port` | **Keep.** C “host” means TCP hostname in the designator grammar; bindings use `hostname`/`bindHost` at CapTP-product collision sites. |
 | `Served` prominence | **Keep.** Unique sans-io serve core; interior of BlockingSession / Host.Conn, not an app peer of Session. |
 | `engine.Peer` glossary | **Keep.** Established pancake vocabulary for the local CapTP session engine; CapTP prose “peer” for the remote party stays in docs, not the type name. |

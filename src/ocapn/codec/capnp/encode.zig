@@ -130,7 +130,7 @@ fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, deliver: model.
     if (deliver.resolve_me_desc != null) flags |= shared.deliver_has_resolve_me;
     b.set(loc.data_idx, flags);
     setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, deliver.target));
-    setListPtr(b, ptrIndex(loc, 1), try encodeArgumentList(b, allocator, deliver.args));
+    try setListPtr(b, ptrIndex(loc, 1), try encodeArgumentList(b, allocator, deliver.args));
     if (deliver.resolve_me_desc) |desc| setStructPtr(b, ptrIndex(loc, 2), try encodeReference(b, allocator, desc));
     return loc;
 }
@@ -210,7 +210,7 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
         .promise => |promise| {
             b.set(loc.data_idx, @intFromEnum(RefTag.promise));
             b.set(loc.data_idx + 1, promise.answer_position.int());
-            if (promise.path.ops.len != 0) setListPtr(b, ptrIndex(loc, 0), try encodePipelinePath(b, allocator, promise.path.ops));
+            if (promise.path.ops.len != 0) try setListPtr(b, ptrIndex(loc, 0), try encodePipelinePath(b, allocator, promise.path.ops));
         },
         .sturdy => |sturdy| {
             b.set(loc.data_idx, @intFromEnum(RefTag.sturdy));
@@ -231,7 +231,7 @@ fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: mo
     if (locator.hints.wire_form == .boolean_false) b.set(loc.data_idx, 1);
     try setData(b, allocator, loc, 0, locator.transport);
     try setData(b, allocator, loc, 1, locator.designator);
-    setListPtr(b, ptrIndex(loc, 2), try encodeHintEntries(b, allocator, locator.hints.entries));
+    try setListPtr(b, ptrIndex(loc, 2), try encodeHintEntries(b, allocator, locator.hints.entries));
     return loc;
 }
 
@@ -240,9 +240,12 @@ fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: mo
 /// bit 16 doubles as the boolean value; data word 1 carries an integer value),
 /// the entry's String name at pointer 0, and a String/Bytes payload at pointer
 /// 1 for the `string`/`bytes` value kinds. Unlike `encodeStructEntries`, entries
-/// are emitted in the model's own order: hint names are unique by construction
-/// (`model.Hints.forDirectAddresses` is the one producer, and it never emits
-/// more than one entry), so there is no canonical order to sort into.
+/// are emitted in the model's own order rather than sorted, because hint names
+/// are unique: `model.Hints.forDirectAddresses` emits at most one, and both
+/// decoders refuse a repeated name, so a locator that arrived from a partner
+/// carries unique names too. That last part is why the refusal lives in the
+/// decoders: without it a partner could hand pancake a dictionary it would
+/// re-emit and then reject on the way back in.
 fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []const model.HintEntry) EncodeError!ListContent {
     const data_words: u16 = 2;
     const ptr_words: u16 = 2;
@@ -283,7 +286,7 @@ fn encodeError(b: *wire.Builder, allocator: std.mem.Allocator, err: model.BreakR
 fn encodeTagged(b: *wire.Builder, allocator: std.mem.Allocator, tagged: model.Tagged) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 0, 2);
     try setData(b, allocator, loc, 0, tagged.tag);
-    setListPtr(b, ptrIndex(loc, 1), try encodeArgumentList(b, allocator, tagged.value));
+    try setListPtr(b, ptrIndex(loc, 1), try encodeArgumentList(b, allocator, tagged.value));
     return loc;
 }
 
@@ -338,7 +341,7 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
         },
         .list => |list| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.list));
-            setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, list));
+            try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, list));
         },
         .void => b.set(loc.data_idx, @intFromEnum(ArgKind.void)),
         .float64 => |float64| {
@@ -347,7 +350,7 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
         },
         .set => |set| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.set));
-            setListPtr(b, ptrIndex(loc, 0), try encodeArgumentSetList(b, allocator, set));
+            try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentSetList(b, allocator, set));
         },
         .tagged => |tagged| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.tagged));
@@ -359,7 +362,7 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
         },
         .@"struct" => |entries| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.@"struct"));
-            setListPtr(b, ptrIndex(loc, 0), try encodeStructEntries(b, allocator, entries));
+            try setListPtr(b, ptrIndex(loc, 0), try encodeStructEntries(b, allocator, entries));
         },
     }
 }
@@ -559,7 +562,7 @@ fn encodePipelinePath(b: *wire.Builder, allocator: std.mem.Allocator, ops: []con
             },
             .call => |call| {
                 b.set(loc.data_idx, @intFromEnum(PipelineOpKind.call));
-                setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, call));
+                try setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, call));
             },
         }
     }
@@ -581,18 +584,25 @@ fn setStructPtr(b: *wire.Builder, ptr_idx: usize, loc: StructLoc) void {
     b.set(ptr_idx, wire.encodeStructPointer(wire.Builder.offsetTo(ptr_idx, loc.data_idx), loc.data_words, loc.ptr_words));
 }
 
-fn setListPtr(b: *wire.Builder, ptr_idx: usize, content: ListContent) void {
+/// A Cap'n Proto list pointer carries its element count in 29 bits, so a list
+/// longer than that has no wire form here at all. Refusing is the honest
+/// answer: the same message encodes fine on Syrup, whose length prefix is a
+/// decimal integer, so this is a limit of the codec and not of the value.
+/// Casting instead would panic in a safe build and silently truncate the
+/// pointer in ReleaseFast.
+fn setListPtr(b: *wire.Builder, ptr_idx: usize, content: ListContent) EncodeError!void {
+    if (content.count > wire.max_list_elements) return Error.UnsupportedArgument;
     b.set(ptr_idx, wire.encodeListPointer(wire.Builder.offsetTo(ptr_idx, content.data_idx), content.elem, @intCast(content.count)));
 }
 
 fn setU64List(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc, i: u16, values: []const u64) EncodeError!void {
     const start = try b.allocWords(allocator, values.len);
     for (values, 0..) |value, idx| b.set(start + idx, value);
-    setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .eight_bytes, .count = values.len });
+    try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .eight_bytes, .count = values.len });
 }
 
 fn setData(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc, i: u16, bytes: []const u8) EncodeError!void {
     const start = try b.allocWords(allocator, wire.wordsForBytes(bytes.len));
     b.setBytes(start, bytes);
-    setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .byte, .count = bytes.len });
+    try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .byte, .count = bytes.len });
 }

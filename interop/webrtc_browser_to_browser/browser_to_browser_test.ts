@@ -18,7 +18,7 @@
 // Run directly:
 // `deno run --allow-all interop/webrtc_browser_to_browser/browser_to_browser_test.ts`.
 
-import { type Browser, chromium } from "npm:playwright@1.61.1";
+import { type Browser, chromium } from "playwright";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const WASM = new URL("../../zig-out/wasm/pancake_driver.wasm", import.meta.url);

@@ -13,14 +13,13 @@
 // the iroh sidecar (`cargo`), and a Playwright Chromium. Run:
 //   deno run --allow-all apps/rooms/deno/web_dm_test.ts
 
-import { chromium } from "npm:playwright@1.61.1";
+import { chromium } from "playwright";
 import { Host } from "@pancake/stack";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { Directory, Room } from "../lib/room_client.ts";
 import { enterOrOpen } from "./lib/enter_room.ts";
 import { dial } from "./lib/locator.ts";
-import { DM } from "../lib/protocol.ts";
 
 const WEB = new URL("./web.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;

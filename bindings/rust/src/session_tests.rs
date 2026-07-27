@@ -307,6 +307,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 					"",
 					stream,
 					&designator,
+					Some(HANDSHAKE_TIMEOUT),
 				)
 				.await
 				.unwrap();
@@ -333,7 +334,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 			let cap = conn.fetch("svc").await.unwrap();
 			let err = conn.send(&cap, "hang", &[]).await.unwrap_err();
 			assert_eq!(err.code(), crate::sys::ERR_CLOSED);
-			assert_eq!(err.message(), Some("session closed"));
+			assert_eq!(err.message(), Some("connection closed"));
 			conn.close();
 			host.await.unwrap();
 		})
@@ -576,9 +577,7 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 			// A second handle over the same session, moved into the
 			// behavior so its `Drop` (which closes the shared transport)
 			// fires inside the behavior's own turn.
-			let captured = Cell::new(Some(Session {
-				shared: Rc::clone(&conn.shared),
-			}));
+			let captured = Cell::new(Some(Session::owning(Rc::clone(&conn.shared))));
 			let me = conn
 				.spawn(move |verb, _args| {
 					if verb == "die" {
@@ -1012,6 +1011,7 @@ async fn dropping_a_fetched_cap_releases_its_import_when_gc_is_on() {
 					"",
 					stream,
 					&designator,
+					Some(HANDSHAKE_TIMEOUT),
 				)
 				.await
 				.unwrap();
@@ -1079,6 +1079,7 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 				crate::abi_constants::TRANSPORT_TCP,
 				&designator,
 				stream,
+				Some(HANDSHAKE_TIMEOUT),
 			)
 			.await
 			.unwrap();
@@ -1203,4 +1204,167 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 	// The context-backed host actually serviced the conversation.
 	assert!(allocs.load(Ordering::Relaxed) > 0);
 	drop(local); // every task (and its node Rc) unwinds before the context
+}
+
+// `send_redeeming` is `send` plus one question about the reply, so on an
+// ordinary conversation it must answer exactly what `send` does and report no
+// exporter. Both reply shapes are covered: a plain value, which names no route
+// at all, and a live far capability, which names a route the host holds but not
+// a *redeemed* one — the partner published it on this very session, so the reply
+// already lives where the caller is standing and there is nothing to hand back.
+// Proving the `Some(via)` arm needs a real three-party handoff (a gifter
+// introducing a third-party exporter, then a redeem dial), which is what the
+// live `rust-goblins-handoff` / `rust-iroh-handoff` steps drive; it cannot be
+// staged on one loopback pair.
+#[tokio::test]
+async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let addr = server.local_addr().unwrap();
+
+			let (ready_tx, ready_rx) = oneshot::channel::<()>();
+			let host = tokio::task::spawn_local(async move {
+				let conn = server.accept().await.unwrap();
+				let target = conn
+					.spawn(|_verb, _args| Ok(Argument::Symbol("reached".into())))
+					.await
+					.unwrap();
+				conn.publish("svc", move |verb, _args| match verb {
+					"grab" => Ok((&target).into()),
+					_ => Ok(Argument::String("plain".into())),
+				})
+				.await
+				.unwrap();
+				ready_tx.send(()).unwrap();
+				conn.serve().await;
+			});
+
+			let conn = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			ready_rx.await.unwrap();
+			let svc = conn.fetch("svc").await.unwrap();
+
+			// A plain value: the reply is the send's own, and no route.
+			let flat = conn.send_redeeming(&svc, "say", &[]).await.unwrap();
+			assert_eq!(flat.reply, Argument::String("plain".into()));
+			assert!(flat.via.is_none());
+
+			// A far capability the partner published on this session: a live
+			// route the host knows, but not one a redeem dialed.
+			let handed = conn.send_redeeming(&svc, "grab", &[]).await.unwrap();
+			let member = Ref::try_from(&handed.reply).expect("grab answers with a capability");
+			assert!(matches!(member.reference(), Reference::Far { .. }));
+			assert!(handed.via.is_none());
+
+			// The lifted capability is live, so the reply survived the extra
+			// question intact.
+			let reached = conn.send(&member, "poke", &[]).await.unwrap();
+			assert_eq!(reached, Argument::Symbol("reached".into()));
+
+			conn.close();
+			host.await.unwrap();
+		})
+		.await;
+}
+
+// A `Redeemed::via` handle is a view onto a session the host owns, so dropping
+// it must leave the connection running — the redeemed capability handed back
+// beside it lives on that connection, and closing it would sever exactly what
+// the caller asked for. Only the owning handle tears the transport down.
+#[tokio::test]
+async fn a_session_view_does_not_close_the_connection_when_dropped() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let addr = server.local_addr().unwrap();
+
+			let (ready_tx, ready_rx) = oneshot::channel::<()>();
+			let host = tokio::task::spawn_local(async move {
+				let conn = server.accept().await.unwrap();
+				conn.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
+					.await
+					.unwrap();
+				ready_tx.send(()).unwrap();
+				conn.serve().await;
+			});
+
+			let conn = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			ready_rx.await.unwrap();
+			let cap = conn.fetch("svc").await.unwrap();
+
+			// The shape `send_redeeming` hands out for `via`, dropped.
+			let view = Session::view(Rc::clone(&conn.shared));
+			// It is a working handle while it lives: spawn and send both run on
+			// the session it views, which is the whole point of surfacing it.
+			let inbox = view
+				.spawn(|_verb, _args| Ok(Argument::Symbol("inbox".into())))
+				.await
+				.unwrap();
+			assert!(matches!(inbox.reference(), Reference::Near { .. }));
+			assert_eq!(
+				view.send(&cap, "ping", &[]).await.unwrap(),
+				Argument::Symbol("alive".into())
+			);
+			drop(view);
+
+			assert!(!conn.shared.released.get());
+			assert_eq!(
+				conn.send(&cap, "ping", &[]).await.unwrap(),
+				Argument::Symbol("alive".into())
+			);
+
+			// The owning handle still closes it.
+			conn.close();
+			assert!(conn.shared.released.get());
+			host.await.unwrap();
+		})
+		.await;
+}
+
+// The dial-side twin of the rude probe: a partner that accepts the connection
+// and then says nothing is the case no failure check catches, because nothing
+// fails. Unbounded, the dialer parks forever; the bound makes it a typed
+// timeout, and the abandoned handshake closes the transport on the way out.
+#[tokio::test]
+async fn a_silent_partner_times_the_dial_out_rather_than_parking_it() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			// Accepts TCP, then holds the socket open past the dial's budget
+			// without ever sending an `op:start-session`.
+			let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let addr = listener.local_addr().unwrap();
+			let silent = tokio::task::spawn_local(async move {
+				let stream = listener.accept().await.unwrap();
+				tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+				drop(stream);
+			});
+
+			let error = crate::connect_with_timeout(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+				Some(std::time::Duration::from_millis(100)),
+			)
+			.await
+			.err()
+			.expect("a partner that never handshakes must not open a session");
+			assert_eq!(error.kind(), crate::ErrorKind::TimedOut);
+			silent.await.unwrap();
+		})
+		.await;
 }

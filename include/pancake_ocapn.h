@@ -39,6 +39,12 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
    from exactly those calls, and docs/consuming-from-c.md is the guided
    route from build to first program.
 
+   A capability is published and fetched behind a swissnum: an unguessable
+   secret byte string that names one exported object. It is not a
+   human-chosen public label; both peers learn it out of band, and knowing
+   it is the authority to reach that object. A sturdyref is a peer locator
+   plus a swissnum, so it names a specific capability on a specific peer.
+
    There are two inbound models; pick one per loop and do not mix them. One
    dispatches synchronously as bytes arrive: pancake_peer_recv_borrowed takes
    one whole borrowed frame, and pancake_peer_recv_stream takes a byte-stream
@@ -101,6 +107,8 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_ERR_NOT_FOUND (-15)
 /* A caller-provided output buffer was too small for the value being written. The call still reports the required length in its out_len parameter, so a caller retries with a large enough buffer. Distinct from _INVALID_ARGUMENT (a malformed request). */
 #define PANCAKE_ERR_BUFFER_TOO_SMALL (-16)
+/* A caller-set deadline elapsed: a handshake budget passed with no hello, or a blocking answer-wait's budget passed with no settle. Distinct from _IO (the socket itself failed) and _SESSION (the partner refused something) — nothing went wrong on the wire, the caller's own budget ended the wait, so retrying with a longer one is reasonable. */
+#define PANCAKE_ERR_TIMEOUT (-17)
 
 /* ── Discriminants ── */
 /* codec for pancake_peer_new_negotiated and the transport endpoints: Syrup. The session's grammar and the endpoint's framing must carry the same value. */
@@ -321,9 +329,11 @@ int32_t pancake_peer_codec(const PancakePeer *peer, uint32_t *out_codec);
    writes the allocated export position. `swissnum` is borrowed. */
 int32_t pancake_peer_register_bootstrap_cap(PancakePeer *peer, const uint8_t *swissnum, size_t swissnum_len, uint64_t *out_export_position);
 /* Ask the partner's bootstrap object for the capability published behind
-   `name`: registers the bootstrap import if needed, allocates the answer from
-   the session's one answer allocator, and queues the canonical fetch deliver.
-   The question id lands in `out_answer`; the partner's resolution arrives as a
+   `name` (the same swissnum the partner registered it under with
+   pancake_peer_register_bootstrap_cap; the two must byte-equal): registers the
+   bootstrap import if needed, allocates the answer from the session's one
+   answer allocator, and queues the canonical fetch deliver. The question id
+   lands in `out_answer`; the partner's resolution arrives as a
    PANCAKE_EVENT_RESOLVE keyed on it. `name` is borrowed for the call. */
 int32_t pancake_peer_send_bootstrap_fetch(PancakePeer *peer, const uint8_t *name, size_t name_len, uint64_t *out_answer);
 

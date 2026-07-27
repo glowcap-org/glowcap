@@ -65,7 +65,7 @@ wait.
 - **This is a testing and mocking transport, not a production one.** Its pipes
   are unbounded (a mock has a cooperative partner), and it blocks a thread per
   parked read, so it does not carry high-fan-out production load. The production
-  second resident (a secure QUIC/iroh transport) is still open (ladder rung
+  second resident (a secure QUIC/iroh transport) is still open (ladder step
   5). This ADR validates the contract; it does not fill the production slot.
 - **No new contract surface.** The contract (ADR-0043) is unchanged. This
   resident is added by registering it, which is the property under test.
@@ -89,7 +89,7 @@ wait.
 
 `src/net/transport/inproc.zig` is new and `net` re-exports it as `inproc`.
 `test/driver/inproc_netlayer_test.zig` drives a full round-trip and a
-fail-closed dial through the contract. The ladder's rung 5 and the README record
+fail-closed dial through the contract. The ladder's step 5 and the README record
 that the contract now has two real residents, with the production secure
 resident still open. No driver, core, or contract file changed to add the
 resident: the proof the ADR exists to give.

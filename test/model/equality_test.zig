@@ -5,45 +5,45 @@ const model = pancake.ocapn.model;
 
 test "far references are equal on import id and wire kind" {
     const a: model.Reference = .{ .far = .{ .import_position = .from(7), .kind = .object } };
-    try std.testing.expect(model.referencesEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .object } }));
-    // Distributed-equality evidence: same (import_position, kind) ⇒ equal target.
-    try std.testing.expect(!model.referencesEqual(a, .{ .far = .{ .import_position = .from(8), .kind = .object } }));
+    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .object } }));
+    // Positions are session-local representation, not global target identity.
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .far = .{ .import_position = .from(8), .kind = .object } }));
     // The wire-kind discriminator participates (ADR-0010 § Decision 5).
-    try std.testing.expect(!model.referencesEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .promise } }));
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .promise } }));
 }
 
 test "references of differing variants are never equal" {
     const far: model.Reference = .{ .far = .{ .import_position = .from(1) } };
     const near: model.Reference = .{ .near = .{ .export_position = .from(1) } };
-    try std.testing.expect(!model.referencesEqual(far, near));
+    try std.testing.expect(!model.referencesStructurallyEqual(far, near));
 }
 
 test "near references compare on export id and kind" {
     const a: model.Reference = .{ .near = .{ .export_position = .from(3), .kind = .promise } };
-    try std.testing.expect(model.referencesEqual(a, .{ .near = .{ .export_position = .from(3), .kind = .promise } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .near = .{ .export_position = .from(3), .kind = .object } }));
+    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .near = .{ .export_position = .from(3), .kind = .promise } }));
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .near = .{ .export_position = .from(3), .kind = .object } }));
 }
 
 test "broken references compare on message" {
     const a: model.Reference = .{ .broken = .{ .message = "gone" } };
-    try std.testing.expect(model.referencesEqual(a, .{ .broken = .{ .message = "gone" } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .broken = .{ .message = "other" } }));
+    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .broken = .{ .message = "gone" } }));
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .broken = .{ .message = "other" } }));
 }
 
 test "sturdy references compare structurally on (peer, swissnum)" {
-    const a: model.Reference = .{ .sturdy = .{
+    const a: model.Reference = .{ .sturdy = &.{
         .peer = .{ .transport = "memory", .designator = "host" },
         .swissnum = "abc",
     } };
-    try std.testing.expect(model.referencesEqual(a, .{ .sturdy = .{
+    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .sturdy = &.{
         .peer = .{ .transport = "memory", .designator = "host" },
         .swissnum = "abc",
     } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .sturdy = .{
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .sturdy = &.{
         .peer = .{ .transport = "memory", .designator = "host" },
         .swissnum = "xyz",
     } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .sturdy = .{
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .sturdy = &.{
         .peer = .{ .transport = "memory", .designator = "other" },
         .swissnum = "abc",
     } }));
@@ -80,15 +80,15 @@ test "sturdy references differing only in peer hints are equal" {
     const entries = [_]model.HintEntry{
         .{ .name = "port", .value = .{ .integer = 22055 } },
     };
-    const hinted: model.Reference = .{ .sturdy = .{
+    const hinted: model.Reference = .{ .sturdy = &.{
         .peer = .{ .transport = "tcp", .designator = "host", .hints = .{ .entries = &entries } },
         .swissnum = "abc",
     } };
-    const bare: model.Reference = .{ .sturdy = .{
+    const bare: model.Reference = .{ .sturdy = &.{
         .peer = .{ .transport = "tcp", .designator = "host" },
         .swissnum = "abc",
     } };
-    try std.testing.expect(model.referencesEqual(hinted, bare));
+    try std.testing.expect(model.referencesStructurallyEqual(hinted, bare));
 }
 
 test "handoff gives differing only in a hint entry value are unequal" {
@@ -130,10 +130,10 @@ test "handoff gives differing only in a hint entry value are unequal" {
 test "promise references compare on answer id and pipeline path" {
     const ops = [_]model.PipelineOp{.{ .field = "method" }};
     const a: model.Reference = .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } };
-    try std.testing.expect(model.referencesEqual(a, .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } }));
+    try std.testing.expect(model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } }));
     // Same answer, empty path ≠ non-empty path.
-    try std.testing.expect(!model.referencesEqual(a, .{ .promise = .{ .answer_position = .from(5) } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .promise = .{ .answer_position = .from(6), .path = .{ .ops = &ops } } }));
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(5) } }));
+    try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .promise = .{ .answer_position = .from(6), .path = .{ .ops = &ops } } }));
 }
 
 test "argument equality recurses through lists and nested references" {
@@ -295,12 +295,12 @@ test "equality bails at the depth cap on a promise/call tower instead of overflo
 
     // A shallow tower is well inside the cap and compares equal to itself.
     const shallow = try buildTower(allocator, 8);
-    try std.testing.expect(model.referencesEqual(shallow, shallow));
+    try std.testing.expect(model.referencesStructurallyEqual(shallow, shallow));
 
     // A tower past `max_equality_depth` (256) bails out as unequal — even
     // against itself — rather than recursing one native frame per level.
     const deep = try buildTower(allocator, 100_000);
-    try std.testing.expect(!model.referencesEqual(deep, deep));
+    try std.testing.expect(!model.referencesStructurallyEqual(deep, deep));
     try std.testing.expect(!model.argumentsEqual(.{ .reference = deep }, .{ .reference = deep }));
 }
 
@@ -362,6 +362,10 @@ test "view equality and hash agree with the owned spine across every argument ar
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const scratch = arena_state.allocator();
+    // Generous: this cross-spine agreement check compares every pair in the
+    // fixture, and the bound under test is the wire path's, not this walk's.
+    var budget = model.equality.CompareBudget.init(1 << 20);
+    const ctx = model.equality.CompareCtx{ .scratch = scratch, .budget = &budget };
 
     // Per element: every arm is reflexively equal on both spines, which also
     // runs both hashers on every arm. The two hashers seed on their own union's
@@ -370,7 +374,7 @@ test "view equality and hash agree with the owned spine across every argument ar
     for (args, 0..) |owned_arg, i| {
         const view_arg = try view_args.at(i);
         try std.testing.expect(model.equality.argumentsEqual(owned_arg, owned_arg));
-        try std.testing.expect(try model.equality.viewArgumentsEqualWithScratch(view_arg, view_arg, scratch));
+        try std.testing.expect(try model.equality.viewArgumentsEqualBounded(view_arg, view_arg, ctx));
     }
 
     // Per pair: the two equality predicates agree, and an equal pair hashes
@@ -378,10 +382,10 @@ test "view equality and hash agree with the owned spine across every argument ar
     for (args, 0..) |owned_a, i| {
         for (args, 0..) |owned_b, j| {
             const owned_eq = model.equality.argumentsEqual(owned_a, owned_b);
-            const view_eq = try model.equality.viewArgumentsEqualWithScratch(
+            const view_eq = try model.equality.viewArgumentsEqualBounded(
                 try view_args.at(i),
                 try view_args.at(j),
-                scratch,
+                ctx,
             );
             try std.testing.expectEqual(owned_eq, view_eq);
             if (owned_eq) {
@@ -396,4 +400,49 @@ test "view equality and hash agree with the owned spine across every argument ar
             }
         }
     }
+}
+
+test "distinct values in a hashed arm do not collapse onto one hash" {
+    // Callers group by hash and only then confirm with the equality predicate,
+    // so an arm that hashed to its tag alone would put every value of that arm
+    // in a single group and turn the confirmation into a quadratic scan. An
+    // inbound frame can ask for exactly that: a set of distinct floats, or of
+    // distinct broken references, costs the sender nothing to build.
+    const floats = [_]f64{ 0.0, 1.0, 2.5, -3.75, 1e300, -1e-300 };
+    var seen: [floats.len]u64 = undefined;
+    for (floats, 0..) |f, i| {
+        seen[i] = model.equality.argumentHash(.{ .float64 = f });
+        for (seen[0..i]) |earlier| try std.testing.expect(earlier != seen[i]);
+    }
+
+    // Signed zeros are Equal under IEEE but not under this model's equality
+    // (it keeps the sign for round-trip stability), so they must not share a
+    // hash either.
+    try std.testing.expect(
+        model.equality.argumentHash(.{ .float64 = 0.0 }) !=
+            model.equality.argumentHash(.{ .float64 = -0.0 }),
+    );
+
+    // Every NaN is one Equal class, so every NaN has to hash alike.
+    const nan_a = std.math.nan(f64);
+    const nan_b: f64 = @bitCast(@as(u64, 0x7ff8_0000_dead_beef));
+    try std.testing.expect(std.math.isNan(nan_b));
+    try std.testing.expectEqual(
+        model.equality.argumentHash(.{ .float64 = nan_a }),
+        model.equality.argumentHash(.{ .float64 = nan_b }),
+    );
+
+    // The same property for the other arms that used to hash to their tag.
+    try std.testing.expect(
+        model.equality.argumentHash(.{ .@"error" = .{ .message = "one" } }) !=
+            model.equality.argumentHash(.{ .@"error" = .{ .message = "two" } }),
+    );
+    try std.testing.expect(
+        model.equality.argumentHash(.{ .reference = .{ .broken = .{ .message = "one" } } }) !=
+            model.equality.argumentHash(.{ .reference = .{ .broken = .{ .message = "two" } } }),
+    );
+    try std.testing.expect(
+        model.equality.argumentHash(.{ .reference = .{ .far = .{ .import_position = .from(1) } } }) !=
+            model.equality.argumentHash(.{ .reference = .{ .far = .{ .import_position = .from(2) } } }),
+    );
 }

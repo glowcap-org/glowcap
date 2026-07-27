@@ -40,31 +40,6 @@ pub fn World(comptime max_entities: u16) type {
             return @enumFromInt((@as(u32, g) << 16) | slot);
         }
 
-        pub fn despawn(self: *Self, e: Entity) void {
-            const slot = e.index();
-            if (slot >= max_entities or !self.alive[slot]) return;
-            if (e.generation() != self.gen[slot]) return;
-            self.alive[slot] = false;
-            self.gen[slot] +%= 1;
-            self.free.append(self.gpa, @intCast(slot)) catch {};
-        }
-
-        pub fn isAlive(self: *const Self, e: Entity) bool {
-            const slot = e.index();
-            return slot < max_entities and self.alive[slot] and e.generation() == self.gen[slot];
-        }
     };
 }
 
-test "spawn despawn recycle" {
-    var w = World(8).init(std.testing.allocator);
-    defer w.deinit();
-    const a = try w.spawn();
-    const b = try w.spawn();
-    try std.testing.expect(w.isAlive(a));
-    w.despawn(a);
-    try std.testing.expect(!w.isAlive(a));
-    const c = try w.spawn();
-    try std.testing.expect(w.isAlive(c));
-    try std.testing.expect(w.isAlive(b));
-}

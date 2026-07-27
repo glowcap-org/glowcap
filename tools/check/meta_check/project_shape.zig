@@ -35,7 +35,7 @@ const fixed_command_docs = [_][]const u8{
 /// only: a `zig build <step>` here must name a real step and a `bash <script>`
 /// must resolve, but a CI invocation is not discoverability documentation, so
 /// it never satisfies the reverse every-step-is-documented direction.
-const ci_command_dirs = [_][]const u8{ ".forgejo/workflows", ".github/workflows" };
+const ci_command_dirs = [_][]const u8{".github/workflows"};
 const ci_command_files = [_][]const u8{"ci/gates.sh"};
 
 /// A map removal that discards its presence bool — `_ = map.remove(k)` and the
@@ -530,6 +530,12 @@ fn isWireTokenChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or c == '-';
 }
 
+/// Hold the gate sequence to the exit codes it must recognize.
+///
+/// `tools/run-with-timeout.py` bounds every gate, and `ci/gates.sh` branches on
+/// what it returns to tell a wedged socket from an ordinary failure. The two
+/// files never import each other, so nothing but this connects them.
+///
 /// The cli rule's Generated State list registers paths that must never be
 /// committed. Each registered path must be matched by a committed ignore rule —
 /// `.serena/...` entries by `.serena/.gitignore`, everything else by the root
@@ -1137,4 +1143,120 @@ test "collectCommandRegions yields only fenced and inline-code text" {
     // Prose is not, so its trailing tokens can never be read as a step.
     try std.testing.expect(std.mem.indexOf(u8, seen, "system") == null);
     try std.testing.expect(std.mem.indexOf(u8, seen, "nonsense") == null);
+}
+
+/// The two copies of the product I/O directory helper are one text.
+///
+/// `cli/operability/path_io.zig` and
+/// `apps/accountability-on-pancake/zig/path_io.zig` work around the same Zig
+/// standard-library wart, and the application copies it rather than importing
+/// it because its whole claim is that it reaches for nothing in this repository
+/// but pancake's own public surface. The copy earns its place on that argument
+/// and on no other, so it has to stay a copy — and an identical one. A
+/// near-version drifts: the difference that matters here is swallowing every
+/// `openDir` error rather than only absence, which turns a permission failure
+/// into a misleading one.
+///
+/// Only the bodies are compared. Each file's `//!` header explains its own
+/// position, which is the one thing they should not share.
+pub fn checkPathIoCopies(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const canonical_path = "cli/operability/path_io.zig";
+    const copy_path = "apps/accountability-on-pancake/zig/path_io.zig";
+    const marker = "const std = @import(\"std\");";
+
+    const canonical = root.readFileAlloc(io, canonical_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read it to compare against its application copy ({s})", .{ canonical_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(canonical);
+    const copy = root.readFileAlloc(io, copy_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read the application copy of {s} ({s})", .{ copy_path, canonical_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(copy);
+
+    const canonical_body = std.mem.indexOf(u8, canonical, marker) orelse {
+        try appendViolation(gpa, violations, "{s}: has no `{s}` line, so its body cannot be told from its header", .{ canonical_path, marker });
+        return;
+    };
+    const copy_body = std.mem.indexOf(u8, copy, marker) orelse {
+        try appendViolation(gpa, violations, "{s}: has no `{s}` line, so its body cannot be told from its header", .{ copy_path, marker });
+        return;
+    };
+    if (!std.mem.eql(u8, canonical[canonical_body..], copy[copy_body..])) {
+        try appendViolation(gpa, violations, "{s}: below `{s}`, differs from {s}. The two are one text; edit the canonical copy and mirror it, or delete the copy and say why it is no longer needed.", .{ copy_path, marker, canonical_path });
+    }
+}
+
+/// The per-connection slot overhead is one number, stated in three places.
+///
+/// `conn_slot_overhead_bytes` is the constant a `comptime` equality holds the
+/// real `Conn` to. `docs/ladder.md` step 2 and `bench/peer_scaling_bench.zig`
+/// both quote it, because both are where someone goes to find out what a
+/// connection costs. The constant moved once and the two quotes did not, so for
+/// a while all three disagreed and nothing noticed — the prose said 112 while
+/// the build asserted 128. The number is derived from the source of truth here
+/// rather than written down a fourth time.
+pub fn checkConnOverheadQuotes(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const loop_path = "src/net/completion/loop.zig";
+    const decl = "const conn_slot_overhead_bytes: usize = ";
+
+    const loop_src = root.readFileAlloc(io, loop_path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read it to derive the slot-overhead number ({s})", .{ loop_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(loop_src);
+
+    const at = std.mem.indexOf(u8, loop_src, decl) orelse {
+        try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing derives the slot-overhead number the docs quote", .{ loop_path, decl });
+        return;
+    };
+    const rest = loop_src[at + decl.len ..];
+    var digits: usize = 0;
+    while (digits < rest.len and std.ascii.isDigit(rest[digits])) digits += 1;
+    if (digits == 0) {
+        try appendViolation(gpa, violations, "{s}: `{s}` is not followed by a decimal literal", .{ loop_path, decl });
+        return;
+    }
+    const number = rest[0..digits];
+
+    // Every surface that states the number, with the phrase that makes the
+    // claim. Anchoring matters: a bare search for "<n> bytes" anywhere in the
+    // file is satisfied by any incidental mention of the same number, so the
+    // quote could read 112 while an unrelated line said 128 and this would
+    // pass — which is precisely the drift it exists to catch.
+    const Quote = struct { path: []const u8, anchor: []const u8 };
+    const quoting = [_]Quote{
+        .{ .path = "docs/ladder.md", .anchor = "comes to **" },
+        .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
+    };
+    for (quoting) |quote| {
+        const path = quote.path;
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot read it to check the slot-overhead number ({s})", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        const claim = std.mem.indexOf(u8, contents, quote.anchor) orelse {
+            try appendViolation(gpa, violations, "{s}: has no `{s}…` phrase stating the per-connection slot overhead, so nothing here is anchored to {s}", .{ path, quote.anchor, loop_path });
+            continue;
+        };
+        const stated = contents[claim + quote.anchor.len ..];
+        const needle = try std.fmt.allocPrint(gpa, "{s} bytes", .{number});
+        defer gpa.free(needle);
+        if (!std.mem.startsWith(u8, stated, needle)) {
+            const shown = stated[0..@min(stated.len, 20)];
+            try appendViolation(gpa, violations, "{s}: states the per-connection slot overhead as `{s}…`, but {s} asserts `{s} bytes`", .{ path, shown, loop_path, number });
+        }
+    }
 }

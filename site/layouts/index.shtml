@@ -5,44 +5,51 @@
 	<header class="hero">
 		<img class="hero-mark" src="$site.asset('pancake-icon-256.png').link()" alt="A smiling stack of pancakes" width="160" height="160">
 		<div class="hero-copy">
-			<p class="hero-eyebrow">A codec-neutral CapTP core for OCapN</p>
-			<h1 :text="$page.title"></h1>
-			<p class="hero-tagline">Syrup where OCapN requires it. Owned frames or borrowed views wherever frames cross a boundary.</p>
+			<p class="hero-eyebrow">Object-capability RPC for OCapN, in Zig</p>
+			<h1>pancake</h1>
+			<p class="hero-tagline">Two programs hand each other references to live objects and call them across the network. The reference is the permission.</p>
 			<p class="hero-kicker">Because you can't have pancakes without syrup.</p>
+			<div class="hero-actions">
+				<a class="btn btn-primary" href="$site.page('start').link()">Start building <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
+				<a class="btn btn-secondary" href="$site.page('why').link()">Why OCapN</a>
+			</div>
 		</div>
 	</header>
 	<div class="prose" :html="$page.content()"></div>
 	<nav class="cards" aria-label="Where to go next">
+		<a class="card card-lead" href="$site.page('cli').link()">
+			<span class="card-lead-mark" aria-hidden="true"></span>
+			<span>
+				<h2>Talk to a live peer from your shell</h2>
+				<p>The CapTP CLI listens, dials, and calls without a line of code, and it runs the same library everything else on this site is built from. It is the shortest path from reading about capabilities to holding one.</p>
+			</span>
+		</a>
 		<a class="card" href="$site.page('start').link()">
-			<h3>Start building</h3>
+			<h2>Start building</h2>
 			<p>Get to a working program in Zig, C, or your binding of choice.</p>
 		</a>
-		<a class="card" href="$site.page('cli').link()">
-			<h3>CapTP CLI</h3>
-			<p>Listen, dial, and call from a shell. Same library, not a second stack.</p>
-		</a>
 		<a class="card" href="$site.page('modules').link()">
-			<h3>The modules</h3>
-			<p>Walk the layers, from the sans-io protocol core up to the netlayers.</p>
+			<h2>The modules</h2>
+			<p>Walk the layers, from the socket-free protocol core up to the netlayers.</p>
 		</a>
 		<a class="card" href="$site.page('bindings').link()">
-			<h3>Bindings</h3>
+			<h2>Bindings</h2>
 			<p>The same library in Rust, TypeScript, Python, and Racket.</p>
 		</a>
-		<a class="card" href="$site.page('concepts').link()">
-			<h3>Concepts</h3>
-			<p>Capabilities, CapTP, and OCapN — what they are and why they hold.</p>
+		<a class="card" href="$site.page('why').link()">
+			<h2>Why OCapN</h2>
+			<p>Capabilities from zero, against the protocols you already run: why holding a reference is the whole permission.</p>
 		</a>
 		<a class="card" href="$site.page('transports/iroh').link()">
-			<h3>iroh: encrypted P2P</h3>
+			<h2>iroh: encrypted P2P</h2>
 			<p>Reach a peer by a self-authenticating key over encrypted QUIC — no server in the middle.</p>
 		</a>
 		<a class="card" href="$site.page('examples').link()">
-			<h3>Examples &amp; demo apps</h3>
+			<h2>Examples &amp; demo apps</h2>
 			<p>Watch a five-language chat, a task board, and a capability showcase run over real OCapN.</p>
 		</a>
 		<a class="card" href="$site.page('project').link()">
-			<h3>Project &amp; status</h3>
+			<h2>Project &amp; status</h2>
 			<p>What ships today, where the edges are, and where this is going.</p>
 		</a>
 	</nav>

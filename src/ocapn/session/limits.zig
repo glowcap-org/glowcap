@@ -10,13 +10,9 @@
 /// Default inbound frame cap (1 MiB). SessionLimits uses this for
 /// `max_frame_bytes`; the driver C ABI publishes the same value as
 /// `PANCAKE_DEFAULT_FRAME_CAP` so bindings stop hardcoding the shift.
-pub const default_max_frame_bytes: usize = 1 << 20;
+const default_max_frame_bytes: usize = 1 << 20;
 
-/// Bounds on pipelining state (ADR-0007), keeping a peer from being driven into
-/// unbounded memory by a partner that pipelines or listens without ever
-/// resolving. Each overflow is a loud session error, never a silent drop. The
-/// `max_local_deliveries` bound is enforced by the engine's resolution drain;
-/// the rest are enforced here in the session. Defaults mirror the canonical
+/// Bounds on pipelining state (ADR-0007). Defaults mirror the canonical
 /// engine's `SessionLimits`.
 pub const SessionLimits = struct {
     /// Max pipelined calls queued against a single pending answer.
@@ -64,6 +60,16 @@ pub const SessionLimits = struct {
     /// native-stack overflow (a few KB of nested `[` markers). A loud bound,
     /// projecting to `resource_exhausted`, sibling to the ADR-0025 table caps.
     max_nesting_depth: usize = 64,
+    /// Max element visits one inbound message may spend confirming set and
+    /// struct equality. The set-uniqueness fold compares only elements a hash
+    /// grouping already found equal-hashed, but a set comparison is a multiset
+    /// comparison, so one such pair of width-N sets costs on the order of N²
+    /// visits. The set hash combines its children commutatively, so a partner
+    /// can search offline for two distinct wide sets that hash alike and buy
+    /// that quadratic with a single frame. Honest traffic spends almost none
+    /// of this budget: distinct elements hash apart, so they are never
+    /// compared at all. A loud bound, projecting to `resource_exhausted`.
+    max_compare_visits: usize = 1 << 16,
     /// Max bytes in a single inbound frame admitted off a byte stream. The
     /// stream framer caps a frame at this size *during* decode (cap-on-parse),
     /// so a hostile length claim or never-completing frame fails loud as

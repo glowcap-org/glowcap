@@ -47,7 +47,7 @@ Checksums for downloaded tarballs: [`checksums.sh`](checksums.sh).
 | `PLTUSERHOME`          | `/opt/pancake-racket-userhome` | same (image dir, not a volume)       |
 | `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/zig`      | same (volume)                        |
 
-`CARGO_HOME` differs on purpose: rustup seeds the image at build time; the open
+`CARGO_HOME` differs: rustup seeds the image at build time; the open
 container persists crates in a volume.
 
 `post-create.sh` also ensures `${CACHE_ROOT}/zls` is writable (ZLS).
@@ -76,8 +76,8 @@ docker network create llm-backend-net   # once, if it does not exist
 
 Then **Rebuild and Reopen** the container. Compose reads `.devcontainer/.env`
 when creating the service (`docker-compose.yml` under `networks.egress-net`). `.env`
-is gitignored; `.env.example` has an empty value on purpose so no network name
-is committed. The rooms app sets its *own* `EGRESS_NET` (`cloudflare-tunnel-net`)
+is gitignored; `.env.example` has an empty value so no network name is
+committed. The rooms app sets its *own* `EGRESS_NET` (`cloudflare-tunnel-net`)
 in its own `.env` — the two stacks share only `rooms-net`, not the side network.
 
 CapTP for rooms-peer bootstraps from `http://pancake-rooms:8000/locator` over

@@ -22,7 +22,7 @@ package.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import ctypes
 
@@ -51,9 +51,26 @@ from ._trampoline import (
     _publish_hosted,
     _unregister_behavior,
 )
-from ._value import Behavior, Ref
+from ._value import Behavior, Ref, Value
 
 _ERR_CLOSED = _abi.ERR_CLOSED
+_ERR_TIMEOUT = _abi.ERR_TIMEOUT
+_HANDSHAKE_TIMEOUT_MS = _abi.HANDSHAKE_TIMEOUT_MS
+
+
+class RedeemedReply(NamedTuple):
+    """What :meth:`Session.send_redeeming` hands back: the ``reply`` the send
+    settled to, and ``via``, the direct exporter :class:`Session` that reply
+    routes to (``None`` when it routes to no live redeemed exporter).
+
+    A :class:`~typing.NamedTuple`, so it unpacks like the pair it is and still
+    names its halves at a call site that only wants one of them::
+
+        reply, via = await session.send_redeeming(directory, "introduce", [nick])
+    """
+
+    reply: Value
+    via: Optional["Session"]
 
 
 class Session:
@@ -68,7 +85,7 @@ class Session:
     """
 
     def __init__(self, ptr: ctypes.c_void_p, host: Host, transport):
-        self._ptr = ptr
+        self._ptr: ctypes.c_void_p | None = ptr
         self._key = ptr.value or 0
         self._host = host
         self._transport = transport
@@ -123,12 +140,17 @@ class Session:
     @classmethod
     async def establish_dialed_locator(
         cls, host: Host, transport_name: str, designator: str, transport,
+        handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
     ) -> "Session":
         """Mint the dialing half from already-parsed locator pieces. A DIAL
-        action's binding half borrows the pending URI first. Binding-internal."""
+        action's binding half borrows the pending URI first. The handshake is
+        bounded by ``handshake_timeout_ms`` (``HANDSHAKE_TIMEOUT_MS`` by
+        default; ``None`` or ``0`` waits unbounded); overrunning it raises
+        ``PancakeError`` with ``ERR_TIMEOUT`` and abandons the half-built
+        connection, exactly as a failed handshake does. Binding-internal."""
         return await cls._open_dialed_locator(
             host, transport_name, designator, transport,
-        )._establish()
+        )._establish(handshake_timeout_ms)
 
     @classmethod
     async def establish_accepted(
@@ -138,12 +160,17 @@ class Session:
         server_designator: str,
         transport,
         accepted_local_addr: str = "",
+        handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
     ) -> "Session":
         """Mint the accepting half over a connection the caller's own listener
         produced. ``server_designator`` is the listener's signing designator
         (key for keyed-tcp/iroh; unused for tcp); ``accepted_local_addr`` is
         what accept reported. Signing designator/hint come from
-        ``pancake_host_plan_accept`` (ADR-0078). Binding-internal."""
+        ``pancake_host_plan_accept`` (ADR-0078). The handshake is bounded by
+        ``handshake_timeout_ms`` (``HANDSHAKE_TIMEOUT_MS`` by default; ``None``
+        or ``0`` waits unbounded); overrunning it raises ``PancakeError`` with
+        ``ERR_TIMEOUT``, which every accept loop skips like any other bad
+        partner. Binding-internal."""
         t = transport_name.encode()
         server = server_designator.encode()
         local = accepted_local_addr.encode()
@@ -164,16 +191,40 @@ class Session:
             plan.direct_addresses_hint, plan.direct_addresses_hint_len,
             ctypes.byref(out),
         ))
-        return await cls(out, host, transport)._establish()
+        # Every accept path lands here, and each runs the handshake inline in
+        # its accept loop, so a silent partner must not park the loop; the
+        # bound lives in `_establish`, which both halves reach.
+        return await cls(out, host, transport)._establish(handshake_timeout_ms)
 
-    async def _establish(self) -> "Session":
+    async def _establish(
+        self, handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
+    ) -> "Session":
         # Drive the freshly opened connection's keyed handshake to an open
         # session, abandoning the connection on any failure (release +
         # transport close) so a rude partner costs one accept, never the
         # listener. The read/feed loop lives in ``_pump._run_handshake``.
+        #
+        # The one place both halves bound that handshake: a peer that opens the
+        # byte channel and then says nothing is the case no failure check can
+        # catch — nothing fails, the handshake simply waits — so unbounded it
+        # parks the dialer forever, and on the accepting side every later
+        # connection behind that one client. A falsy budget is the caller's
+        # explicit opt-in to waiting without one. The timeout takes the same
+        # abandon path a failed handshake does.
         try:
-            await _pump._run_handshake(self)
+            if handshake_timeout_ms:
+                await asyncio.wait_for(
+                    _pump._run_handshake(self), handshake_timeout_ms / 1000,
+                )
+            else:
+                await _pump._run_handshake(self)
             return self
+        except asyncio.TimeoutError:
+            self.close_transport()
+            raise PancakeError(
+                _ERR_TIMEOUT,
+                f"the partner did not finish the OCapN handshake within {handshake_timeout_ms}ms",
+            ) from None
         except BaseException:
             self.close_transport()
             raise
@@ -191,7 +242,11 @@ class Session:
     @property
     def raw(self) -> ctypes.c_void_p:
         """The raw PancakeHostSession handle. Binding-internal seam: the Host's
-        DIAL arm reports it through ``pancake_host_dialed``."""
+        DIAL arm reports it through ``pancake_host_dialed``. Raises once the
+        session is released, rather than handing out the null the field
+        then holds."""
+        if self._ptr is None:
+            raise PancakeError(_ERR_CLOSED, "the session has been released")
         return self._ptr
 
     @property
@@ -229,7 +284,7 @@ class Session:
     def session_open(self) -> bool:
         """Whether the keyed handshake has completed and the session is open.
         Binding-internal seam for the pump."""
-        return not self._released and _host.pancake_host_session_session_open(self._ptr) == 1
+        return not self._released and _host.pancake_host_session_is_open(self._ptr) == 1
 
     @property
     def write_lock(self) -> asyncio.Lock:
@@ -434,10 +489,57 @@ class Session:
         The deliver is queued now; its bytes leave the wire when the returned
         handle -- or any send pipelined behind it -- is first observed (awaited
         or gathered), so a pipelined batch travels together."""
+        # A send that cannot be issued comes back as a failed handle, not a
+        # raise. `send` must return synchronously so a caller can pipeline at
+        # the answer before it settles (ADR-0050), so it cannot be `async` —
+        # but an awaitable whose failure arrives synchronously is a trap:
+        # `gather(*[s.send(...) for s in sessions], return_exceptions=True)`
+        # raises inside the comprehension, before `gather` is ever entered.
+        try:
+            self.guard_open()
+            self._gc.drain_gc()
+            args = list(args or [])
+            return _dispatch_send(self, target, verb, args)
+        except Exception as err:  # noqa: BLE001 - reported through the handle
+            return RemotePromise.failed(err)
+
+    async def send_redeeming(
+        self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None,
+    ) -> RedeemedReply:
+        """Eventual-send ``verb(args)`` to ``target``, await the reply, and also
+        surface the direct :class:`Session` a three-party-handoff redeem opened
+        to answer it.
+
+        When ``target`` answers with a handoff give (a room's ``introduce``,
+        say), the binding redeems it by dialing the exporter, and the reply
+        settles to a capability that routes over that fresh direct connection.
+        That connection is otherwise internal. This returns it as ``via``, so
+        you can host your own objects on the very connection the redeemed
+        capability lives on. That is the one place a reply capability handed
+        back to the exporter is valid: an OCapN near reference names an export
+        position on one specific connection's peer, so a :meth:`spawn` on *this*
+        session is not a live export on the exporter's, and the host refuses
+        that send rather than mis-encode it.
+
+        ``via`` is resolved from the reply's own token, which carries the
+        connection it lives on, not from watching which dial ran during the
+        send. So it is right with several redeems in flight at once, and it
+        still finds the exporter when the reply reused a connection an earlier
+        redeem already dialed -- a cache hit that opens no new connection and
+        that a which-dial-ran guess could never see. ``via`` is ``None`` when
+        the reply is not a redeemed-handoff capability (an ordinary far reply,
+        or a value that is no capability at all) or its exporter connection is
+        already gone; fall back to this session there::
+
+            reply, via = await session.send_redeeming(directory, "introduce", [nick])
+            where = via or session
+            inbox = where.spawn(on_reply)          # hosted where the reply lives
+            await where.send(reply, "dm", [text, inbox])
+        """
         self.guard_open()
-        self._gc.drain_gc()
-        args = list(args or [])
-        return _dispatch_send(self, target, verb, args)
+        reply = await self.send(target, verb, args)
+        via = self._host.exporter_for(reply) if isinstance(reply, Ref) else None
+        return RedeemedReply(reply, via)
 
     async def tell(self, target: Ref, verb: str, args: "Optional[list]" = None) -> None:
         """Fire-and-forget eventual-send (Goblins ``<-np``): no answer is

@@ -43,19 +43,25 @@ from typing import Optional, Union
 # ``_iroh()`` lives in the internal :mod:`pancake._ffi_iroh`.
 from ._session import Session
 from . import _constants as _c
-from ._constants import ERR_CLOSED as _ERR_CLOSED, ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT, OK as _OK, TRANSPORT_IROH, WOULD_BLOCK as _WOULD_BLOCK
+from ._constants import ERR_CLOSED as _ERR_CLOSED, ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT, HINT_DIRECT_ADDRESSES, OK as _OK, TRANSPORT_IROH, WOULD_BLOCK as _WOULD_BLOCK
 from ._errors import PancakeError
 from ._host import Host
 from ._locator import format_peer_uri
 from ._ffi_ocapn import _byte_buf, _read_last_error
-from ._ffi_iroh import (
-    _iroh,
-    _IrohConfig,
-    _IrohReadyEvent,
-    _IROH_EV_ACCEPT,
-    _IROH_EV_CLOSED,
-    _IROH_EV_READABLE,
-    _IROH_EV_WRITABLE,
+from ._ffi_iroh import _iroh, _IrohConfig, _IrohReadyEvent
+
+# Readiness event bits (the header's PANCAKE_IROH_EV_*), carried by a
+# `_IrohReadyEvent`; a record may carry several at once. Read from the generated
+# constants directly rather than through the FFI loader, which only forwarded
+# them.
+# The discovery-posture dial retry budget (ADR-0082) is lockstep with
+# ``PANCAKE_DISCOVERY_DIAL_*`` / ``driver.ResilientClient``.
+from ._constants_gen import DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS
+from ._constants_gen import (
+    IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
+    IROH_EV_CLOSED as _IROH_EV_CLOSED,
+    IROH_EV_READABLE as _IROH_EV_READABLE,
+    IROH_EV_WRITABLE as _IROH_EV_WRITABLE,
 )
 
 __all__ = [
@@ -115,14 +121,14 @@ class IrohConn:
     frames its socket bytes. No call here ever parks on the connection, so a
     release never races a read."""
 
-    def __init__(self, raw):
-        self._raw = raw
+    def __init__(self, raw: ctypes.c_void_p) -> None:
+        self._raw: ctypes.c_void_p | None = raw
 
     def key(self) -> int:
         """This connection's routing key — its raw handle as an int, the value a
         ``drain_ready`` record carries — so an :class:`_IrohLoop` can map a
         readiness record back to this connection."""
-        return self._raw.value if self._raw else 0
+        return (self._raw.value or 0) if self._raw else 0
 
     def try_read_into(self, buf) -> int:
         """Non-blocking read of raw inbound bytes into the ctypes ``buf``: the
@@ -184,7 +190,7 @@ class IrohNetlayer:
         _check_iroh(_iroh().pancake_iroh_netlayer_new(
             ptr, len(seed), ctypes.byref(cfg), ctypes.byref(out),
         ))
-        self._raw = out
+        self._raw: ctypes.c_void_p | None = out
 
     def node_id(self) -> str:
         """This endpoint's id, its Ed25519 public key as lowercase hex, the
@@ -550,10 +556,6 @@ class _IrohTransport:
                 self._owned_netlayer.release()
 
 
-# The discovery-posture dial retry budget (ADR-0082): lockstep with
-# ``PANCAKE_DISCOVERY_DIAL_*`` / ``driver.ResilientClient``.
-from ._constants_gen import DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS
-
 _DISCOVERY_DIAL_RETRY_S = DISCOVERY_DIAL_RETRY_MS / 1000.0
 
 
@@ -590,6 +592,7 @@ async def _connect_iroh_with_host(
     direct_addresses: str,
     reachability: "Union[int, Reachability]",
     host: Host,
+    handshake_timeout_ms: "Optional[int]" = _c.HANDSHAKE_TIMEOUT_MS,
 ) -> Session:
     """Binding-internal Host-keyed iroh dial behind a handoff redeem.
     Application code uses ``connect(locator, reachability, host=…)``."""
@@ -614,8 +617,14 @@ async def _connect_iroh_with_host(
     # identity (a give's recipient key) and the Host's gift registry agree —
     # what a three-party handoff requires.
     transport = _IrohTransport(conn, loop, netlayer, owns_loop=True)
+    # `handshake_timeout_ms` bounds only the keyed exchange over the live QUIC
+    # connection, which is one round trip: resolving a node id over discovery
+    # and hole-punching a path is `_dial_resolving`'s own retry budget above,
+    # already finished by the time the handshake starts.
     try:
-        return await Session.establish_dialed_locator(host, TRANSPORT_IROH, node_id, transport)
+        return await Session.establish_dialed_locator(
+            host, TRANSPORT_IROH, node_id, transport, handshake_timeout_ms,
+        )
     except BaseException:
         # establish can fail after register; close the transport so the conn,
         # loop, and netlayer never leak without an owner.
@@ -636,7 +645,6 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
     ``async write(bytes)``, ``close()``). ``close`` unregisters the connection,
     stops the readiness loop, and releases the ephemeral netlayer it minted."""
     from ._locator import parse_locator
-    from ._constants import HINT_DIRECT_ADDRESSES
 
     parsed = parse_locator(locator)
     if parsed.transport != TRANSPORT_IROH:
@@ -768,7 +776,11 @@ class IrohServer:
                 continue
             self._loop.register(conn)
             # A handshake failure belongs to that one connection (a partner that
-            # dialed and died), never the server, release it and keep accepting.
+            # dialed and died, or one that opened its stream and then said
+            # nothing, which `Session.establish_accepted` bounds), never the
+            # server, release it and keep accepting. The sidecar's own
+            # `connect_timeout` bounds only the QUIC `accept_bi` below it, not
+            # the OCapN handshake over the accepted stream.
             try:
                 session = await _accept_iroh(conn, self._node_id, self._loop, self._host)
             except Exception:

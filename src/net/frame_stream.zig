@@ -93,7 +93,7 @@ pub const FrameError = error{
 /// The stream-edge conditions a single blocking read can hit, independent of the
 /// codec's verdict over the bytes it produces. Shared by `readFrameFrom` and
 /// the `Connection` pump.
-pub const FillError = error{ TruncatedFrame, FrameTooLarge, ConnectionLost };
+const FillError = error{ TruncatedFrame, FrameTooLarge, ConnectionLost };
 
 pub const Fill = enum { filled, closed };
 
@@ -281,7 +281,7 @@ pub fn readFrameFrom(
 }
 
 /// The verdict of draining whole frames from one received chunk.
-pub const DrainVerdict = enum {
+const DrainVerdict = enum {
     /// Every whole frame applied; any partial tail is now in the spill.
     ok,
     /// The stream is unrecoverable. When the codec refused the frame, the

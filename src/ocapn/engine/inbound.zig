@@ -200,7 +200,7 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     // scratch record resets before that call even returns, too short-lived
     // to reach the event. Every other surfaced kind still runs through
     // `recordRecvView`'s throwaway record, unchanged.
-    var introduced: session.validate.IntroducedImports = .init(self.allocator);
+    var introduced: session.validate.IntroducedImports = .init(self.allocator, self.session_state.limits);
     defer introduced.deinit();
 
     if (v1_0_resolve) |resolve| {

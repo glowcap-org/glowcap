@@ -9,10 +9,13 @@ const bans = @import("meta_check/bans.zig");
 const binding_spine = @import("meta_check/binding_spine.zig");
 const docs = @import("meta_check/docs.zig");
 const project_shape = @import("meta_check/project_shape.zig");
+const ui = @import("meta_check/ui.zig");
 const scaffolding = @import("meta_check/scaffolding.zig");
 const c_abi = @import("meta_check/c_abi.zig");
 const captp_io_spine = @import("meta_check/captp_io_spine.zig");
 const captp_product = @import("meta_check/captp_product.zig");
+const zig_docs = @import("meta_check/zig_docs.zig");
+const fuzz = @import("meta_check/fuzz.zig");
 const util = @import("meta_check/util.zig");
 
 /// Create the `meta-check` build step.
@@ -45,6 +48,11 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".claude/rules", "../.agents/rules");
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".claude/skills", "../.agents/skills");
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".cursor/skills", "../.agents/skills");
+    // The shared UI core. A tool that writes through one of these turns it
+    // into a regular file and the brand forks silently; see checkUiCore for
+    // the rest of that contract.
+    try scaffolding.expectSymlink(io, gpa, root, &violations, "site/assets/tokens.css", "../../ui/tokens.css");
+    try scaffolding.expectSymlink(io, gpa, root, &violations, "apps/rooms/deno/ui/tokens.css", "../../../../ui/tokens.css");
 
     try scaffolding.checkCursorRuleOverlay(io, gpa, root, &violations);
     try scaffolding.checkRequiredSubstrings(io, gpa, root, &violations);
@@ -55,12 +63,19 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try docs.checkMarkdownLinks(io, gpa, root, &violations);
     try docs.checkSiteContentLinks(io, gpa, root, &violations);
     try docs.checkSiteNavParity(io, gpa, root, &violations);
+    try docs.checkSitePageMetadata(io, gpa, root, &violations);
+    try docs.checkResidentRoster(io, gpa, root, &violations);
     try docs.checkQuickStartSnippet(io, gpa, root, &violations);
+    try docs.checkStabilityTierParity(io, gpa, root, &violations);
     try docs.checkDanglingReferenceLinks(io, gpa, root, &violations);
     try docs.checkMermaidBlocks(io, gpa, root, &violations);
+    try ui.checkUiCore(io, gpa, root, &violations);
+    try ui.checkUiPaletteLiterals(io, gpa, root, &violations);
+    try ui.checkUiThemeParity(io, gpa, root, &violations);
     try project_shape.checkDocumentedBuildSteps(io, gpa, root, &violations);
     try c_abi.checkAbiVersionLockstep(io, gpa, root, &violations);
     try c_abi.checkAbiFreeingVerb(io, gpa, root, &violations);
+    try c_abi.checkAbiReturnShape(io, gpa, root, &violations);
     try c_abi.checkCAbiSurfaceShape(io, gpa, root, &violations);
     try c_abi.checkAbiExportsConsumed(io, gpa, root, &violations);
     try c_abi.checkPeerEventSendParity(io, gpa, root, &violations);
@@ -76,9 +91,11 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try binding_spine.checkBindingListenSpine(io, gpa, root, &violations);
     try binding_spine.checkBindingEmbedderSpineDocs(io, gpa, root, &violations);
     try binding_spine.checkBindingMagicErrorCodes(io, gpa, root, &violations);
+    try binding_spine.checkBindingReflectedFfiWired(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarAbi(io, gpa, root, &violations);
     try binding_spine.checkWebrtcSidecarAbi(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarPins(io, gpa, root, &violations);
+    try binding_spine.checkSidecarSteadyBytes(io, gpa, root, &violations);
     try captp_product.checkApplicationSurfaceVerbs(io, gpa, root, &violations);
     try captp_product.checkPancakeCliSkillAuthority(io, gpa, root, &violations);
     try captp_product.checkPancakeMcpSkillAuthority(io, gpa, root, &violations);
@@ -104,8 +121,21 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try project_shape.checkOracleCorpusRegistry(io, gpa, root, &violations);
     try project_shape.checkProtocolCheatsheet(io, gpa, root, &violations);
     try project_shape.checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
+    try project_shape.checkPathIoCopies(io, gpa, root, &violations);
+    try project_shape.checkConnOverheadQuotes(io, gpa, root, &violations);
+    try fuzz.checkVendoredRunnerLicense(io, gpa, root, &violations);
+    try fuzz.checkVendoredTestRunner(io, gpa, root, &violations, b.graph.zig_lib_directory.path orelse ".");
+    try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
+    try fuzz.checkFuzzTargetsAreReachable(io, gpa, root, &violations);
+    try captp_product.checkSingleJsonEscaper(io, gpa, root, &violations);
     try docs.checkHumanDocVoice(io, gpa, root, &violations);
+    try docs.checkStabilityGateList(io, gpa, root, &violations);
+    try docs.checkCommunityReviewCiMatrix(io, gpa, root, &violations);
+    try docs.checkProseSentenceLength(io, gpa, root, &violations);
+    try docs.checkFuzzCorpusSeeds(io, gpa, root, &violations);
     try docs.checkSiteSvgAscii(io, gpa, root, &violations);
+    try docs.checkSiteMotionReducedGuard(io, gpa, root, &violations);
+    try docs.checkExampleFenceIndent(io, gpa, root, &violations);
     try project_shape.checkRemoveDiscards(io, gpa, root, &violations);
     try project_shape.checkArchiveTables(io, gpa, root, &violations);
     try c_abi.checkDocCAbiCites(io, gpa, root, &violations);
@@ -115,10 +145,12 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try c_abi.checkCAbiServedSurface(io, gpa, root, &violations);
     try c_abi.checkNoAdrInRuntimeStrings(io, gpa, root, &violations);
     try captp_product.checkCliCaptpDeadlines(io, gpa, root, &violations);
+    try captp_product.checkExampleCaptpDeadlines(io, gpa, root, &violations);
     try captp_product.checkCliListenStopWake(io, gpa, root, &violations);
     try captp_product.checkCaptpLabUxHonesty(io, gpa, root, &violations);
     try c_abi.checkUnwiredHostPluginApis(io, gpa, root, &violations);
     try c_abi.checkHostActionArmLockstep(io, gpa, root, &violations);
+    try zig_docs.checkZigDocSymbolClaims(io, gpa, root, &violations);
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("meta-check: {s}\n", .{msg});
@@ -136,5 +168,6 @@ test {
     _ = scaffolding;
     _ = captp_io_spine;
     _ = captp_product;
+    _ = zig_docs;
     _ = util;
 }

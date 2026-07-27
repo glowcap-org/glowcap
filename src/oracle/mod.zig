@@ -4,10 +4,10 @@
 //! scenario (a Stage-0 abort, a driven deliver/resolve, a handshake-then-
 //! bootstrap-fetch, an inbound dispatch mode) and returns the resulting wire
 //! bytes. Those byte traces are the conformance evidence: the Zig oracle tests
-//! (`test/oracle`) compare them for identical observable behavior. This is a
-//! public surface on purpose — it is how a C consumer can prove it produces the
-//! canonical trace — so it ships in the `pancake` module, not under `test/`. The
-//! bindings prove the C ABI by dogfood today; none consume these drivers yet.
+//! (`test/oracle`) compare them for identical observable behavior. The drivers
+//! live in their own `oracle` module, off the public `pancake` namespace: the
+//! tests import it directly, and no binding consumes it — the bindings prove
+//! the C ABI by dogfood, not by oracle traces.
 //!
 //! The drivers are sync and codec-parameterized; they own no I/O and add no
 //! protocol semantics the engine lacks.
@@ -587,7 +587,6 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
         });
         var projected = try engine.handoff_recipient.projectGiveForRedeem(
             allocator,
-            event.bytes(),
             view.resolve.resolution.fulfill.handoff.give,
         );
         defer projected.deinit(allocator);
@@ -654,7 +653,7 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
     return out.toOwnedSlice(allocator);
 }
 
-/// A negotiating peer fixed to Goblins-shape `v1_0` on `codec_id` with the
+/// A negotiating peer fixed to interop-floor `v1_0` on `codec_id` with the
 /// full feature set, partner-handshake verification on — the keyed-session
 /// profile `runDrivenHandoff`'s hellos must verify against.
 fn keyedNegotiatingPeer(allocator: std.mem.Allocator, codec_id: model.CodecId) engine.Peer {

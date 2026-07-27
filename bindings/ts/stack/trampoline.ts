@@ -160,8 +160,9 @@ export function sendLocal(
 	const begin = async (): Promise<AppValue> => {
 		try {
 			const hosted = runHosted(ctx, verb, args);
-			// The registry never removes entries, so this arm is dead today;
-			// it agrees with the wire semantics (a trampoline breaks) so the
+			// Reached when the entry's connection tore down: `closeTransport`
+			// unregisters every hosted actor and `Host.release` every giftable.
+			// It agrees with the wire semantics (a trampoline breaks), so the
 			// two dispatch paths cannot drift apart.
 			if (hosted === undefined) throw new VowBroken("no such hosted object");
 			const result = hosted.result;
@@ -481,20 +482,27 @@ function registerActor(h: HostingHandle, behavior: Behavior): bigint {
 export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
 	h.guardOpen();
 	const ctx = registerActor(h, behavior);
-	const turn = currentTurnFor(h.turnOwner);
+	// free = NULL: the host never owns the row, so a refused mint must
+	// unregister it here or it pins the behavior for the process's life.
 	let position: bigint;
-	if (turn !== null) {
-		position = turnSpawn(turn, ctx);
-	} else {
-		const out = new Uint8Array(8);
-		checkHost(driverS.pancake_host_session_spawn(
-			h.ptr,
-			trampolinePointer(),
-			ctx,
-			NULL,
-			ab(out),
-		));
-		position = outU64(out);
+	try {
+		const turn = currentTurnFor(h.turnOwner);
+		if (turn !== null) {
+			position = turnSpawn(turn, ctx);
+		} else {
+			const out = new Uint8Array(8);
+			checkHost(driverS.pancake_host_session_spawn(
+				h.ptr,
+				trampolinePointer(),
+				ctx,
+				NULL,
+				ab(out),
+			));
+			position = outU64(out);
+		}
+	} catch (err) {
+		unregisterBehavior(ctx);
+		throw err;
 	}
 	h.hosted.set(position, ctx);
 	return new Ref(near(position));
@@ -510,15 +518,22 @@ export function publishHosted(
 	const ctx = registerActor(h, behavior);
 	const swiss = utf8Encoder.encode(name);
 	const out = new Uint8Array(8);
-	checkHost(driverS.pancake_host_session_publish(
-		h.ptr,
-		ab(swiss),
-		BigInt(swiss.length),
-		trampolinePointer(),
-		ctx,
-		NULL,
-		ab(out),
-	));
+	// free = NULL: the host never owns the row, so a refused publish must
+	// unregister it here or it pins the behavior for the process's life.
+	try {
+		checkHost(driverS.pancake_host_session_publish(
+			h.ptr,
+			ab(swiss),
+			BigInt(swiss.length),
+			trampolinePointer(),
+			ctx,
+			NULL,
+			ab(out),
+		));
+	} catch (err) {
+		unregisterBehavior(ctx);
+		throw err;
+	}
 	const position = outU64(out);
 	h.hosted.set(position, ctx);
 	return new Ref(near(position));

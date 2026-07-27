@@ -34,16 +34,6 @@ from ._sigs_gen import iroh_sigs
 _IROH_LIB_PATH = _lib_path("pancake_net_transport_iroh")
 _IROH_LIB_FILE = _lib_file("pancake_net_transport_iroh")
 
-# Readiness event bits (the header's PANCAKE_IROH_EV_*), carried by a
-# `drain_ready` record. A record may carry several at once.
-from ._constants_gen import (
-    IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
-    IROH_EV_CLOSED as _IROH_EV_CLOSED,
-    IROH_EV_READABLE as _IROH_EV_READABLE,
-    IROH_EV_WRITABLE as _IROH_EV_WRITABLE,
-)
-
-
 class _IrohReadyEvent(ctypes.Structure):
     """One readiness record drained by ``pancake_iroh_netlayer_drain_ready``, the
     ``extern struct`` counterpart of the header's ``PancakeIrohReadyEvent``.

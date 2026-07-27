@@ -31,14 +31,7 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-redeem-posture`.
 
-import {
-	connect,
-	encodePeerLocator,
-	formatPeerUri,
-	Ref,
-	type Session,
-	TRANSPORT_IROH,
-} from "@pancake/stack";
+import { connect, encodePeerLocator, formatPeerUri, Ref, TRANSPORT_IROH } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { acceptLoop, fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 

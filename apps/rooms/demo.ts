@@ -5,9 +5,9 @@
 // runtimes are on PATH — into one capability-secure chat room over TCP. Each
 // client subscribes, waits for every roster member to be present, posts one
 // line, and must receive every roster member's line back through the capability
-// callback. The orchestrator
-// asserts every participating client exits 0, so `zig build demo-rooms` is an honest
-// proof that one OCapN room holds members written in several languages at once.
+// callback. The orchestrator asserts every participating client exits 0, so
+// `zig build demo-rooms` proves that one OCapN room holds members written in
+// several languages at once.
 //
 // It does not require every runtime: a language whose runtime is missing is
 // skipped with a note, not treated as a failure, so the demo runs on whatever
@@ -75,9 +75,9 @@ interface Member {
 	argv: (locator: string, roster: string) => string[];
 }
 
-/** True if `cmd` can be spawned at all, the cross-platform way to ask "is this
- * runtime on PATH?" without a shell. */
-async function buildRustClient(): Promise<boolean> {
+/** Build the Rust rooms client, with the iroh feature when the demo runs over
+ * iroh. */
+function buildRustClient(): Promise<boolean> {
 	const features = transport === "iroh" ? ["iroh"] : undefined;
 	return buildRust(ROOT, "apps/rooms/rust/Cargo.toml", features);
 }

@@ -268,6 +268,27 @@ const captp_io_spine_table: []const Ban = &.{
         .why = "use `net.TcpLoop` or `completion.Loop(Backend)`, not a second concept named `Loop`",
     },
     .{
+        .where = .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{ "pairedGoblins", "Offer.goblins(" },
+        .check = "profile-names",
+        .why = "protocol profiles do not wear an implementation's name; use `pairedV1_0Syrup` / `Offer.v1_0Syrup`",
+    },
+    .{
+        .where = .{ .tree = .{ .dir = "test", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{ "pairedGoblins", "Offer.goblins(" },
+        .check = "profile-names",
+        .why = "protocol profiles do not wear an implementation's name; use `pairedV1_0Syrup` / `Offer.v1_0Syrup`",
+    },
+    .{
+        .where = .{ .tree = .{ .dir = "examples", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{ "pairedGoblins", "Offer.goblins(" },
+        .check = "profile-names",
+        .why = "protocol profiles do not wear an implementation's name; use `pairedV1_0Syrup` / `Offer.v1_0Syrup`",
+    },
+    .{
         .where = .{ .file = "src/net/completion/loop.zig" },
         .kind = .forbid,
         .needles = &.{"pub fn dialTcp"},
@@ -500,42 +521,6 @@ const captp_io_spine_table: []const Ban = &.{
     },
 };
 
-/// Phrases that once described open work in `docs/roadmap.md` and are now
-/// lies against the gated tree. A regression that reintroduces them fails
-/// `meta-check` instead of shipping as a silent living-state drift.
-/// Convention: when the roadmap drops a guarded section, its phrase row here
-/// goes in the same diff.
-const roadmap_honesty: []const Ban = &.{
-    .{
-        .where = .{ .file = "docs/roadmap.md" },
-        .kind = .forbid,
-        .needles = &.{"Wall-clock time is only printed"},
-        .check = "roadmap-honesty",
-        .why = "`zig build perf-check` already gates ReleaseFast wall-clock tripwires (ADR-0073)",
-    },
-    .{
-        .where = .{ .file = "docs/roadmap.md" },
-        .kind = .forbid,
-        .needles = &.{"What remains is the bridge that feeds the byte-fed host"},
-        .check = "roadmap-honesty",
-        .why = "`driver.Bridge` shipped under ADR-0076 (`zig build tcp-loop`, `zig build iroh-loop`)",
-    },
-    .{
-        .where = .{ .file = "docs/roadmap.md" },
-        .kind = .forbid,
-        .needles = &.{"the listener has no durable designator a partner can re-dial"},
-        .check = "roadmap-honesty",
-        .why = "`net.tcp_keyed` / ADR-0075 already ships the keyed designator; open work is binding/C ABI surfaces",
-    },
-    .{
-        .where = .{ .file = "docs/roadmap.md" },
-        .kind = .forbid,
-        .needles = &.{"iroh `LoopHost` → `net.Loop` + `LoopBridge` convergence"},
-        .check = "roadmap-honesty",
-        .why = "`iroh.LoopHost` is deleted; scale is `completion.Loop(iroh.Backend)` + `driver.Bridge` (ADR-0076), gated by `iroh-loop`",
-    },
-};
-
 /// Living-state surfaces the transport-vocabulary rows scan. Shared with the
 /// bespoke keyed-tcp resident-count heuristic in `meta_check.zig`.
 pub const transport_vocabulary_paths: []const []const u8 = &.{
@@ -683,6 +668,18 @@ const human_doc_voice: []const Ban = voice_rows: {
         .{ .needle = "deliberately boring", .why = "self-awarded praise; state the surface plainly (doc-voice)" },
         .{ .needle = "boring on purpose", .why = "self-awarded praise; state the surface plainly (doc-voice)" },
         .{ .needle = "next audit", .why = "executor framing; write for a human re-read (doc-voice)" },
+        .{ .needle = "honest exception", .why = "self-awarded praise on the project's own carve-out; name the exception plainly (doc-voice)" },
+        .{ .needle = "honest scope", .why = "self-awarded praise; state the scope plainly (doc-voice)" },
+        .{ .needle = "worth stating", .why = "throat-clearing; just state it (doc-voice)" },
+        .{ .needle = "deliberately not", .why = "intent-adverb hedge; state the reason or drop the adverb (doc-voice)" },
+        // The doc-voice Insider Words table, for the terms that never have a
+        // legitimate identifier spelling in these files. `gate`, `oracle`, and
+        // `dogfood` are left out on purpose: each names a real build step or
+        // directory that human pages quote verbatim.
+        .{ .needle = "living-state", .why = "insider word; write \"docs kept in step with today's code\" (doc-voice)" },
+        .{ .needle = "hermetic", .why = "insider word; write \"in-tree\" or \"no network or external services\" (doc-voice)" },
+        .{ .needle = "pre-1.0", .why = "prerelease-language: state the present boundary, not the transition producing it" },
+        .{ .needle = "pre-publication", .why = "prerelease-language: state the present boundary, not the transition producing it" },
     };
     var rows: []const Ban = &.{};
     for (human_doc_voice_scopes) |scope| {
@@ -764,16 +761,101 @@ const clock_seam: []const Ban = &.{
     },
 };
 
+/// The V1.0 resolver descriptor (`resolve_me_desc`) is CapTP wire knowledge:
+/// mapping a resolver-only deliver to the virtual answer the engine installed
+/// is the engine's job, reached through `Peer.answerForDeliver`. The actor
+/// layer must never decode it, because `actors` adds no CapTP semantics the
+/// engine lacks (architecture rule). This holds the boundary the
+/// `answerForDeliver` seam established, so the vat's old inline descriptor
+/// walk cannot creep back.
+const actors_layer_purity: []const Ban = &.{
+    .{
+        .where = .{ .tree = .{ .dir = "src/actors", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{"resolve_me_desc"},
+        .check = "actors-layer-purity",
+        .why = "the V1.0 resolver descriptor is CapTP wire knowledge; route a resolver-only deliver's answer through `Peer.answerForDeliver`, never by decoding resolve_me_desc in the actor layer (architecture: actors adds no CapTP semantics the engine lacks)",
+    },
+};
+
+/// The host-session and host-turn C verbs are `pancake_host_session_*` and
+/// `pancake_host_turn_*`. ADR-0079 retired the binding `Connection` concept, so
+/// no `conn_*` export exists. A backticked `conn_` shorthand in the bindings
+/// README names a symbol a C consumer cannot grep, so the drift fails here.
+const readme_c_verb_names: []const Ban = &.{
+    .{
+        .where = .{ .file = "bindings/README.md" },
+        .kind = .forbid,
+        .needles = &.{"`conn_"},
+        .check = "readme-c-verb-names",
+        .why = "no `conn_*` C export exists (ADR-0079 retired the binding Connection concept); name the real `pancake_host_session_*` or `pancake_iroh_conn_*` verb a consumer can grep",
+    },
+};
+
+/// The unobserved-outcome FIFO cap is one policy number the three async
+/// bindings share, mirrored in the bindings README. It is a hand-repeated
+/// literal with no C ABI constant to reflect, so this holds the four in
+/// lockstep: bumping the cap fails here until every copy and the README move
+/// together.
+const unobserved_outcome_cap_rows: []const Ban = &.{
+    .{
+        .where = .{ .file = "bindings/ts/stack/host.ts" },
+        .kind = .require,
+        .needles = &.{"MAX_UNOBSERVED_OUTCOMES = 1024"},
+        .check = "unobserved-outcome-cap",
+        .why = "the unobserved-outcome FIFO cap is 1024 across TS, Python, and Rust and the bindings README; move all four together",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/host.rs" },
+        .kind = .require,
+        .needles = &.{"MAX_UNOBSERVED_OUTCOMES: usize = 1024"},
+        .check = "unobserved-outcome-cap",
+        .why = "the unobserved-outcome FIFO cap is 1024 across TS, Python, and Rust and the bindings README; move all four together",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_host.py" },
+        .kind = .require,
+        .needles = &.{"_MAX_UNOBSERVED_OUTCOMES = 1024"},
+        .check = "unobserved-outcome-cap",
+        .why = "the unobserved-outcome FIFO cap is 1024 across TS, Python, and Rust and the bindings README; move all four together",
+    },
+    .{
+        .where = .{ .file = "bindings/README.md" },
+        .kind = .require,
+        .needles = &.{"1024 in TypeScript, Python, and Rust"},
+        .check = "unobserved-outcome-cap",
+        .why = "the bindings README states the unobserved-outcome FIFO cap (1024); keep it in step with the three host constants",
+    },
+};
+
+const goblins_runtime_portability: []const Ban = &.{
+    .{
+        .where = .{ .tree = .{
+            .dir = "interop/goblins_interop",
+            .suffixes = &.{ ".zig", ".py", ".rs", ".ts", ".rkt" },
+        } },
+        .kind = .forbid,
+        // The class, not one spelling: /usr/bin, /usr/local/bin, and
+        // /opt/homebrew/bin all end this way.
+        .needles = &.{"/bin/racket"},
+        .check = "Goblins runtime portability",
+        .why = "live interop resolves `racket` through PATH; an absolute path pins one machine's layout",
+    },
+};
+
 /// Every migrated table, run once per gate invocation.
 pub const all: []const Ban =
     captp_io_spine_table ++
-    roadmap_honesty ++
     transport_vocabulary ++
     prerelease_language ++
     human_doc_voice ++
     diagram_wire_vocabulary ++
     session_family_home ++
-    clock_seam;
+    clock_seam ++
+    actors_layer_purity ++
+    readme_c_verb_names ++
+    unobserved_outcome_cap_rows ++
+    goblins_runtime_portability;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 

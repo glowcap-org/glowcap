@@ -186,9 +186,17 @@ pub fn applySend(self: *Session, message: model.Message) !void {
         // our outbound answers and drop any outbound resolver link we
         // committed for it.
         .gc_answer => |gc_answer| try applyGcAnswerDecrementOutbound(self, gc_answer.positions),
-        .start_session => {
-            // Transition first (the only fallible step); set local_sent only
-            // after it succeeds so a failed bootstrap install stays atomic.
+        .start_session => |ss| {
+            // Record our own key before the transition: an exporter derives the
+            // session name a handoff receive must carry from it (ADR-0009), and
+            // both steps here are fallible, so the whole arm stays atomic by
+            // doing the dupe first and flipping state last.
+            const pubkey = sessionPubkeyBytes(ss);
+            if (pubkey.len > 0) {
+                self.local_session_key = try self.key_arena.allocator().dupe(u8, pubkey);
+            }
+            // Transition before setting local_sent so a failed bootstrap
+            // install leaves the handshake unmarked.
             if (self.handshake_remote_received) try self.transitionToOpen();
             self.handshake_local_sent = true;
         },
@@ -379,7 +387,7 @@ pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
             // A re-mention only takes the wire-delta retain; it never rebinds
             // the cell from `near.kind`. The wire descriptor for an app export
             // is carried on the marshaled reference (the C-ABI sub_kind), not
-            // derived from the row here, so the render path — which projects the
+            // derived from the row here, so the render path, which projects the
             // cell only for the session's own resolver exports — cannot read a
             // cell a later mention silently changed (ADR-0080).
             try self.exports.retain(self.allocator, near.export_position);
@@ -433,7 +441,7 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
     for (positions) |position| {
         if (try decrementAnswer(self, &self.outbound_answers, model.AnswerPosition.from(position))) {
             // Drop the whole link by its answer side; `fetchRemoveByValue` hands
-            // back the resolver export so the release step below — which the
+            // back the resolver export so the release step below, which the
             // `BiMap` deliberately does not own — stays explicit here.
             if (self.v1_0_outbound_resolver_link.fetchRemoveByValue(model.AnswerPosition.from(position))) |resolver_export| {
                 // Release the resolver export's own reference (the count-1

@@ -28,7 +28,7 @@ const utf8Decoder = new TextDecoder();
 export interface PumpHandle {
 	readonly ptr: Ptr;
 	readonly released: boolean;
-	/** True once the keyed handshake completed (`pancake_host_session_session_open`). */
+	/** True once the keyed handshake completed (`pancake_host_session_is_open`). */
 	readonly sessionOpen: boolean;
 	/** Identity of the Session this pump drives, exposed to the trampoline as the
 	 * arriving connection for a host-wide giftable's turn (so it can reply to its

@@ -30,7 +30,10 @@
          "locator.rkt"
          "async.rkt"
          "host.rkt"
-         "action.rkt")
+         "action.rkt"
+         ;; The handshake bound lives with the deadline machinery it feeds, so
+         ;; the dial and the accept rule spell their default with one constant.
+         (only-in "pump.rkt" HANDSHAKE-TIMEOUT-MS))
 
 (lazy-require
  ["session.rkt"
@@ -39,8 +42,7 @@
    session-ptr
    with-host-drain)])
 
-(provide iroh-dial-mod
-         (struct-out host-port-dial)
+(provide (struct-out host-port-dial)
          (struct-out peer-id-dial)
          plan-dial
          dial-parsed-locator
@@ -62,22 +64,25 @@
 (define (iroh-dial-mod) `(submod ,iroh-companion-path dial))
 
 ;; A resolved dial from `pancake_host_plan_dial`: language sum over the C
-;; shape flag (mirrors Zig DialPlan). Plan views alias the input UTF-8
+;; shape flag (mirrors Zig DialPlan). Plan views alias the pinned input
 ;; buffers; decode those subslices only — a non-alias is a contract break.
 (struct host-port-dial (host port) #:transparent)
 (struct peer-id-dial (addresses reach-kind reach-value) #:transparent)
 
+;; `sources` pairs each pinned base pointer with the Racket bytes it copied,
+;; so the alias arithmetic runs on addresses the collector cannot move.
 (define (decode-plan-view sources ptr len)
   (cond
     [(or (not ptr) (= len 0)) ""]
     [else
      (define vp (cast ptr _pointer _uintptr))
      (or (for/or ([src (in-list sources)])
-           (define base (cast src _bytes _uintptr))
+           (define base (cast (car src) _pointer _uintptr))
+           (define bs (cdr src))
            (and (<= base vp)
-                (<= (+ vp len) (+ base (bytes-length src)))
+                (<= (+ vp len) (+ base (bytes-length bs)))
                 (bytes->string/utf-8
-                 (subbytes src (- vp base) (+ (- vp base) len))
+                 (subbytes bs (- vp base) (+ (- vp base) len))
                  #\uFFFD)))
          (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
                         "dial plan view does not alias input buffers"))]))
@@ -86,10 +91,16 @@
   (define tb (string->bytes/utf-8 transport))
   (define db (string->bytes/utf-8 designator))
   (define hb (string->bytes/utf-8 addrs))
+  ;; Pin before the call and hold the pins across the view decode: the plan's
+  ;; views alias these buffers, and a collection between call and decode
+  ;; would move an unpinned bytevector out from under the returned addresses.
+  (define dpin (pin-immobile db))
+  (define hpin (pin-immobile hb))
   (define plan (make-PancakeDialPlan 0 #f 0 0 #f 0 0 0))
-  (check/host (pancake_host_plan_dial tb (bytes-length tb) db (bytes-length db)
-                                      hb (bytes-length hb) policy value plan))
-  (define sources (list db hb))
+  (check/host (pancake_host_plan_dial (pin-immobile tb) (bytes-length tb)
+                                      dpin (bytes-length db)
+                                      hpin (bytes-length hb) policy value plan))
+  (define sources (list (cons dpin db) (cons hpin hb)))
   (define shape (PancakeDialPlan-shape plan))
   (cond
     [(= shape DIAL-SHAPE-PEER-ID)
@@ -101,15 +112,22 @@
      (host-port-dial
       (decode-plan-view sources (PancakeDialPlan-host plan) (PancakeDialPlan-host-len plan))
       (PancakeDialPlan-port plan))]
+    [(= shape DIAL-SHAPE-SIGNALING)
+     (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
+                    "webrtc signaling dial cannot be opened from a bare locator; use a handoff give")]
     [else (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
                          "unknown dial shape ~a" shape)]))
 
 ;; The one dial path for `connect` and handoff redeem alike: no dispatch, no
 ;; grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,
-;; and this opens the byte channel it names.
+;; and this opens the byte channel it names. `handshake-timeout-ms` bounds the
+;; keyed handshake that follows the channel open, the same bound the accept rule
+;; carries; #f (or 0) waits forever.
 (define (dial-parsed-locator m transport designator addrs
                              #:reachability [reach #f]
-                             #:redeem? [redeem? #f])
+                             #:redeem? [redeem? #f]
+                             #:handshake-timeout-ms
+                             [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (define-values (policy value)
     (cond [redeem? (values DIAL-POSTURE-REDEEM 0)]
           [reach (values DIAL-POSTURE-EXPLICIT reach)]
@@ -123,20 +141,19 @@
              [(= reach-kind DIAL-REACH-CONFIGURED) (host-redeem-reachability-value m)]
              [else (peer-id-dial-reach-value plan)]))
      ((dynamic-require (iroh-dial-mod) 'connect-iroh/node)
-      designator (peer-id-dial-addresses plan) reach* m)]
+      designator (peer-id-dial-addresses plan) reach* m
+      #:handshake-timeout-ms handshake-timeout-ms)]
     [(host-port-dial? plan)
      (define-values (in out) (tcp-connect (host-port-dial-host plan) (host-port-dial-port plan)))
-     (with-handlers ([(lambda (_) #t)
-                      (lambda (e)
-                        (with-handlers ([(lambda (_) #t) void])
-                          (close-output-port out)
-                          (close-input-port in))
-                        (raise e))])
-       (establish-dialed-locator-session m transport designator (port-transport in out)))]
+     (establish-dialed-locator-session m transport designator (port-transport in out)
+                                          #:handshake-timeout-ms handshake-timeout-ms)]
     [else (raise-pancake 'connect ERR-INVALID-ARGUMENT "unknown dial plan")]))
 
-(define (dial-exporter m transport designator addrs)
-  (dial-parsed-locator m transport designator addrs #:redeem? #t))
+(define (dial-exporter m transport designator addrs
+                       #:handshake-timeout-ms
+                       [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
+  (dial-parsed-locator m transport designator addrs #:redeem? #t
+                       #:handshake-timeout-ms handshake-timeout-ms))
 
 ;; Execute one DIAL action, post-lock — the drain parks it among the fires,
 ;; because the dial is a connect syscall plus a whole keyed handshake and
@@ -181,7 +198,12 @@
 ;; sessions — the gifter side of a three-party handoff, where the same host
 ;; both serves recipients (via `listen`/`accept`) and dials the exporter it
 ;; re-gifts from. Omit it for a standalone session with a fresh identity.
-(define (connect uri [reachability #f] #:host [shared-host #f] #:codec [codec #f])
+;; `#:handshake-timeout-ms` bounds the keyed handshake at `HANDSHAKE-TIMEOUT-MS`
+;; by default, so a partner that accepts the connection and then says nothing
+;; costs this dial an ERR-TIMEOUT rather than the calling thread; pass #f (or 0)
+;; to wait forever.
+(define (connect uri [reachability #f] #:host [shared-host #f] #:codec [codec #f]
+                 #:handshake-timeout-ms [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (define loc (parse-locator uri))
   (define transport (locator-transport loc))
   ;; Fail closed on a conflicting codec: the codec is the host's, so a fresh
@@ -192,4 +214,5 @@
   (define addrs (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
   (define m (or shared-host (make-fresh-host #:codec (or codec 'syrup))))
   (dial-parsed-locator m transport (locator-designator loc) addrs
-                       #:reachability reachability))
+                       #:reachability reachability
+                       #:handshake-timeout-ms handshake-timeout-ms))

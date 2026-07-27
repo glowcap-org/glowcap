@@ -3,10 +3,34 @@
 	<head id="head">
 		<meta charset="utf-8">
 		<meta name="viewport" content="initial-scale=1, width=device-width">
-		<title :text="$site.title"></title>
-		<meta name="description" content="pancake is a codec-neutral CapTP core for OCapN, written in Zig and consumed from Zig, C, and four language bindings.">
+		<title :text="$page.title.suffix(' · pancake')"></title>
+		<meta name="description" content="$page.description">
 		<link rel="icon" type="image/svg+xml" href="$site.asset('favicon.svg').link()">
+		<!-- Every face is named here, and that is load-bearing rather than tidy:
+		     the generator installs an asset only when a template asks for its
+		     link, and it cannot see the `url()` inside tokens.css. A face left
+		     unnamed is simply absent, and `font-display: swap` hides that behind
+		     a synthesised oblique instead of an error. The two the pages always
+		     need are preloaded; the rest are fetched at idle priority. -->
+		<link rel="preload" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-sans-latin-wght-normal.woff2').link()" crossorigin>
+		<link rel="preload" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-mono-latin-400-normal.woff2').link()" crossorigin>
+		<link rel="prefetch" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-sans-latin-wght-italic.woff2').link()" crossorigin>
+		<link rel="prefetch" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-mono-latin-400-italic.woff2').link()" crossorigin>
+		<link rel="prefetch" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-mono-latin-600-normal.woff2').link()" crossorigin>
+		<link type="text/css" rel="stylesheet" href="$site.asset('tokens.css').link()">
 		<link type="text/css" rel="stylesheet" href="$site.asset('style.css').link()">
+		<script>
+			// Stamp a remembered theme choice before the first paint, so a reader
+			// who picked light on a dark desktop never sees a flash of the other
+			// one. Everyone who has not chosen is left alone for the stylesheet's
+			// media query to answer.
+			try {
+				var saved = localStorage.getItem("pancake-theme");
+				if (saved === "light" || saved === "dark") {
+					document.documentElement.dataset.theme = saved;
+				}
+			} catch (_) { /* private mode: fall back to the system preference */ }
+		</script>
 		<super>
 	</head>
 	<body id="body">
@@ -19,11 +43,18 @@
 			<nav class="top-nav" aria-label="Site">
 				<a href="$site.page('reference').link()">API reference</a>
 				<a href="https://codeberg.org/jimisaacs/pancake">Source</a>
+				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
+					<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>
+					<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M4.3 4.3l1.5 1.5M18.2 18.2l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.3 19.7l1.5-1.5M18.2 5.8l1.5-1.5"/></svg>
+				</button>
 			</nav>
 		</header>
 		<div class="shell">
 			<aside class="sidebar">
 				<nav class="nav" aria-label="Documentation">
+					<span class="nav-heading">Understand</span>
+					<a class="$site.page('why').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('why').link()">Why OCapN</a>
+					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Surfaces</a>
@@ -34,40 +65,92 @@
 						<a class="$site.page('bindings/ts').isCurrent().then('is-current', '')" href="$site.page('bindings/ts').link()">TypeScript</a>
 						<a class="$site.page('bindings/python').isCurrent().then('is-current', '')" href="$site.page('bindings/python').link()">Python</a>
 						<a class="$site.page('bindings/racket').isCurrent().then('is-current', '')" href="$site.page('bindings/racket').link()">Racket</a>
+						<a class="$site.page('bindings/browser').isCurrent().then('is-current', '')" href="$site.page('bindings/browser').link()">In the browser</a>
 					</div>
 					<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Examples &amp; demo apps</a>
 					<span class="nav-heading">Explore</span>
-					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
 					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
-					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
 					<div class="nav-sub">
+						<a class="$site.page('transports/choosing').isCurrent().then('is-current', '')" href="$site.page('transports/choosing').link()">Choosing a transport</a>
 						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted P2P)</a>
 						<a class="$site.page('transports/webrtc').isCurrent().then('is-current', '')" href="$site.page('transports/webrtc').link()">WebRTC (browser P2P)</a>
-						<a class="$site.page('transports/choosing').isCurrent().then('is-current', '')" href="$site.page('transports/choosing').link()">Choosing a transport</a>
+						<a class="$site.page('relay').isCurrent().then('is-current', '')" href="$site.page('relay').link()">The relay</a>
 					</div>
-					<a class="$site.page('relay').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('relay').link()">The relay</a>
+					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
 					<span class="nav-heading">Know</span>
+					<a class="$site.page('project').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('project').link()">Project &amp; status</a>
+					<a class="$site.page('stability').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('stability').link()">What you can depend on</a>
+					<a class="$site.page('performance').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('performance').link()">Performance</a>
 					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
 					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference').link()">API reference</a>
 					<div class="nav-sub">
 						<a class="$site.page('reference/api').isCurrent().then('is-current', '')" href="$site.page('reference/api').link()">Zig API (autodoc)</a>
 					</div>
-					<a class="$site.page('performance').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('performance').link()">Performance</a>
-					<a class="$site.page('project').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('project').link()">Project &amp; status</a>
 				</nav>
 			</aside>
 			<main id="content">
 				<super>
 			</main>
+			<aside class="toc" id="toc" hidden>
+				<nav aria-label="On this page">
+					<span class="nav-heading">On this page</span>
+					<div class="toc-links"></div>
+				</nav>
+			</aside>
 		</div>
 		<footer class="site-footer">
 			<hr>
-			<p>
-				pancake is licensed Apache-2.0 ·
-				<a href="https://codeberg.org/jimisaacs/pancake">Codeberg</a>
-			</p>
+			<div class="footer-cols">
+				<div class="footer-brand">
+					<img src="$site.asset('favicon.svg').link()" alt="" width="22" height="22">
+					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is the whole permission to call it.</p>
+				</div>
+				<nav aria-label="Learn">
+					<h2>Learn</h2>
+					<a href="$site.page('why').link()">Why OCapN</a>
+					<a href="$site.page('concepts').link()">Concepts</a>
+					<a href="$site.page('protocol').link()">Protocol cheatsheet</a>
+				</nav>
+				<nav aria-label="Build">
+					<h2>Build</h2>
+					<a href="$site.page('start').link()">Start building</a>
+					<a href="$site.page('bindings').link()">Bindings</a>
+					<a href="$site.page('reference').link()">API reference</a>
+				</nav>
+				<nav aria-label="Project">
+					<h2>Project</h2>
+					<a href="$site.page('project').link()">Project &amp; status</a>
+					<a href="$site.page('stability').link()">What you can depend on</a>
+					<a href="https://codeberg.org/jimisaacs/pancake/src/branch/main/SECURITY.md">Security policy</a>
+					<a href="https://codeberg.org/jimisaacs/pancake">Source</a>
+					<a href="https://github.com/jimisaacs/pancake/actions/workflows/check.yml">Checks</a>
+				</nav>
+			</div>
+			<p class="footer-legal">pancake-authored work is Apache-2.0.</p>
 		</footer>
+		<!-- These enhancements are separate script elements on purpose. In one
+		     block a throw anywhere takes out everything after it, and the theme
+		     switch would stay rendered, styled, and dead. Separate elements are
+		     parsed and run independently, so one failure costs one feature. The
+		     switch goes first because it is the only visible control here. -->
+		<script>
+			// The theme switch. The stylesheet answers for anyone who never
+			// presses it; this records a deliberate choice and applies it now.
+			const themeBtn = document.getElementById("themeToggle");
+			if (themeBtn) {
+				themeBtn.addEventListener("click", () => {
+					const root = document.documentElement;
+					const dark = root.dataset.theme
+						? root.dataset.theme === "dark"
+						: matchMedia("(prefers-color-scheme: dark)").matches;
+					root.dataset.theme = dark ? "light" : "dark";
+					try {
+						localStorage.setItem("pancake-theme", root.dataset.theme);
+					} catch (_) { /* private mode: the choice lasts this page only */ }
+				});
+			}
+		</script>
 		<script>
 			// Progressive enhancement for `code-tabs` blocks: label/fence pairs
 			// become tabs. Without this script they stay labeled, stacked code.
@@ -81,23 +164,202 @@
 				if (pairs.length < 2) continue;
 				const bar = document.createElement("div");
 				bar.className = "tab-bar";
-				bar.setAttribute("role", "tablist");
+				// Plain toggle buttons, not an ARIA tablist. The roles were there
+				// before and the pattern was not: no tabpanel wiring, no arrow-key
+				// navigation, no roving tabindex, and a copy button parked inside
+				// the tablist. A screen reader announced "tab, 1 of 3" and then
+				// arrow keys did nothing, which is worse than the buttons these
+				// plainly are.
+				const tabs = [];
+				let current = 0;
 				const select = (active) => {
+					current = active;
 					pairs.forEach(([, pre], i) => { pre.hidden = i !== active; });
-					Array.from(bar.children).forEach((b, i) => b.setAttribute("aria-selected", String(i === active)));
+					tabs.forEach((b, i) => b.setAttribute("aria-pressed", String(i === active)));
 				};
 				pairs.forEach(([lab, pre], i) => {
 					const btn = document.createElement("button");
 					btn.type = "button";
-					btn.setAttribute("role", "tab");
 					btn.textContent = lab ? lab.textContent.trim() : "tab " + (i + 1);
 					if (lab) lab.remove();
 					btn.addEventListener("click", () => select(i));
+					tabs.push(btn);
 					bar.append(btn);
 				});
 				box.prepend(bar);
 				select(0);
+				// The copy button joins the tab strip and follows the selection,
+				// so it always copies the tab you are looking at.
+				bar.append(copyButton(() => pairs[current][1].innerText));
 			}
+
+			// One copy button, wired to whatever text `read` returns at click time.
+			// It reports success in its own label rather than through an alert, and
+			// returns to "Copy" a moment later.
+			function copyButton(read) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = "copy-btn";
+				btn.textContent = "Copy";
+				let restore;
+				btn.addEventListener("click", async () => {
+					try {
+						await navigator.clipboard.writeText(read());
+						btn.textContent = "Copied";
+						btn.classList.add("is-done");
+					} catch (_) {
+						// Clipboard access can be refused (no permission, or an
+						// insecure origin). Say so instead of claiming success.
+						btn.textContent = "Press Ctrl+C";
+					}
+					clearTimeout(restore);
+					restore = setTimeout(() => {
+						btn.textContent = "Copy";
+						btn.classList.remove("is-done");
+					}, 1600);
+				});
+				return btn;
+			}
+
+			// Every standalone listing gets a copy button. Blocks inside a
+			// `code-tabs` group already got one above, on the tab strip.
+			for (const pre of document.querySelectorAll(".prose pre")) {
+				if (pre.closest(".code-tabs")) continue;
+				const wrap = document.createElement("div");
+				wrap.className = "code-block";
+				pre.parentNode.insertBefore(wrap, pre);
+				wrap.append(pre);
+				wrap.append(copyButton(() => pre.innerText));
+			}
+
+		</script>
+		<script>
+			// A figure's image is described by its caption, and the renderer emits
+			// no `alt` at all. An image with no `alt` attribute is announced by
+			// its file name, so mark those decorative and let the caption speak.
+			for (const img of document.querySelectorAll(".prose figure img:not([alt])")) {
+				if (img.closest("figure").querySelector("figcaption")) img.alt = "";
+			}
+
+		</script>
+		<script>
+			// Bring the hand-drawn diagrams into the page so they can follow the
+			// theme. An `img` renders its SVG in a separate document that cannot
+			// see this page's custom properties, so the artwork would stay in its
+			// light palette on a dark page. Re-hosting each one in a shadow root
+			// fixes that in both directions: custom properties inherit across the
+			// boundary, so the drawing themes with the rest of the page, while
+			// the SVG's own stylesheet stays sealed inside and cannot collide
+			// with the eleven other diagrams that use the same class names.
+			// Hide the images this loop is about to replace, so a dark page does
+			// not flash cream artwork before the swap. The class is set here, in
+			// the same script that does the replacing, so a browser that never
+			// runs this code never hides anything; and the timer below is a
+			// dead-man switch, because a diagram nobody can see is a far worse
+			// outcome than a brief flash.
+			document.documentElement.classList.add("inlining-diagrams");
+			const reveal = () => document.documentElement.classList.remove("inlining-diagrams");
+			setTimeout(reveal, 3000);
+			const swaps = [];
+			for (const img of document.querySelectorAll('.prose figure img[src$=".svg"]')) {
+				swaps.push(fetch(img.src).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then((text) => {
+					const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+					const svg = doc.documentElement;
+					if (!svg || svg.nodeName !== "svg") return;
+					const host = document.createElement("span");
+					host.className = "diagram";
+					// Name the drawing the way the image was named. These figures
+					// carry a `figcaption` that describes them in the page text,
+					// and the renderer emits no `alt`, so the drawing is
+					// decorative: announcing it as an unnamed image would add a
+					// second, empty stop before the caption that already says it.
+					const caption = img.closest("figure")?.querySelector("figcaption");
+					if (img.alt) {
+						host.setAttribute("role", "img");
+						host.setAttribute("aria-label", img.alt);
+					} else if (caption) {
+						host.setAttribute("aria-hidden", "true");
+					} else {
+						host.setAttribute("role", "img");
+					}
+					const root = host.attachShadow({ mode: "open" });
+					// Fill the figure the way the img did, and keep the drawing's
+					// own aspect ratio.
+					const fit = document.createElement("style");
+					fit.textContent = "svg{display:block;width:100%;height:auto}";
+					root.append(fit, svg);
+					img.replaceWith(host);
+				}).catch((why) => {
+					// The img is still in the page, so the diagram is still shown —
+					// in its light palette, since the swap is what lets it follow
+					// the theme. Say so rather than nothing: a 404 here is a build
+					// or deploy fault, and it used to look identical to success.
+					console.warn("pancake: could not inline " + img.src + ":", why);
+					img.style.visibility = "visible";
+				}));
+			}
+			Promise.allSettled(swaps).then(reveal);
+
+		</script>
+		<script>
+			// "On this page". Some of these run to several screens, and a reader
+			// who wants one section should not have to scroll for it. The
+			// headings are the page's own structure, so the list is built from
+			// them rather than maintained by hand, and each one gets the id that
+			// makes it linkable while we are here.
+			(function buildToc() {
+				const toc = document.getElementById("toc");
+				const prose = document.querySelector(".prose");
+				if (!toc || !prose) return;
+				const heads = [...prose.querySelectorAll("h2, h3")];
+				// Two headings is a page you can simply read; the list earns its
+				// column only once there is somewhere to jump.
+				if (heads.length < 3) return;
+				const links = toc.querySelector(".toc-links");
+				const seen = new Set();
+				const byId = new Map();
+				for (const h of heads) {
+					if (!h.id) {
+						let slug = h.textContent.trim().toLowerCase()
+							.replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").slice(0, 60) || "section";
+						let id = slug, n = 2;
+						// Also against ids the document already has: a heading called
+						// "Content" would otherwise mint `content` and steal the skip
+						// link's target.
+						while (seen.has(id) || document.getElementById(id)) id = slug + "-" + n++;
+						h.id = id;
+					}
+					seen.add(h.id);
+					const a = document.createElement("a");
+					a.href = "#" + h.id;
+					a.textContent = h.textContent.trim();
+					if (h.tagName === "H3") a.className = "toc-sub";
+					links.append(a);
+					byId.set(h.id, a);
+				}
+				toc.hidden = false;
+				document.body.classList.add("has-toc");
+				// Mark the section you are actually in. The rootMargin pins the
+				// decision line near the top of the viewport, so the highlight
+				// moves when a heading reaches the top rather than when it
+				// happens to be centred.
+				let active = null;
+				const spy = new IntersectionObserver((entries) => {
+					for (const e of entries) {
+						if (!e.isIntersecting) continue;
+						const a = byId.get(e.target.id);
+						if (!a || a === active) continue;
+						if (active) active.classList.remove("is-current");
+						a.classList.add("is-current");
+						active = a;
+					}
+					// rootMargin takes pixels or percentages only, never rem: the
+					// top inset clears the sticky header, the bottom one keeps
+					// the decision line near the top of the viewport.
+				}, { rootMargin: "-72px 0px -75% 0px" });
+				for (const h of heads) spy.observe(h);
+			})();
+
 		</script>
 	</body>
 </html>

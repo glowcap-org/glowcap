@@ -46,11 +46,7 @@ pub fn section(b: *Buf, gpa: std.mem.Allocator, comptime title: []const u8) !voi
 }
 
 /// `c_abi.PancakeFrame` → `PancakeFrame` (strip the module path).
-fn baseName(comptime T: type) []const u8 {
-    const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
-    return if (dot) |i| name[i + 1 ..] else name;
-}
+const baseName = @import("reflect").baseName;
 
 /// The reflection primitives, bound to one generator's `Spec`. `Spec` supplies
 /// `c` and `emitted_fns` always, and `const_docs` / `special` when it needs

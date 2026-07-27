@@ -20,8 +20,8 @@
 const std = @import("std");
 const model = @import("model");
 
-const goblins_versions = [_]model.CaptpVersion{.v1_0};
-const goblins_codecs = [_]model.CodecId{.syrup};
+const v1_0_syrup_versions = [_]model.CaptpVersion{.v1_0};
+const v1_0_syrup_codecs = [_]model.CodecId{.syrup};
 const native_versions = [_]model.CaptpVersion{ .next, .v1_0 };
 const native_codecs = [_]model.CodecId{ .capnp, .syrup };
 
@@ -32,11 +32,12 @@ pub const Offer = struct {
     codecs: []const model.CodecId,
     features: model.FeatureSet,
 
-    /// Frozen released-interop job: OCapN `"1.0"` over Syrup (Goblins).
-    pub fn goblins(features: model.FeatureSet) Offer {
+    /// Frozen v1.0 interop job: OCapN `"1.0"` over Syrup, the wire the live
+    /// checks prove against a real Goblins peer and the upstream OCapN suite.
+    pub fn v1_0Syrup(features: model.FeatureSet) Offer {
         return .{
-            .captp_versions = goblins_versions[0..],
-            .codecs = goblins_codecs[0..],
+            .captp_versions = v1_0_syrup_versions[0..],
+            .codecs = v1_0_syrup_codecs[0..],
             .features = features,
         };
     }

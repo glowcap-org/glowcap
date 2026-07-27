@@ -26,6 +26,12 @@ pub const Error = error{
     /// A `fetch` fulfilled with something other than a far capability, so there
     /// is no reference to return.
     FetchNotACapability,
+    /// A bound listener could not report a dialable designator: the caller's
+    /// buffer was too small, or the transport faulted. It is an error rather
+    /// than an empty slice because an empty designator that reaches a signed
+    /// locator publishes an address nobody can dial, and the accept path that
+    /// consumes it refuses that condition loudly one layer down.
+    DesignatorUnavailable,
     /// The OS entropy source could not fill the session seed for the handshake.
     HandshakeEntropyFailed,
     /// A keyed handshake made no progress within its caller-set budget: the

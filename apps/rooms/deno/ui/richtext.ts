@@ -1,25 +1,16 @@
 import { state } from "./state.ts";
 
-// A stable per-name avatar tint, drawn from pancake's warm palette so every
-// speaker keeps one colour.
-const AVATAR = [
-	"#c76f18",
-	"#257f88",
-	"#a4560c",
-	"#1b5f66",
-	"#b5862f",
-	"#5e8c61",
-	"#9c4a2f",
-	"#3a7d8c",
-	"#7a5c34",
-	"#2f6f78",
-];
+// A stable per-name avatar tint, so every speaker keeps one colour. The ten values live in page.css as
+// `--avatar-1` … `--avatar-10`, beside the rest of the rooms palette, because a
+// colour written here cannot be themed and cannot be checked against the chip's
+// white initials. This picks the slot; the stylesheet owns the colour.
+const AVATAR_SLOTS = 10;
 export function hueOf(name: string): string {
 	let h = 0;
 	for (let i = 0; i < name.length; i++) {
 		h = (h * 31 + name.charCodeAt(i)) >>> 0;
 	}
-	return AVATAR[h % AVATAR.length];
+	return `var(--avatar-${(h % AVATAR_SLOTS) + 1})`;
 }
 export function initials(name: string): string {
 	const parts = name.replace(/[^\p{L}\p{N} _-]/gu, "").split(/[ _-]+/).filter(

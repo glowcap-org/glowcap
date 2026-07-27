@@ -41,7 +41,7 @@ pub(crate) fn io_err(e: std::io::Error) -> Error {
 /// by hand.
 #[derive(Debug, Clone)]
 pub struct Ref {
-	reference: Reference,
+	wire: crate::LiveRef,
 	// Distributed-GC death rite (ADR-0063), present only on a far capability the
 	// connection lifted from a fetch while GC was opted in. `Rc` so clones of
 	// this `Ref` share the one release unit; the last clone's drop parks the
@@ -59,22 +59,19 @@ pub struct Ref {
 impl Ref {
 	/// The underlying wire reference (for the rare power-user path).
 	pub fn reference(&self) -> Reference {
-		self.reference.clone()
+		self.wire.reference()
 	}
 
-	// A reference with no GC death rite, the default for everything but a
+	// A capability with no GC death rite, the default for everything but a
 	// GC-tracked fetch result.
-	pub(crate) fn bare(reference: Reference) -> Ref {
-		Ref {
-			reference,
-			guard: None,
-		}
+	pub(crate) fn bare(wire: crate::LiveRef) -> Ref {
+		Ref { wire, guard: None }
 	}
 
 	// A far capability carrying its distributed-GC death rite (ADR-0063).
-	pub(crate) fn tracked(reference: Reference, guard: Rc<crate::gc::ImportGuard>) -> Ref {
+	pub(crate) fn tracked(wire: crate::LiveRef, guard: Rc<crate::gc::ImportGuard>) -> Ref {
 		Ref {
-			reference,
+			wire,
 			guard: Some(guard),
 		}
 	}
@@ -82,24 +79,26 @@ impl Ref {
 
 impl From<&Ref> for Argument {
 	fn from(r: &Ref) -> Argument {
-		Argument::Reference(r.reference.clone())
+		Argument::Reference(r.wire.reference())
 	}
 }
 
 impl From<Ref> for Argument {
 	fn from(r: Ref) -> Argument {
-		Argument::Reference(r.reference)
+		Argument::Reference(r.wire.reference())
 	}
 }
 
 impl TryFrom<&Argument> for Ref {
 	type Error = ();
 
-	/// Lift a capability returned by a `send` (an `Argument::Reference`) back into
-	/// a `Ref` you can `send` to, e.g. a capability a coordinator granted you.
+	/// Lift a capability returned by a `send` (an `Argument::Reference` naming a
+	/// `Near` or `Far`) back into a `Ref` you can `send` to, e.g. a capability a
+	/// coordinator granted you. A promise, sturdyref, or broken reference is not
+	/// a capability in hand, so it lifts to `Err`.
 	fn try_from(arg: &Argument) -> std::result::Result<Ref, ()> {
 		match arg {
-			Argument::Reference(reference) => Ok(Ref::bare(reference.clone())),
+			Argument::Reference(reference) => Ok(Ref::bare(crate::LiveRef::try_from(reference)?)),
 			_ => Err(()),
 		}
 	}
@@ -137,8 +136,9 @@ pub(crate) struct SessionShared {
 	key: usize,
 	pub(crate) host: Rc<HostShared>,
 	// The transport halves: the serve task takes the read half for its life;
-	// FLUSH drains serialize on the write half's async lock so frames stay
-	// whole and in submission order.
+	// FLUSH drains serialize on the write half's async lock, which keeps frames
+	// in submission order. Order is all the lock gives: a write dropped
+	// mid-frame still leaves a partial one on the wire, which `torn` records.
 	pub(crate) reader: RefCell<Option<Box<dyn AsyncRead + Unpin>>>,
 	pub(crate) writer: Rc<tokio::sync::Mutex<Option<Box<dyn AsyncWrite + Unpin>>>>,
 	// Set the moment teardown begins (an application close, or the transport
@@ -146,6 +146,14 @@ pub(crate) struct SessionShared {
 	// close from a real fault.
 	pub(crate) closing: Cell<bool>,
 	pub(crate) released: Cell<bool>,
+	// Set when an outbound write was dropped part-way through a frame, which a
+	// caller does by cancelling: `tokio::time::timeout` around a send is
+	// enough. `write_all` is not cancellation-safe, so some prefix of the frame
+	// is already on the wire and the partner's framing is unrecoverable. The
+	// lock serializes writers but cannot make one atomic. Once this is set the
+	// session refuses further writes rather than appending to a stream the
+	// partner can no longer parse.
+	pub(crate) torn: Cell<bool>,
 	// Wakes the serve task off its parked read when the connection closes.
 	pub(crate) closed: Notify,
 	// Wakes the serve task to drain parked GC tokens (a finalizer may fire
@@ -185,6 +193,7 @@ impl SessionShared {
 			writer: Rc::new(tokio::sync::Mutex::new(Some(Box::new(writer)))),
 			closing: Cell::new(false),
 			released: Cell::new(false),
+			torn: Cell::new(false),
 			closed: Notify::new(),
 			gc_wakeup: Notify::new(),
 			hosted: RefCell::new(HashMap::new()),
@@ -229,8 +238,7 @@ impl SessionShared {
 	}
 
 	pub(crate) fn session_open(&self) -> bool {
-		!self.released.get()
-			&& unsafe { ffi::pancake_host_session_session_open(self.ptr.get()) } == 1
+		!self.released.get() && unsafe { ffi::pancake_host_session_is_open(self.ptr.get()) } == 1
 	}
 
 	// ── The pump ────────────────────────────────────────────────────────────────
@@ -327,7 +335,7 @@ impl SessionShared {
 		self.hosted
 			.borrow_mut()
 			.insert(position, cell as *const ActorCell);
-		Ok(Ref::bare(Reference::Near {
+		Ok(Ref::bare(crate::LiveRef::Near {
 			id: position,
 			promise: false,
 		}))
@@ -363,7 +371,7 @@ impl SessionShared {
 		self.hosted
 			.borrow_mut()
 			.insert(position, cell as *const ActorCell);
-		Ok(Ref::bare(Reference::Near {
+		Ok(Ref::bare(crate::LiveRef::Near {
 			id: position,
 			promise: false,
 		}))

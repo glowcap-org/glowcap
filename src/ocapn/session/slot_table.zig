@@ -40,7 +40,7 @@ pub const Entry = struct {
 /// installed live at count 1 with its `Slot` cell; `op:gc-*` decrements by the
 /// wire delta and the row is removed at zero. Underflow or an unknown position
 /// is a loud error, never a silent clamp.
-pub const SlotTable = struct {
+const SlotTable = struct {
     rows: std.AutoHashMapUnmanaged(u64, Entry) = .empty,
 
     pub const Error = error{

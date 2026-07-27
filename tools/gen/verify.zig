@@ -1,8 +1,8 @@
 //! Shared stale-diff harness for every `tools/gen/` generator.
 //!
-//! `build.zig` adds the concrete generator as `@import("generator")`. The
-//! generator exposes either `outputs` (multi-file) or `header_path` +
-//! `generate` (single-file), plus `step_name` for the fix hint.
+//! `build.zig` adds the concrete generator as `@import("generator")`. Every
+//! generator lists its files in one `outputs` slice, single- or multi-file
+//! alike, plus `step_name` for the fix hint.
 
 const std = @import("std");
 const generator = @import("generator");
@@ -16,12 +16,8 @@ pub fn main() !void {
     const step = generator.step_name;
     var stale = false;
 
-    if (@hasDecl(generator, "outputs")) {
-        for (generator.outputs) |out| {
-            if (try verifyOne(a, io, step, out.path, out.generate)) stale = true;
-        }
-    } else {
-        if (try verifyOne(a, io, step, generator.header_path, generator.generate)) stale = true;
+    for (generator.outputs) |out| {
+        if (try verifyOne(a, io, step, out.path, out.generate)) stale = true;
     }
 
     if (stale) return error.GeneratedStale;

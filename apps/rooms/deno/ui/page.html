@@ -5,6 +5,19 @@
 		<meta name="viewport"
 			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 		<title>pancake rooms</title>
+		<link rel="preload" as="font" type="font/woff2"
+			href="fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
+		<link rel="stylesheet" href="tokens.css" />
+		<script>
+		// Stamp a remembered theme before the first paint. Without this the page
+		// paints once with the default palette and repaints when the module runs,
+		// which on a cold load is a visible flash. ES5 only, so a parse error
+		// cannot take it out.
+		try {
+			var t = localStorage.getItem("rooms.theme");
+			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+		} catch (_) { /* private mode: the stylesheet's media query answers */ }
+		</script>
 		<link rel="stylesheet" href="page.css" />
 	</head>
 	<body>
@@ -47,21 +60,21 @@
 				<header class="topbar">
 					<button id="backBtn" class="icon"
 						title="Rooms and direct messages"
-						aria-label="Open the list of rooms and direct messages">☰</button>
+						aria-label="Open the list of rooms and direct messages"></button>
 					<h1
 						id="roomTitle"><span class="hash" id="roomSigil">#</span><span id="roomName">rooms</span></h1>
 					<span class="meta" id="roomMeta"></span>
 					<span class="provenance" id="provenance"
-						role="note"><span class="lock">🔒</span><span id="provenanceText"></span></span>
+						role="note"><span class="lock" id="provenanceLock"></span><span id="provenanceText"></span></span>
 					<span class="spacer"></span>
 					<button id="notifyToggle" class="icon"
 						title="Notify me when I'm mentioned"
 						aria-label="Toggle mention notifications"
 						aria-pressed="false"
-						hidden>🔕</button>
+						hidden></button>
 					<button id="themeToggle" class="icon"
 						title="Toggle light / syrup"
-						aria-label="Toggle light or dark theme">🌙</button>
+						aria-label="Toggle light or dark theme"></button>
 					<button id="membersToggle" class="ghost" aria-pressed="true"
 						hidden>Members</button>
 				</header>
@@ -71,29 +84,28 @@
 						<div id="banner" class="banner" role="status"
 							aria-live="polite"></div>
 						<section id="log" aria-live="polite"
-							aria-label="Messages">
-							<div class="join-wrap" id="joinScreen">
-								<form id="joinForm" class="join">
-									<h2>Join a room</h2>
-									<p
-										class="lead">Pick a room and a name — capability-secure chat, no account. Entering a room that does not exist yet opens it.</p>
-									<label for="room">Room</label>
-									<input id="room" placeholder="general"
-										value="general"
-										aria-label="Room name" maxlength="32" />
-									<label for="nick">Display name</label>
-									<input id="nick" placeholder="your name"
-										aria-describedby="nickError"
-										maxlength="32" autofocus />
-									<p id="nickError" class="error" role="alert"></p>
-									<button id="joinBtn">Join room</button>
-									<button type="button" id="browseRoomsBtn"
-										class="ghost-link">Browse live rooms</button>
-								</form>
-							</div>
-						</section>
+							aria-label="Messages"></section>
+						<div class="join-wrap" id="joinScreen">
+							<form id="joinForm" class="join">
+								<h2>Join a room</h2>
+								<p
+									class="lead">Pick a room and a name — capability-secure chat, no account. Entering a room that does not exist yet opens it.</p>
+								<label for="room">Room</label>
+								<input id="room" placeholder="general"
+									value="general"
+									aria-label="Room name" maxlength="32" />
+								<label for="nick">Display name</label>
+								<input id="nick" placeholder="your name"
+									aria-describedby="nickError"
+									maxlength="32" autofocus />
+								<p id="nickError" class="error" role="alert"></p>
+								<button id="joinBtn">Join room</button>
+								<button type="button" id="browseRoomsBtn"
+									class="ghost-link">Browse live rooms</button>
+							</form>
+						</div>
 						<button id="jump" class="jump"
-							aria-label="Jump to latest messages">↓ Latest messages</button>
+							aria-label="Jump to latest messages"><span>Latest messages</span></button>
 					</div>
 					<aside class="members" id="memberPane" aria-label="Members">
 						<h2>Members</h2>
@@ -112,7 +124,7 @@
 							aria-label="Message"></textarea>
 						<button type="button" id="emojiBtn" class="emoji-btn"
 							title="Emoji"
-							aria-label="Insert emoji">🙂</button>
+							aria-label="Insert emoji"></button>
 						<button id="sendBtn" type="submit">Send</button>
 					</form>
 					<div id="hint"

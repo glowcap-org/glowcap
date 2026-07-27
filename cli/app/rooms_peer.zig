@@ -10,3 +10,4 @@ pub const Flags = @import("rooms_peer/flags.zig").Flags;
 pub const runVerb = @import("rooms_peer/verbs.zig").runVerb;
 pub const verbExit = @import("rooms_peer/verbs.zig").verbExit;
 pub const peerCliPrefix = @import("rooms_peer/supervise.zig").peerCliPrefix;
+pub const expireCooldowns = @import("rooms_peer/phase.zig").expireCooldowns;

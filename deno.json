@@ -5,7 +5,7 @@
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
     "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",
     "@pancake/relay": "./bindings/ts/relay/mod.ts",
-    "zod": "npm:zod@4.4.3"
+    "playwright": "npm:playwright@1.61.1"
   },
   "fmt": {
     "useTabs": true,
@@ -14,6 +14,10 @@
     "semiColons": true,
     "singleQuote": false,
     "include": ["**/*.ts"],
-    "exclude": ["bindings/ts", "zig-out", ".zig-cache", "**/target", "**/node_modules", "**/upstream", ".local"]
+    // yml/yaml/md are excluded so an explicit-path run (`deno fmt <dir>`) cannot
+    // reach them: a path argument overrides `include`, and this formatter would
+    // reindent YAML to four spaces against .editorconfig and re-wrap Markdown to
+    // lineWidth. Their formatting is owned by .editorconfig and by hand.
+    "exclude": ["bindings/ts", "zig-out", ".zig-cache", "**/target", "**/node_modules", "**/upstream", ".local", "**/*.yml", "**/*.yaml", "**/*.md"]
   }
 }

@@ -93,17 +93,17 @@ test "negotiate returns null when no profile is shared" {
 }
 
 test "interop target offers constrain target without collapsing profile and codec axes" {
-    const goblins = negotiation.Offer.goblins(model.FeatureSet.full());
-    try std.testing.expectEqual(@as(usize, 1), goblins.captp_versions.len);
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, goblins.captp_versions[0]);
-    try std.testing.expectEqual(@as(usize, 1), goblins.codecs.len);
-    try std.testing.expectEqual(model.CodecId.syrup, goblins.codecs[0]);
+    const floor = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
+    try std.testing.expectEqual(@as(usize, 1), floor.captp_versions.len);
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, floor.captp_versions[0]);
+    try std.testing.expectEqual(@as(usize, 1), floor.codecs.len);
+    try std.testing.expectEqual(model.CodecId.syrup, floor.codecs[0]);
 
     const pancake_offer = negotiation.Offer.native(model.FeatureSet.full());
     try std.testing.expect(pancake_offer.captp_versions.len >= 2);
     try std.testing.expect(pancake_offer.codecs.len >= 2);
 
-    const negotiated = negotiation.negotiate(goblins, pancake_offer).?;
+    const negotiated = negotiation.negotiate(floor, pancake_offer).?;
     try std.testing.expectEqual(model.CaptpVersion.v1_0, negotiated.captp_version);
     try std.testing.expectEqual(model.CodecId.syrup, negotiated.codec);
 }

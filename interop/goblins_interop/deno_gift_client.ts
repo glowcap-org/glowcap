@@ -21,7 +21,7 @@
 // Needs `deno` + `racket` + the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-gift`.
 
-import { connect, listen, type Ref, socketAddrDesignator, tcpLocator } from "@pancake/stack";
+import { connect, listen, socketAddrDesignator, tcpLocator } from "@pancake/stack";
 import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -29,7 +29,7 @@ const HOST = "127.0.0.1";
 // pancake (the gifter) takes an ephemeral port, the recipient learns it at spawn
 // time. `--port=N` (from `zig build deno-goblins-gift -Dport=N`) moves the pair.
 const PORT = parsePort("deno-goblins-gift", 22120, 65534);
-const RACKET = "/usr/local/bin/racket";
+const RACKET = "racket";
 const EXPORTER_SCRIPT = "conformance/goblins-peer/racket/gift-exporter-host.rkt";
 const RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt";
 // pancake hardcodes the same swiss the exporter host registers, the way the

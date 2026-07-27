@@ -1,0 +1,207 @@
+<extend template="base.shtml">
+<head id="head">
+	<style>
+		.capwalk { margin: 2rem 0; }
+		.capwalk svg {
+			width: 100%;
+			height: auto;
+			background: var(--paper-raised);
+			border: 1px solid var(--rule);
+			border-radius: 10px;
+			box-shadow: var(--shadow);
+		}
+		.capwalk text {
+			font-family: inherit;
+			font-size: 13px;
+			fill: var(--ink);
+			/* A paper-colored halo behind every label, so an arrow passing near
+			   a label never strikes through the letters. */
+			paint-order: stroke;
+			stroke: var(--paper-raised);
+			stroke-width: 3.5px;
+			stroke-linejoin: round;
+		}
+		.capwalk .soft { fill: var(--ink-soft); font-size: 12px; }
+		.capwalk .bad { fill: var(--dia-danger, #b3403a); }
+		.capwalk .cap { fill: var(--teal-deep); }
+		.capwalk .tok { fill: var(--accent-deep); }
+		.capwalk .dead { fill: var(--dia-muted, #a99d8c); font-size: 12px; }
+		/* Without the script, only the first scene shows. With it, every
+		   scene stays in the tree and steps cross-fade. */
+		.capwalk [data-s] { display: none; }
+		.capwalk .s1 { display: inline; }
+		.capwalk.js [data-s] {
+			display: inline;
+			visibility: hidden;
+			opacity: 0;
+			transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+		}
+		.capwalk.js [data-s].on {
+			visibility: visible;
+			opacity: 1;
+			transition: opacity 0.2s ease;
+		}
+		/* Scene entry choreography: when a step turns on, the scene settles
+		   into place, its arrows draw toward their targets, and labels land a
+		   beat later. Reduced motion keeps the plain cross-fade above. */
+		@media (prefers-reduced-motion: no-preference) {
+			.capwalk.js [data-s].on {
+				animation: cw-rise 0.35s ease-out;
+			}
+			/* Solid arrows and checks only: dashed strokes keep their pattern,
+			   so they cross-fade instead of drawing. 450 covers the longest
+			   path in the scene, so every stroke finishes inside the window. */
+			.capwalk.js [data-s].on path:not([stroke-dasharray]) {
+				stroke-dasharray: 450 450;
+				animation: cw-draw 0.55s ease-out backwards;
+			}
+			.capwalk.js [data-s].on text {
+				animation: cw-settle 0.4s ease-out 0.22s backwards;
+			}
+			@keyframes cw-rise {
+				from { transform: translateY(6px); }
+				to { transform: translateY(0); }
+			}
+			@keyframes cw-draw {
+				from { stroke-dashoffset: 450; }
+				to { stroke-dashoffset: 0; }
+			}
+			@keyframes cw-settle {
+				from { opacity: 0; transform: translateY(4px); }
+				to { opacity: 1; transform: translateY(0); }
+			}
+		}
+		/* The handoff takes You out of the path, so the last step fades You
+		   and the references You holds. */
+		.capwalk .cw-you, .capwalk .cw-held { transition: opacity 0.2s ease; }
+		.capwalk[data-step="8"] .cw-you,
+		.capwalk[data-step="8"] .cw-held { opacity: 0.35; }
+		.capwalk-controls {
+			display: flex;
+			align-items: center;
+			gap: 1rem;
+			margin: 0.85rem 0 0.5rem;
+		}
+		.capwalk-controls button {
+			font: inherit;
+			padding: 0.35rem 1rem;
+			border: 1px solid var(--rule);
+			border-radius: 8px;
+			background: var(--paper-raised);
+			color: var(--ink);
+			cursor: pointer;
+		}
+		.capwalk-controls button:hover {
+			border-color: var(--teal);
+			color: var(--teal-deep);
+		}
+		.capwalk-where { color: var(--ink-soft); font-size: 0.9rem; }
+		.capwalk-steps { margin: 0.5rem 0 0; padding-left: 1.5rem; }
+		.capwalk-steps li {
+			padding: 0.3rem 0.6rem;
+			border-radius: 8px;
+			color: var(--ink-soft);
+		}
+		.capwalk.js .capwalk-steps li { cursor: pointer; }
+		.capwalk-steps li.is-current {
+			background: color-mix(in srgb, var(--teal) 8%, transparent);
+			color: var(--ink);
+		}
+		.tokref { margin: 2rem 0; }
+		.tokref-panels {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 1rem;
+		}
+		@media (max-width: 620px) {
+			.tokref-panels { grid-template-columns: 1fr; }
+		}
+		.tokref svg {
+			width: 100%;
+			height: auto;
+			background: var(--paper-raised);
+			border: 1px solid var(--rule);
+			border-radius: 10px;
+			box-shadow: var(--shadow);
+		}
+		.tokref text {
+			font-family: inherit;
+			font-size: 13px;
+			fill: var(--ink);
+			paint-order: stroke;
+			stroke: var(--paper-raised);
+			stroke-width: 3.5px;
+			stroke-linejoin: round;
+		}
+		.tokref .soft { fill: var(--ink-soft); font-size: 12px; }
+		.tokref .cap { fill: var(--teal-deep); }
+		.tokref .tok { fill: var(--accent-deep); }
+		.tokref .dead { fill: var(--dia-muted, #a99d8c); font-size: 12px; }
+		.tokref-label {
+			margin: 0 0 0.35rem;
+			text-align: center;
+			color: var(--ink-soft);
+			font-size: 0.9rem;
+		}
+		.tokref figcaption {
+			margin-top: 0.6rem;
+			text-align: center;
+			color: var(--ink-soft);
+			font-size: 0.9rem;
+		}
+	</style>
+</head>
+<main id="content">
+	<article class="prose">
+		<h1 :text="$page.title"></h1>
+		<div :html="$page.content()"></div>
+	</article>
+	<script>
+		// Progressive enhancement for the capability walkthrough: without this
+		// script the figure shows the first scene and the full step list.
+		(() => {
+			const fig = document.getElementById("capwalk");
+			if (!fig) return;
+			const items = Array.from(fig.querySelectorAll(".capwalk-steps li"));
+			const layers = Array.from(fig.querySelectorAll("[data-s]"));
+			const where = fig.querySelector(".capwalk-where");
+			const controls = fig.querySelector(".capwalk-controls");
+			if (!items.length || !where || !controls) return;
+			let step = 1;
+			const show = (n) => {
+				step = Math.min(Math.max(n, 1), items.length);
+				fig.dataset.step = String(step);
+				for (const el of layers) {
+					const on = el.getAttribute("data-s").split(" ").includes(String(step));
+					el.classList.toggle("on", on);
+				}
+				items.forEach((li, i) => {
+					const current = i === step - 1;
+					li.classList.toggle("is-current", current);
+					// The class is a paint; this is what a screen reader reads, so
+					// a listener knows which step the figure is actually showing.
+					if (current) li.setAttribute("aria-current", "step");
+					else li.removeAttribute("aria-current");
+				});
+				where.textContent = "Step " + step + " of " + items.length;
+			};
+			fig.classList.add("js");
+			controls.hidden = false;
+			for (const btn of controls.querySelectorAll("button[data-dir]")) {
+				btn.addEventListener("click", () => show(step + Number(btn.dataset.dir)));
+			}
+			// Clicking a step jumps to it. This is mouse sugar, not the only way
+			// in: the Back/Next buttons are real buttons in the tab order, and
+			// the arrow keys below reach every step from the focused figure, so
+			// the list items are left out of the tab order rather than adding
+			// eight redundant stops.
+			items.forEach((li, i) => li.addEventListener("click", () => show(i + 1)));
+			fig.tabIndex = 0;
+			fig.addEventListener("keydown", (e) => {
+				if (e.key === "ArrowRight") { show(step + 1); e.preventDefault(); }
+				if (e.key === "ArrowLeft") { show(step - 1); e.preventDefault(); }
+			});
+			show(1);
+		})();
+	</script>
+</main>

@@ -45,18 +45,26 @@ const hostFinalizer = new FinalizationRegistry<Ptr>((raw) => {
 	driverS.pancake_host_release(raw);
 });
 
-// A host vow's row: registered the instant the vow is minted (the mint IS the
-// registration), settled by the drain's SETTLE/FAIL arms. An outcome that
-// lands before anyone awaits is stored, so a late observation settles from
-// the recorded state instead of hanging — and no rejection is materialized
-// until a waiter exists, so an unobserved broken answer never raises an
-// unhandled rejection.
+// A host vow's pending state: exactly three shapes, so the illegal "settled AND
+// a live waiter" combination cannot be represented. Minted the instant the vow
+// is registered (the mint IS the registration); an outcome that lands before
+// anyone awaits is held as `settled` for a late observation instead of hanging;
+// a waiter lives only in `awaited`, so an unobserved broken answer never raises
+// an unhandled rejection.
+type VowState =
+	| { tag: "minted" }
+	| {
+		tag: "awaited";
+		waiter: { resolve: (v: Argument) => void; reject: (e: PancakeError) => void };
+	}
+	| { tag: "settled"; outcome: { ok: Argument } | { err: PancakeError } };
+
+// A host vow's row: its home session plus its pending state.
 interface VowRow {
 	/** The session the vow was minted on, for closed-vs-broken classification;
 	 * null for a vow whose home is not a single session. */
 	session: Session | null;
-	state: "pending" | { ok: Argument } | { err: PancakeError };
-	waiter: { resolve: (v: Argument) => void; reject: (e: PancakeError) => void } | null;
+	state: VowState;
 }
 
 /** Cap on stored outcomes whose vow is never awaited, so the store cannot grow
@@ -308,7 +316,7 @@ export class Host {
 	 * run in the same synchronous block as the minting FFI call, so no drain
 	 * can pop the completion first. Binding-internal. */
 	vowMinted(vow: bigint, session: Session | null): void {
-		this.#vows.set(vow, { session, state: "pending", waiter: null });
+		this.#vows.set(vow, { session, state: { tag: "minted" } });
 	}
 
 	/** The vow's eventual outcome: the fulfilled wire value, or a rejection —
@@ -323,13 +331,16 @@ export class Host {
 				new PancakeError(CLOSED, "the vow's outcome is gone (unobserved past the cap)"),
 			);
 		}
-		if (row.state === "pending") {
+		if (row.state.tag !== "settled") {
+			// Minted or re-awaited: (re)park a waiter. A prior awaited waiter is
+			// replaced here, the same overwrite the separate field performed.
 			return new Promise<Argument>((resolve, reject) => {
-				row.waiter = { resolve, reject };
+				row.state = { tag: "awaited", waiter: { resolve, reject } };
 			});
 		}
 		this.#vows.delete(vow);
-		return "ok" in row.state ? Promise.resolve(row.state.ok) : Promise.reject(row.state.err);
+		const outcome = row.state.outcome;
+		return "ok" in outcome ? Promise.resolve(outcome.ok) : Promise.reject(outcome.err);
 	}
 
 	/** The drain's settle arms: fire the waiter, or record the outcome for a
@@ -338,19 +349,21 @@ export class Host {
 	settleVow(vow: bigint, outcome: { ok: Argument } | { err: PancakeError }): void {
 		const row = this.#vows.get(vow);
 		if (row === undefined) return; // an outcome nobody registered for
-		if (row.waiter !== null) {
+		if (row.state.tag === "awaited") {
+			const waiter = row.state.waiter;
 			this.#vows.delete(vow);
-			if ("ok" in outcome) row.waiter.resolve(outcome.ok);
-			else row.waiter.reject(outcome.err);
+			if ("ok" in outcome) waiter.resolve(outcome.ok);
+			else waiter.reject(outcome.err);
 			return;
 		}
-		row.state = outcome;
+		// Minted, or an already-settled row re-settled: hold for a late observation.
+		row.state = { tag: "settled", outcome };
 		this.#unobserved.push(vow);
 		while (this.#unobserved.length > MAX_UNOBSERVED_OUTCOMES) {
 			const oldest = this.#unobserved.shift()!;
 			const stale = this.#vows.get(oldest);
 			// Only evict a row still parked unobserved; an observed one is gone.
-			if (stale !== undefined && stale.state !== "pending" && stale.waiter === null) {
+			if (stale !== undefined && stale.state.tag === "settled") {
 				this.#vows.delete(oldest);
 			}
 		}

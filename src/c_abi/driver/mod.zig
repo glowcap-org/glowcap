@@ -206,6 +206,11 @@ pub const PANCAKE_DIAL_SHAPE_HOST_PORT: u32 = 0;
 /// Today produced only by the `iroh` locator scheme; the tag names the open
 /// shape, not the netlayer archive.
 pub const PANCAKE_DIAL_SHAPE_PEER_ID: u32 = 1;
+/// PancakeDialPlan.shape: signaling-mediated open (webrtc). No dialable address;
+/// the channel comes up through an offer/answer/ICE exchange before the keyed
+/// handshake. The signaling reference arrives through the handoff mechanism
+/// (ADR-0089 phase 5).
+pub const PANCAKE_DIAL_SHAPE_SIGNALING: u32 = 2;
 
 /// PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture.
 pub const PANCAKE_DIAL_REACH_DIRECT: u32 = 0;
@@ -292,7 +297,7 @@ pub const pancake_host_clear_last_error = host.pancake_host_clear_last_error;
 pub const pancake_host_session_open_dialed_locator = session.pancake_host_session_open_dialed_locator;
 pub const pancake_host_session_open_accepted = session.pancake_host_session_open_accepted;
 pub const pancake_host_session_release = session.pancake_host_session_release;
-pub const pancake_host_session_session_open = session.pancake_host_session_session_open;
+pub const pancake_host_session_is_open = session.pancake_host_session_is_open;
 pub const pancake_host_session_feed = session.pancake_host_session_feed;
 pub const pancake_host_session_feed_bytes = session.pancake_host_session_feed_bytes;
 pub const pancake_host_session_take_outbound = session.pancake_host_session_take_outbound;

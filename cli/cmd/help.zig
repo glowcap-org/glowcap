@@ -10,50 +10,35 @@ const Flag = types.Flag;
 
 const Stream = enum { stdout, stderr };
 
-fn collectPersistent(path: []const *const Command, buf: *[48]Flag, n: *usize) void {
-    n.* = 0;
-    for (path) |c| {
-        for (c.flags) |f| {
-            if (!f.persistent) continue;
-            if (n.* >= buf.len) return;
-            buf[n.*] = f;
-            n.* += 1;
-        }
-    }
-}
-
 /// Write help for the node at the end of `path` (path[0] is root).
 /// `-h` / `--help` use stdout; parse errors use stderr (Cobra-shaped).
 pub fn writeNodeHelp(io: std.Io, path: []const *const Command) !void {
-    try writeNodeHelpTo(.{ .io = io, .stream = .stdout }, path);
+    try writeNodeHelpTo(.{ .stream = .{ .io = io, .stream = .stdout } }, path);
 }
 
 pub fn writeNodeHelpErr(io: std.Io, path: []const *const Command) !void {
-    try writeNodeHelpTo(.{ .io = io, .stream = .stderr }, path);
+    try writeNodeHelpTo(.{ .stream = .{ .io = io, .stream = .stderr } }, path);
 }
 
 /// Hermetic help render for tests (avoids Zig test `--listen=-` stdout).
 pub fn writeNodeHelpAlloc(gpa: std.mem.Allocator, path: []const *const Command) ![]u8 {
     var list: std.ArrayList(u8) = .empty;
     errdefer list.deinit(gpa);
-    try writeNodeHelpTo(.{ .gpa = gpa, .list = &list }, path);
+    try writeNodeHelpTo(.{ .list = .{ .gpa = gpa, .out = &list } }, path);
     return try list.toOwnedSlice(gpa);
 }
 
-const Dest = struct {
-    io: ?std.Io = null,
-    stream: Stream = .stdout,
-    gpa: ?std.mem.Allocator = null,
-    list: ?*std.ArrayList(u8) = null,
+const Dest = union(enum) {
+    stream: struct { io: std.Io, stream: Stream },
+    list: struct { gpa: std.mem.Allocator, out: *std.ArrayList(u8) },
 
     fn writeAll(self: Dest, bytes: []const u8) !void {
-        if (self.list) |list| {
-            try list.appendSlice(self.gpa.?, bytes);
-            return;
-        }
-        switch (self.stream) {
-            .stdout => try argv.writeStdout(self.io.?, bytes),
-            .stderr => try argv.writeStderr(self.io.?, bytes),
+        switch (self) {
+            .list => |sink| try sink.out.appendSlice(sink.gpa, bytes),
+            .stream => |s| switch (s.stream) {
+                .stdout => try argv.writeStdout(s.io, bytes),
+                .stderr => try argv.writeStderr(s.io, bytes),
+            },
         }
     }
 
@@ -100,7 +85,7 @@ fn writeNodeHelpTo(dest: Dest, path: []const *const Command) !void {
 
     var persist_buf: [48]Flag = undefined;
     var persist_n: usize = 0;
-    collectPersistent(path, &persist_buf, &persist_n);
+    types.collectPersistent(path, &persist_buf, &persist_n);
 
     if (node.flags.len > 0 or persist_n > 0) {
         try dest.writeAll("\nFlags:\n");

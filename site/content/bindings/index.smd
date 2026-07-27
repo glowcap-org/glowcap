@@ -1,21 +1,23 @@
 ---
 .title = "Bindings",
+.description = "Four languages, one application surface over one C ABI: Rust, TypeScript, Python, and Racket, each mirroring the same archive set.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Four languages over the same C ABI archives, one of the three consumption
-[surfaces]($link.page('surfaces')). Each binding mirrors the archive set: a core
-over `libpancake_ocapn` / `libpancake_driver`, plus per-transport modules loaded
-à la carte. Capability ideas: [Concepts]($link.page('concepts')).
+The bindings give four languages the same application surface over one C ABI,
+one of the [ways to consume pancake]($link.page('surfaces')). Each binding
+mirrors the archive set: a core over `libpancake_ocapn` / `libpancake_driver`,
+plus per-transport modules loaded à la carte. The capability ideas behind the
+surface live in [Concepts]($link.page('concepts')).
 
 [All four bindings wrap the same C ABI. The shared surface is what lets an app read the same way in every language.]($image.siteAsset('diagram-bindings.svg'))
 
 ## One surface, four idioms
 
-Hold a `Session` and the verbs in the
+A `Session` gives you the verbs in the
 [bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md).
 A `Host` is the multi-session product behind introductions
 ([modules]($link.page('modules'))). A `Ref` is a capability in hand; pass it as
@@ -28,19 +30,23 @@ an argument and authority moves.
 | [Python]($link.page('bindings/python')) | `connect`, `Session`, native values | `asyncio` | `spawn` over callables |
 | [Racket]($link.page('bindings/racket')) | `connect`, `session`, event structs | green threads + ports | Goblins-faithful |
 
-`connect(locator)` returns an established session (handshake complete). All four
-ride the shared byte-fed host.
+`connect(locator)` returns an established session (handshake complete).
 
-## Levels
+The TypeScript binding also runs in the browser, where `@pancake/web` compiles
+the same `Session` surface to WebAssembly. The browser side always dials
+rather than listens, and [In the browser]($link.page('bindings/browser')) is
+the whole story.
 
-Stay at the level you need: sync verbs, the language's own async sockets, or the
-Goblins-shaped actor top. Vat / `$` / `<-`: [modules]($link.page('modules')).
+Stay at the level you need: synchronous verbs, the language's own async sockets,
+or the Goblins-shaped actor layer on top with near-call and eventual-send
+([modules]($link.page('modules'))).
 
-## Archives and encryption
+## Getting the archives
 
-No prebuilt archives yet. Run `zig build` in a checkout, then point
-`PANCAKE_LIB_DIR` or use `zig-out/lib`. Encrypted transport is optional
-[iroh]($link.page('transports/iroh')).
+There are no prebuilt archives yet: run `zig build` in a checkout, then point
+`PANCAKE_LIB_DIR` at the output or let the binding find `zig-out/lib`. For an
+encrypted transport, add the optional [iroh]($link.page('transports/iroh'))
+module.
 
 ```sh
 zig build bindings        # rust + deno + bun + python + racket smokes

@@ -35,10 +35,7 @@ const headerParamNames = @import("header_names.zig").headerParamNames;
 
 pub const step_name = "gen-binding-racket-ffi";
 
-pub const Output = struct {
-    path: []const u8,
-    generate: *const fn (std.mem.Allocator) anyerror![]u8,
-};
+const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/racket/private/ffi-ocapn-gen.rkt", .generate = generateOcapn },
@@ -50,12 +47,7 @@ pub const outputs = [_]Output{
 };
 
 /// `module.PancakeManagedFrame` → `PancakeManagedFrame`.
-fn baseName(comptime T: type) []const u8 {
-    @setEvalBranchQuota(1_000_000);
-    const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
-    return if (dot) |i| name[i + 1 ..] else name;
-}
+const baseName = @import("reflect").baseName;
 
 /// A named function-pointer alias the base spelling has no case for.
 const Special = struct {

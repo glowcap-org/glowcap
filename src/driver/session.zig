@@ -28,7 +28,7 @@ const Identity = driver.Identity;
 /// Options for `connect` and `listen`. `frame_cap` sizes the owned read/write
 /// buffers and the session's `max_frame_bytes` limit together, so the buffers
 /// and the limit cannot drift apart. `codec` is the wire grammar the negotiating
-/// peer encodes in; it defaults to `.syrup`, the Goblins-interop target, and a
+/// peer encodes in; it defaults to `.syrup`, the v1.0 interop floor, and a
 /// caller speaking Cap'n Proto sets `.capnp`. There is deliberately no
 /// `verify_partner` knob here: the application tier always verifies, and only
 /// the harness-facing loop and core options can turn verification off.
@@ -62,6 +62,13 @@ pub const SessionOptions = struct {
 /// own the peer and buffers and see every allocation at the call site. This
 /// type is the native-Zig spelling of the `Session` every binding exposes.
 pub const Session = struct {
+    /// The borrowing surface this owning shell delegates its verbs to. Every
+    /// method below that is a one-line forward carries `BlockingSession`'s
+    /// contract unchanged; read it there. Only the three reference-keyed verbs
+    /// (`fetchReference`, `callReference`, `sendReference`) add behavior, and
+    /// they document what they add. `zig build meta-check` holds this forwarder
+    /// set against `BlockingSession`'s verbs so the mirror cannot silently
+    /// drift.
     cv: BlockingSession,
     peer: engine.Peer,
     read_buf: []u8,
@@ -74,33 +81,24 @@ pub const Session = struct {
         self.freeShell();
     }
 
-    /// Start a bootstrap fetch without driving I/O (see `BlockingSession.beginFetch`).
     pub fn beginFetch(self: *Session, name: []const u8) !actors.Vow {
         return self.cv.beginFetch(name);
     }
-    /// Begin a cooperative fetch-then-send (see `BlockingSession.beginSendNamed`).
     pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
         return self.cv.beginSendNamed(pending, name, msg, terminal);
     }
-    /// The fire-and-forget arm of `beginSendNamed` (see `BlockingSession.beginTellNamed`).
     pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
         return self.cv.beginTellNamed(pending, name, msg, terminal);
     }
-    /// Break every far vow still awaiting a partner answer (see
-    /// `BlockingSession.breakFarVows`).
     pub fn breakFarVows(self: *Session, message: []const u8) void {
         self.cv.breakFarVows(message);
     }
-    /// Fetch a partner's published capability by `name` (see `BlockingSession.fetch`).
     pub fn fetch(self: *Session, name: []const u8) !actors.Ref {
         return self.cv.fetch(name);
     }
-    /// The reason-bearing fetch (see `BlockingSession.fetchSettled`).
     pub fn fetchSettled(self: *Session, name: []const u8, arena: std.mem.Allocator) !Settled {
         return self.cv.fetchSettled(name, arena);
     }
-    /// Send `msg` to `target`, drive until the reply settles, and return the
-    /// outcome materialized into `arena` (see `BlockingSession.call`).
     pub fn call(self: *Session, target: actors.Ref, msg: actors.Message, arena: std.mem.Allocator) !Settled {
         return self.cv.call(target, msg, arena);
     }
@@ -136,7 +134,6 @@ pub const Session = struct {
         const ref = self.refForTarget(target) orelse return driver.Error.UncallableTarget;
         return self.cv.call(ref, .{ .verb = verb, .args = args }, arena);
     }
-    /// Eventual-send `msg` to `target`, returning a vow (see `BlockingSession.send`).
     pub fn send(self: *Session, target: actors.Ref, msg: actors.Message) !actors.Vow {
         return self.cv.send(target, msg);
     }
@@ -172,54 +169,37 @@ pub const Session = struct {
             .promise, .sturdy, .broken => null,
         };
     }
-    /// Promise pipelining: eventual-send `msg` to a far `vow` a prior
-    /// `send`/`sendToAnswer` returned, before it resolves (see
-    /// `BlockingSession.sendToAnswer`).
     pub fn sendToAnswer(self: *Session, vow: actors.Vow, msg: actors.Message) !actors.Vow {
         return self.cv.sendToAnswer(vow, msg);
     }
-    /// Drive until `vow` settles and return the outcome materialized into
-    /// `arena` (see `BlockingSession.settleVow`).
     pub fn settleVow(self: *Session, vow: actors.Vow, arena: std.mem.Allocator) !Settled {
         return self.cv.settleVow(vow, arena);
     }
-    /// Fire-and-forget eventual-send (see `BlockingSession.tell`).
     pub fn tell(self: *Session, target: actors.Ref, msg: actors.Message) !void {
         return self.cv.tell(target, msg);
     }
-    /// Register a one-shot listener on `vow` (see `BlockingSession.on`).
     pub fn on(self: *Session, vow: actors.Vow, listener: actors.Listener) !void {
         return self.cv.on(vow, listener);
     }
-    /// Spawn a local actor and return a capability to it (see `BlockingSession.spawn`).
     pub fn spawn(self: *Session, comptime Behavior: type, initial: Behavior) !Capability {
         return self.cv.spawn(Behavior, initial);
     }
-    /// Publish an actor fetchable by `name` (see `BlockingSession.publish`).
     pub fn publish(self: *Session, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
         return self.cv.publish(name, Behavior, initial);
     }
-    /// One pump cycle (see `BlockingSession.step`).
     pub fn step(self: *Session) !net.Progress {
         return self.cv.step();
     }
-    /// Bounded wait-then-step for multi-connection round-robin (see
-    /// `BlockingSession.stepReadable`).
     pub fn stepReadable(self: *Session, timeout_ms: i32) !?net.Progress {
         return self.cv.stepReadable(timeout_ms);
     }
-    /// Serve until the partner leaves (see `BlockingSession.serve`).
     pub fn serve(self: *Session) !void {
         return self.cv.serve();
     }
-    /// The partner's retained abort, if an `op:abort` arrived (see
-    /// `BlockingSession.partnerAbort`).
     pub fn partnerAbort(self: *const Session) ?driver.Served.PartnerAbortView {
         return self.cv.partnerAbort();
     }
 
-    /// The partner's retained abort diagnostic, if an `op:abort` arrived (see
-    /// `BlockingSession.abortReason`).
     pub fn abortReason(self: *const Session) ?[]const u8 {
         return self.cv.abortReason();
     }
@@ -317,10 +297,18 @@ pub const Server = struct {
 
     /// Write the bound dialable designator (with the kernel-chosen port when
     /// `listen` bound port 0) into `out` and return the written slice: the
-    /// designator a partner dials. Empty when `out` cannot hold it or the
-    /// transport faulted, callers must treat empty as a defect, never sign it.
-    pub fn localDesignator(self: *const Server, out: []u8) []const u8 {
-        return self.listener.localDesignator(out);
+    /// designator a partner dials.
+    ///
+    /// An error rather than an empty slice. The netlayer primitive underneath
+    /// keeps the empty-slice contract, because "no address available" is a real
+    /// answer for it — but this is the public surface a caller signs from, and
+    /// a comment telling callers to treat empty as a defect is exactly what a
+    /// type can say instead. Both shipped examples ignored it, and one byte
+    /// less buffer would have had them publish a locator nobody can dial.
+    pub fn localDesignator(self: *const Server, out: []u8) driver.Error![]const u8 {
+        const designator = self.listener.localDesignator(out);
+        if (designator.len == 0) return driver.Error.DesignatorUnavailable;
+        return designator;
     }
 
     /// Accept one partner into its own owned `*Session`. The responder

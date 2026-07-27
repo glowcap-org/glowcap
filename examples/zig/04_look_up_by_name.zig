@@ -11,7 +11,7 @@
 //! deliver, plus, on V1.0, the resolver the answer comes back to. Then
 //! `tryMatchFetchOutcome` takes the partner's reply (on V1.0 that's a
 //! resolver-callback `op:deliver`) and turns it back into a plain fulfilled or
-//! broken outcome. Sessions open via `pairing.pairedGoblins`.
+//! broken outcome. Sessions open via `pairing.pairedV1_0Syrup`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -25,7 +25,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
     const client = &pair.p1;
     const server = &pair.p2;
@@ -68,15 +68,23 @@ pub fn main() !void {
                 };
                 std.debug.print("client fetched the thermostat as import {d}\n", .{position});
             },
+            // Each of these is a failed lookup, so each one fails the run.
+            // This example runs under `zig build examples`; printing a problem
+            // and exiting zero tells the gate the chapter worked.
             .broken => |reason| {
                 defer allocator.free(reason);
                 std.debug.print("fetch broke: {s}\n", .{reason});
+                return error.FetchBroke;
             },
-            .malformed => std.debug.print("fetch settlement was malformed\n", .{}),
+            .malformed => {
+                std.debug.print("fetch settlement was malformed\n", .{});
+                return error.MalformedSettlement;
+            },
         },
         .unrelated => |message| {
             model.freeMessage(allocator, message);
             std.debug.print("settlement was unrelated traffic\n", .{});
+            return error.UnrelatedSettlement;
         },
     }
 }

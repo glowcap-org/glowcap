@@ -69,10 +69,13 @@ export interface DmTransport {
 	timeoutMs: number;
 	/** The three "OK" bullets, transport-specific wording. */
 	bullets: readonly [string, string, string];
-	/** Stand up Bob: publish `dm` giftably and listen for direct dials. */
-	startBob(dm: Behavior): Promise<BobEndpoint>;
-	/** Stand up the rendezvous room's listener and its dialable locator. */
-	startRoom(): Promise<RoomEndpoint>;
+	/** Stand up Bob: publish `dm` giftably and listen for direct dials.
+	 * Awaited by the caller, so a transport whose setup is synchronous returns
+	 * the endpoint directly rather than wrapping it in an idle promise. */
+	startBob(dm: Behavior): BobEndpoint | Promise<BobEndpoint>;
+	/** Stand up the rendezvous room's listener and its dialable locator. Awaited
+	 * like `startBob`, and synchronous for the same reason. */
+	startRoom(): RoomEndpoint | Promise<RoomEndpoint>;
 }
 
 /** Poll `ready` until true, throwing `what` past `timeoutMs` so a stuck endpoint

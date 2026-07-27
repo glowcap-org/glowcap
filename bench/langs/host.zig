@@ -87,7 +87,7 @@ pub fn main(init: std.process.Init) !void {
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;
-    const local = server.localDesignator(&addr_buf);
+    const local = try server.localDesignator(&addr_buf);
 
     var stdout_buf: [256]u8 = undefined;
     var stdout = std.Io.File.stdout().writer(io, &stdout_buf);

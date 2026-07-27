@@ -1,5 +1,6 @@
 ---
 .title = "Zig API reference",
+.description = "The generated Zig API reference for the public pancake module.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",

@@ -21,7 +21,7 @@ const Counter = struct {
     pub fn handle(self: *Counter, turn: *Turn, msg: Message) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "add")) {
-            self.n += msg.arg(0).integer;
+            self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
@@ -193,7 +193,7 @@ const GiveCapture = struct {
 test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
     const crypto = pancake.foundation.crypto;
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     // The client vat asks a far object a question; the partner will answer it

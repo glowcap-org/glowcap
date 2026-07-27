@@ -219,14 +219,13 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
     const accept_id = try ctx.acceptIdentity();
     var server = try driver.listen(ctx.gpa, tcp.netlayer(), .{ .designator = bind }, accept_id, sessionOpts());
+    defer server.close();
 
     var addr_buf: [128]u8 = undefined;
-    const designator = server.localDesignator(&addr_buf);
-    if (designator.len == 0) {
-        server.close();
-        ctx.logErr("listen: empty local designator", .{});
+    const designator = server.localDesignator(&addr_buf) catch {
+        ctx.logErr("listen: no dialable local designator", .{});
         return exit_codes.internal;
-    }
+    };
 
     const uri = try model.uri.writePeer(ctx.gpa, .{
         .transport = "tcp",
@@ -234,8 +233,9 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
         .hints = model.Hints.emptyFalse(),
     });
     defer ctx.gpa.free(uri);
+    const locator_copy = try ctx.gpa.dupe(u8, uri);
     if (ctx.last_locator) |old| ctx.gpa.free(old);
-    ctx.last_locator = try ctx.gpa.dupe(u8, uri);
+    ctx.last_locator = locator_copy;
 
     if (ctx.json == .json) {
         var out: std.ArrayList(u8) = .empty;
@@ -247,8 +247,6 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     } else {
         try printOut(ctx, "{s}\n", .{uri});
     }
-
-    defer server.close();
 
     // Poll the listen seat so SIGINT/SIGTERM can exit without closing the
     // listen FD from another thread (Zig Threaded Io panics on that BADF).
@@ -493,7 +491,8 @@ pub fn cmdClose(ctx: *Ctx, parsed: *Parsed) !u8 {
 
 pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
     _ = parsed;
-    const secret = ctx.ensureSecret() catch |err| return mapDialErr(err);
+    const secret = ctx.ensureSecret() catch |err|
+        return @import("../operability/identity.zig").refuseSecret(ctx.io, err, ctx.identity_path);
     const designator = secret.publicKey().toDesignator();
     const abort = if (ctx.session) |s| s.partnerAbort() else null;
     const front = switch (ctx.front) {

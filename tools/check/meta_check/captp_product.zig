@@ -950,6 +950,269 @@ pub fn checkCliCaptpDeadlines(
     }
 }
 
+/// A teaching surface must not demonstrate the unbounded wait.
+///
+/// `SessionOptions` defaults both budgets to zero, which means "wait forever".
+/// `cli/` is already refused that above, because there it is a hang. In an
+/// example it is worse than a hang: a reader copies it.
+///
+/// This asserts the positive — every call that opens a session names a budget
+/// — rather than matching the shape of a bad one. A first attempt looked for
+/// `, .{})` on the call's own line and so was blind to every real call in the
+/// tree, all of which wrap their arguments across lines.
+///
+/// Blank out every comment, keeping the source's byte offsets so reported line
+/// numbers still point at the right place. Zig has no block comments, so this
+/// is `//` to end of line, skipping the ones inside a string literal — a locator
+/// like `"tcp://host"` is not the start of a comment, and a naive scan that
+/// thinks it is truncates the argument list it was meant to read.
+fn blankComments(src: []u8) void {
+    var i: usize = 0;
+    while (i < src.len) {
+        switch (src[i]) {
+            '"' => {
+                i += 1;
+                while (i < src.len and src[i] != '"') : (i += 1) {
+                    if (src[i] == '\\') i += 1;
+                }
+                i += 1;
+            },
+            '\'' => {
+                i += 1;
+                while (i < src.len and src[i] != '\'') : (i += 1) {
+                    if (src[i] == '\\') i += 1;
+                }
+                i += 1;
+            },
+            '/' => {
+                if (i + 1 < src.len and src[i + 1] == '/') {
+                    while (i < src.len and src[i] != '\n') : (i += 1) src[i] = ' ';
+                } else i += 1;
+            },
+            else => i += 1,
+        }
+    }
+}
+
+/// Whether the value expression at the start of `value` is a positive integer.
+///
+/// The whole expression is read, not just its first token. "starts with a
+/// nonzero digit" accepts `10_000 - 10_000` and `10_000 * 0`, which are the
+/// zero this refuses wearing a disguise, so the digits must run all the way to
+/// the delimiter that ends the expression. An identifier is resolved once
+/// against the file's own top-level constants: a named, documented budget is
+/// the form an example *should* teach, and a check that only accepted literals
+/// would push every example toward a magic number.
+fn valuePositive(file: []const u8, value_expr: []const u8, allow_name: bool) bool {
+    // What may legally follow the value: the end of an argument, of a struct
+    // initializer, of a call, or of a declaration.
+    const ends = struct {
+        fn at(text: []const u8) bool {
+            const rest = std.mem.trimStart(u8, text, " \t\r\n");
+            return rest.len == 0 or rest[0] == ',' or rest[0] == '}' or rest[0] == ')' or rest[0] == ';';
+        }
+    }.at;
+    const value = std.mem.trimStart(u8, value_expr, " \t\r\n");
+    var digits: usize = 0;
+    var nonzero = false;
+    while (digits < value.len) : (digits += 1) {
+        const ch = value[digits];
+        if (ch == '_') continue;
+        if (!std.ascii.isDigit(ch)) break;
+        if (ch != '0') nonzero = true;
+    }
+    if (digits > 0) {
+        if (!nonzero) return false;
+        return ends(value[digits..]);
+    }
+    if (!allow_name) return false;
+
+    // An identifier, resolved against `const <name> ... = <literal>;`. One hop
+    // only: a constant defined in terms of another constant is past what a
+    // grep-shaped check should pretend to evaluate, and it fails closed.
+    var name_len: usize = 0;
+    while (name_len < value.len and (std.ascii.isAlphanumeric(value[name_len]) or value[name_len] == '_')) name_len += 1;
+    if (name_len == 0) return false;
+    if (!ends(value[name_len..])) return false;
+    const name = value[0..name_len];
+
+    var probe: usize = 0;
+    while (std.mem.indexOfPos(u8, file, probe, "const ")) |c| {
+        probe = c + "const ".len;
+        if (!std.mem.startsWith(u8, file[probe..], name)) continue;
+        const after = file[probe + name.len ..];
+        if (after.len == 0 or std.ascii.isAlphanumeric(after[0]) or after[0] == '_') continue;
+        const eq = std.mem.indexOfScalar(u8, after, '=') orelse continue;
+        // Only across the declaration's own type annotation, never past a
+        // newline into some later statement.
+        if (std.mem.indexOfScalar(u8, after[0..eq], '\n') != null) continue;
+        if (valuePositive(file, after[eq + 1 ..], false)) return true;
+    }
+    return false;
+}
+
+/// Whether `args` initializes `field` to a positive value.
+///
+/// The match must be a field initializer of exactly this name: a field whose
+/// name merely ends in the one being looked for is a different field, and
+/// accepting it is how a check reports coverage it does not have.
+fn initializedPositive(file: []const u8, args: []const u8, field: []const u8) bool {
+    var probe: usize = 0;
+    while (std.mem.indexOfPos(u8, args, probe, field)) |f| {
+        probe = f + field.len;
+        // `.handshake_timeout_ms`, not `my_handshake_timeout_ms` and not a
+        // longer name this one is a prefix of.
+        if (f == 0 or args[f - 1] != '.') continue;
+        if (probe < args.len and (std.ascii.isAlphanumeric(args[probe]) or args[probe] == '_')) continue;
+        const after_name = std.mem.trimStart(u8, args[probe..], " \t\r\n");
+        if (after_name.len == 0 or after_name[0] != '=') continue;
+        if (valuePositive(file, after_name[1..], true)) return true;
+    }
+    return false;
+}
+
+/// Whether the last argument of `args` is a positive value.
+///
+/// The buffer-explicit constructors take their handshake budget positionally,
+/// not as a field, so the field-shaped test above cannot see them at all. They
+/// are the openers that most need seeing: `acceptTcp` does not choose who
+/// connects to it, so an unbounded budget there is a stranger holding the
+/// accept for as long as it likes.
+fn lastArgumentPositive(file: []const u8, args: []const u8) bool {
+    // `zig fmt` requires a trailing comma once an argument list wraps, so the
+    // last comma of a multi-line call is followed by nothing. Trim it, or the
+    // check reports a violation the moment an example is reformatted.
+    const list = std.mem.trimEnd(u8, args, " \t\r\n,");
+    // The last top-level comma, so a nested call's arguments do not split this
+    // one.
+    var depth: usize = 0;
+    var last: ?usize = null;
+    for (list, 0..) |ch, i| switch (ch) {
+        '(', '[', '{' => depth += 1,
+        ')', ']', '}' => depth -|= 1,
+        ',' => if (depth == 0) {
+            last = i;
+        },
+        else => {},
+    };
+    const at = last orelse return false;
+    return valuePositive(file, list[at + 1 ..], true);
+}
+
+/// The argument list of a call whose opener ends at `at`, found by matching
+/// parens. Skips string and character literals, because a `(` inside a locator
+/// string would otherwise unbalance the walk and silently widen the result to
+/// the rest of the file — where some *other* call's budget could satisfy this
+/// one.
+fn callArguments(contents: []const u8, at: usize) []const u8 {
+    var depth: usize = 1;
+    var i = at;
+    while (i < contents.len and depth != 0) {
+        switch (contents[i]) {
+            '"', '\'' => {
+                const quote = contents[i];
+                i += 1;
+                while (i < contents.len and contents[i] != quote) : (i += 1) {
+                    if (contents[i] == '\\') i += 1;
+                }
+                i += 1;
+            },
+            '(' => {
+                depth += 1;
+                i += 1;
+            },
+            ')' => {
+                depth -= 1;
+                i += 1;
+            },
+            else => i += 1,
+        }
+    }
+    // Unbalanced. Return nothing rather than the rest of the file: a span that
+    // ran to the end would let some other call's budget satisfy this one, which
+    // is the check passing for a reason that has nothing to do with the call it
+    // was looking at. Empty reads as "no budget named", which is a violation.
+    if (depth != 0) return contents[0..0];
+    return contents[at..i -| 1];
+}
+
+pub fn checkExampleCaptpDeadlines(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    // Two shapes, because the surface has two. The owning constructors take a
+    // `SessionOptions` with both budgets as fields; the buffer-explicit ones
+    // take the handshake budget positionally, and their settle budget is set on
+    // the returned session afterwards.
+    const field_openers = [_][]const u8{ "driver.connect(", "driver.listen(" };
+    const positional_openers = [_][]const u8{ "driver.connectTcp(", "driver.acceptTcp(", "driver.connectUri(" };
+    var dir = root.openDir(io, "examples/zig", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "examples/zig: failed to open for CapTP-deadline check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const path = try std.fmt.allocPrint(gpa, "examples/zig/{s}", .{entry.path});
+        defer gpa.free(path);
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for CapTP-deadline check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        blankComments(contents);
+        for (field_openers) |opener| {
+            var at: usize = 0;
+            while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
+                at = hit + opener.len;
+                // The call's own argument list. Arguments wrap freely, so a
+                // line-scoped test sees nothing.
+                const args = callArguments(contents, at);
+                // Both budgets, and both positive: naming one while leaving
+                // the other at its zero default, or writing an explicit zero,
+                // is the same unbounded wait this refuses.
+                for ([_][]const u8{ "handshake_timeout_ms", "settle_timeout_ms" }) |field| {
+                    if (initializedPositive(contents, args, field)) continue;
+                    const line_no = std.mem.count(u8, contents[0..hit], "\n") + 1;
+                    try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a positive `{s}` — that budget defaults to 0, which waits forever, and a reader copies this line", .{ path, line_no, opener, field });
+                }
+            }
+        }
+        for (positional_openers) |opener| {
+            var at: usize = 0;
+            while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
+                at = hit + opener.len;
+                const args = callArguments(contents, at);
+                if (lastArgumentPositive(contents, args)) continue;
+                const line_no = std.mem.count(u8, contents[0..hit], "\n") + 1;
+                try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a positive handshake budget in its last argument — 0 waits forever, and a reader copies this line", .{ path, line_no, opener });
+            }
+            // The settle budget is not an argument of these: it is set on the
+            // session they return. This is file-scoped on purpose and the
+            // message says so — binding an assignment to the session a
+            // particular call returned means tracking the binding it was stored
+            // in, which is more Zig parsing than a scaffolding check should
+            // pretend to do. What it holds is that the file names one at all.
+            // `initializedPositive` alone: a field assignment on a session
+            // (`session.settle_timeout_ms = 10_000;`) has the same leading dot
+            // as a struct initializer, so it matches, and the value grammar
+            // still refuses a zero. Accepting the bare text `settle_timeout_ms =`
+            // as evidence would let `= 0` satisfy it, which is the unbounded
+            // wait passing the check written to refuse it.
+            if (std.mem.indexOf(u8, contents, opener) != null and
+                !initializedPositive(contents, contents, "settle_timeout_ms"))
+            {
+                try appendViolation(gpa, violations, "{s}: uses `{s}` and nowhere in the file sets a positive `settle_timeout_ms`, so every wait after the handshake waits forever", .{ path, opener });
+            }
+        }
+    }
+}
+
 /// Ctrl+C on `ocapn listen` must poll `waitAcceptable` rather than close the
 /// listen FD from another thread (Zig Threaded Io panics on that BADF).
 pub fn checkCliListenStopWake(
@@ -986,10 +1249,6 @@ pub fn checkCliListenStopWake(
         .{ .path = "cli/ocapn/mod.zig", .needle = "Closable", .why = "Closable closed the listen FD from the stop watcher (BADF panic); use waitAcceptable" },
         .{ .path = "cli/ocapn/mod.zig", .needle = "parked_in_accept", .why = "CapTP self-dial wake retired; poll Listener.waitAcceptable against the stop latch" },
         .{ .path = "cli/operability/signals.zig", .needle = "Closable", .why = "Closable name retired; StopWatch is MCP's stdin closer, not listen wake" },
-        // retire-by: the next rewrite of docs/boundaries.md — retire these
-        // two prose needles in that same diff.
-        .{ .path = "docs/boundaries.md", .needle = "shared Io closer", .why = "listen and mcp share only the stop latch, not an Io closer" },
-        .{ .path = "docs/boundaries.md", .needle = "dialing its own URI", .why = "listen stop polls waitAcceptable; CapTP self-dial wake is retired" },
     };
     for (tombstones) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(4 << 20)) catch |err| {
@@ -1120,4 +1379,112 @@ test "mentionsVerbInCode matches bare, call, and receiver-method phrasings" {
     // inside code does not satisfy the missing one.
     try std.testing.expect(!mentionsVerbInCode("you can tell it to stop", "tell"));
     try std.testing.expect(!mentionsVerbInCode("only `conn.close()` here", "serve"));
+}
+
+/// Hold the CLI to one JSON string escaper.
+///
+/// There were two, written a minute apart by two changes that each thought they
+/// were the only one. When the first was taught to handle bytes that are not
+/// text, the second kept writing unparseable JSON — and the second was the one
+/// recording what room members send, which is the least trusted input the CLI
+/// has. A duplicate escaper does not announce itself: both compile, both look
+/// right, and they disagree only on input nobody tests by hand.
+pub fn checkSingleJsonEscaper(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const definition = "fn writeJsonString(";
+    var found: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (found.items) |path| gpa.free(path);
+        found.deinit(gpa);
+    }
+
+    var dir = root.openDir(io, "cli", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "cli/: cannot open it to check the JSON escaper ({s})", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".zig")) continue;
+        const source = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch continue;
+        defer gpa.free(source);
+        if (std.mem.indexOf(u8, source, definition) == null) continue;
+        try found.append(gpa, try gpa.dupe(u8, entry.path));
+    }
+
+    if (found.items.len > 1) {
+        for (found.items) |path| {
+            try appendViolation(gpa, violations, "cli/{s}: defines `writeJsonString`, and so does another file under cli/. Keep one and alias it, so a fix to escaping reaches every caller.", .{path});
+        }
+    }
+}
+
+test "initializedPositive accepts only a positive literal that closes its own initializer" {
+    // The shape every real call in the tree uses.
+    try std.testing.expect(initializedPositive("", ".{ .handshake_timeout_ms = 10_000 }", "handshake_timeout_ms"));
+    try std.testing.expect(initializedPositive("", ".{\n    .settle_timeout_ms = 5000,\n}", "settle_timeout_ms"));
+
+    // The zero, however it is spelled.
+    try std.testing.expect(!initializedPositive("", ".{ .handshake_timeout_ms = 0 }", "handshake_timeout_ms"));
+    try std.testing.expect(!initializedPositive("", ".{ .handshake_timeout_ms = 0_000 }", "handshake_timeout_ms"));
+    try std.testing.expect(!initializedPositive("", ".{ .handshake_timeout_ms = @as(u32, 0) }", "handshake_timeout_ms"));
+    try std.testing.expect(!initializedPositive("", ".{}", "handshake_timeout_ms"));
+
+    // A positive-looking first token that is not the value. Reading the digits
+    // and stopping is how a check convinces itself an unbounded wait is bounded.
+    try std.testing.expect(!initializedPositive("", ".{ .handshake_timeout_ms = 10_000 - 10_000 }", "handshake_timeout_ms"));
+    try std.testing.expect(!initializedPositive("", ".{ .handshake_timeout_ms = 10 * factor }", "handshake_timeout_ms"));
+
+    // A different field whose name merely ends in this one.
+    try std.testing.expect(!initializedPositive("", ".{ .my_handshake_timeout_ms = 10_000 }", "handshake_timeout_ms"));
+    try std.testing.expect(!initializedPositive("", ".{ .handshake_timeout_ms_hint = 10_000 }", "handshake_timeout_ms"));
+}
+
+test "lastArgumentPositive survives the trailing comma zig fmt requires" {
+    try std.testing.expect(lastArgumentPositive("", "a, b, 10_000"));
+    // The same call, wrapped, which is how every real one is written.
+    try std.testing.expect(lastArgumentPositive("", "\n    a,\n    b,\n    10_000,\n"));
+    try std.testing.expect(!lastArgumentPositive("", "\n    a,\n    b,\n    0,\n"));
+}
+
+test "callArguments fails closed on an unbalanced call" {
+    // The opener is at index 8; the call never closes. Returning the rest of
+    // the file here is how a budget belonging to some later call comes to
+    // satisfy this one.
+    const src = "x = open(a, b\n.handshake_timeout_ms = 5,\n";
+    try std.testing.expectEqual(@as(usize, 0), callArguments(src, 9).len);
+    const closed = "x = open(a, .handshake_timeout_ms = 5)";
+    try std.testing.expect(callArguments(closed, 9).len > 0);
+}
+
+test "a settle budget assigned on the session is read, and a zero one refused" {
+    const positive = "var s = driver.connectTcp(a, b, 9);\ns.settle_timeout_ms = 10_000;";
+    try std.testing.expect(initializedPositive(positive, positive, "settle_timeout_ms"));
+    const zero = "var s = driver.connectTcp(a, b, 9);\ns.settle_timeout_ms = 0;";
+    try std.testing.expect(!initializedPositive(zero, zero, "settle_timeout_ms"));
+}
+
+test "blankComments erases comments without mistaking a locator for one" {
+    var src = "a // gone\n.handshake_timeout_ms = 1,".*;
+    blankComments(&src);
+    try std.testing.expect(std.mem.indexOf(u8, &src, "gone") == null);
+    try std.testing.expect(initializedPositive(&src, &src, "handshake_timeout_ms"));
+
+    // The `//` inside a string is not a comment: treating it as one would blank
+    // the rest of the argument list, and the budget in it would read as absent.
+    var uri = "\"tcp://host\", .{ .handshake_timeout_ms = 9 }".*;
+    blankComments(&uri);
+    try std.testing.expect(initializedPositive(&uri, &uri, "handshake_timeout_ms"));
+
+    // And a budget that only appears in a comment is not a budget.
+    var commented = "// .handshake_timeout_ms = 9\n.{}".*;
+    blankComments(&commented);
+    try std.testing.expect(!initializedPositive(&commented, &commented, "handshake_timeout_ms"));
 }

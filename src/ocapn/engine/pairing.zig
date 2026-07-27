@@ -6,12 +6,12 @@
 //! frame shuttle: each peer steps, the outbound frames it produced are fed into
 //! the partner's inbound queue, and the loop terminates when both peers reach
 //! `StepOutcome.idle` with no traffic in flight. After `paired` /
-//! `pairedGoblins` / `pairedWithKeys` returns, both peers sit in the canonical
+//! `pairedV1_0Syrup` / `pairedWithKeys` returns, both peers sit in the canonical
 //! `open` state (both handshake halves observed) with the bootstrap export
 //! installed at id 0.
 //!
 //! Offer jobs: `paired` runs `Offer.native()` (prefers `next` / Cap'n Proto);
-//! `pairedGoblins` and `pairedWithKeys` run `Offer.goblins()` (`v1_0` / Syrup).
+//! `pairedV1_0Syrup` and `pairedWithKeys` run `Offer.v1_0Syrup()` (`v1_0` / Syrup).
 //! Callers that need an arbitrary intersected offer use `negotiate` then
 //! `pairedNegotiated`.
 //!
@@ -25,6 +25,7 @@ const std = @import("std");
 const codec = @import("codec");
 const foundation = @import("foundation");
 const model = @import("model");
+const session = @import("session");
 const engine = @import("mod.zig");
 
 const crypto = foundation.crypto;
@@ -104,7 +105,7 @@ pub fn shuttleUntilQuiescent(p1: *Peer, p2: *Peer) !ShuttleOutcome {
 /// Construct a paired pair and drive the in-process handshake with stub-zero
 /// `session_pubkey` / `acceptable_location_sig` (the no-crypto fixture path).
 /// Settles `Offer.native()` — typically `next` / `"pancake-next"` over Cap'n
-/// Proto. Goblins-shaped fixtures use `pairedGoblins` instead. Both peers reach
+/// Proto. V1.0-floor (`v1_0` / Syrup) fixtures use `pairedV1_0Syrup` instead. Both peers reach
 /// `open` with handshake bookkeeping populated; the handshake-artifact events
 /// are drained so the caller sees empty event queues.
 pub fn paired(allocator: std.mem.Allocator) !Pair {
@@ -146,19 +147,19 @@ fn offersShareCaptpVersion(local: engine.negotiation.Offer, remote: engine.negot
     return false;
 }
 
-/// As `paired`, but both peers run `codec_id` under Goblins `v1_0` (full feature
-/// set). Cross-codec Goblins-shape parity uses this so resolver-callback
+/// As `paired`, but both peers run `codec_id` under `v1_0` (full feature
+/// set). Cross-codec V1.0 parity uses this so resolver-callback
 /// translation stays on; native Cap'n Proto without V1.0 translation goes
 /// through `paired` / `pairedWithOffers`.
 pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !Pair {
     return pairedWithCaptpVersionCodecAndFeatures(allocator, .v1_0, codec_id, model.FeatureSet.full());
 }
 
-/// Goblins-interop pairing: `Offer.goblins()` yields authenticated `v1_0` / `"1.0"`
+/// V1.0-floor pairing: `Offer.v1_0Syrup()` yields authenticated `v1_0` / `"1.0"`
 /// over Syrup (full feature set). Use this for fixtures and examples that must
 /// match live Goblins wire shape; `paired` is the pancake-forward CapNP path.
-pub fn pairedGoblins(allocator: std.mem.Allocator) !Pair {
-    return pairedWithOffers(allocator, engine.negotiation.Offer.goblins(model.FeatureSet.full()), engine.negotiation.Offer.goblins(model.FeatureSet.full()));
+pub fn pairedV1_0Syrup(allocator: std.mem.Allocator) !Pair {
+    return pairedWithOffers(allocator, engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()), engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()));
 }
 
 /// Shared body for stub-key pairing on an already-chosen CapTP version, codec,
@@ -170,6 +171,30 @@ fn pairedWithCaptpVersionCodecAndFeatures(
     codec_id: model.CodecId,
     features: model.FeatureSet,
 ) !Pair {
+    return pairedWithLimitsInternal(allocator, captp_version, codec_id, features, .{});
+}
+
+/// A pair whose sessions carry the given resource bounds.
+///
+/// The shipped defaults allow a million imports and a megabyte frame, which no
+/// short test can approach. A test that wants to prove a bound holds needs one
+/// it can actually reach, so it says which bounds it wants rather than reaching
+/// into `session_state` after the fact.
+pub fn pairedWithLimits(
+    allocator: std.mem.Allocator,
+    codec_id: model.CodecId,
+    limits: session.SessionLimits,
+) !Pair {
+    return pairedWithLimitsInternal(allocator, .v1_0, codec_id, model.FeatureSet.full(), limits);
+}
+
+fn pairedWithLimitsInternal(
+    allocator: std.mem.Allocator,
+    captp_version: model.CaptpVersion,
+    codec_id: model.CodecId,
+    features: model.FeatureSet,
+    limits: session.SessionLimits,
+) !Pair {
     // The stub-key handshake below signs nothing (zero key + zero sig), so
     // partner-signature verification cannot apply here, keyed tests construct
     // verifying peers and call `sendKeyedStartSession`.
@@ -177,6 +202,7 @@ fn pairedWithCaptpVersionCodecAndFeatures(
         .captp_version = captp_version,
         .codec = codec_id,
         .features = features,
+        .limits = limits,
         .verify_partner_handshake = false,
     });
     errdefer p1.deinit();
@@ -184,6 +210,7 @@ fn pairedWithCaptpVersionCodecAndFeatures(
         .captp_version = captp_version,
         .codec = codec_id,
         .features = features,
+        .limits = limits,
         .verify_partner_handshake = false,
     });
     errdefer p2.deinit();
@@ -217,12 +244,13 @@ pub fn pairedWithKeys(
     p1_seed: [crypto.SEED_BYTES]u8,
     p2_seed: [crypto.SEED_BYTES]u8,
 ) !Pair {
-    // Keyed handshake is the authenticated Goblins-interop path (ADR-0006):
-    // `v1_0` + Syrup. Native CapNP keyed pairs go through `pairedWithOffers`
+    // Keyed handshake is the authenticated `"1.0"` interop path (ADR-0006,
+    // the one live Goblins interop rides): `v1_0` + Syrup. Native CapNP
+    // keyed pairs go through `pairedWithOffers`
     // + `sendKeyedStartSession`.
     const negotiated = engine.negotiation.negotiate(
-        engine.negotiation.Offer.goblins(model.FeatureSet.full()),
-        engine.negotiation.Offer.goblins(model.FeatureSet.full()),
+        engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()),
+        engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()),
     ) orelse return Error.NoSharedCodec;
     var p1 = Peer.initNegotiatingWith(allocator, .{
         .captp_version = negotiated.captp_version,

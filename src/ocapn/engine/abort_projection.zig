@@ -123,6 +123,16 @@ pub fn classify(err: anyerror) Classification {
             .message = "handoff-receive replayed or out-of-order handoff-count",
             .disposition = .close,
         } },
+        // The receive's own names disagree with the ones derived from the
+        // gifter-signed give and this node's session key, so it does not belong
+        // to the conversation it claims. Same disposition as a replay: the
+        // partner is not speaking the protocol, and the counter it was reaching
+        // for is not its own.
+        error.InvalidHandoffSession => .{ .domain = .session, .abort = .{
+            .kind = .protocol_error,
+            .message = "handoff-receive names the wrong receiving session or side",
+            .disposition = .close,
+        } },
         // ── resource bounds to resource_exhausted (ADR-0025) ──────────
         // The session table caps plus the parse-stage nesting and stream
         // frame-size bounds, and the engine's drain-time local-delivery bound
@@ -135,6 +145,7 @@ pub fn classify(err: anyerror) Classification {
         error.DepositedGiftCapExceeded,
         error.PendingWithdrawCapExceeded,
         error.NestingTooDeep,
+        error.CompareBudgetExhausted,
         error.FrameTooLarge,
         error.LocalDeliveryCapExceeded,
         => .{ .domain = .session, .abort = .{

@@ -84,6 +84,12 @@ pub const PANCAKE_ERR_NOT_FOUND: i32 = -15;
 /// caller retries with a large enough buffer. Distinct from `_INVALID_ARGUMENT`
 /// (a malformed request) — the request is well-formed, the buffer is just short.
 pub const PANCAKE_ERR_BUFFER_TOO_SMALL: i32 = -16;
+/// A caller-set deadline elapsed: the handshake budget passed with no hello, or
+/// a blocking answer-wait's budget passed with no settle. Distinct from `_IO`
+/// (the socket itself failed) and `_SESSION` (the partner refused something) —
+/// nothing went wrong on the wire, the caller's own budget is what ended the
+/// wait, so a retry with a longer one is a reasonable response.
+pub const PANCAKE_ERR_TIMEOUT: i32 = -17;
 
 // ── Codec selector ───────────────────────────────────────────────────────────
 
@@ -342,23 +348,26 @@ pub fn ctxFromOpaque(context: ?*PancakeContext) ?*Context {
 // The Zig side would otherwise hide the concrete `ReadFailed` / `WriteFailed`
 // behind a flat `PANCAKE_ERR_IO`. This per-thread slot re-exposes it: a function
 // that returns `_IO` first records a human-readable cause here. Each library
-// that imports this leaf compiles its own copy of the slot, so libpancake_ocapn and
-// libpancake_net_transport_iroh keep independent last-error state, read each through its own
-// reader (`pancake_last_error` / `pancake_iroh_last_error`).
+// that imports this leaf compiles its own copy of the slot, so every archive
+// keeps independent last-error state, read through its own family's reader
+// (`pancake_last_error`, `pancake_tcp_last_error`, and the rest).
 
 threadlocal var last_error_buf: [256]u8 = undefined;
 threadlocal var last_error_len: usize = 0;
 
 pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
-    const written = std.fmt.bufPrint(&last_error_buf, fmt, args) catch blk: {
-        // Message longer than the slot: keep the truncated prefix.
-        break :blk last_error_buf[0..];
-    };
-    last_error_len = written.len;
+    // A fixed writer reports exactly how many bytes it wrote, including on
+    // overflow. `bufPrint`'s `NoSpaceLeft` leaves an unspecified prefix, so
+    // taking the whole buffer there would publish the uninitialized tail of
+    // this threadlocal to the C caller — and these messages format
+    // partner-supplied designators.
+    var w = std.Io.Writer.fixed(&last_error_buf);
+    w.print(fmt, args) catch {};
+    last_error_len = w.end;
 }
 
-/// Copy the calling thread's last error message into `out_buf` (the body of the
-/// `pancake_last_error` / `pancake_iroh_last_error` exports). Copies at most
+/// Copy the calling thread's last error message into `out_buf`. Every archive's
+/// `pancake_*_last_error` export is one call to this. Copies at most
 /// `cap - 1` bytes and always NUL-terminates when `cap > 0`. Returns the full
 /// message length.
 pub fn lastErrorRead(out_buf: ?[*]u8, cap: usize) usize {

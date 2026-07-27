@@ -8,7 +8,10 @@ import { toActive } from "./render.ts";
 // ── Composer ──────────────────────────────────────────────────────────────
 export function autoGrow() {
 	lineInput.style.height = "auto";
-	lineInput.style.height = Math.min(lineInput.scrollHeight, 140) + "px";
+	// The cap is the stylesheet's `max-height`, read rather than repeated: two
+	// copies of one number drift the moment either moves.
+	const cap = parseFloat(getComputedStyle(lineInput).maxHeight) || Infinity;
+	lineInput.style.height = Math.min(lineInput.scrollHeight, cap) + "px";
 }
 
 // ── Typing signal ───────────────────────────────────────────────────────────

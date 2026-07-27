@@ -5,9 +5,12 @@
 //! Cap'n Proto borrowed decode plus owned projection (the traversal-budget and
 //! pointer-arithmetic paths), and the Syrup owned materializer (`decodeOwned`,
 //! the multi-allocation partial-failure cleanup path). Under a plain
-//! `zig build test` each block replays its seed corpus (plus an empty input);
-//! under `zig build test --fuzz` the same blocks become live fuzzers — no
-//! separate build step.
+//! `zig build test` each block replays its seeds without mutating them, which
+//! is how a crash the fuzzer once found stays caught.
+//!
+//! `zig build fuzz` turns the same blocks into live mutation fuzzers. It needs
+//! a patched copy of Zig's test runner, which does not compile in fuzz mode in
+//! this release; `build.zig` explains that where it wires the copy in.
 //!
 //! The contract per entrypoint: an arbitrary byte string never panics and
 //! never leaks (everything runs under `std.testing.allocator`, which fails the
@@ -16,10 +19,12 @@
 //! crossing must reproduce the same bytes exactly (the ADR-0010 perspective
 //! flip is an involution, so two crossings are a fixed point).
 //!
-//! Seeds: the checked-in Syrup fixture corpus under `test/oracle/corpus/*.bin`
-//! is the natural corpus for the Syrup entrypoints (a spread is embedded
-//! below; point a long fuzzing run at the whole directory). Cap'n Proto has no
-//! checked-in byte corpus, so its seeds are encoder output built in the test.
+//! Seeds: the whole checked-in Syrup corpus under `test/oracle/corpus/*.bin`,
+//! plus every input the fuzzer has found so far under `fuzz_regressions/`. A
+//! build check holds both lists against their directories, so a file that is
+//! not wired in fails rather than sitting there looking like coverage. Cap'n
+//! Proto has no checked-in byte corpus, so its seeds are encoder output built
+//! in the test.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -29,29 +34,23 @@ const model = pancake.ocapn.model;
 const syrup = pancake.ocapn.codec.syrup;
 const capnp = pancake.ocapn.codec.capnp;
 
+/// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
+/// caught cannot come back quietly. `zig build fuzz` prints what to add when it
+/// finds one.
+const regression_seeds = [_][]const u8{};
+
 /// Upper bound on one fuzz input. Large enough to cover every corpus frame and
 /// deeply nested hostile constructions; small enough that the fuzzer spends
 /// its budget on structure, not bulk.
 const max_input = 4096;
 
-/// `Smith.slice` replays a corpus entry by reading a little-endian u32 length
-/// ahead of the slice bytes, so a seed is its frame prefixed with the frame's
-/// length.
-fn seed(comptime frame: []const u8) []const u8 {
-    const entry: [4 + frame.len]u8 = comptime blk: {
-        var len_buf: [4]u8 = undefined;
-        std.mem.writeInt(u32, &len_buf, @as(u32, @intCast(frame.len)), .little);
-        break :blk len_buf ++ frame[0..frame.len].*;
-    };
-    return &entry;
-}
-
-/// Runtime sibling of `seed`, for seeds produced by an encoder in the test.
-fn runtimeSeed(buf: []u8, frame_bytes: []const u8) []const u8 {
-    std.mem.writeInt(u32, buf[0..4], @intCast(frame_bytes.len), .little);
-    @memcpy(buf[4..][0..frame_bytes.len], frame_bytes);
-    return buf[0 .. 4 + frame_bytes.len];
-}
+/// The shared seed corpus, so every fuzz target starts from the same shapes.
+/// See `test/support/corpus_seeds.zig` for why they live in one place.
+const corpus = @import("../support/corpus_seeds.zig");
+const message_seeds = corpus.message_seeds;
+const corpus_seeds = corpus.all ++ regression_seeds;
+const seed = corpus.seed;
+const runtimeSeed = corpus.runtimeSeed;
 
 /// Re-encoding a decoded message may refuse through the codec's typed refusals
 /// (e.g. a decoded `near` deliver target never re-enters the wire — the
@@ -61,6 +60,15 @@ fn runtimeSeed(buf: []u8, frame_bytes: []const u8) []const u8 {
 fn swallowRefusal(err: anyerror) anyerror!void {
     if (err == error.OutOfMemory) return error.OutOfMemory;
 }
+
+/// An allocator that runs out of memory where the fuzzer says, shared with the
+/// other targets. `test/support/fuzz_budget.zig` explains why it earns its
+/// place; the span here is a decoder's worth of allocations.
+const Budget = @import("../support/fuzz_budget.zig").Budget;
+
+/// Structural message equality, shared with the fixed cross-codec fixtures.
+const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
+const decode_span: u16 = 512;
 
 /// Round-trip totality from a successfully decoded message: its re-encoding
 /// (when the codec admits it) must decode, and one further crossing must land
@@ -86,10 +94,23 @@ fn expectReencodeStability(comptime codec: anytype, gpa: std.mem.Allocator, firs
     try std.testing.expectEqualSlices(u8, frame1.bytes(), frame3.bytes());
 }
 
-fn syrupStreamingOne(_: void, smith: *std.testing.Smith) anyerror!void {
+/// The whole Syrup decode surface: the framer, the whole-frame entry, and the
+/// round trip out of both.
+///
+/// These were two targets. `decodeOwned` is `decodeBody` followed by `toOwned`,
+/// and `decodePrefix` reaches `toOwned` too, so the two searched one spine with
+/// half a budget each and two corpora that could not see each other's finds.
+/// The only thing the second had that the first did not is the whole-frame
+/// entry point, which is four lines at the end here.
+///
+/// The framer runs on every input before anything else, so its verdicts keep
+/// their share of the feedback even when the search drifts towards inputs that
+/// decode.
+fn syrupOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var buf: [max_input]u8 = undefined;
     const input = buf[0..smith.slice(&buf)];
-    const gpa = std.testing.allocator;
+    var budget = Budget.draw(smith, decode_span);
+    const gpa = budget.allocator();
 
     // Two caps: the small one forces the cap-during-scan verdicts (ADR-0029)
     // onto structurally valid frames too; the large one lets them through to
@@ -100,41 +121,114 @@ fn syrupStreamingOne(_: void, smith: *std.testing.Smith) anyerror!void {
             .decoded => |decoded| {
                 try std.testing.expect(decoded.consumed <= input.len);
                 try std.testing.expect(decoded.consumed <= cap);
-                const first = decoded.body.toOwned(gpa) catch |err| return swallowRefusal(err);
+                const first = decoded.body.toOwned(gpa) catch |err| return budget.refusalEndsIt(err);
                 defer model.freeMessage(gpa, first);
-                try expectReencodeStability(syrup, gpa, first);
+                expectReencodeStability(syrup, gpa, first) catch |err| return budget.onlyInducedFailure(err);
             },
             .incomplete, .malformed, .too_large => {},
         }
     }
+
+    // The whole-frame entry, which the framer above never takes: it decodes
+    // from a cursor, this one from a frame that is claimed to be complete.
+    const owned = syrup.decodeOwned(gpa, .{ .bytes = input, .shape = .byte }) catch |err| return budget.refusalEndsIt(err);
+    defer model.freeMessage(gpa, owned);
+    expectReencodeStability(syrup, gpa, owned) catch |err| return budget.onlyInducedFailure(err);
+
+    expectCodecsAgree(gpa, owned) catch |err| return budget.onlyInducedFailure(err);
+}
+
+/// The two codecs read the same message out of what they each wrote.
+///
+/// This is the claim the cross-codec fixtures make, checked against messages
+/// the fuzzer found rather than the handful somebody thought to write down. A
+/// codec pair that disagrees is an interop split: two peers holding the same
+/// capability graph, differing about what a partner just said, and neither one
+/// wrong on its own terms.
+///
+/// Both sides are encoded and decoded once, so the perspective flip decode
+/// performs applies equally to each and the two are comparable. Encoding may
+/// legitimately refuse — a decoded near target never re-enters the wire — and a
+/// refusal ends the property rather than failing it.
+///
+/// One difference is deliberately outside the comparison, and it is worth
+/// naming because it is real. Syrup spells a reference to one of our own
+/// exports `<desc:export N>`, which ADR-0010 says carries no object-or-promise
+/// signal at all: the receiving session is the authority on its own export's
+/// kind, so Syrup always reads one back as an object. Cap'n Proto's form does
+/// carry the distinction, so it reads back what was sent. Feeding
+/// `op_resolve_fulfill_import_promise` through both is enough to see it.
+///
+/// Whether that is Cap'n Proto being richer than the wire needs, or a place the
+/// two ought to be made to agree, is a protocol question and not one a test
+/// should settle by choosing the answer that makes it pass. Until it is
+/// settled, the comparison holds the codecs to everything the narrower form can
+/// carry and says here what it does not.
+fn expectCodecsAgree(gpa: std.mem.Allocator, message: model.Message) anyerror!void {
+    var as_syrup = syrup.encodeMessage(gpa, message) catch |err| return swallowRefusal(err);
+    defer as_syrup.deinit();
+    var as_capnp = capnp.encodeMessage(gpa, message) catch |err| return swallowRefusal(err);
+    defer as_capnp.deinit();
+
+    const via_syrup = try syrup.decodeOwned(gpa, as_syrup.view());
+    defer model.freeMessage(gpa, via_syrup);
+    const via_capnp = try capnp.decodeOwned(gpa, as_capnp.view());
+    defer model.freeMessage(gpa, via_capnp);
+
+    try std.testing.expect(messagesEqual(neutralizeNearKind(via_syrup), neutralizeNearKind(via_capnp)));
+}
+
+/// Read a resolution's near reference back as an object, which is what the
+/// narrower of the two wire forms can say. Everything else is compared as it
+/// stands.
+fn neutralizeNearKind(message: model.Message) model.Message {
+    var out = message;
+    switch (out) {
+        .resolve => |*resolve| switch (resolve.resolution) {
+            .fulfill => |*arg| switch (arg.*) {
+                .reference => |*reference| switch (reference.*) {
+                    .near => |*near| near.kind = .object,
+                    else => {},
+                },
+                else => {},
+            },
+            else => {},
+        },
+        else => {},
+    }
+    return out;
 }
 
 /// Every seed's frame part must still decode, otherwise the corpus silently
 /// stops seeding the success paths (the length prefix is `seed`'s replay
 /// framing, not part of the frame).
-fn ratifySyrupSeeds(seeds: []const []const u8) !void {
-    for (seeds) |entry| {
+fn ratifySyrupSeeds(entries: []const []const u8) !void {
+    for (entries) |entry| {
         try std.testing.expect(syrup.decodePrefix(entry[4..], max_input) == .decoded);
     }
 }
 
-test "fuzz: syrup streaming decode and cap-on-parse are total over arbitrary bytes" {
-    const seeds = [_][]const u8{
-        seed(@embedFile("../oracle/corpus/op_deliver.bin")),
-        seed(@embedFile("../oracle/corpus/op_abort.bin")),
-        seed(@embedFile("../oracle/corpus/op_gc_exports.bin")),
-        seed(@embedFile("../oracle/corpus/op_deliver_arg_set.bin")),
-        seed(@embedFile("../oracle/corpus/op_handoff_receive.bin")),
-        seed(@embedFile("../oracle/corpus/op_get.bin")),
-    };
-    try ratifySyrupSeeds(seeds[0..]);
-    try std.testing.fuzz({}, syrupStreamingOne, .{ .corpus = seeds[0..] });
+test "fuzz: syrup decode is total over arbitrary bytes and round-trips what it accepts" {
+    try ratifySyrupSeeds(message_seeds[0..]);
+    // `corpus_seeds` is the shared shapes plus `regression_seeds`.
+    try std.testing.fuzz({}, syrupOne, .{ .corpus = corpus_seeds[0..] });
 }
 
+/// The whole Cap'n Proto decode surface: the header-word arithmetic, the
+/// traversal-budget charge pass, and the owned projection.
+///
+/// These were two targets, and the framer one threw away the body it had
+/// already decoded — `decodePrefix` calls `decodeBody` on the way to a
+/// `.decoded` verdict. So it was this target minus the interesting half, plus
+/// the length arithmetic, running on its own budget against its own corpus.
+///
+/// The cap loop runs on every input before the projection, so the framing
+/// verdicts keep their share of the feedback.
 fn capnpOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var raw: [max_input]u8 = undefined;
     const input = raw[0..smith.slice(&raw)];
-    const gpa = std.testing.allocator;
+    var budget = Budget.draw(smith, decode_span);
+    const gpa = budget.allocator();
 
     // A Cap'n Proto frame is word storage: copy into an aligned buffer and
     // truncate to whole words, the shape the netlayer guarantees before the
@@ -144,16 +238,30 @@ fn capnpOne(_: void, smith: *std.testing.Smith) anyerror!void {
     @memcpy(words[0..word_len], input[0..word_len]);
     const frame = foundation.FrameView{ .bytes = words[0..word_len], .shape = .word };
 
+    // Two caps, the same pair the Syrup framer is fuzzed at. The small one
+    // forces the cap verdict onto frames that are otherwise well formed. A
+    // length that reaches past the buffer, or past the cap that admitted it, is
+    // how a length-prefixed framer hands the layer above storage nobody filled.
+    for ([_]usize{ 64, max_input }) |cap| {
+        switch (capnp.decodePrefix(frame.bytes, cap)) {
+            .decoded => |decoded| {
+                try std.testing.expect(decoded.consumed <= frame.bytes.len);
+                try std.testing.expect(decoded.consumed <= cap);
+            },
+            .incomplete, .malformed, .too_large => {},
+        }
+    }
+
     // `decodeBody` runs the eager traversal-budget charge pass over the raw
     // pointer graph; `toOwned` then exercises the lazy view walks and the
     // multi-allocation materializer.
     const body = capnp.decodeBody(frame) catch return;
-    const first = body.toOwned(gpa) catch |err| return swallowRefusal(err);
+    const first = body.toOwned(gpa) catch |err| return budget.refusalEndsIt(err);
     defer model.freeMessage(gpa, first);
-    try expectReencodeStability(capnp, gpa, first);
+    expectReencodeStability(capnp, gpa, first) catch |err| return budget.onlyInducedFailure(err);
 }
 
-test "fuzz: capnp decodeBody and owned projection are total over arbitrary word frames" {
+test "fuzz: capnp decode is total over arbitrary word frames and round-trips what it accepts" {
     const gpa = std.testing.allocator;
 
     const args = [_]model.Argument{ .{ .bytes = "hello" }, .{ .integer = 7 } };
@@ -171,34 +279,41 @@ test "fuzz: capnp decodeBody and owned projection are total over arbitrary word 
 
     var buf0: [4 + 256]u8 = undefined;
     var buf1: [4 + 256]u8 = undefined;
-    try std.testing.fuzz({}, capnpOne, .{ .corpus = &.{
-        runtimeSeed(&buf0, deliver_frame.bytes()),
-        runtimeSeed(&buf1, resolve_frame.bytes()),
-    } });
+    // The regressions ride along with the shaped seeds. Without them a crash
+    // this target found and an author saved has no way back into the ordinary
+    // suite, which is the whole point of keeping the file.
+    var corpus_with_regressions: [2 + regression_seeds.len][]const u8 = undefined;
+    corpus_with_regressions[0] = runtimeSeed(&buf0, deliver_frame.bytes());
+    corpus_with_regressions[1] = runtimeSeed(&buf1, resolve_frame.bytes());
+    for (regression_seeds, 0..) |entry, i| corpus_with_regressions[2 + i] = entry;
+    try std.testing.fuzz({}, capnpOne, .{ .corpus = corpus_with_regressions[0..] });
 }
 
-fn syrupOwnedOne(_: void, smith: *std.testing.Smith) anyerror!void {
+fn handoffGiveOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var buf: [max_input]u8 = undefined;
     const input = buf[0..smith.slice(&buf)];
     const gpa = std.testing.allocator;
 
-    // `decodeOwned` is the multi-allocation materializer: a mid-tree failure
-    // must release every partial allocation, which `std.testing.allocator`
-    // ratifies by failing the test on a leak.
-    const first = syrup.decodeOwned(gpa, .{ .bytes = input, .shape = .byte }) catch |err| return swallowRefusal(err);
-    defer model.freeMessage(gpa, first);
-    try expectReencodeStability(syrup, gpa, first);
+    // These bytes reach the signature check, so a parser slip here is a slip in
+    // the one place a third party's claim is weighed. The decode allocates in
+    // several steps, and a refusal partway has to release what it took.
+    if (syrup.decodeSignedHandoffGiveOwned(gpa, input)) |give| {
+        model.freeHandoffGive(gpa, give);
+    } else |_| {}
+
+    // The span is what gets relayed onward verbatim, so it has to point inside
+    // the bytes it was found in. A span that reaches past them would hand a
+    // partner storage from somewhere else entirely.
+    if (syrup.spanSignedHandoffGive(input)) |span| {
+        try std.testing.expect(span.len <= input.len);
+        try std.testing.expect(@intFromPtr(span.ptr) >= @intFromPtr(input.ptr));
+        try std.testing.expect(@intFromPtr(span.ptr) + span.len <= @intFromPtr(input.ptr) + input.len);
+    }
 }
 
-test "fuzz: syrup owned decode cleans up partial failures and round-trips successes" {
-    const seeds = [_][]const u8{
-        seed(@embedFile("../oracle/corpus/op_deliver.bin")),
-        seed(@embedFile("../oracle/corpus/op_deliver_arg_big_integer.bin")),
-        seed(@embedFile("../oracle/corpus/op_deliver_arg_tagged.bin")),
-        seed(@embedFile("../oracle/corpus/op_handoff_give.bin")),
-        seed(@embedFile("../oracle/corpus/op_start_session_v1_0.bin")),
-        seed(@embedFile("../oracle/corpus/op_listen_promise_target.bin")),
-    };
-    try ratifySyrupSeeds(seeds[0..]);
-    try std.testing.fuzz({}, syrupOwnedOne, .{ .corpus = seeds[0..] });
+test "fuzz: handoff give decode and span stay inside the bytes they were given" {
+    const give = seed(@embedFile("../oracle/corpus/op_handoff_give.bin"));
+    const receive = seed(@embedFile("../oracle/corpus/op_handoff_receive.bin"));
+    // Plus the regressions, for the reason the target above gives.
+    try std.testing.fuzz({}, handoffGiveOne, .{ .corpus = ([_][]const u8{ give, receive } ++ regression_seeds)[0..] });
 }

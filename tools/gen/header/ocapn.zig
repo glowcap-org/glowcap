@@ -26,7 +26,7 @@ const error_consts = [_][]const u8{
     "PANCAKE_ERR_IO",               "PANCAKE_ERR_MALFORMED",
     "PANCAKE_ERR_FRAME_TOO_LARGE",  "PANCAKE_ERR_UNSUPPORTED_VALUE",
     "PANCAKE_ERR_BROKEN",           "PANCAKE_ERR_NOT_FOUND",
-    "PANCAKE_ERR_BUFFER_TOO_SMALL",
+    "PANCAKE_ERR_BUFFER_TOO_SMALL", "PANCAKE_ERR_TIMEOUT",
 };
 const discriminant_consts = [_][]const u8{
     "PANCAKE_CODEC_SYRUP",            "PANCAKE_CODEC_CAPNP",
@@ -82,6 +82,7 @@ const const_doc_entries = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_ERR_BROKEN", .doc = "A partner broke a promise. The sans-io libpancake_ocapn surface never returns this: a break arrives there as a PANCAKE_RESOLUTION_BREAK resolve event. The owning-session transport surfaces do return it — pancake_tcp_session_fetch (pancake_net_transport_tcp.h) reports a partner break this way, and any future transport twin the same — and bindings reuse the code for that meaning." },
     .{ .name = "PANCAKE_ERR_NOT_FOUND", .doc = "A well-formed lookup found nothing: pancake_locator_hint named a key absent from the locator. Distinct from _INVALID_ARGUMENT (a malformed request)." },
     .{ .name = "PANCAKE_ERR_BUFFER_TOO_SMALL", .doc = "A caller-provided output buffer was too small for the value being written. The call still reports the required length in its out_len parameter, so a caller retries with a large enough buffer. Distinct from _INVALID_ARGUMENT (a malformed request)." },
+    .{ .name = "PANCAKE_ERR_TIMEOUT", .doc = "A caller-set deadline elapsed: a handshake budget passed with no hello, or a blocking answer-wait's budget passed with no settle. Distinct from _IO (the socket itself failed) and _SESSION (the partner refused something) — nothing went wrong on the wire, the caller's own budget ended the wait, so retrying with a longer one is reasonable." },
     .{ .name = "PANCAKE_FRAME_SHAPE_WORD", .doc = "Word-aligned storage: pointer 8-byte aligned, length divisible by 8; anything else is PANCAKE_ERR_INVALID_ARGUMENT." },
     .{ .name = "PANCAKE_EVENT_NONE", .doc = "The no-event sentinel pancake_event_release zeroes a released event's kind to; never returned by a successful poll." },
     .{ .name = "PANCAKE_CODEC_SYRUP", .doc = "codec for pancake_peer_new_negotiated and the transport endpoints: Syrup. The session's grammar and the endpoint's framing must carry the same value." },
@@ -231,11 +232,14 @@ comptime {
     E.guardFns("c_abi", "pancake_");
 }
 
-pub const header_path = "include/pancake_ocapn.h";
+const Output = @import("output").Output;
+pub const outputs = [_]Output{
+    .{ .path = "include/pancake_ocapn.h", .generate = generate },
+};
 pub const step_name = "gen-header-ocapn";
 
 /// Build the full header text. Caller owns the returned bytes.
-pub fn generate(gpa: std.mem.Allocator) ![]u8 {
+fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: Buf = .empty;
     errdefer b.deinit(gpa);
 
@@ -284,6 +288,12 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\host. examples/c/echo_peer.c is a complete in-memory conversation built
         \\from exactly those calls, and docs/consuming-from-c.md is the guided
         \\route from build to first program.
+        \\
+        \\A capability is published and fetched behind a swissnum: an unguessable
+        \\secret byte string that names one exported object. It is not a
+        \\human-chosen public label; both peers learn it out of band, and knowing
+        \\it is the authority to reach that object. A sturdyref is a peer locator
+        \\plus a swissnum, so it names a specific capability on a specific peer.
         \\
         \\There are two inbound models; pick one per loop and do not mix them. One
         \\dispatches synchronously as bytes arrive: pancake_peer_recv_borrowed takes
@@ -423,7 +433,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     try line(&b, gpa, "#define PANCAKE_REDEEMED_TOKEN_BASE {d}ULL", .{c.PANCAKE_REDEEMED_TOKEN_BASE});
     try emitFn(&b, gpa, "pancake_peer_register_bootstrap_cap", &.{ "peer", "swissnum", "swissnum_len", "out_export_position" }, "Expose a local capability behind `swissnum` for inbound bootstrap-fetch;\nwrites the allocated export position. `swissnum` is borrowed.");
-    try emitFn(&b, gpa, "pancake_peer_send_bootstrap_fetch", &.{ "peer", "name", "name_len", "out_answer" }, "Ask the partner's bootstrap object for the capability published behind\n`name`: registers the bootstrap import if needed, allocates the answer from\nthe session's one answer allocator, and queues the canonical fetch deliver.\nThe question id lands in `out_answer`; the partner's resolution arrives as a\nPANCAKE_EVENT_RESOLVE keyed on it. `name` is borrowed for the call.");
+    try emitFn(&b, gpa, "pancake_peer_send_bootstrap_fetch", &.{ "peer", "name", "name_len", "out_answer" }, "Ask the partner's bootstrap object for the capability published behind\n`name` (the same swissnum the partner registered it under with\npancake_peer_register_bootstrap_cap; the two must byte-equal): registers the\nbootstrap import if needed, allocates the answer from the session's one\nanswer allocator, and queues the canonical fetch deliver. The question id\nlands in `out_answer`; the partner's resolution arrives as a\nPANCAKE_EVENT_RESOLVE keyed on it. `name` is borrowed for the call.");
     try b.appendSlice(gpa, "\n");
     try emitStruct(&b, gpa, c.PancakeEnlivenStart, "PancakeEnlivenStart", &.{
         "a PANCAKE_ENLIVEN_* status selecting the live fields",

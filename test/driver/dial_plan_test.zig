@@ -123,3 +123,28 @@ test "planAccept iroh: signs the node id, carries no hint" {
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }
+
+test "planDial webrtc: a key designator produces a signaling plan" {
+    const plan = try planDial(transport.webrtc, key_designator, "", .redeem);
+    try std.testing.expectEqual(Shape.signaling, std.meta.activeTag(plan));
+}
+
+test "planDial webrtc: ignores the direct-addresses hint" {
+    const plan = try planDial(transport.webrtc, key_designator, "1.2.3.4:5", .redeem);
+    try std.testing.expectEqual(Shape.signaling, std.meta.activeTag(plan));
+}
+
+test "planDial webrtc: ignores posture (webrtc has no reachability knob)" {
+    const plan = try planDial(transport.webrtc, key_designator, "", .{ .explicit = 3 });
+    try std.testing.expectEqual(Shape.signaling, std.meta.activeTag(plan));
+}
+
+test "planDial webrtc: a non-key designator is DesignatorNotPeerKey" {
+    try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.webrtc, "not-a-key", "", .redeem));
+}
+
+test "planAccept webrtc: signs the server key, carries no hint" {
+    const plan = planAccept(transport.webrtc, key_designator, "127.0.0.1:7000");
+    try std.testing.expectEqualStrings(key_designator, plan.designator);
+    try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
+}

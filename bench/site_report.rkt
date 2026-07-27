@@ -21,11 +21,16 @@
          codec-region peer-region frameview-region goblins-region snapshot-region iroh-region langs-region)
 
 ;; ── Palette (site assets/style.css) ──────────────────────────────────────────
-(define TEAL "#257f88")   ; Goblins / Syrup
-(define AMBER "#c76f18")  ; pancake / Cap'n Proto
-(define GREEN "#4f8a5b")  ; pancake + time-travel (third goblins-compare series)
-(define INK "#3a3027")
-(define SOFT "#6b5d4d")
+;; Each colour is written as a custom property with the literal it replaced as
+;; the fallback. The charts are emitted inline into the page, so they read the
+;; site's tokens directly and follow the theme; the fallback is what the light
+;; theme resolves to anyway, and it is also what renders if these are ever
+;; viewed outside the page.
+(define TEAL "var(--teal, #257f88)")           ; Goblins / Syrup
+(define AMBER "var(--accent, #c76f18)")        ; pancake / Cap'n Proto
+(define GREEN "var(--dia-green, #4f8a5b)")     ; pancake + time-travel (third goblins-compare series)
+(define INK "var(--ink, #3a3027)")
+(define SOFT "var(--ink-soft, #6b5d4d)")
 
 (define PERF "site/content/performance.smd")
 (define REPORTS "zig-out/bench-reports")
@@ -160,7 +165,7 @@
   (define maxv (apply max 0.0001 (append* (map caddr series))))
   (define o (open-output-string))
   (define (p . xs) (for ([x (in-list xs)]) (display x o)) (newline o))
-  (p "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " W " " H "\" font-family=\"system-ui,-apple-system,sans-serif\" role=\"img\">")
+  (p "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " W " " H "\" font-family=\"var(--font-sans, system-ui, -apple-system, sans-serif)\" role=\"img\">")
   (p "<line x1=\"" padL "\" y1=\"" base "\" x2=\"" (- W padR) "\" y2=\"" base "\" stroke=\"" INK "\" stroke-width=\"1.2\"/>")
   (for ([g (in-list groups)] [i (in-naturals)])
     (define cx (+ padL (* gw (+ i 0.5))))

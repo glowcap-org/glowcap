@@ -3,21 +3,9 @@
 const std = @import("std");
 const registry = @import("../registry.zig");
 const types = @import("../cmd/types.zig");
+const argv = @import("../argv.zig");
 
 const Parsed = types.Parsed;
-
-fn appendJsonString(out: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
-    try out.append(gpa, '"');
-    for (s) |c| switch (c) {
-        '"' => try out.appendSlice(gpa, "\\\""),
-        '\\' => try out.appendSlice(gpa, "\\\\"),
-        '\n' => try out.appendSlice(gpa, "\\n"),
-        '\r' => try out.appendSlice(gpa, "\\r"),
-        '\t' => try out.appendSlice(gpa, "\\t"),
-        else => try out.append(gpa, c),
-    };
-    try out.append(gpa, '"');
-}
 
 /// Append the JSON Schema object for one CapTP leaf (no surrounding commas).
 pub fn appendInputSchema(out: *std.ArrayList(u8), gpa: std.mem.Allocator, cmd: *const registry.Command) !void {
@@ -27,27 +15,27 @@ pub fn appendInputSchema(out: *std.ArrayList(u8), gpa: std.mem.Allocator, cmd: *
         if (!registry.flagVisibleMcp(f)) continue;
         if (!first) try out.append(gpa, ',');
         first = false;
-        try appendJsonString(out, gpa, f.long);
+        try argv.writeJsonString(out, gpa, f.long);
         try out.appendSlice(gpa, ":{\"type\":\"");
         try out.appendSlice(gpa, switch (f.kind) {
             .bool_flag => "boolean",
             .string_flag => "string",
         });
         try out.appendSlice(gpa, "\",\"description\":");
-        try appendJsonString(out, gpa, f.help);
+        try argv.writeJsonString(out, gpa, f.help);
         try out.append(gpa, '}');
     }
     for (cmd.positionals) |p| {
         if (!first) try out.append(gpa, ',');
         first = false;
-        try appendJsonString(out, gpa, p.name);
+        try argv.writeJsonString(out, gpa, p.name);
         if (p.variadic) {
             try out.appendSlice(gpa, ":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":");
-            try appendJsonString(out, gpa, p.help);
+            try argv.writeJsonString(out, gpa, p.help);
             try out.append(gpa, '}');
         } else {
             try out.appendSlice(gpa, ":{\"type\":\"string\",\"description\":");
-            try appendJsonString(out, gpa, p.help);
+            try argv.writeJsonString(out, gpa, p.help);
             try out.append(gpa, '}');
         }
     }
@@ -57,7 +45,7 @@ pub fn appendInputSchema(out: *std.ArrayList(u8), gpa: std.mem.Allocator, cmd: *
         if (!p.required) continue;
         if (!req_first) try out.append(gpa, ',');
         req_first = false;
-        try appendJsonString(out, gpa, p.name);
+        try argv.writeJsonString(out, gpa, p.name);
     }
     try out.appendSlice(gpa, "],\"additionalProperties\":false}");
 }

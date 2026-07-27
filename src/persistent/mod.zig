@@ -201,6 +201,26 @@ pub fn PersistentMap(comptime V: type) type {
             }
         }
 
+        /// A fresh same-shape copy of `node` (same bitmap and slot count) with the
+        /// slot at `pos` replaced by `slot`, every surviving sibling shared and
+        /// retained. The old slot at `pos` is neither retained nor released here;
+        /// `slot` is installed owning whatever refcount the caller handed it. The
+        /// one same-size path-copy spine `nodePut` and `nodeRemove` share. The only
+        /// fallible step is the allocation, before `slot` is installed, so a caller
+        /// holding a fresh child under an `errdefer` frees it correctly when this
+        /// fails and hands it off cleanly when this succeeds.
+        fn copyReplacing(allocator: std.mem.Allocator, node: *Node, pos: usize, slot: Slot) std.mem.Allocator.Error!*Node {
+            const old = node.children();
+            const fresh = try createNode(allocator, node.bitmap, old.len);
+            const children = fresh.children();
+            @memcpy(children, old);
+            for (old, 0..) |s, i| {
+                if (i != pos) retainSlot(s);
+            }
+            children[pos] = slot;
+            return fresh;
+        }
+
         fn releaseNode(allocator: std.mem.Allocator, node: *Node) void {
             node.refs -= 1;
             if (node.refs != 0) return;
@@ -285,37 +305,21 @@ pub fn PersistentMap(comptime V: type) type {
                 .leaf => |leaf| {
                     if (leaf.key == key) {
                         // Replace the value in place on a copy.
-                        const fresh = try createNode(allocator, node.bitmap, old.len);
-                        const children = fresh.children();
-                        @memcpy(children, old);
-                        children[pos] = .{ .leaf = .{ .key = key, .value = value } };
-                        for (old) |slot| retainSlot(slot);
+                        const fresh = try copyReplacing(allocator, node, pos, .{ .leaf = .{ .key = key, .value = value } });
                         return .{ .node = fresh, .added = false };
                     }
                     // Two distinct keys collide here: push both down a level.
                     const sub = try twoLeafNode(allocator, shift + chunk_bits, leaf.key, leaf.value, key, value);
                     errdefer releaseNode(allocator, sub);
-                    const fresh = try createNode(allocator, node.bitmap, old.len);
-                    const children = fresh.children();
-                    @memcpy(children, old);
-                    for (old, 0..) |slot, i| {
-                        if (i != pos) retainSlot(slot);
-                    }
-                    children[pos] = .{ .node = sub };
+                    const fresh = try copyReplacing(allocator, node, pos, .{ .node = sub });
                     return .{ .node = fresh, .added = true };
                 },
                 .node => |child| {
                     const sub = try nodePut(allocator, child, key, value, shift + chunk_bits);
                     errdefer releaseNode(allocator, sub.node);
-                    const fresh = try createNode(allocator, node.bitmap, old.len);
-                    const children = fresh.children();
-                    @memcpy(children, old);
-                    // Carry every sibling; the recursed child is replaced by the
-                    // fresh `sub.node`, so the old child keeps its own refcount.
-                    for (old, 0..) |slot, i| {
-                        if (i != pos) retainSlot(slot);
-                    }
-                    children[pos] = .{ .node = sub.node };
+                    // The recursed child is replaced by the fresh `sub.node`, so the
+                    // old child keeps its own refcount (copyReplacing skips pos).
+                    const fresh = try copyReplacing(allocator, node, pos, .{ .node = sub.node });
                     return .{ .node = fresh, .added = sub.added };
                 },
             }
@@ -355,13 +359,7 @@ pub fn PersistentMap(comptime V: type) type {
                     // single-leaf (remove does not canonicalize), which `get` and
                     // `deinit` tolerate.
                     errdefer releaseNode(allocator, sub.node);
-                    const fresh = try createNode(allocator, node.bitmap, old.len);
-                    const children = fresh.children();
-                    @memcpy(children, old);
-                    for (old, 0..) |slot, i| {
-                        if (i != pos) retainSlot(slot);
-                    }
-                    children[pos] = .{ .node = sub.node };
+                    const fresh = try copyReplacing(allocator, node, pos, .{ .node = sub.node });
                     return .{ .node = fresh, .removed = true };
                 },
             }

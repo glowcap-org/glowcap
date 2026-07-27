@@ -1,0 +1,78 @@
+---
+.title = "In the browser",
+.description = "The browser can be a real pancake peer: @pancake/web compiles the protocol core to WebAssembly, so a web page writes the same Session every runtime writes.",
+.date = @date("2026-07-22T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The browser can be a real pancake peer. The `@pancake/web` package compiles
+pancake's protocol core to WebAssembly, so the `Session` you write in a web
+page is the one every other runtime writes. Nothing about the protocol is
+rewritten in JavaScript.
+
+## Start one
+
+Your page is the dialing half of a conversation, so this walkthrough assumes
+the other half already exists: a service of yours listening on the keyed TCP
+transport (`listen_keyed_tcp` in the bindings). Starting it hands you its
+`ocapn://` locator, one pasteable string carrying the service's public key and
+socket address. One wrinkle before the code: that listener speaks raw TCP and
+a page can only open WebSockets, so the dial reaches it through a
+[relay]($link.page('relay')). The keyed handshake still pins the session to
+the key inside the locator; the relay carries bytes it cannot read.
+
+Load the wasm module and you have the whole `@pancake/stack` surface:
+
+```ts
+import { init } from "@pancake/web";
+
+const stack = await init({
+	wasm: fetch("/pancake_driver.wasm"),
+	// a page cannot open raw TCP, so a relay carries the bytes
+	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
+});
+
+// the locator your service handed you, pasted whole
+const session = await stack.connect("ocapn://…your service's locator…");
+const greeter = await session.fetch("greeter");
+console.log(await session.send(greeter, "greet", ["world"]));
+```
+
+When you hold the key and address as separate pieces instead,
+`stack.keyedTcpLocator(key, hostname, port)` builds the same string.
+
+`init` instantiates `pancake_driver.wasm` (built by `zig build wasm-driver`) and
+hands back the stack module itself. From there `connect`, `fetch`, `send`,
+`spawn`, and `publish` work exactly as on the
+[TypeScript page]($link.page('bindings/ts')). The one browser-specific part is how
+a dial reaches its peer, below.
+
+## The browser only dials
+
+A web page binds no socket, so `listen` is unavailable and the browser always
+dials. It reaches other peers two ways, and the options you pass to `init`
+decide how each dial travels.
+
+To reach a **native** peer, the page dials over WebSocket. A host-and-port dial
+opens `ws://host:port/` by default, straight to a peer that accepts WebSocket
+itself. For a peer that only speaks raw TCP or iroh, dial through a
+[relay]($link.page('relay')): `init`'s `wsUrl` option maps a host-and-port dial
+to the relay's URL, and `relayUrl` does the same for a native-only locator such
+as iroh. The relay never parses a frame, so the keyed handshake and every
+capability run end to end between the two peers.
+
+To reach **another browser**, open a direct
+[WebRTC]($link.page('transports/webrtc')) DataChannel. Once the channel is up, no
+server sits on the byte path. Two browser peers that first met through a relay can also
+cold-dial each other by identity, which `init`'s `rendezvousUrl` enables.
+
+## Next
+
+The [TypeScript page]($link.page('bindings/ts')) is the full API, and the
+browser uses every verb of it except `listen`. For how those bytes get carried or
+bridged, read [the relay]($link.page('relay')) and
+[WebRTC]($link.page('transports/webrtc')). The
+[`@pancake/web` README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/web/README.md)
+covers installing the package and serving the wasm.

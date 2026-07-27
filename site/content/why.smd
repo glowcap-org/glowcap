@@ -1,0 +1,387 @@
+---
+.title = "Why OCapN",
+.description = "OCapN held against the protocols you already run. If you know what a bearer token is, this page has all the background it assumes.",
+.date = @date("2026-07-25T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "why.shtml",
+.draft = false,
+---
+
+pancake speaks [OCapN](https://github.com/ocapn/ocapn), and the quickest way to
+understand OCapN is to hold it against the protocols you already run. If you
+know what a bearer token is, you have all the background this page assumes.
+
+## How today's protocols authorize
+
+When a program calls a service today, it identifies itself first. An HTTP
+request carries a bearer token, a cookie, or an API key. An SSH client logs in
+as an account. An IRC client identifies with a nickname and a password. In
+each case the service looks the caller up in a permission table and decides
+what to allow.
+
+Security people call this ambient authority: permission comes from who you
+are. Once you are authenticated, every line of code running as you holds all
+of it, including every library you link.
+
+The model works until you need to hand part of your access to someone else. A
+bearer token rarely means one album, read only, for an hour; it usually means
+everything your account can do, until someone rotates it. Whatever you hand
+your credential to becomes you.
+
+## Watch the difference
+
+The walkthrough tells one story twice, first with a bearer token, then with
+capabilities.
+
+```=html
+<figure class="capwalk" id="capwalk">
+	<svg viewBox="0 0 640 336" role="img" aria-labelledby="capwalk-title">
+		<title id="capwalk-title">The same delegation story told twice, first with a bearer token, then with capability references.</title>
+		<defs>
+			<marker id="cw-arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+				<path d="M0 0L10 5L0 10z" fill="var(--accent, #c76f18)"/>
+			</marker>
+			<marker id="cw-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+				<path d="M0 0L10 5L0 10z" fill="var(--dia-danger, #b3403a)"/>
+			</marker>
+			<marker id="cw-arr-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+				<path d="M0 0L10 5L0 10z" fill="var(--teal, #257f88)"/>
+			</marker>
+		</defs>
+
+		<!-- Cast: pulled in until every gap is traffic-width, so the frame
+		     holds actors and the distances references cross, nothing spare.
+		     Actor titles sit at the box center; the service is the one
+		     container, so its title tops the box instead. Held chips
+		     straddle their holder's bottom edge at half-overlap, and every
+		     port dot sits on that border line. -->
+		<g class="cw-you">
+			<rect x="24" y="96" width="150" height="70" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+			<text x="99" y="136" text-anchor="middle" font-weight="600">You</text>
+		</g>
+		<rect x="446" y="20" width="170" height="130" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+		<text x="531" y="45" text-anchor="middle" font-weight="600">Photos service</text>
+		<rect x="200" y="240" width="180" height="70" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+		<text x="290" y="280" text-anchor="middle" font-weight="600">Thumbnailer</text>
+
+		<!-- Act I: the bearer-token world. The table rows are who-shaped:
+		     an amber name silhouette on the left, rights blobs on the right. -->
+		<g data-s="1 2 3" class="s1">
+			<rect x="456" y="53" width="152" height="56" rx="6" fill="var(--code-bg, #f5e6ce)" stroke="var(--rule, #e7d4b7)"/>
+			<text x="532" y="67" text-anchor="middle" class="soft">permission table</text>
+			<rect x="470" y="75" width="36" height="9" rx="4.5" fill="var(--accent, #c76f18)" fill-opacity="0.5"/>
+			<rect x="518" y="75" width="13" height="9" rx="2" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.35"/>
+			<rect x="535" y="75" width="13" height="9" rx="2" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.35"/>
+			<rect x="470" y="89" width="28" height="9" rx="4.5" fill="var(--accent, #c76f18)" fill-opacity="0.5"/>
+			<rect x="518" y="89" width="13" height="9" rx="2" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.35"/>
+			<rect x="44" y="155" width="110" height="22" rx="11" fill="var(--dia-warm-fill, #f7e5d0)" stroke="var(--accent, #c76f18)"/>
+			<text x="99" y="170" text-anchor="middle" class="tok">your token</text>
+		</g>
+		<g data-s="1" class="s1">
+			<path d="M174 131 L454 80" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#cw-arr-a)"/>
+			<text x="290" y="146" text-anchor="middle" class="soft">request, carrying your token</text>
+		</g>
+		<g data-s="2 3">
+			<rect x="235" y="299" width="110" height="22" rx="11" fill="var(--dia-warm-fill, #f7e5d0)" stroke="var(--accent, #c76f18)"/>
+			<text x="290" y="314" text-anchor="middle" class="tok">your token</text>
+		</g>
+		<g data-s="2">
+			<path d="M164 167 L237 238" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#cw-arr-a)"/>
+			<text x="140" y="232" text-anchor="middle" class="soft">token, copied</text>
+		</g>
+		<!-- The deputy's request lands on the table at the same row the
+		     step-1 request matched, and the check appears beside that row:
+		     the lookup worked exactly as designed. -->
+		<g data-s="3">
+			<path d="M378 239 C 420 190, 442 132, 454 79" fill="none" stroke="var(--dia-danger, #b3403a)" stroke-width="2.5" marker-end="url(#cw-arr-r)"/>
+			<text x="322" y="216" text-anchor="middle" class="bad">delete everything</text>
+			<path d="M586 76 l5 6 l9 -11" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2.5"/>
+			<text x="532" y="131" text-anchor="middle" class="soft">looked like you</text>
+		</g>
+
+		<!-- Act II: the capability world. Holders carry teal reference chips
+		     where Act I carried the amber token pill; the album is a real
+		     object with photos in it, and the service's other objects stay
+		     dark and unwired. -->
+		<g data-s="4 5 6 7 8">
+			<rect x="456" y="105" width="115" height="30" rx="15" fill="var(--teal, #257f88)" fill-opacity="0.12" stroke="var(--teal, #257f88)"/>
+			<rect x="476" y="112" width="15" height="11" rx="2" fill="var(--paper-raised, #fff9ee)" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.4"/>
+			<rect x="481" y="117" width="15" height="11" rx="2" fill="var(--paper-raised, #fff9ee)" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.4"/>
+			<circle cx="485.5" cy="120.5" r="1.4" fill="var(--teal-deep, #1b5f66)"/>
+			<text x="531" y="125" text-anchor="middle" class="cap">album</text>
+			<g class="cw-held">
+				<rect x="44" y="155" width="110" height="22" rx="11" fill="var(--dia-cool-fill, #e5eae2)" stroke="var(--teal, #257f88)"/>
+				<rect x="66" y="160" width="9" height="7" rx="1.5" fill="var(--paper-raised, #fff9ee)" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.2"/>
+				<rect x="69" y="163" width="9" height="7" rx="1.5" fill="var(--paper-raised, #fff9ee)" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.2"/>
+				<text x="113" y="170" text-anchor="middle" class="cap">album</text>
+				<circle cx="154" cy="166" r="3" fill="var(--teal, #257f88)"/>
+				<path d="M154 166 L454 120" fill="none" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#cw-arr-t)"/>
+			</g>
+		</g>
+		<g data-s="4">
+			<rect x="456" y="53" width="152" height="42" rx="6" fill="none" stroke="var(--rule, #e7d4b7)" stroke-dasharray="5 4"/>
+			<text x="532" y="78" text-anchor="middle" class="dead">no permission table</text>
+			<g opacity="0.65">
+				<rect x="30" y="85" width="122" height="22" rx="11" fill="var(--dia-warm-fill, #faeedd)" stroke="var(--accent, #c76f18)" stroke-dasharray="4 3"/>
+				<text x="91" y="100" text-anchor="middle" class="tok">signed in once</text>
+			</g>
+			<path d="M157 94 l5 6 l9 -11" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2.2"/>
+			<text x="320" y="127" text-anchor="middle" class="soft">your reference</text>
+		</g>
+		<g data-s="5 6 7 8">
+			<rect x="456" y="60" width="74" height="24" rx="12" fill="none" stroke="var(--dia-muted, #a99d8c)" stroke-dasharray="5 4"/>
+			<text x="493" y="76" text-anchor="middle" class="dead">account</text>
+			<rect x="538" y="60" width="60" height="24" rx="12" fill="none" stroke="var(--dia-muted, #a99d8c)" stroke-dasharray="5 4"/>
+			<text x="568" y="76" text-anchor="middle" class="dead">trash</text>
+		</g>
+		<g data-s="5">
+			<circle cx="99" cy="177" r="3" fill="var(--teal, #257f88)"/>
+			<path d="M99 177 L237 238" fill="none" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#cw-arr-t)"/>
+			<text x="124" y="232" text-anchor="middle" class="soft">a reference to the album</text>
+			<rect x="235" y="299" width="110" height="22" rx="11" fill="var(--dia-cool-fill, #e5eae2)" stroke="var(--teal, #257f88)"/>
+			<rect x="257" y="304" width="9" height="7" rx="1.5" fill="var(--paper-raised, #fff9ee)" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.2"/>
+			<rect x="260" y="307" width="9" height="7" rx="1.5" fill="var(--paper-raised, #fff9ee)" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.2"/>
+			<text x="304" y="314" text-anchor="middle" class="cap">album</text>
+			<circle cx="345" cy="310" r="3" fill="var(--teal, #257f88)"/>
+			<path d="M345 310 C 425 276, 472 200, 494 137" fill="none" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#cw-arr-t)"/>
+			<text x="521" y="218" text-anchor="middle" class="soft">only the album</text>
+		</g>
+		<!-- The read-only wrapper is your object, stacked under your chip;
+		     the thumbnailer's chip reaches it, reads pass through to the
+		     album, and writes hit a wall inside your process. -->
+		<g data-s="6">
+			<rect x="44" y="185" width="110" height="26" rx="13" fill="var(--dia-cool-fill, #e5eae2)" stroke="var(--teal, #257f88)"/>
+			<text x="99" y="202" text-anchor="middle" class="cap">read-only</text>
+			<text x="99" y="229" text-anchor="middle" class="soft">your object</text>
+			<rect x="235" y="299" width="110" height="22" rx="11" fill="var(--dia-cool-fill, #e5eae2)" stroke="var(--teal, #257f88)"/>
+			<text x="290" y="314" text-anchor="middle" class="cap">read-only</text>
+			<circle cx="235" cy="310" r="3" fill="var(--teal, #257f88)"/>
+			<path d="M235 310 C 205 288, 178 246, 157 208" fill="none" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#cw-arr-t)"/>
+			<circle cx="154" cy="205" r="3" fill="var(--teal, #257f88)"/>
+			<circle cx="154" cy="191" r="3" fill="var(--teal, #257f88)"/>
+			<path d="M154 191 C 280 206, 450 192, 535 138" fill="none" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#cw-arr-t)"/>
+			<text x="360" y="164" text-anchor="middle" class="soft">reads pass</text>
+			<path d="M52 213 L52 233" fill="none" stroke="var(--dia-muted, #a99d8c)" stroke-width="2" stroke-dasharray="4 3"/>
+			<path d="M44 237 L60 237" fill="none" stroke="var(--dia-muted, #a99d8c)" stroke-width="3.5"/>
+			<text x="52" y="254" text-anchor="middle" class="dead">writes</text>
+		</g>
+		<!-- The cut: the thumbnailer still holds its chip, but the chip and
+		     its edge are dead; nothing was taken back, the grant just died. -->
+		<g data-s="7" opacity="0.55">
+			<rect x="44" y="185" width="110" height="26" rx="13" fill="var(--dia-cool-fill, #e5eae2)" stroke="var(--teal, #257f88)"/>
+			<text x="99" y="202" text-anchor="middle" class="cap">read-only</text>
+		</g>
+		<g data-s="7">
+			<rect x="235" y="299" width="110" height="22" rx="11" fill="var(--dia-warm-fill, #f6f0e4)" stroke="var(--dia-muted, #a99d8c)"/>
+			<text x="290" y="314" text-anchor="middle" class="dead">read-only</text>
+			<circle cx="235" cy="310" r="3" fill="var(--dia-muted, #a99d8c)"/>
+			<path d="M235 310 C 205 288, 178 246, 157 208" fill="none" stroke="var(--dia-muted, #a99d8c)" stroke-width="2" stroke-dasharray="5 4"/>
+			<path d="M38 187 L60 209 M60 187 L38 209" fill="none" stroke="var(--dia-danger, #b3403a)" stroke-width="3.5"/>
+		</g>
+		<!-- The handoff: the introduction is itself a credential, an amber
+		     chip riding the lane; Print joins Thumbnailer's row and the
+		     direct edge caps the story. -->
+		<g data-s="8">
+			<rect x="442" y="240" width="175" height="70" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+			<text x="529" y="280" text-anchor="middle" font-weight="600">Print service</text>
+			<path d="M164 167 L237 238" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#cw-arr-a)"/>
+			<rect x="145" y="191" width="110" height="22" rx="11" fill="var(--dia-warm-fill, #f7e5d0)" stroke="var(--accent, #c76f18)"/>
+			<text x="200" y="206" text-anchor="middle" class="tok">introduction</text>
+			<rect x="235" y="299" width="110" height="22" rx="11" fill="var(--dia-cool-fill, #e5eae2)" stroke="var(--teal, #257f88)"/>
+			<text x="290" y="314" text-anchor="middle" class="cap">print</text>
+			<circle cx="345" cy="310" r="3" fill="var(--teal, #257f88)"/>
+			<path d="M345 310 C 380 306, 412 292, 439 277" fill="none" stroke="var(--teal, #257f88)" stroke-width="2" marker-end="url(#cw-arr-t)"/>
+			<text x="470" y="230" text-anchor="middle" class="soft">they talk directly</text>
+		</g>
+	</svg>
+	<div class="capwalk-controls" hidden>
+		<button type="button" data-dir="-1">Back</button>
+		<span class="capwalk-where">Step 1 of 8</span>
+		<button type="button" data-dir="1">Next</button>
+	</div>
+	<ol class="capwalk-steps">
+		<li>Every request carries a credential, and the credential names you, not the action. The service looks you up in its permission table and decides.</li>
+		<li>You want the thumbnailer to shrink one album. Your token is the smallest thing you have to hand it, so the thumbnailer now holds everything your account can do.</li>
+		<li>The thumbnailer has a bug, and it deletes your photos. The service allowed it, because every request looked like it came from you. This failure is old enough to have a name: the confused deputy.</li>
+		<li>The same story under capability rules. You signed in once, and what came back was a live reference to your album. Holding that reference is the permission, and there is no permission table.</li>
+		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. That single move, passing the reference, is delegation.</li>
+		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. This narrowed grant is attenuation.</li>
+		<li>When the job is done, you cut your wrapper, and every copy of that grant dies with it. Your own reference still works, and the service was never consulted. Revocation here is surgery on one grant.</li>
+		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This handoff takes you out of the path for good.</li>
+	</ol>
+</figure>
+```
+
+## Why the reference is not just another token
+
+If you are skeptical, one objection has probably formed already. The
+reference must cross the network as bytes, and stolen bytes are how tokens
+leak. Why is this any different?
+
+It is different because the bytes are not the permission. When two programs
+meet, each proves a key it holds, and a session opens between them. Inside
+that session, each side keeps a private table of the objects it has chosen to
+share. When your album reference crosses the wire, what actually travels is a
+position in that table. Call it slot 3. Slot 3 means your album only inside
+this one session; on any other connection it means nothing, or it names
+something else entirely. And this table is bookkeeping, not the permission
+table returning: it holds no identities and no rights, only which object each
+position means.
+
+A bearer token is a portable string, and it works for whoever presents it,
+anywhere. A capability reference is a row in a ledger that exactly two
+parties keep. Record the traffic and you hold a row number for a conversation
+you cannot join. Guessing does no better, because the table contains only
+what one side deliberately put there. The pipe itself is protected the way
+your token traffic is protected today, by the transport underneath. What
+changes is the cost of a leak: a leaked token is authority, and a leaked
+table position is a number with no ledger behind it.
+
+```=html
+<figure class="tokref">
+	<div class="tokref-panels">
+		<div class="tokref-panel">
+			<p class="tokref-label">a bearer token</p>
+			<svg viewBox="0 0 340 280" role="img" aria-labelledby="tokref-token-title">
+				<title id="tokref-token-title">Three unrelated holders present the same bearer token string to a service, and the service accepts every one of them.</title>
+				<defs>
+					<marker id="tr-arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+						<path d="M0 0L10 5L0 10z" fill="var(--accent, #c76f18)"/>
+					</marker>
+				</defs>
+				<rect x="105" y="14" width="130" height="26" rx="13" fill="var(--accent, #c76f18)" fill-opacity="0.14" stroke="var(--accent, #c76f18)"/>
+				<text x="170" y="31" text-anchor="middle" class="tok">tok_9f3…</text>
+				<path d="M142 44 C 116 54, 92 63, 70 76" fill="none" stroke="var(--accent, #c76f18)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#tr-arr-a)"/>
+				<path d="M170 44 L170 76" fill="none" stroke="var(--accent, #c76f18)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#tr-arr-a)"/>
+				<path d="M198 44 C 224 54, 248 63, 270 76" fill="none" stroke="var(--accent, #c76f18)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#tr-arr-a)"/>
+				<rect x="18" y="78" width="96" height="34" rx="8" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<text x="66" y="99" text-anchor="middle">you</text>
+				<rect x="122" y="78" width="96" height="34" rx="8" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<text x="170" y="99" text-anchor="middle">an app</text>
+				<rect x="226" y="78" width="96" height="34" rx="8" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<text x="274" y="99" text-anchor="middle">a stranger</text>
+				<path d="M66 116 C 76 146, 92 172, 108 194" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#tr-arr-a)"/>
+				<path d="M170 116 L170 194" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#tr-arr-a)"/>
+				<path d="M274 116 C 264 146, 248 172, 232 194" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" marker-end="url(#tr-arr-a)"/>
+				<rect x="70" y="196" width="200" height="58" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<path d="M104 208 l4 5 l8 -10" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2.2"/>
+				<path d="M164 208 l4 5 l8 -10" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2.2"/>
+				<path d="M224 208 l4 5 l8 -10" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2.2"/>
+				<text x="170" y="242" text-anchor="middle" font-weight="600">service</text>
+			</svg>
+		</div>
+		<div class="tokref-panel">
+			<p class="tokref-label">a capability reference</p>
+			<svg viewBox="0 0 340 280" role="img" aria-labelledby="tokref-ref-title">
+				<title id="tokref-ref-title">Two peers hold a keyed session and each keeps a private table, so only a table position crosses the pipe, and a copied position means nothing on any other pipe.</title>
+				<rect x="14" y="36" width="100" height="104" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<text x="64" y="56" text-anchor="middle" font-weight="600">you</text>
+				<rect x="24" y="66" width="80" height="64" rx="4" fill="var(--code-bg, #f5e6ce)" stroke="var(--rule, #e7d4b7)"/>
+				<rect x="34" y="74" width="26" height="8" rx="3" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.3"/>
+				<rect x="66" y="74" width="14" height="8" rx="3" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.3"/>
+				<rect x="30" y="90" width="68" height="16" rx="3" fill="var(--teal, #257f88)" fill-opacity="0.12"/>
+				<rect x="34" y="94" width="22" height="8" rx="3" fill="var(--teal, #257f88)" fill-opacity="0.5"/>
+				<rect x="34" y="114" width="32" height="8" rx="3" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.3"/>
+				<rect x="226" y="36" width="100" height="104" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<text x="276" y="56" text-anchor="middle" font-weight="600">service</text>
+				<rect x="238" y="66" width="78" height="64" rx="4" fill="var(--code-bg, #f5e6ce)" stroke="var(--rule, #e7d4b7)"/>
+				<rect x="246" y="74" width="24" height="8" rx="3" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.3"/>
+				<rect x="244" y="90" width="66" height="16" rx="3" fill="var(--teal, #257f88)" fill-opacity="0.12"/>
+				<text x="277" y="102" text-anchor="middle" class="cap">3: album</text>
+				<rect x="246" y="114" width="28" height="8" rx="3" fill="var(--ink-soft, #6b5d4d)" fill-opacity="0.3"/>
+				<rect x="114" y="82" width="112" height="24" rx="12" fill="var(--teal, #257f88)" fill-opacity="0.07" stroke="var(--teal, #257f88)"/>
+				<circle cx="124" cy="94" r="3.5" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.6"/>
+				<path d="M127.5 94 h8 m-3.5 0 v4" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.6"/>
+				<circle cx="216" cy="94" r="3.5" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.6"/>
+				<path d="M212.5 94 h-8 m3.5 0 v4" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.6"/>
+				<text x="167" y="98" text-anchor="middle" class="cap">slot 3</text>
+				<path d="M190 89 L198 94 L190 99 z" fill="var(--teal, #257f88)"/>
+				<rect x="14" y="190" width="110" height="40" rx="10" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<text x="69" y="214" text-anchor="middle">someone else</text>
+				<g transform="rotate(-5 160 212)">
+					<rect x="132" y="202" width="56" height="20" rx="3" fill="var(--paper, #fff3df)" stroke="var(--dia-muted, #a99d8c)" stroke-dasharray="4 3"/>
+					<text x="160" y="216" text-anchor="middle" class="dead">slot 3</text>
+				</g>
+				<path d="M192 211 L224 209" fill="none" stroke="var(--dia-muted, #a99d8c)" stroke-width="2" stroke-dasharray="4 3"/>
+				<rect x="232" y="190" width="30" height="40" rx="6" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<rect x="296" y="190" width="30" height="40" rx="6" fill="var(--paper-raised, #fff9ee)" stroke="var(--rule, #e7d4b7)"/>
+				<rect x="262" y="200" width="34" height="20" rx="10" fill="var(--teal, #257f88)" fill-opacity="0.07" stroke="var(--teal, #257f88)"/>
+				<circle cx="271" cy="210" r="2.5" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.5"/>
+				<circle cx="287" cy="210" r="2.5" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="1.5"/>
+				<text x="170" y="258" text-anchor="middle" class="dead">means nothing here</text>
+			</svg>
+		</div>
+	</div>
+	<figcaption>The bytes that travel are an index into a ledger that only the two ends of one session keep.</figcaption>
+</figure>
+```
+
+One exception remains: the very first reference. It arrives the way
+trust already flows. You sign in once, or you redeem a durable link called a
+sturdyref, an unguessable address that names one published object. From then
+on, authority moves by passing references inside sessions. The sturdyref is
+the one string that does behave like a bearer secret, and it names the one
+thing its maker chose to publish, never an account.
+
+## Where the idea comes from
+
+Every step above rests on one rule: holding a reference is the permission.
+Memory-safe languages already enforce it inside one process. An object
+reference can only be used by code it was given to, and nothing conjures a
+pointer to a private object out of thin air. Object-capability security
+treats that guarantee as the whole security model.
+[CapTP](http://erights.org/elib/distrib/captp/), a protocol design that came
+out of the E language, carries the rule across a network between mutually
+suspicious programs. OCapN standardizes CapTP, under the
+[Spritely Institute](https://spritely.institute/) and a community group.
+
+## Delegation, attenuation, revocation
+
+The middle steps replace infrastructure with ordinary objects. Delegation
+needs no administrator, because passing the reference is the grant.
+Attenuation needs no cooperation from the provider: the read-only wrapper is
+your object, running in your process, and the thumbnailer's calls pass
+through it on their way to the album. Any policy you can write as code is a
+scope you can hand out, whether or not the service ever thought of it.
+Revocation works from the same seat. The forwarder is yours, so cutting it is
+a local act that kills one grant everywhere it was copied, while every other
+holder keeps working. Compare key rotation, the closest thing tokens offer:
+it ejects one party by logging out everyone.
+
+## Introductions
+
+The last step is the move the familiar protocols cannot follow. When you
+connect two of your partners today, you either share a credential with one of
+them or you sit in the middle and proxy their calls forever. CapTP's
+three-party handoff is a signed introduction: you send it to one partner, that
+partner presents it to the other, and the two of them continue over their own
+session without you. You never see their traffic, and the introduced partner
+holds exactly what you passed, attenuated however you chose.
+
+You can try this yourself. In the [rooms demo]($link.page('examples')),
+asking a room to message a member hands you a direct line to that member, and
+the room drops out of the conversation.
+
+## What OCapN is
+
+OCapN is the standard that grew out of CapTP: one message model over a choice
+of wire encodings and transports, so the same references travel over TCP,
+QUIC, or a browser connection. Calls return promises you can keep calling
+through, which lets a chain of dependent calls cross the network once instead
+of once per call. [Spritely Goblins](https://spritely.institute/goblins/) is
+the implementation everyone tests against, and pancake holds a live
+conversation with a real Goblins peer as a build check.
+
+## Keep going
+
+- [Concepts]($link.page('concepts')) explains the mechanisms one level down:
+  locators and sturdyrefs, pipelining on the wire, the handoff stages, and
+  dialect negotiation.
+- The [CapTP CLI]($link.page('cli')) ships a REPL with a guided mode: run
+  `pancake repl`, then type `guide`, and it walks these ideas against a live
+  session while you type the verbs.
+- [Start building]($link.page('start')) is the client, line by line, in Zig,
+  C, and every binding.
+- The glossary in
+  [capabilities](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/capabilities.md)
+  gives every term on this page a one-line definition.

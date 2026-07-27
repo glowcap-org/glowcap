@@ -12,23 +12,23 @@
       viewBox="0 0 10 10"
       refX="8"
       refY="5"
-      markerWidth="7"
-      markerHeight="7"
+      markerWidth="5.5"
+      markerHeight="5.5"
       orient="auto-start-reverse"
     >
-      <path d="M0 0L10 5L0 10z" fill="#c0a875"></path>
+      <path d="M0 0L10 5L0 10z" fill="var(--dia-warm-stroke, #c0a875)"></path>
     </marker>
   </defs>
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .name { font-size: 15px; font-weight: 700; }
-    .sub { font-size: 12.5px; fill: #6b5d4d; }
+    .sub { font-size: 12.5px; fill: var(--ink-soft, #6b5d4d); }
     .core { font-size: 16px; font-weight: 700; }</style>
 
-  <g stroke="#c0a875" stroke-width="2.5" fill="none">
-    <path d="M160 102 L 160 254" marker-end="url(#surf-arrow)"></path>
-    <path d="M380 102 L 380 160" marker-end="url(#surf-arrow)"></path>
-    <path d="M580 102 L 580 160" marker-end="url(#surf-arrow)"></path>
-    <path d="M480 210 L 480 254" marker-end="url(#surf-arrow)"></path>
+  <g stroke="var(--dia-warm-stroke, #c0a875)" stroke-width="2.5" fill="none">
+    <path d="M160 102 L 160 248" marker-end="url(#surf-arrow)"></path>
+    <path d="M380 102 L 380 156" marker-end="url(#surf-arrow)"></path>
+    <path d="M580 102 L 580 156" marker-end="url(#surf-arrow)"></path>
+    <path d="M480 210 L 480 248" marker-end="url(#surf-arrow)"></path>
   </g>
 
   <rect
@@ -37,8 +37,8 @@
     width="200"
     height="58"
     rx="12"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.4"
   >
   </rect>
@@ -47,7 +47,7 @@
     y="74"
     text-anchor="middle"
     class="name"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >Zig package</text>
   <text x="160" y="92" text-anchor="middle" class="sub">import the module</text>
 
@@ -57,8 +57,8 @@
     width="160"
     height="58"
     rx="12"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.4"
   >
   </rect>
@@ -67,7 +67,7 @@
     y="74"
     text-anchor="middle"
     class="name"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >C / FFI host</text>
   <text
     x="380"
@@ -82,8 +82,8 @@
     width="160"
     height="58"
     rx="12"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
     stroke-width="1.4"
   >
   </rect>
@@ -92,7 +92,7 @@
     y="74"
     text-anchor="middle"
     class="name"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >Bindings</text>
   <text x="580" y="92" text-anchor="middle" class="sub">wrap the C ABI</text>
 
@@ -102,8 +102,8 @@
     width="360"
     height="48"
     rx="12"
-    fill="#f1f7f6"
-    stroke="#257f88"
+    fill="var(--dia-cool-fill, #f1f7f6)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.4"
   >
   </rect>
@@ -112,7 +112,7 @@
     y="186"
     text-anchor="middle"
     class="name"
-    fill="#1b5f66"
+    fill="var(--teal-deep, #1b5f66)"
   >C ABI</text>
   <text
     x="480"
@@ -127,8 +127,8 @@
     width="600"
     height="56"
     rx="14"
-    fill="#eef6f1"
-    stroke="#257f88"
+    fill="var(--dia-cool-fill, #eef6f1)"
+    stroke="var(--teal, #257f88)"
     stroke-width="1.6"
   >
   </rect>
@@ -137,7 +137,7 @@
     y="282"
     text-anchor="middle"
     class="core"
-    fill="#1b5f66"
+    fill="var(--teal-deep, #1b5f66)"
   >pancake</text>
   <text
     x="360"

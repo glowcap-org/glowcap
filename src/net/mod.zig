@@ -54,15 +54,14 @@ pub const tcp = @import("transport/tcp.zig");
 /// sibling for it. See `socket.zig`.
 pub const socket = @import("socket.zig");
 
+/// Short-critical-section spin-lock for adapter-level synchronization (net
+/// layer only — the sans-io core bans `std.atomic`). See `sync.zig`.
+pub const sync = @import("sync.zig");
+
 /// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
 /// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
 /// reaping. See `socket.Keepalive`.
 pub const Keepalive = socket.Keepalive;
-/// Apply keepalive sockopts. Prefer `socket.applyKeepalive`; this name matches
-/// older call sites without opening a second path into `completion/`.
-pub const tcp_keepalive = struct {
-    pub const apply = socket.applyKeepalive;
-};
 
 /// The keyed TCP netlayer (`keyed-tcp`): the same TCP sockets under a durable,
 /// key-derived designator — the listener's Ed25519 public key in canonical
@@ -125,10 +124,11 @@ else
 
 /// The host platform's completion `Backend` (io_uring on Linux, kqueue on
 /// macOS/BSD), the type `TcpLoop` is bound over. Exposed so an embedder that
-/// needs a non-`tcp.DialResolver` locator grammar — a conformance transport
-/// whose address lives in locator hints, say — can bind its own
+/// needs a non-`tcp.DialResolver` locator grammar can bind its own
 /// `completion.Loop(net.Backend, CustomLocator)` without re-declaring the
-/// per-OS backend selection. An empty struct off the supported platforms.
+/// per-OS backend selection. The OCapN conformance harness does exactly that
+/// (`conformance/ocapn-conformance/pancake_peer.zig`), binding a locator whose
+/// address lives in the locator hints. An empty struct off the supported platforms.
 pub const Backend = if (@import("builtin").os.tag == .linux)
     uring.Backend
 else if (@import("builtin").os.tag.isDarwin())

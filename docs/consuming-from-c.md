@@ -38,11 +38,8 @@ That installs the archives under `zig-out/lib/` (each in static `.a` and shared
 | `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | encrypted QUIC (`pancake_iroh_*`); optional, links the Rust sidecar |
 | `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | peer-to-peer WebRTC DataChannel (`pancake_webrtc_*`); optional, links the Rust sidecar |
 
-Each header is generated from its Zig source: `pancake_ocapn.h` by
-`zig build gen-header-ocapn`, the
-transport headers by `zig build gen-header-net-transport-tcp` and
-`gen-header-net-transport-inproc`, and `pancake_driver.h` by
-`zig build gen-header-driver`. `zig build check` fails if a committed copy is
+Each header is generated from its Zig source by its own `gen-header` build step,
+one per row of the table above. `zig build check` fails if a committed copy is
 stale, so the header you compile against cannot disagree with the archive you
 link.
 
@@ -75,12 +72,15 @@ consumer needs appears once: the `recv_stream` / `next_event` / `take_outbound`
 pump, and a release call for everything the library hands over. `zig build
 examples` compiles and runs it, so it cannot drift from the header.
 
-The other two C examples are single-topic:
+The remaining C examples are single-topic.
 [`examples/c/frame_view.c`](../examples/c/frame_view.c) shows the owned-frame
 versus borrowed-view distinction, and
-[`examples/c/context_alloc.c`](../examples/c/context_alloc.c) shows routing all
-of a handle family's allocation through your own allocator with
-`PancakeContext`.
+[`examples/c/context_alloc.c`](../examples/c/context_alloc.c) routes a handle
+family's allocation through your own allocator with `PancakeContext`.
+[`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) is the
+worked program for the byte-fed host tier: two `PancakeHost`s open a keyed
+session over plain memory, so you can read the feed, flush, refusal, and EOF
+choreography before writing your own loop.
 
 ## The shape of the ABI
 
@@ -100,11 +100,17 @@ advance one unit of work at a time.
 
 A consumer that only wants to dial a peer, fetch a capability, and call it does
 not have to run that pump at all. `libpancake_net_transport_tcp` also ships an
-owning `PancakeTcpSession`, the C spelling of the Zig `driver.Session`
-(ADR-0062): `pancake_tcp_session_connect` dials and completes the keyed
-handshake, `pancake_tcp_session_fetch(name)` yields a `PancakeReference`,
-`pancake_tcp_session_call(target, verb, args)` delivers and pumps until the
-answer settles into a `PancakeSettled`, and `pancake_tcp_session_release` tears
+owning `PancakeTcpSession`, which is the C spelling of Zig's `driver.Session`
+(ADR-0062). Four calls cover a whole conversation.
+`pancake_tcp_session_connect` dials and finishes the keyed handshake. It takes a
+handshake budget and a settle budget in milliseconds; zero means wait forever,
+which against a partner that connects and then says nothing is a hang, so pass
+finite ones. When a budget is what ended the wait, the call returns
+`PANCAKE_ERR_TIMEOUT` rather than a fault code, so you can tell your own deadline
+from a partner refusal.
+`pancake_tcp_session_fetch` takes a name and hands back a `PancakeReference`.
+`pancake_tcp_session_call` delivers a call and pumps until the answer settles
+into a `PancakeSettled`. And `pancake_tcp_session_release` tears
 it down. It reuses `pancake_ocapn.h`'s `PancakeReference` / `PancakeArgument`
 value vocabulary by layout; `PancakeSettled` itself is the owning session's
 outcome, declared in `pancake_net_transport_tcp.h` beside its only producer. The
@@ -119,11 +125,11 @@ Two peers are wired by in-process pipes and addressed by a string designator
 instead of `host:port`, the path a smoke test dials to run a full OCapN
 conversation without touching a socket.
 
-Addresses themselves are core OCapN vocabulary:
-`pancake_uri_parse_peer` / `pancake_uri_format_peer` (and the sturdyref pair)
-convert an `ocapn://` URI to and from a `PancakeLocator` read through the
-`pancake_locator_*` accessors, so a consumer dispatches on the parsed
-`transport` and never hand-rolls a percent codec.
+Addresses are core OCapN vocabulary, so parsing them is not your job.
+`pancake_uri_parse_peer` and `pancake_uri_format_peer`, plus the matching pair
+for sturdyrefs, convert an `ocapn://` URI to and from a `PancakeLocator` that
+you read through the `pancake_locator_*` accessors. Dispatch on the parsed
+`transport`; there is no reason to write a percent-decoder.
 
 pancake's two encrypted transports, iroh and webrtc, are opt-in and separate:
 the pure-Zig archives are cleartext-only, and each encrypted transport links a
@@ -135,10 +141,11 @@ way as `libpancake_net_transport_webrtc`
 ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md),
 `zig build webrtc-abi`, needs cargo); its surface is a peer the caller drives
 through a signaling exchange (`pancake_webrtc_peer_*`) rather than a
-locator dial, because a WebRTC peer has no dialable address. Like the other transport archives it is a
-_companion_, not a superset: it exports only a `pancake_iroh_netlayer_*` /
-`pancake_iroh_conn_*` family (with the same frame-read/write shape as the TCP
-layer) and shares no core symbol with `libpancake_ocapn`. A consumer that wants
+locator dial, because a WebRTC peer has no dialable address. Both are
+companions to the core archives, not supersets. iroh exports only a
+`pancake_iroh_netlayer_*` / `pancake_iroh_conn_*` family (with the same
+frame-read/write shape as the TCP layer) and shares no core symbol with
+`libpancake_ocapn`. A consumer that wants
 iroh adds `libpancake_net_transport_iroh` to its link line and includes
 [`include/pancake_net_transport_iroh.h`](../include/pancake_net_transport_iroh.h),
 which `#include`s `pancake_ocapn.h` and reuses its frame/context types by
@@ -147,16 +154,19 @@ hints; iroh-call diagnostics read through `pancake_iroh_last_error` (its own
 per-thread slot).
 
 Every function returns an `int32_t` return code. `PANCAKE_OK` is zero, errors
-are negative and named, and `pancake_last_error` carries a per-thread diagnostic
-string for the call that just failed. Out-structs are written only on
+are negative and named, and a per-thread diagnostic string carries the cause of
+the call that just failed. Each archive owns its own last-error slot, named for
+the family it exports: `pancake_last_error`, `pancake_host_last_error`, and
+`pancake_tcp_` / `pancake_inproc_` / `pancake_iroh_` / `pancake_webrtc_last_error`.
+Read the one matching the call that failed. Out-structs are written only on
 `PANCAKE_OK`, so on failure there is nothing to release.
 
 Threading is single-owner by contract: serialize every call on a given peer onto
 one thread or behind one lock. Distinct peers are independent.
 
-The surface is the size it is on purpose. Each function is one of three things
-and never a fourth: a distinct protocol operation, the primitive a binding
-actually consumes, or a named easy path over an explicit one. The structural
+The surface is the size it is on purpose. Each function is one of three
+things: a distinct protocol operation, the primitive a binding actually
+consumes, or a named easy path over an explicit one. The structural
 shape is gated so it cannot bloat unnoticed: one allocator twin per constructor,
 one error channel per archive, one freeing verb per handle.
 [ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md) records that bar
@@ -193,9 +203,9 @@ transport header for a transport call) is the contract.
 
 ## The bindings as worked answers
 
-[`bindings/`](../bindings/README.md) holds four consumers of this exact surface
-(Rust, Deno, Python, and Racket), each wrapping the same calls in its
-language's idiom, each exercised by `zig build bindings`, and each holding a
-live conversation with a real Goblins peer in its `*-goblins-interop` check step. When
-you are unsure how a sequence of calls composes, the binding nearest your
+[`bindings/`](../bindings/README.md) holds four consumers of this exact
+surface, in Rust, Deno, Python, and Racket. Each wraps the same calls in its
+own language's idiom, each is exercised by `zig build bindings`, and each holds
+a live conversation with a real Goblins peer on every push. When you are unsure
+how a sequence of calls composes, the binding nearest your
 language is a tested, runnable answer.

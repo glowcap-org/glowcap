@@ -19,17 +19,6 @@ pub const Block = struct {
     pub fn hasMore(self: *const Block) bool {
         return !std.mem.eql(u8, self.summary, self.body);
     }
-
-    pub fn visibleLines(self: *const Block, out: *std.ArrayList([]const u8), gpa: std.mem.Allocator) !void {
-        const text = if (self.expanded) self.body else self.summary;
-        var it = std.mem.splitScalar(u8, text, '\n');
-        while (it.next()) |line| {
-            try out.append(gpa, line);
-        }
-        if (!self.expanded and self.hasMore()) {
-            // Affordance line is drawn by renderer from hasMore; no extra here.
-        }
-    }
 };
 
 pub const Store = struct {

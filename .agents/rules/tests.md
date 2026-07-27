@@ -63,6 +63,17 @@ Do not use another implementation as the semantic authority in prose. If a
 consumer-dogfood comparison matters, name the checked boundary and the remaining
 gap explicitly.
 
+## A New Property Test Is Validated Against Defects
+
+A property or fuzz target that passes on a healthy tree has shown nothing: the
+tree was already healthy. Before landing one, break the code it targets — one
+injection per defect class the target claims to cover — and confirm the search
+finds each. An escape is a finding about the harness, not the code. Record in
+the target's header which defects it was validated against, and which states it
+measured itself as *not* reaching; a green run means only what those two lists
+say it means. `test/net/fuzz_test.zig` carries a worked example of
+both, including the escapes that shaped it.
+
 ## Placement
 
 - `test/foundation`: byte ownership and ID invariants.
@@ -94,6 +105,9 @@ gap explicitly.
 - `test/oracle`: the protocol oracle, message-arm manifests, the checked-in
   Syrup byte corpus under `test/oracle/corpus/` with its generators, fixture
   loaders, and whole-conversation scenario traces compared against the oracle.
+- `test/codec/fuzz_regressions`: inputs the fuzzer found, replayed by the
+  ordinary suite so a crash it caught cannot return quietly. `zig build fuzz`
+  writes them; `meta-check` refuses one that is not wired into the replay.
 - `test/support`: shared test helpers, including the copy utilities production
   modules must not carry.
 - `test/api_surface_test.zig`: recursively references every exported `pancake`

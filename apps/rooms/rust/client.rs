@@ -4,7 +4,7 @@
 //! one line, and collects each expected member's line as the room pushes it
 //! back. All the OCapN machinery lives in `room.rs` (`Room`), so this reads like
 //! a chat client — `while let Some(msg) = room.recv().await` to receive,
-//! `room.say(line).await` to talk.
+//! `room.say(line).await?` to talk.
 //!
 //!   cargo run --bin rooms-client -- 127.0.0.1:9099 general alice "hi" alice,bob,carol
 //!
@@ -109,7 +109,7 @@ async fn run_client(
 		}
 		// Post once every roster member is present, so each one receives it.
 		if !posted && roster.iter().all(|n| present.contains(n)) {
-			room.say(line).await;
+			room.say(line).await?;
 			posted = true;
 		}
 	}

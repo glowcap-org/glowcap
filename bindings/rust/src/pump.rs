@@ -104,7 +104,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 	// `close()`.
 	if !shared.closing() {
 		shared.closing.set(true);
-		let message = b"session closed";
+		let message = b"connection closed";
 		let _ = unsafe {
 			ffi::pancake_host_session_break_far_vows(
 				shared.ptr.get(),
@@ -200,11 +200,20 @@ fn last_abort(shared: &SessionShared) -> Option<AbortInfo> {
 }
 
 /// Drain every encoded outbound frame on this CapTP session and write it to
-/// the transport — how a FLUSH action lands. Writes serialize on the write
-/// half's lock, so frames stay whole and in submission order. The managed
-/// frame is held across the awaited write and released after it — zero
-/// frame copy.
+/// the transport, which is how a FLUSH action lands. The managed frame is held
+/// across the awaited write and released after it, so no frame is copied.
+///
+/// Writes serialize on the write half's lock, which keeps them in submission
+/// order. It does not make one write atomic: `write_all` is not
+/// cancellation-safe, so a caller who drops this future part-way through a
+/// frame, which `tokio::time::timeout` around a send does, leaves a partial
+/// frame on the wire. The partner's framing cannot recover from that, so the
+/// session is marked torn and refuses to write again rather than appending to
+/// a stream nobody can parse.
 pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
+	if shared.torn.get() {
+		return Err(Error::from_code(sys::ERR_CLOSED));
+	}
 	let writer = Rc::clone(&shared.writer);
 	let mut guard = writer.lock().await;
 	loop {
@@ -221,12 +230,35 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		let Some(sink) = guard.as_mut() else {
 			return Ok(()); // the transport is gone; the frame is released
 		};
+		// If this future is dropped between here and the line below, some of
+		// the frame is already gone and the rest never will be.
+		let in_flight = TornOnDrop { shared };
 		sink.write_all(frame.bytes()).await.map_err(io_err)?;
+		in_flight.finished();
 	}
 	if let Some(sink) = guard.as_mut() {
 		sink.flush().await.map_err(io_err)?;
 	}
 	Ok(())
+}
+
+// Marks the session torn unless the write it guards runs to completion. A
+// dropped write future is the only way out of `write_all` other than returning,
+// and it is indistinguishable from a partial frame on the wire.
+struct TornOnDrop<'a> {
+	shared: &'a Rc<SessionShared>,
+}
+
+impl TornOnDrop<'_> {
+	fn finished(self) {
+		core::mem::forget(self);
+	}
+}
+
+impl Drop for TornOnDrop<'_> {
+	fn drop(&mut self) {
+		self.shared.torn.set(true);
+	}
 }
 
 // Holds one drained managed frame across the awaited transport write and

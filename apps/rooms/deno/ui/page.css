@@ -1,25 +1,42 @@
-/* pancake's own palette — cream paper, cocoa ink, an amber accent, a teal
-   flourish (the docs-site colours), so rooms looks like it belongs to pancake
-   rather than to any chat app it borrows ideas from. */
+/* Rooms wears pancake's own colours — cream paper, cocoa ink, an amber accent,
+   a teal flourish — so it looks like part of the project rather than like any
+   chat app it borrows ideas from. Those come from ui/tokens.css, linked ahead of
+   this file in page.html; what follows is only what rooms means by them. */
 :root {
-	color-scheme: light;
-	--ink: #3a3027;
-	--ink-soft: #6b5d4d;
-	--paper: #fff3df;
-	--paper-raised: #fff9ee;
-	--accent: #c76f18;
-	--accent-deep: #a4560c;
-	--teal: #257f88;
-	--teal-deep: #1b5f66;
-	--rule: #e7d4b7;
-	--danger: #b23b2e;
-	--ok: #257f88;
-	--warn: #c76f18;
-	--hover: color-mix(in srgb, var(--ink) 6%, transparent);
-	--shadow-sm: 0 1px 2px rgba(58,48,39,.10);
-	--shadow: 0 18px 50px rgba(58,48,39,.16);
+	--danger: light-dark(#b23b2e, #e07a5f);
+	--ok: var(--teal);
+	--warn: var(--accent);
+	--hover: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), color-mix(in srgb, #ffffff 7%, transparent));
+	/* Your own messages, the Send button, and the pill that marks a mention of
+	   you all sit on the same amber fill, so they share one set of tokens. Fill
+	   and ink are chosen together: cream ink reads on a deep amber but washes
+	   out on a bright one, so the dark theme keeps the bright fill and flips the
+	   ink to the roast instead. Every pairing below clears 4.5:1 at both ends of
+	   the gradient, which is the bar for text this size. */
+	--mine-from: light-dark(var(--accent-deep), var(--accent));
+	--mine-to: light-dark(#8a4708, var(--accent-deep));
+	--on-accent: light-dark(#fff8ef, #241a10);
+	--shadow-sm: light-dark(0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent), 0 1px 2px rgba(0,0,0,.4));
+	--shadow: light-dark(0 18px 50px color-mix(in srgb, var(--ink) 16%, transparent), 0 18px 50px rgba(0,0,0,.55));
 	/* One height for interactive controls, so buttons and single-line inputs line
 	   up without per-element tuning. */
+	/* Avatar tints. A fixed ramp of ten that does not follow the theme, because
+	   the chip carries white initials and every tint has to clear 4.5:1 against
+	   them. Three of these are the light arm of --accent-deep, --teal, and
+	   --teal-deep, so `var()` would read correctly here and then flip to a dark
+	   arm that misses the bar (3.67, 2.48, and 3.47 against white). The ramp is
+	   therefore written out, and it is the one place in rooms allowed to spell a
+	   core value; ui/tokens.css owns every other colour. */
+	--avatar-1: #ae6115;
+	--avatar-2: #257f88;
+	--avatar-3: #a4560c;
+	--avatar-4: #1b5f66;
+	--avatar-5: #956e27;
+	--avatar-6: #557f58;
+	--avatar-7: #9c4a2f;
+	--avatar-8: #3a7d8c;
+	--avatar-9: #7a5c34;
+	--avatar-10: #2f6f78;
 	--control-h: 36px;
 	/* The topbar's accent hairline, drawn over its top edge, so the top padding can
 	   offset it and the content is not crowded. */
@@ -33,30 +50,35 @@
 	/* Shared cap for the centered message cards — the DM provenance note and the
 	   system pills — so they line up at one width and change together. */
 	--card-max: min(760px, 90%);
-	/* The teal four-point twinkle from the pancake hero art, reused as a spark. */
-	--sparkle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 0.6 Q8.9 6.5 15.4 8 Q8.9 9.5 8 15.4 Q7.1 9.5 0.6 8 Q7.1 6.5 8 0.6 Z' fill='%23257f88'/%3E%3C/svg%3E");
 }
-/* "Syrup" — the same warmth turned down to a dark roast. */
+/* "Syrup" — the same warmth turned down to a dark roast. Two arms, mirroring
+   ui/tokens.css: the media query answers for a reader who never touches the
+   toggle, the attribute for one who does, and the attribute wins either way. */
+@media (prefers-color-scheme: dark) {
+	html:not([data-theme="light"]) {
+		color-scheme: dark;
+	}
+}
 html[data-theme="dark"] {
 	color-scheme: dark;
-	--ink: #f3e6d0;
-	--ink-soft: #b9a684;
-	--paper: #211911;
-	--paper-raised: #2c2217;
-	--accent: #e8912d;
-	--accent-deep: #c76f18;
-	--teal: #4bb3bd;
-	--teal-deep: #2c97a1;
-	--rule: #3c3022;
-	--danger: #e07a5f;
-	--ok: #4bb3bd;
-	--warn: #e8912d;
-	--hover: color-mix(in srgb, #ffffff 7%, transparent);
-	--shadow-sm: 0 1px 2px rgba(0,0,0,.4);
-	--shadow: 0 18px 50px rgba(0,0,0,.55);
 }
 * {
 	box-sizing: border-box;
+}
+/* Interface icons (see icons.ts). Stroked paths that take the colour of the
+   control around them, so a button tints on hover without a second asset and
+   the toolbar holds still on a system with no emoji font installed. */
+.icon-svg {
+	display: block;
+	flex: none;
+}
+/* The little state marks — a padlock on a direct conversation, the sigil in the
+   room title — are icons sitting in a run of text, so they centre on the line
+   rather than on the text baseline. */
+.lock,
+#roomSigil {
+	display: inline-flex;
+	align-items: center;
 }
 html,
 body {
@@ -74,7 +96,9 @@ body {
 	-webkit-tap-highlight-color: transparent;
 	overscroll-behavior: none;
 	touch-action: manipulation;
-	font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+	font: 15px/1.5 var(--font-sans);
+	font-kerning: normal;
+	-webkit-font-smoothing: antialiased;
 	color: var(--ink);
 	background:
 		radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--accent)
@@ -145,7 +169,10 @@ button:focus-visible,
 	width: 16px;
 	height: 16px;
 	align-self: center;
-	background: var(--sparkle) center/contain no-repeat;
+	color: var(--accent);
+	background: currentColor;
+	-webkit-mask: var(--mark-stack) center/contain no-repeat;
+	mask: var(--mark-stack) center/contain no-repeat;
 	flex: none;
 }
 .workspace small {
@@ -214,10 +241,23 @@ button:focus-visible,
 	background: var(--hover);
 }
 #roomList li.here {
+	position: relative;
 	background: color-mix(in srgb, var(--accent) 16%, transparent);
 	color: var(--accent-deep);
-	font-weight: 700;
-	box-shadow: inset 3px 0 0 var(--accent);
+}
+/* The "you are here" marker is a real bar with its own geometry, centred on the
+   row. An inset shadow would follow the pill's corner radius and curve, which
+   reads as a bevel rather than a mark. */
+#roomList li.here::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 50%;
+	translate: 0 -50%;
+	width: 3px;
+	height: 1.15em;
+	border-radius: 0 3px 3px 0;
+	background: var(--accent);
 }
 #roomList .hash {
 	color: var(--accent);
@@ -489,10 +529,40 @@ button:focus-visible,
 }
 /* Pin messages to the bottom (just above the composer) when a conversation is
    short, on both desktop and mobile; when it overflows there is no free space so
-   it scrolls normally. The join card keeps its own centered layout. */
-#log > :first-child:not(.join-wrap) {
+   it scrolls normally. */
+#log > :first-child {
 	margin-top: auto;
 }
+/* The panel that opens a conversation. It is the top of the log, so it carries
+   the room's own name and one plain sentence about what this conversation is.
+   Bounded to the same width as the system pills so the column reads as one
+   measure, and left-aligned because it is prose, not a notice. */
+.conv-intro {
+	align-self: center;
+	width: var(--card-max);
+	margin: 8px 0 14px;
+	padding: 16px 18px;
+	border: 1px solid var(--rule);
+	border-radius: 14px;
+	background: linear-gradient(150deg, color-mix(in srgb, var(--teal) 9%,
+		var(--paper-raised)), var(--paper-raised) 65%);
+}
+.conv-intro h2 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 6px;
+	font-size: 17px;
+	color: var(--teal-deep);
+}
+.conv-intro p {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--ink-soft);
+	text-wrap: pretty;
+}
+
 /* Each scroll panel keeps its touch scrolling to itself (the body is locked), so
    flinging a list or the roster does not rubber-band or chain to anything else. */
 #roomList,
@@ -559,9 +629,8 @@ button:focus-visible,
 	margin-top: 3px;
 }
 .row.mine .bubble {
-	background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep)
-		100%);
-	color: #fff8ef;
+	background: linear-gradient(135deg, var(--mine-from) 0%, var(--mine-to) 100%);
+	color: var(--on-accent);
 	border-color: transparent;
 	border-radius: 16px;
 	border-top-right-radius: 6px;
@@ -636,7 +705,10 @@ button:focus-visible,
 	z-index: 3;
 }
 .jump.show {
-	display: block;
+	/* Flex, not block: the label sits beside its arrow. */
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 }
 
 /* ── Member pane ──────────────────────────────────────────────────────── */
@@ -798,8 +870,8 @@ button:focus-visible,
 .composer button[type="submit"] {
 	padding: 0 18px;
 	font-weight: 700;
-	color: #fff8ef;
-	background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+	color: var(--on-accent);
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
 }
 .composer button[type="submit"]:hover {
 	filter: brightness(1.05);
@@ -817,17 +889,24 @@ button:focus-visible,
 	overflow: hidden;
 	transition: height .12s;
 }
-.composer form:focus-within ~ .hint,
-.composer .hint.show {
+.composer form:focus-within ~ .hint {
 	height: 18px;
 }
 
 /* ── Join card ────────────────────────────────────────────────────────── */
+/* A sibling of the message log, not a child of it: the log is repainted by
+   clearing its children, and a join card living inside would be destroyed the
+   first time a conversation rendered — leaving nothing to show a rejected nick.
+   It covers the log while it is up, so it carries the paper background. */
 .join-wrap {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	overflow-y: auto;
+	background: var(--paper);
 	display: grid;
 	place-items: center;
 	padding: 24px;
-	height: 100%;
 }
 .join {
 	width: min(390px, 100%);
@@ -857,13 +936,6 @@ button:focus-visible,
 	align-items: center;
 	gap: 9px;
 }
-.join h2::before {
-	content: "";
-	width: 20px;
-	height: 20px;
-	background: var(--sparkle) center/contain no-repeat;
-	flex: none;
-}
 .join p.lead {
 	margin: -4px 0 6px;
 	color: var(--ink-soft);
@@ -892,8 +964,8 @@ button:focus-visible,
 	all: unset;
 	text-align: center;
 	cursor: pointer;
-	background: linear-gradient(135deg, var(--accent), var(--accent-deep));
-	color: #fff8ef;
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
+	color: var(--on-accent);
 	padding: 12px;
 	border-radius: 11px;
 	font-weight: 800;
@@ -940,17 +1012,17 @@ button:focus-visible,
 	text-underline-offset: 2px;
 }
 .row.mine .bubble a {
-	color: #fff8ef;
+	color: var(--on-accent);
 }
 .bubble code {
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-family: var(--font-mono);
 	font-size: .9em;
 	background: color-mix(in srgb, var(--ink) 9%, transparent);
 	padding: 1px 5px;
 	border-radius: 5px;
 }
 .row.mine .bubble code {
-	background: rgba(255,255,255,.2);
+	background: color-mix(in srgb, var(--on-accent) 20%, transparent);
 }
 .mention {
 	color: var(--accent-deep);
@@ -960,15 +1032,19 @@ button:focus-visible,
 	font-weight: 600;
 }
 .row.mine .mention {
-	color: #fff8ef;
-	background: rgba(255,255,255,.24);
+	color: var(--on-accent);
+	background: color-mix(in srgb, var(--on-accent) 24%, transparent);
 }
 .mention.you {
-	background: var(--accent);
-	color: #fff8ef;
+	background: var(--mine-from);
+	color: var(--on-accent);
 }
 .row.them .bubble.hl {
-	box-shadow: 0 0 0 2px var(--accent);
+	/* A line that names you: a warm tint and a firmer border. The bubble's
+	   corners are too round to carry an edge marker, so the fill does the work
+	   and the message stays the loudest thing in the row. */
+	border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	background: color-mix(in srgb, var(--accent) 13%, var(--paper-raised));
 }
 
 /* ── Day + unread dividers ────────────────────────────────────────────── */
@@ -1013,7 +1089,11 @@ button:focus-visible,
 }
 .row .acts {
 	position: absolute;
-	top: -10px;
+	/* Clear of the sender's name rather than half over it. The bar floats above
+	   the row and overlaps the message before it, which is what every chat
+	   client does with a hover toolbar; the solid fill and the z-index below
+	   keep it readable where it lands. */
+	top: -22px;
 	display: none;
 	gap: 2px;
 	background: var(--paper-raised);
@@ -1032,8 +1112,20 @@ button:focus-visible,
 /* Only reveal on a real hover device. On touch, tapping a row triggers a sticky
    :hover, which would otherwise leave Copy/@ stuck visible on the tapped row. */
 @media (hover: hover) {
-	.row:hover .acts {
+	.row:hover .acts,
+	.row:focus-within .acts {
 		display: flex;
+		animation: acts-in .12s ease-out;
+	}
+}
+/* Keyboard users get the same bar without a pointer ever being involved. */
+.row:focus-within .acts {
+	display: flex;
+}
+@keyframes acts-in {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
 	}
 }
 .row .acts button {
@@ -1156,10 +1248,20 @@ button:focus-visible,
 	background: var(--hover);
 }
 #dmList li.here {
+	position: relative;
 	background: color-mix(in srgb, var(--teal) 18%, transparent);
 	color: var(--teal-deep);
-	font-weight: 700;
-	box-shadow: inset 3px 0 0 var(--teal);
+}
+#dmList li.here::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 50%;
+	translate: 0 -50%;
+	width: 3px;
+	height: 1.15em;
+	border-radius: 0 3px 3px 0;
+	background: var(--teal);
 }
 #dmList .dmavatar {
 	width: 22px;
@@ -1188,8 +1290,8 @@ button:focus-visible,
 #dmList .rcount {
 	font-size: 11px;
 	flex: none;
-	background: var(--accent);
-	color: #fff8ef;
+	background: var(--mine-from);
+	color: var(--on-accent);
 	padding: 1px 7px;
 	border-radius: 9px;
 	min-width: 20px;
@@ -1280,36 +1382,6 @@ button:focus-visible,
 .provenance.offline .lock {
 	display: none;
 }
-.note {
-	align-self: center;
-	/* Wider than the chat-bubble measure: this is a muted, one-time explainer, not
-	   body text, so it gets room to breathe (the short note sits on one line) and only
-	   insets on a narrow screen. Shared with the system pills via --card-max. */
-	max-width: var(--card-max);
-	margin: 8px 0;
-	padding: 10px 14px;
-	border-radius: 12px;
-	background: color-mix(in srgb, var(--teal) 10%, var(--paper-raised));
-	border: 1px solid color-mix(in srgb, var(--teal) 26%, transparent);
-	color: var(--ink-soft);
-	font-size: 12.5px;
-	line-height: 1.5;
-	/* At the wider cap the short note sits on one line; text-wrap: pretty is the
-	   safety net that keeps the last line from dangling a stray word when a longer
-	   note does wrap. */
-	text-wrap: pretty;
-}
-.note b {
-	color: var(--teal-deep);
-}
-.note .head {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	color: var(--teal-deep);
-	font-weight: 700;
-	margin-bottom: 3px;
-}
 
 /* Touch devices have no hover, so reveal the actions desktop shows on hover. */
 @media (hover: none) {
@@ -1320,6 +1392,8 @@ button:focus-visible,
 	}
 }
 
+/* The phone layout. `dom.ts` matches this same width to decide whether to drive
+   the back button and the roster sheet; move one and move the other. */
 @media (max-width: 820px) {
 	/* Master-detail on a phone: the sidebar (the rooms and DM list) and the
 	   workarea (a conversation, or the join card) each take the whole screen, and
@@ -1416,8 +1490,10 @@ button:focus-visible,
 		grid-template-columns: minmax(0, 1fr);
 	}
 	.join-wrap {
+		position: static;
+		flex: 1 0 auto;
+		overflow: visible;
 		place-items: start center;
-		height: auto;
 		min-height: 100%;
 	}
 	.topbar {

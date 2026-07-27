@@ -29,6 +29,7 @@ import {
 	statusEl,
 	typingEl,
 } from "./dom.ts";
+import { setIcon } from "./icons.ts";
 import type { ActionItem, ChatItem, Conv, DmConv, Item, RoomConv, SysItem } from "./types.ts";
 import type { Presence } from "../../lib/limits.ts";
 import { activeConv, convKey, convs, dmablePeers, liveRooms, state } from "./state.ts";
@@ -282,6 +283,43 @@ export function toActive(item: Item) {
 	if (conv) deliver(conv, item);
 }
 
+// The panel at the top of a conversation. A log that starts mid-air reads as if
+// something failed to load, and the top of the log is the one place with room to
+// say what this room actually is. Each kind says the true thing about itself: a
+// room is open to anyone holding its name, while a direct message is the part
+// worth understanding, a line the room introduced and then stepped out of.
+function convIntro(conv: Conv): HTMLElement {
+	const box = document.createElement("div");
+	box.className = "conv-intro";
+	const title = document.createElement("h2");
+	const body = document.createElement("p");
+	if (conv.type === "room") {
+		title.textContent = "#" + conv.id;
+		body.textContent =
+			"This is the beginning of the room. Anyone who knows its name can join, " +
+			"and nobody had to make an account: the name you picked is a display name, " +
+			"not an identity anyone checked.";
+	} else {
+		title.textContent = conv.id;
+		body.textContent = conv.ready
+			? "This line is direct. The room introduced the two of you and then stepped " +
+				"out of the path, so these messages travel peer to peer and the room never " +
+				"sees them."
+			: "The room is introducing you. Once that introduction is redeemed, this line " +
+				"runs peer to peer and the room drops out of the path.";
+	}
+	box.append(title, body);
+	return box;
+}
+
+/// Put the join card up over the message stream, or take it down. It is a
+/// sibling of the log rather than a child, so the log has to be hidden with it:
+/// on the narrow layout both are in normal flow and would otherwise stack.
+export function showJoinScreen(show: boolean): void {
+	joinScreen.style.display = show ? "" : "none";
+	log.hidden = show;
+}
+
 // Repaint the whole log from a conversation's history (used on switch).
 export function renderConv(conv: Conv) {
 	// Silence the log's live region while we repaint the whole history, so a screen
@@ -292,6 +330,7 @@ export function renderConv(conv: Conv) {
 	lastGroup = { from: null, at: 0 };
 	lastDayKey = "";
 	unreadDivider = null;
+	log.append(convIntro(conv));
 	for (const item of conv.history) paint(item);
 	// Land at the newest message on entry. The immediate call covers the common
 	// case; the next-frame call covers a long conversation that has not finished
@@ -389,7 +428,7 @@ export function renderDms() {
 		if (conv.ready) {
 			const lock = document.createElement("span");
 			lock.className = "lock";
-			lock.textContent = "🔒";
+			setIcon(lock, "lock", 12);
 			lock.title = "Direct, peer-to-peer";
 			li.append(lock);
 		}
@@ -535,7 +574,7 @@ export function switchTo(key: string) {
 	// conversation full-screen; inert on desktop where the classes are unused.
 	app.classList.remove("show-list");
 	app.classList.remove("members-open");
-	joinScreen.style.display = "none";
+	showJoinScreen(false);
 	composer.hidden = false;
 	setComposerEnabled(true);
 	// Header, sigil, and provenance depend on the kind of conversation.
@@ -549,6 +588,9 @@ export function switchTo(key: string) {
 		// bottom sheet, so keep the desktop column expanded (no-members off) there.
 		if (isMobile()) {
 			content.classList.remove("no-members");
+			// On the narrow layout the button reports the bottom sheet, which a
+			// conversation switch always leaves closed.
+			membersToggle.setAttribute("aria-pressed", "false");
 		} else {
 			content.classList.toggle("no-members", state.membersHidden);
 			membersToggle.setAttribute("aria-pressed", String(!state.membersHidden));
@@ -556,7 +598,9 @@ export function switchTo(key: string) {
 		renderPresence(conv);
 	} else {
 		roomSigil.className = "at";
-		roomSigil.textContent = "☍"; // ☍, an introduced, direct line
+		// A direct line: two endpoints and nothing in between, which is what an
+		// introduction leaves behind once the room is out of the path.
+		setIcon(roomSigil, "direct", 17);
 		roomName.textContent = conv.id;
 		renderDmStatus(conv); // online/offline in the header, in place of a roster count
 		membersToggle.hidden = true;

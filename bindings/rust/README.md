@@ -56,7 +56,7 @@ Rust values. Build them with `Into`
 spells out an enum variant.
 
 The `async` feature carries that application surface. Round-trip shape (tcp;
-site tabs add iroh). `connect` already starts the inbound loop — call
+site tabs add iroh). `connect` already starts the inbound loop; call
 `Session::serve` only to await shutdown:
 
 ```rust
@@ -66,7 +66,7 @@ let partner = tcp_locator("127.0.0.1", 9099);
 let session = connect(&partner, None, None).await?;
 let greeter = session.fetch("greeter").await?; // a capability, by name
 match session
-    .send(&greeter, "greet", &[Argument::String("world".into())])
+    .send(&greeter, "greet", &["world".into()])
     .await
 {
     Ok(Argument::String(reply)) => println!("{reply}"),
@@ -81,7 +81,10 @@ session.close();
 `send` returns a `RemotePromise` that pipelines as the target of a later send
 and projects with `index`/`untag`. `caretaker` and `attenuate` wrap any `Ref` in
 a revocable or narrowed proxy. `Host::publish_giftable` publishes host-wide for
-three-party handoffs. The host archive owns routing, redemption, and gift
+three-party handoffs, and `send_redeeming` answers one: it returns the reply
+alongside `via`, the direct exporter connection that reply routes to, so a
+reply capability can be hosted on the connection the redeemed capability
+actually lives on. The host archive owns routing, redemption, and gift
 origination. The crate implements the embedder contract: it pumps raw bytes
 through `pancake_host_session_feed_bytes`, honors the host's action queue (dial,
 flush, gift-id entropy, vow settlements), and hosts every actor closure through

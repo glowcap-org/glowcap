@@ -108,14 +108,14 @@ pub const Queue = struct {
         return self.active != null or self.pending.items.len > 0;
     }
 
-    pub fn enqueue(self: *Queue, ctx: *Ctx, line: []const u8, store: *blocks.Store) !void {
+    pub fn enqueue(self: *Queue, ctx: *Ctx, line: []const u8, store: *blocks.Store, progress: *teach.Progress) !void {
         const owned = try self.gpa.dupe(u8, line);
         errdefer self.gpa.free(owned);
         // Plain label until a wait outlives `spinner_show_after_ms`.
         try store.appendLine(.pending, line);
         const block_idx = store.items.items.len - 1;
         try self.pending.append(self.gpa, .{ .line = owned, .block_idx = block_idx });
-        if (self.active == null) try self.startNext(ctx, store);
+        if (self.active == null) try self.startNext(ctx, store, progress);
     }
 
     pub fn cancelActive(
@@ -163,7 +163,7 @@ pub const Queue = struct {
         var flash: Flash = .none;
         while (true) {
             const active = self.active orelse {
-                try self.startNext(ctx, store);
+                try self.startNext(ctx, store, progress);
                 if (self.active == null) return flash;
                 continue;
             };
@@ -235,7 +235,7 @@ pub const Queue = struct {
                 }
                 const flash = flashForVerb(active.verb);
                 self.clearActive();
-                try self.startNext(ctx, store);
+                try self.startNext(ctx, store, progress);
                 return flash;
             },
             else => {},
@@ -245,11 +245,15 @@ pub const Queue = struct {
             // A composed tell settles `.void` once the fire-and-forget deliver
             // is queued; render it exactly as the direct-target tell does.
             try store.setLine(active.block_idx, .result, "told");
-            try store.appendLine(.gloss, "↳ tell — fire-and-forget deliver");
+            if (progress.glossOnce("tell")) |g| {
+                var gbuf: [256]u8 = undefined;
+                const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+                try store.appendLine(.gloss, gm);
+            }
             progress.noteVerb("tell", ctx);
             if (active.tokens.len >= 2) complete_state.rememberName(active.tokens[1]) catch {};
             self.clearActive();
-            try self.startNext(ctx, store);
+            try self.startNext(ctx, store, progress);
             return .answers;
         }
 
@@ -257,7 +261,7 @@ pub const Queue = struct {
             const import_pos = importPosFromFetch(settled) catch |err| {
                 try finishErr(store, active.block_idx, err);
                 self.clearActive();
-                try self.startNext(ctx, store);
+                try self.startNext(ctx, store, progress);
                 return .none;
             };
             const name = active.tokens[1];
@@ -282,14 +286,16 @@ pub const Queue = struct {
             }
         }
 
-        var gbuf: [256]u8 = undefined;
-        const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{teach.gloss(active.verb)}) catch "↳ ok";
-        try store.appendLine(.gloss, gm);
+        if (progress.glossOnce(active.verb)) |g| {
+            var gbuf: [256]u8 = undefined;
+            const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+            try store.appendLine(.gloss, gm);
+        }
         progress.noteVerb(active.verb, ctx);
         if (active.tokens.len >= 2) complete_state.rememberName(active.tokens[1]) catch {};
         const flash = flashForVerb(active.verb);
         self.clearActive();
-        try self.startNext(ctx, store);
+        try self.startNext(ctx, store, progress);
         return flash;
     }
 
@@ -298,7 +304,7 @@ pub const Queue = struct {
         self.active = null;
     }
 
-    fn startNext(self: *Queue, ctx: *Ctx, store: *blocks.Store) !void {
+    fn startNext(self: *Queue, ctx: *Ctx, store: *blocks.Store, progress: *teach.Progress) !void {
         while (self.active == null and self.pending.items.len > 0) {
             const q = self.pending.orderedRemove(0);
             defer self.gpa.free(q.line);
@@ -349,7 +355,7 @@ pub const Queue = struct {
             };
             active.resetListener();
 
-            const result = self.beginVerb(session, active, store) catch |err| {
+            const result = self.beginVerb(session, active, store, progress) catch |err| {
                 try finishErr(store, active.block_idx, err);
                 if (err == error.Usage) try store.appendLine(.tip, copy.tip_missing_verb);
                 active.deinit();
@@ -362,7 +368,7 @@ pub const Queue = struct {
         }
     }
 
-    fn beginVerb(self: *Queue, session: *driver.Session, active: *Active, store: *blocks.Store) !StartResult {
+    fn beginVerb(self: *Queue, session: *driver.Session, active: *Active, store: *blocks.Store, progress: *teach.Progress) !StartResult {
         const tokens = active.tokens;
         // Exhaustive on the registry's SessionVerb: a new member fails to
         // compile here instead of dying as a runtime usage error.
@@ -370,7 +376,7 @@ pub const Queue = struct {
 
         switch (sverb) {
             .publish => {
-                try runPublish(session, tokens, active.block_idx, store);
+                try runPublish(session, tokens, active.block_idx, store, progress);
                 active.deinit();
                 return .finished;
             },
@@ -394,7 +400,11 @@ pub const Queue = struct {
                     if (sverb == .tell) {
                         try session.tell(target, .{ .verb = active.tokens[2], .args = args });
                         try store.setLine(active.block_idx, .result, "told");
-                        try store.appendLine(.gloss, "↳ tell — fire-and-forget deliver");
+                        if (progress.glossOnce("tell")) |g| {
+                            var gbuf: [256]u8 = undefined;
+                            const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+                            try store.appendLine(.gloss, gm);
+                        }
                         active.deinit();
                         return .finished;
                     }
@@ -408,14 +418,18 @@ pub const Queue = struct {
                 // A name target rides the driver's cooperative compose: one
                 // begin chains fetch-then-deliver inside the driver, and this
                 // queue just waits on the terminal listener.
-                active.composed = true;
                 const listener = actors.Listener{ .ctx = &active.flag, .func = driver.SettleFlag.fire };
                 const msg = actors.Message{ .verb = active.tokens[2], .args = args };
+                // `begin*Named` owns `pending.msg_arena` from the moment it
+                // initializes it, and its own errdefer frees it on any failure.
+                // Only claim it here once the call has returned, or a refusal
+                // frees the arena twice.
                 if (sverb == .tell) {
                     try session.beginTellNamed(&active.pending, target_tok, msg, listener);
                 } else {
                     try session.beginSendNamed(&active.pending, target_tok, msg, listener);
                 }
+                active.composed = true;
                 _ = session.stepReadable(0) catch {};
                 self.active = active;
                 return .waiting;
@@ -446,7 +460,7 @@ fn importPosFromFetch(settled: driver.Settled) !u64 {
     };
 }
 
-fn runPublish(session: *driver.Session, tokens: []const []const u8, block_idx: usize, store: *blocks.Store) !void {
+fn runPublish(session: *driver.Session, tokens: []const []const u8, block_idx: usize, store: *blocks.Store, progress: *teach.Progress) !void {
     if (tokens.len < 2) {
         try store.setLine(block_idx, .error_line, "! publish needs a built-in name (greeter|echo)");
         return;
@@ -458,7 +472,11 @@ fn runPublish(session: *driver.Session, tokens: []const []const u8, block_idx: u
     var buf: [128]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, "published {s}", .{tokens[1]}) catch "published";
     try store.setLine(block_idx, .result, msg);
-    try store.appendLine(.gloss, "↳ publish — name a local actor the partner can fetch");
+    if (progress.glossOnce("publish")) |g| {
+        var gbuf: [256]u8 = undefined;
+        const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+        try store.appendLine(.gloss, gm);
+    }
 }
 
 const flashForVerb = flash_mod.flashForVerb;

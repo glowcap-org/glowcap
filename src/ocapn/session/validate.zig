@@ -28,6 +28,7 @@ const session = @import("mod.zig");
 const Session = session.Session;
 const Error = session.Error;
 const RecvViewError = session.RecvViewError;
+const SessionLimits = session.SessionLimits;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 const VIRTUAL_INBOUND_ANSWER_BASE = session.VIRTUAL_INBOUND_ANSWER_BASE;
 const REDEEMED_TOKEN_BASE = session.REDEEMED_TOKEN_BASE;
@@ -284,9 +285,19 @@ pub const IntroducedImports = struct {
     allocator: std.mem.Allocator,
     seen: std.AutoHashMapUnmanaged(model.ImportPosition, void) = .empty,
     mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
+    /// What is left of this message's equality-comparison allowance, spent by
+    /// the set-uniqueness fold. It rides the per-turn record rather than the
+    /// session because it is turn state: one record is built per recv entry
+    /// point and threaded down the same walk that reaches the fold, so the
+    /// bound is per message (a frame's many sets share one allowance) at no
+    /// per-session footprint cost. Refilled by `init`, which every turn calls.
+    compare_budget: model.equality.CompareBudget,
 
-    pub fn init(allocator: std.mem.Allocator) IntroducedImports {
-        return .{ .allocator = allocator };
+    pub fn init(allocator: std.mem.Allocator, limits: SessionLimits) IntroducedImports {
+        return .{
+            .allocator = allocator,
+            .compare_budget = .init(limits.max_compare_visits),
+        };
     }
 
     pub fn deinit(self: *IntroducedImports) void {
@@ -355,7 +366,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
 /// paired deinit, never the recv arena (this path never reaches the turn
 /// reset that reclaims it).
 pub fn validatePipelinedDeliver(self: *Session, deliver: anytype) RecvViewError!void {
-    var introduced: IntroducedImports = .init(self.allocator);
+    var introduced: IntroducedImports = .init(self.allocator, self.limits);
     defer introduced.deinit();
     try validateInboundDeliverAny(self, deliver, &introduced);
 }
@@ -452,7 +463,7 @@ fn validateInboundArgument(
         .list => |items| try validateInboundArguments(self, items, depth + 1, introduced),
         .set => |items| {
             try validateInboundArguments(self, items, depth + 1, introduced);
-            try checkInboundSetUniqueness(self, items);
+            try checkInboundSetUniqueness(self, items, introduced);
         },
         .tagged => |tagged| try validateInboundArguments(self, tagged.value, depth + 1, introduced),
         .@"struct" => |entries| try validateInboundStructEntries(self, entries, depth + 1, introduced),
@@ -475,15 +486,27 @@ fn validateInboundArgument(
 /// form cannot prove uniqueness for free — and for any future codec. It runs
 /// on the shared walk, so both the borrowed view path and the owned fallback
 /// enforce it identically. Borrowed elements are hashed/compared as views
-/// (`viewArgumentHash` / `viewArgumentsEqualWithScratch`) — scratch holds only the view
+/// (`viewArgumentHash` / `viewArgumentsEqualBounded`) — scratch holds only the view
 /// handles and hash rows, never a `toOwned` materialization. Owned fallback
 /// keeps the owned hash/equal path. A hash group is confirmed before refusing,
-/// so a collision costs one compare, never a false refusal. The nesting depth
-/// of every element was already bounded by the surrounding walk.
-fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void {
+/// so a collision never causes a false refusal. Confirming is not free: two
+/// sets compare as multisets, so an equal-hashed pair of width N costs on the
+/// order of N² element visits, and the commutative set hash lets a partner
+/// build that pair deliberately. Every visit therefore charges the session's
+/// per-message budget (`SessionLimits.max_compare_visits`), which refuses
+/// loudly rather than grinding. The nesting depth of every element was already
+/// bounded by the surrounding walk.
+fn checkInboundSetUniqueness(
+    self: *Session,
+    items: anytype,
+    introduced: *IntroducedImports,
+) RecvViewError!void {
     const arena = self.recv_scratch.allocator();
     if (comptime @TypeOf(items) == model.view.Args) {
-        // `len()` reads the list header (O(1)); no decode-walk just to count.
+        // Cap'n Proto reads this off the list header; Syrup walks the region to
+        // count it. Either way the walk below must agree with it, and the two
+        // answers come from different files, so the loop checks rather than
+        // trusts.
         const count = try items.len();
         if (count < 2) return;
         // Small sets stay on the stack so the common deliver path never grows
@@ -503,18 +526,25 @@ fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void 
         var it = items.iterator();
         var i: usize = 0;
         while (try it.next()) |element| : (i += 1) {
+            // A walk that outruns the count would write past `elements`, and
+            // the small arm is a stack array. A walk that falls short would
+            // leave rows undefined for the sort to order and then index
+            // `elements` by. `model.view`'s own `toOwnedSliceDepth` guards
+            // both directions; this fold is the one place that did not.
+            if (i >= elements.len) return Error.MalformedMessage;
             elements[i] = element;
             rows[i] = .{ .hash = try model.equality.viewArgumentHash(element), .index = i };
         }
+        if (i != elements.len) return Error.MalformedMessage;
         std.mem.sort(SetHashRow, rows, {}, SetHashRow.lessThan);
         var run_start: usize = 0;
         for (rows, 0..) |row, ri| {
             if (row.hash != rows[run_start].hash) run_start = ri;
             for (rows[run_start..ri]) |prior| {
-                if (try model.equality.viewArgumentsEqualWithScratch(
+                if (try model.equality.viewArgumentsEqualBounded(
                     elements[prior.index],
                     elements[row.index],
-                    arena,
+                    .{ .scratch = arena, .budget = &introduced.compare_budget },
                 )) {
                     return Error.DuplicateSetElement;
                 }

@@ -11,6 +11,12 @@ comptime {
     _ = @import("codec/registry_test.zig");
     _ = @import("codec/encode_budget_test.zig");
     _ = @import("codec/fuzz_test.zig");
+    _ = @import("engine/fuzz_test.zig");
+    _ = @import("driver/fuzz_test.zig");
+    _ = @import("model/fuzz_test.zig");
+    _ = @import("net/fuzz_test.zig");
+    _ = @import("actors/fuzz_test.zig");
+    _ = @import("persistent/fuzz_test.zig");
     _ = @import("codec/codec_equivalence_test.zig");
     _ = @import("model/model_test.zig");
     _ = @import("model/equality_test.zig");

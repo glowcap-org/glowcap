@@ -23,7 +23,7 @@
 // (`npx playwright install chromium && sudo npx playwright install-deps`). Run
 // directly: `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
 
-import { chromium } from "npm:playwright@1.61.1";
+import { chromium } from "playwright";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const ANSWERER = `${ROOT}zig-out/bin/pancake-webrtc-answerer`;

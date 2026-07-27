@@ -238,3 +238,49 @@ test "rooms-peer shim reports missing pancake" {
         try std.testing.expect(err == error.PancakeNotFound);
     }
 }
+
+test "an unwritable state directory is refused as an identity problem, not a dial failure" {
+    // The identity is the first thing `pancake` needs and the first thing the
+    // quickstart tells a reader to create, so a state directory nobody can
+    // write has to say so. It used to exit with a bare code and no output, and
+    // `ocapn info` reported it through the dial mapper, which sends the reader
+    // looking at the network for a permissions problem.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&path_buf, "/tmp/pancake-cli-ro-{d}", .{std.os.linux.getpid()});
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer {
+        _ = std.os.linux.chmod(@ptrCast(dir.ptr), 0o700);
+        std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    }
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    // A path one level below a directory that refuses new entries, so both the
+    // lock and the mint fail the way an unwritable home does.
+    var id_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const id_path = try std.fmt.bufPrint(&id_buf, "{s}/sub/identity", .{dir});
+    var dir_z: [std.fs.max_path_bytes]u8 = undefined;
+    @memcpy(dir_z[0..dir.len], dir);
+    dir_z[dir.len] = 0;
+    if (std.os.linux.chmod(@ptrCast(&dir_z), 0o500) != 0) return error.SkipZigTest;
+
+    var c = makeCtx(io, gpa, &environ);
+    defer c.deinit();
+    @memcpy(c.identity_path_buf[0..id_path.len], id_path);
+    c.identity_path = c.identity_path_buf[0..id_path.len];
+    c.secret = null;
+
+    var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer parsed.deinit();
+    const code = try cli.ocapn.cmdInfo(&c, &parsed);
+    try std.testing.expect(code != cli.exit_codes.ok);
+    // Anything but the dial code: this is not a network failure and reporting
+    // it as one is what sent the reader in the wrong direction.
+    try std.testing.expect(code != cli.exit_codes.dial);
+}

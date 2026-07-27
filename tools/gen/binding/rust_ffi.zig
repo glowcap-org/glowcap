@@ -28,10 +28,7 @@ const cw = @import("c_abi_net_transport_webrtc");
 
 pub const step_name = "gen-binding-rust-ffi";
 
-pub const Output = struct {
-    path: []const u8,
-    generate: *const fn (std.mem.Allocator) anyerror![]u8,
-};
+const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/ocapn_fns_gen.rs", .generate = generateOcapn },
@@ -43,12 +40,7 @@ pub const outputs = [_]Output{
 };
 
 /// `module.PancakeIrohNetlayer` → `PancakeIrohNetlayer`.
-fn baseName(comptime T: type) []const u8 {
-    @setEvalBranchQuota(1_000_000);
-    const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
-    return if (dot) |i| name[i + 1 ..] else name;
-}
+const baseName = @import("reflect").baseName;
 
 /// A named function-pointer alias the base spelling has no case for: the Zig
 /// alias's type maps to its Rust `pub type` twin by type equality.

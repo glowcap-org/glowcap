@@ -25,7 +25,10 @@ comptime {
     _ = @import("iroh_sidecar_stub");
 }
 
-pub const header_path = "include/pancake_net_transport_iroh.h";
+const Output = @import("output").Output;
+pub const outputs = [_]Output{
+    .{ .path = "include/pancake_net_transport_iroh.h", .generate = generate },
+};
 pub const step_name = "gen-header-net-transport-iroh";
 
 // Every prototype the header emits, in order. `emitFn` refuses a name missing
@@ -70,7 +73,7 @@ comptime {
 }
 
 /// Build the full header text. Caller owns the returned bytes.
-pub fn generate(gpa: std.mem.Allocator) ![]u8 {
+fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: Buf = .empty;
     errdefer b.deinit(gpa);
 

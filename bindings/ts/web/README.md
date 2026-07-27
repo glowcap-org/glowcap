@@ -15,7 +15,7 @@ import { init } from "@pancake/web";
 
 const stack = await init({ wasm: fetch("/pancake_driver.wasm") });
 const session = await stack.connect(stack.keyedTcpLocator(key, host, port));
-session.serve().catch(() => {});
+session.serve().catch((err) => console.error("session ended:", err));
 const greeter = await session.fetch("greeter");
 console.log(await session.send(greeter, "greet", ["world"]));
 ```
@@ -58,12 +58,11 @@ Browser peers cannot dial native sockets directly. A relay endpoint accepts a We
 and forwards bytes to a target TCP locator without parsing CapTP frames, so the keyed handshake and
 session authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
 `(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
-reference relay lives in the rooms app: the byte pipe in
-[`apps/rooms/lib/relay.ts`](../../../apps/rooms/lib/relay.ts) and the `/relay` endpoint in
+reference relay ships as [`@pancake/relay`](../relay/README.md). The rooms app wraps it at
 [`apps/rooms/deno/relay_server.ts`](../../../apps/rooms/deno/relay_server.ts), which allow-lists the
 room server's own port for TCP targets, checks the `Origin` header on the upgrade, caps live
-sessions, times out idle pairs, and bounds bytes per session. `zig build web-peer-relay-test` proves
-a keyed OCapN session from this binding through the relay to a native TCP host.
+sessions, times out idle pairs, and bounds bytes per session. `zig build deno-relay-test` proves a
+keyed OCapN session from this binding through that relay to a native TCP host.
 
 ## The proof
 
@@ -83,7 +82,16 @@ exports with no binding at all.
 ## What a real page needs
 
 Serve `pancake_driver.wasm` (from `zig-out/wasm/` or a release) and bundle this package plus
-`@pancake/stack` and `@pancake/abi`. The stack's module graph is browser-clean: the
-archive-resolution cascade loads its host built-ins dynamically and degrades away when they are
-absent, so a bundler ships no `node:` shims. WebRTC browser-to-browser transport is ADR-0070
-Milestone 2 and is not built.
+`@pancake/stack` and `@pancake/abi`, using [`browser-bundle.json`](browser-bundle.json) as the
+bundler config. The stack's module graph is browser-clean: the archive-resolution cascade loads its
+host built-ins dynamically and degrades away when they are absent, so a bundler ships no `node:`
+shims.
+
+Keep the stack free of module-level top-level `await`. `deno bundle` (esbuild) flattens every
+module's top-level await into one file, where the stack's import graph deadlocks around one. That is
+why `internal/ffi/runtime.ts` resolves its adapter synchronously and the archive symbol tables
+`dlopen` lazily on first use rather than at module load.
+
+Browser-to-browser transport ships as [`@pancake/webrtc`](../webrtc/README.md), a direct DTLS
+DataChannel opened through a signaling capability; `zig build webrtc-browser-to-browser` holds two
+Chromium peers on one.

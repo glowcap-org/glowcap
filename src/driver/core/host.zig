@@ -188,11 +188,31 @@ pub const HostSession = struct {
     }
 };
 
+/// Per-connection static-footprint ceiling for the byte-fed host shell. It is
+/// the third per-connection static allocation on the 500k Bridge path (ADR-0076),
+/// beside `engine.Peer` (gated at 1 KiB in `engine`) and the completion loop's
+/// `Conn` wrapper (gated at 128 bytes of overhead in `net.completion`). One
+/// `HostSession`, and so one inline `Served` and `Vat`, is minted per adopted
+/// connection in `mintShell`, so a field added to the shell, to `Served`, or to
+/// the embedded `Vat` is a withdrawal from that budget at scale. `engine.Peer`
+/// itself lives behind a pointer here, gated on its own; this ceiling holds the
+/// shell that surrounds it. Crossing it is a design event that raises the budget
+/// here and in `docs/ladder.md` step 2 together, with the bytes justified, never
+/// a check to route around.
+pub const host_session_struct_budget_bytes = 768;
+comptime {
+    if (@sizeOf(HostSession) > host_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
+        "driver_core.HostSession is {d} bytes, over the {d}-byte per-connection shell budget (docs/ladder.md step 2). " ++
+            "A larger shell is a withdrawal from the 500k footprint budget; raise the budget deliberately, do not route around it.",
+        .{ @sizeOf(HostSession), host_session_struct_budget_bytes },
+    ));
+}
+
 /// Retained-capacity bound for a session's `feed_tail` between bursts — the
 /// engine's steady-queue posture at the byte-fed tier. A burst that grew the
 /// tail past this frees the excess when the tail drains, at the price of one
 /// growth re-allocation when the next burst begins.
-pub const steady_feed_tail_bytes: usize = 4096;
+const steady_feed_tail_bytes: usize = 4096;
 
 /// Delimit and dispatch every complete frame at the front of `bytes`,
 /// returning how many leading bytes were consumed. Serves each frame's
@@ -313,7 +333,7 @@ pub const Host = struct {
         /// default a real peer keeps.
         verify_partner: bool = true,
         /// The wire grammar every minted session negotiates in. Defaults to
-        /// Syrup, the Goblins-interop target; both ends of a session must
+        /// Syrup, the v1.0 interop floor; both ends of a session must
         /// carry the same codec (`op:start-session` carries no codec operand,
         /// so agreement is the embedder's, exactly as on the raw peer tier).
         codec: model.CodecId = .syrup,
@@ -494,12 +514,13 @@ pub const Host = struct {
         const our_pid = crypto.derivePublicIdentifier(self.node.secretKey().publicKey());
         try self.hellos.registerOutbound(self.allocator, partner_designator, our_pid);
         errdefer self.hellos.unregister(self.allocator, partner_designator);
-        const partner = try self.allocator.dupe(u8, partner_designator);
-        errdefer self.allocator.free(partner);
-
+        // The designator is borrowed all the way to `mintShell`, which dupes it
+        // into the shell. One owner from birth: `freeSessionShell` is the only
+        // free, so a refusal below can unwind the mint without this frame
+        // holding an obligation to discharge as well.
         const session = switch (source) {
-            .mint => try self.mint(.{ .dialed = partner }),
-            .over => |peer| try self.mintOver(peer, .{ .dialed = partner }),
+            .mint => try self.mint(.{ .dialed = partner_designator }),
+            .over => |peer| try self.mintOver(peer, .{ .dialed = partner_designator }),
         };
         // Dialed-specific pin before hello; on failure unwind the mint. The
         // shared open tail's `errdefer failOpen` covers hello failures.
@@ -641,8 +662,18 @@ pub const Host = struct {
             session.indexed_partner_key = null;
         }
         if (session.role == .dialed) {
-            // tolerant: condemn / a prior unindex may already have removed it.
-            _ = self.dialed_by_designator.remove(session.role.dialed);
+            // Identity-checked like the partner-key arm above: this map is
+            // keyed by designator content, and unindexSession runs twice for a
+            // condemned session. A blind remove lets a released session evict
+            // the row a *newer* dial to the same designator just inserted,
+            // which would silently disable both refuseDuplicateDial and the
+            // crossed-hellos tiebreak.
+            if (self.dialed_by_designator.get(session.role.dialed)) |pid| {
+                if (pid == session.peer_id) {
+                    // tolerant: a prior unindex may already have removed it.
+                    _ = self.dialed_by_designator.remove(session.role.dialed);
+                }
+            }
         }
     }
 
@@ -702,12 +733,22 @@ pub const Host = struct {
     /// peer, apply the host posture, and allocate the `HostSession`. The
     /// map slot is reserved here so `enroll` cannot fail; a caller that fails
     /// after this unwinds with `failOpen`.
-    fn mint(self: *Host, role: HostSession.Role) !*HostSession {
+    /// What a mint is told about the half being minted. The dialed designator
+    /// is *borrowed* here: `mintShell` dupes it into the shell, which owns it
+    /// from then until `freeSessionShell`. Distinct from `HostSession.Role`,
+    /// which carries the owned bytes, so a caller cannot hand ownership in and
+    /// be left holding a second obligation for the same allocation.
+    const RoleSpec = union(enum) {
+        dialed: []const u8,
+        accepted,
+    };
+
+    fn mint(self: *Host, spec: RoleSpec) !*HostSession {
         try self.sessions.ensureUnusedCapacity(self.allocator, 1);
-        if (role == .dialed) try self.dialed_by_designator.ensureUnusedCapacity(self.allocator, 1);
+        if (spec == .dialed) try self.dialed_by_designator.ensureUnusedCapacity(self.allocator, 1);
         const peer_id = try self.node.registerPeer(self.negotiatingOptions());
         errdefer self.node.removePeer(peer_id);
-        return self.mintShell(self.node.peer(peer_id).?, peer_id, role);
+        return self.mintShell(self.node.peer(peer_id).?, peer_id, spec);
     }
 
     /// `mint` over a peer the embedder already owns and pins at a stable
@@ -716,12 +757,12 @@ pub const Host = struct {
     /// `deinit` only unregister the slot, and the embedder frees the peer
     /// after `releaseSession`. This is how a peer-owning loop, whose fixed slots
     /// hold each peer inline, puts its sessions under one host.
-    fn mintOver(self: *Host, peer: *engine.Peer, role: HostSession.Role) !*HostSession {
+    fn mintOver(self: *Host, peer: *engine.Peer, spec: RoleSpec) !*HostSession {
         try self.sessions.ensureUnusedCapacity(self.allocator, 1);
-        if (role == .dialed) try self.dialed_by_designator.ensureUnusedCapacity(self.allocator, 1);
+        if (spec == .dialed) try self.dialed_by_designator.ensureUnusedCapacity(self.allocator, 1);
         const peer_id = try self.node.registerPeerOver(peer);
         errdefer self.node.removePeer(peer_id);
-        return self.mintShell(peer, peer_id, role);
+        return self.mintShell(peer, peer_id, spec);
     }
 
     /// The host posture imposed on every minted or adopted peer.
@@ -738,10 +779,18 @@ pub const Host = struct {
     /// allocate the shell, for minted and adopted peers alike. Owned mints
     /// already received the same knobs at `registerPeer`; `reposture` is
     /// idempotent for that path and the only imposition for an adopted peer.
-    fn mintShell(self: *Host, peer: *engine.Peer, peer_id: engine.PeerId, role: HostSession.Role) !*HostSession {
+    fn mintShell(self: *Host, peer: *engine.Peer, peer_id: engine.PeerId, spec: RoleSpec) !*HostSession {
         peer.reposture(self.negotiatingOptions());
 
         const session = try self.allocator.create(HostSession);
+        errdefer self.allocator.destroy(session);
+        // The dupe lands here, next to the shell that will own it, so the bytes
+        // never exist without their owner. Both fallible steps are done before
+        // anything is published.
+        const role: HostSession.Role = switch (spec) {
+            .dialed => |designator| .{ .dialed = try self.allocator.dupe(u8, designator) },
+            .accepted => .accepted,
+        };
         session.* = .{
             .host = self,
             .peer_id = peer_id,
@@ -768,9 +817,6 @@ pub const Host = struct {
         }
     }
 
-    /// Unwind a failed open: retire the session id (running the node's
-    /// fail-closed sweep) and free the shell. The dialed designator, when the
-    /// caller already duped it, is the caller's own errdefer.
     /// Free one session's owned shell after it has been unregistered from every
     /// index: the served vat, the unconsumed feed tail, and a dialed session's
     /// designator bytes, then the shell itself. Every session teardown funnels
@@ -1467,7 +1513,6 @@ pub const Host = struct {
             if (value == .handoff and value.handoff == .give) {
                 var projected = try engine.handoff_recipient.projectGiveForRedeem(
                     host.allocator,
-                    event.bytes(),
                     value.handoff.give,
                 );
                 defer projected.deinit(host.allocator);

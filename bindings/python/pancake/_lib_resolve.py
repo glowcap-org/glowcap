@@ -255,8 +255,12 @@ def _safe_extract_lib(
                 raise OSError(f"refusing unsafe tar member: {member.name}")
             if member.issym() or member.islnk():
                 raise OSError(f"refusing link tar member: {member.name}")
+            # Everything else that is not a regular file or a directory gets
+            # the same verdict the other resolve ports reach. Skipping a
+            # device or fifo member instead would extract partially where
+            # every other port hard-fails.
             if not (member.isfile() or member.isdir()):
-                continue
+                raise OSError(f"refusing non-file tar member: {member.name}")
             dest = (stage / name).resolve()
             if not str(dest).startswith(str(stage_resolved) + os.sep) and dest != stage_resolved:
                 raise OSError(f"tar member escapes stage: {member.name}")

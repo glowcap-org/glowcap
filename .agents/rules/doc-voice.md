@@ -77,6 +77,12 @@ These are the tells that prose has drifted into a private notation:
   different words, then qualifying it; and giving a minor topic as many words as
   a major one. Each idea gets said once, well, and small topics stay small.
 
+- The sentence that never ends. Four ideas joined by semicolons, with a stack of
+  identifiers and a decision-record number wedged in, is not one sentence. The
+  median sentence on these pages is under a hundred characters;
+  `zig build meta-check` (`checkProseSentenceLength`) refuses one past 250,
+  which is well past the point a reader has lost the thread.
+
 - Self-awarded praise. Prose that calls the project's own arithmetic "honest," a
   surface "elegant," or a path "instant" is congratulation, not information.
   State the fact plainly and let the reader judge it; superlatives need a
@@ -100,7 +106,10 @@ These are the tells that prose has drifted into a private notation:
   else is overuse: "X — and then Y", "X — which is Y", a lone dash where ", " or
   ". " reads the same, and three facts strung behind dashes in one breath. The
   test is simple: if a comma, period, colon, or parentheses would carry the
-  sentence as well, the dash has not earned its place.
+  sentence as well, the dash has not earned its place. `zig build meta-check`
+  (`banHabitualEmDash`) rejects the two spellings habit reaches for most,
+  `— which` and `— and then`, across `src/`, `cli/`, `docs/`, `site/content`,
+  and `README.md`. The rest of this bullet is still yours to hold.
 - Telegraphic fragments with the verb cut out: "Bounded recursion. Depth-capped.
   Fails loud."
 - Bare citation dumps like "(Invariant 14)" or "(ADR-0025)" dropped in with no

@@ -34,7 +34,7 @@
 (lazy-require
  ["session.rkt" (session-vat session-host session-ptr)]
  ["pump.rkt" (pump-until)]
- ["host.rkt" (host-retain! call-with-host)]
+ ["host.rkt" (host-retain! host-retire! call-with-host)]
  ["promise.rkt" (await-vow session-far-send)])
 
 (provide (all-defined-out))
@@ -259,24 +259,28 @@
   (define tramp (make-actor-trampoline c v (actor-ref-id actor)))
   (host-retain! m tramp)
   (define turn (and (not name) (current-turn-for c)))
+  ;; The host never owns the row (the free callback is #f), so a refused mint
+  ;; must retire the retained closure or it leaks for the host's life.
   (define pos
-    (cond
-      [turn (turn-spawn-position! turn tramp)]
-      [else
-       (call-with-host m
-         (lambda ()
-           (cond
-             [name
-              (define nb (string->bytes/utf-8 name))
-              (define-values (rc p)
-                (pancake_host_session_publish (session-ptr c) (pin-immobile nb) (bytes-length nb)
-                                           tramp #f #f))
-              (check/host rc)
-              p]
-             [else
-              (define-values (rc p) (pancake_host_session_spawn (session-ptr c) tramp #f #f))
-              (check/host rc)
-              p])))]))
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (e) (host-retire! m tramp) (raise e))])
+      (cond
+        [turn (turn-spawn-position! turn tramp)]
+        [else
+         (call-with-host m
+           (lambda ()
+             (cond
+               [name
+                (define nb (string->bytes/utf-8 name))
+                (define-values (rc p)
+                  (pancake_host_session_publish (session-ptr c) (pin-immobile nb) (bytes-length nb)
+                                             tramp #f #f))
+                (check/host rc)
+                p]
+               [else
+                (define-values (rc p) (pancake_host_session_spawn (session-ptr c) tramp #f #f))
+                (check/host rc)
+                p])))])))
   (bind-export! v actor pos)
   (near pos))
 

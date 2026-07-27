@@ -216,9 +216,11 @@ pub fn handleLine(
     }
 
     if (code == exit_codes.ok) {
-        var gbuf: [256]u8 = undefined;
-        const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{teach.gloss(verb)}) catch "↳ ok";
-        try store.appendLine(.gloss, gm);
+        if (progress.glossOnce(verb)) |g| {
+            var gbuf: [256]u8 = undefined;
+            const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{g}) catch "↳ ok";
+            try store.appendLine(.gloss, gm);
+        }
         progress.noteVerb(verb, ctx);
         if (await_queue.isSessionVerb(verb) and tokens.len >= 2) {
             complete_state.rememberName(tokens[1]) catch {};

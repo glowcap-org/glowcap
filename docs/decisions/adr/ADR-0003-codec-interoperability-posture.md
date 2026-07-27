@@ -3,7 +3,7 @@ id: ADR-0003
 status: accepted
 date: 2026-04-30
 tags: [codec, syrup, capnp, wire-profile, goblins-interop, captp-version]
-decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is frozen released interop (Goblins / cross-platform); `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins` / `Offer.native`) and `negotiate` settle the pair out of band. `op:start-session` carries only the chosen version string.
+decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is pancake's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim; `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.native`) and `negotiate` settle the pair out of band. `op:start-session` carries only the chosen version string.
   supersedes: []
   superseded_by: []
 ---
@@ -18,11 +18,11 @@ meaning regardless of which codec rendered it. But version, codec, and interop
 target are different decisions. Two CapTP version jobs describe what makes a
 shape legitimate:
 
-- **Released interop (`v1_0` / `"1.0"`).** Bytes any OCapN v1.0 peer following
-  the frozen interop profile accepts. Goblins interop lives here as authenticated
-  `v1_0` over Syrup.
+- **Current interop floor (`v1_0` / `"1.0"`).** Bytes used by the pinned suite
+  and Goblins 0.18.0. Goblins interop lives here as authenticated `v1_0` over
+  Syrup. The wire token does not mean the upstream draft is released or frozen.
 - **Pancake-forward (`next` / `"pancake-next"`).** pancake-to-pancake CapTP ahead of
-  a new frozen interop version number: pancake-namespaced on the wire, not an
+  a new shared interop version number: pancake-namespaced on the wire, not an
   upstream OCapN maturity stage. Cap'n Proto sessions typically run here.
 - **Codec plurality.** Syrup and Cap'n Proto are serialization choices for the
   selected version. A codec can be unsupported for a version if it cannot carry
@@ -68,7 +68,8 @@ session state machine staying codec-neutral.
 
 **Offers and negotiation.**
 [`engine.negotiation`](../../../src/ocapn/engine/negotiation.zig) exposes
-`Offer.goblins()` / `Offer.native()` and a pure `negotiate(Offer, Offer)`.
+`Offer.goblins()` (since renamed `Offer.v1_0Syrup()`) / `Offer.native()` and a
+pure `negotiate(Offer, Offer)`.
 `op:start-session` carries only the chosen captp-version string, not codec or
 feature lists: so both peers must arrive at the same `(version, codec,
 features)` out of band (shared config, in-process pairing, or a locator hint an

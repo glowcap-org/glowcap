@@ -1,23 +1,12 @@
 # pancake Architecture
 
-pancake is an OCapN / CapTP core you use as a library. It makes visible what a
-library usually hides: whether a frame is owned or borrowed, where a copy or
-allocation happens, which wire format is in play, and where I/O and scheduling
-live.
-
-## Design Contract
-
-Wire-path allocation and copy are forbidden, intentional, or measured
-([vision](vision.md)). Session state is authoritative; codecs parse and
-render. The engine stays synchronous and does no I/O. Bindings prove the C
-ABI is consumable; they are never protocol authority
-([capabilities](capabilities.md), [shipped](shipped.md)).
-
-Protocol evidence: live Goblins (`conformance/goblins-peer/`), the upstream
-OCapN suite, and `test/oracle/` (see
+pancake is an OCapN / CapTP core you use as a library. This page names the
+layers, what each owns, and the memory and C ABI contracts between them.
+Protocol evidence lives in live Goblins (`conformance/goblins-peer/`), the
+upstream OCapN suite, and `test/oracle/` (see
 [`test/oracle/README.md`](../test/oracle/README.md)).
 
-## Core Boundary
+## Core boundary
 
 The canonical core owns protocol semantics and nothing else: no sockets, no
 `std.Io`, no background tasks, no hidden scheduler, and no process-level
@@ -44,7 +33,8 @@ layer free of it (ADR-0040). CapTP stays transport-agnostic above it.
 One decoder (`decodePrefix`) finds frame boundaries (ADR-0029).
 `Connection.pumpOver` folds that parser over a borrowed reader/writer
 (ADR-0030, ADR-0043). Residents plug in through a vtable: `tcp`,
-`keyed-tcp` (ADR-0075), `inproc` (ADR-0047), and iroh QUIC (ADR-0055).
+`keyed-tcp` (ADR-0075), `inproc` (ADR-0047), iroh QUIC (ADR-0055), and a
+`webrtc` DataChannel (ADR-0089).
 Inbound frames are capped; oversize bursts use a bounded spill so memory
 does not scale with `max_frame_bytes` (ADR-0041). Outbound pending bytes
 park reads at a high-water mark (ADR-0042). Shared read buffers are
@@ -55,13 +45,15 @@ resolved in the host core below, not here (ADR-0068).
 Open edges (cleartext TCP, no TLS-on-TCP, discovery limits, no
 Goblins-over-iroh): [boundaries](boundaries.md#netlayer).
 
-## Actors And Local Time-Travel (`actors`, `persistent`)
+## Actors and local time-travel (`actors`, `persistent`)
 
 The `actors` layer owns opt-in local time-travel. A `Vat` can snapshot its
-local actor heap and restore it later, sharing each actor's state behind a
-non-atomic refcounted box so the operation is O(objects) with no byte copy;
-mutable actors get copy-on-write, and persistent actors get a functional
-`become` (ADR-0060). Time-travel is local only: a snapshot never captures
+local actor heap and restore it later. The snapshot shares each actor's state
+rather than copying it, behind a reference count, so the cost is one count per
+actor and not one byte per byte. Mutable actors are copied only when a turn
+would first write to shared state; persistent actors replace their state
+outright with `become` (ADR-0060). Time-travel is local only: a snapshot never
+captures
 session state, and a restore never rewinds a peer.
 
 The sibling `persistent` leaf supplies one refcounted-HAMT `PersistentMap`
@@ -69,12 +61,12 @@ The sibling `persistent` leaf supplies one refcounted-HAMT `PersistentMap`
 with structural sharing; it imports nothing and does not sit on the public
 namespace.
 
-## Application Surface (`driver`)
+## Application surface (`driver`)
 
 The `driver` layer sits above the actor turn loop and the netlayer; it is the
 one place allowed to touch `std.Io` and the actor vat at the same time.
 
-Four names, one ladder:
+Four names, from narrowest to widest:
 
 | Name | Owns |
 | ---- | ---- |
@@ -94,7 +86,7 @@ Concepts page (`zig build docs-serve`) and in example chapter 02.
 ### Options vocabulary (ADR-0082)
 
 Several Options structs share field names because they share a concept. They
-are deliberately not merged into one mega-struct:
+are not merged into one mega-struct:
 
 | Surface | Owns | Shared names |
 |---------|------|--------------|
@@ -103,6 +95,7 @@ are deliberately not merged into one mega-struct:
 | `SessionOptions.frame_cap` | One owned session's admission | maps to `max_frame_bytes` |
 | `completion.Loop.Options.frame_cap` | Read-buffer pool sizing | not peer admission |
 | `Loop.Options.outbound_high_water` / `fan_in_throttle` / `park_kill_ms` | Backpressure and reclaim | loop I/O only |
+| `Loop.Options.drain_kill_ms` | How long a condemned connection waits for its partner to read the abort | finite by default, unlike `park_kill_ms` |
 | `Host.Options.bootstrap_durability` | Registry posture (`ephemeral` live; `durable_bootstrap` panics at init until an embedder store) | Host only |
 
 Default Host admission is 1 MiB; the loop's `frame_cap` defaults to 64 KiB.
@@ -117,7 +110,7 @@ Below all of this sit the explicit-ownership escapes, thin wrappers such as
 directly. A consumer who outgrows the surface entirely reaches the raw peer
 through `BlockingSession.peer`.
 
-## Session Representation
+## Session representation
 
 Session state is authoritative, and it is data-oriented. The protocol hands
 out dense, monotonically increasing integer positions
@@ -128,29 +121,30 @@ re-deriving them by scanning.
 - Exports, imports, and inbound/outbound answers are each O(1) position-keyed
   maps, not linearly scanned lists, and CapTP's three position namespaces
   stay three separate tables rather than one merged map (ADR-0080). They do
-  unify on reference identity, though: a near export, a far import, a
-  promise, and an answer are one `Slot` sum type, with the four wire
-  descriptors computed from that slot at render time instead of stored, so
-  pipelining, resolution, and handoff read one shape instead of four.
+  agree on what a reference *is*, though. A near export, a far import, a
+  promise, and an answer are all one `Slot` type. The four wire descriptors are
+  computed from that slot when a frame is rendered rather than stored beside
+  it, so pipelining, resolution, and handoff all read one shape.
   `ImportTable` separately caps partner-driven imports.
 - An answer row keeps its hot state-machine fields inline; its pipelining
   payload hangs off a pointer allocated only once an answer actually accrues
   one. Byte-keyed tables are hashed too: the `bootstrap` registry lives in
   one per-session byte arena, and the handoff `gifts` table is vat-scoped
   with precise per-row frees, since a re-deposit replaces a row (ADR-0056).
-- The steady-state inbound path validates straight from the borrowed codec
-  projection and only materializes an owned message when a deliver must be
-  queued for pipelining, so a deliver to a live export costs exactly one
-  allocation, a budget `test/engine/alloc_budget_test.zig` asserts. Argument
-  sequences expose a forward iterator for the same reason: a loop that
+- The steady-state inbound path validates directly against the borrowed codec
+  projection. It only builds an owned copy when a deliver has to be queued for
+  pipelining. So a deliver to a live export costs exactly one allocation, which
+  `test/engine/alloc_budget_test.zig` asserts. Argument sequences expose a
+  forward iterator for the same reason: a loop that
   instead re-scans the list with random-access lookups is quadratic.
 - Recursive argument walks are bounded by `SessionLimits.max_nesting_depth`,
   so an attacker-nested inbound frame fails loudly instead of overflowing
   the stack (ADR-0025), and dispatch runs an exhaustive
   `switch (session.state)` admission check so a new state variant can never
   silently inherit "admit everything."
-- Float equality uses `Object.is`, not IEEE `==`: every NaN equals every
-  other NaN, and `+0.0` is distinct from `-0.0` (ADR-0021).
+- Float equality follows the OCapN same-value rule (the semantics JavaScript
+  spells `Object.is`), not IEEE `==`: every NaN equals every other NaN, and
+  `+0.0` is distinct from `-0.0` (ADR-0021).
 
 pancake never reuses a position it allocates itself, so its own positions
 stay stable keys for the session's life. A partner is not bound by that
@@ -162,7 +156,7 @@ than flat vectors for a related reason: a hostile peer could otherwise name
 a sparse import position and force a flat array to grow to that index, a
 memory denial-of-service the hash avoids.
 
-## Memory Contract
+## Memory contract
 
 `Frame` owns wire bytes; `FrameView` borrows wire bytes for a bounded call
 scope, and session state must never retain borrowed wire memory. The decode
@@ -170,12 +164,13 @@ split follows the same rule: `decodeBody` projects a borrowed semantic view
 over frame bytes, while `decodeOwned` materializes an owned value only when
 persistence, tests, or a cross-boundary handoff requires one.
 
-`FrameShape` also distinguishes byte storage from word-aligned storage (the
-`word` shape is 8-byte-aligned with a length divisible by 8): Syrup is
-byte-framed, Cap'n Proto is word-framed, and a codec-neutral core keeps that
-distinction explicit instead of flattening every frame to generic bytes.
+`FrameShape` also records whether a frame is plain bytes or word-aligned
+storage, where word-aligned means an address divisible by eight and a length to
+match. Syrup frames are bytes and Cap'n Proto frames are words. A core that
+serves both keeps the difference visible rather than flattening every frame
+into anonymous bytes.
 
-## Copy Budget
+## Copy budget
 
 A copy must be named at the boundary where it happens; it is never the
 default way a frame moves.
@@ -198,30 +193,35 @@ default way a frame moves.
 ## C ABI Contract
 
 Opaque handles, fixed-width codes, `ptr + len` views, explicit release,
-callbacks with caller context. Archives compose à la carte (ADR-0059), no
-umbrella library: `libpancake_ocapn`, `libpancake_net`,
+callbacks with caller context. There is no umbrella library: you link the
+archives you need and no others (ADR-0059). Two are always there,
+`libpancake_ocapn` and `libpancake_net`, alongside `libpancake_driver` for the
+byte-fed host. Then one archive per transport you actually use:
 `libpancake_net_transport_tcp`, `libpancake_net_transport_inproc`,
-`libpancake_net_transport_iroh`, `libpancake_net_transport_webrtc`,
-`libpancake_driver`. Allocation rides a
-`PancakeContext` (ADR-0031). Archive table, link recipe, and first program:
+`libpancake_net_transport_iroh`, `libpancake_net_transport_webrtc`.
+Allocation goes through a `PancakeContext` (ADR-0031).
+For the full archive table, a link recipe, and a first program, see
 [consuming-from-c](consuming-from-c.md).
 
-Each language binding (Rust, TypeScript, Python, and Racket) drives the pump
-cycle directly against the C ABI entry points: it feeds inbound bytes with
-`pancake_host_session_feed_bytes`, answers host actions from
-`pancake_host_next_action`, and drains outbound frames with
-`pancake_host_session_take_outbound`. There is no callback orchestration layer
-between a binding and those calls, because each binding's own async runtime
-schedules the cycle, and callback indirection composes poorly with async/await.
+Each language binding drives the same three-step cycle against the C ABI. It
+feeds inbound bytes in with `pancake_host_session_feed_bytes`, lets the host
+run whatever that produced with `pancake_host_pump_drain`, and takes outbound
+frames back out with `pancake_host_session_take_outbound`.
 
-## Examples As Contract
+That middle step calls the hooks the binding registered. A binding must not
+pop the raw action queue itself, and `meta-check` refuses one that tries.
+Each binding's own
+async runtime schedules the cycle, so pancake runs no background loop of its
+own, and callback indirection composes poorly with async/await.
+
+## Examples as contract
 
 Examples are build targets, not snippets.
 [`examples/README.md`](../examples/README.md) indexes the Zig chapters and C
 programs (`frame_view`, `context_alloc`, `echo_peer`, `compose_transports`,
 host embedder pump). `zig build check` runs them.
 
-## Product Surfaces (`cli/`, `apps/`) And Dev Tools
+## Product surfaces (`cli/`, `apps/`) and dev tools
 
 The installable `pancake` binary consumes the public `pancake` module. It is not
 a new protocol layer and not part of `libpancake_*`

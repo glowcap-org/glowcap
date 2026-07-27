@@ -449,17 +449,9 @@ fn dispatchDrainedCall(peer: *Peer, answer: model.AnswerPosition, queued: model.
 /// break so the partner isn't left hanging on any answer or V1.0 resolver the
 /// queued call expected, then release the call.
 fn propagateBreakToDrainedCall(peer: *Peer, queued: model.Message, resolution: model.Resolution) !void {
-    const call_answer = queued.deliver.answer orelse blk: {
-        // V1.0 resolver-only: look up the virtual answer. The resolver mention
-        // is a partner import; a `.near` here is a local resolver export in the
-        // same integer space, reinterpreted explicitly for the lookup.
-        if (queued.deliver.resolve_me_desc) |rmd| {
-            if (rmd.position()) |id| {
-                break :blk peer.session_state.answerForResolverImport(model.ImportPosition.from(id));
-            }
-        }
-        break :blk @as(?model.AnswerPosition, null);
-    };
+    // The virtual answer a V1.0 resolver-only call settles, through the one
+    // engine seam that owns the resolver-descriptor mapping.
+    const call_answer = peer.answerForDeliver(queued.deliver);
     if (call_answer) |ca| {
         const break_reason: model.BreakReason = switch (resolution) {
             .@"break" => |err| err,

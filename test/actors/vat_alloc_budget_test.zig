@@ -23,7 +23,7 @@ const promise_capture = @import("../support/capture.zig");
 const ArenaReplier = struct {
     pub fn handle(self: *ArenaReplier, turn: *Turn, msg: Message) !model.Argument {
         _ = self;
-        return .{ .bytes = try std.fmt.allocPrint(turn.arena, "echo-{s}", .{msg.arg(0).bytes}) };
+        return .{ .bytes = try std.fmt.allocPrint(turn.arena, "echo-{s}", .{try msg.argBytes(0)}) };
     }
 };
 

@@ -12,10 +12,10 @@ CLI is the product adapter over the same stack.
 The chapters read top-down. Chapter 01 is the surface an application rides.
 Chapter 02 widens it to the multi-session `Host` tier. Chapters 03–06 then
 descend to the raw engine and actor composition over in-process
-`pairing.pairedGoblins` (authenticated CapTP `"1.0"` / Syrup, the Goblins
-interop profile). `pairing.paired` is the pancake-forward Cap'n Proto path.
-These chapters stay on Goblins so deliver and resolve pedagogy matches the live
-interop wire.
+`pairing.pairedV1_0Syrup` (authenticated CapTP `"1.0"` / Syrup, the interop
+floor). `pairing.paired` is the pancake-forward Cap'n Proto path.
+These chapters stay on that floor so deliver and resolve pedagogy matches the
+live Goblins interop wire.
 
 | # | Program | What it does |
 | -- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

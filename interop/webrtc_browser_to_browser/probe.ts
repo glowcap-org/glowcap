@@ -28,10 +28,10 @@ interface Signal {
 	candidate?: RTCIceCandidateInit;
 }
 
+// Declared as a global rather than on `Window`: this module reaches it through
+// `globalThis`, and only a global `var` is visible on that type.
 declare global {
-	interface Window {
-		__verdict: Promise<{ ok: boolean; reason?: string }>;
-	}
+	var __verdict: Promise<{ ok: boolean; reason?: string }>;
 }
 
 const params = new URLSearchParams(location.search);
@@ -43,7 +43,7 @@ const status = (s: string): void => {
 };
 
 let resolveVerdict!: (v: { ok: boolean; reason?: string }) => void;
-window.__verdict = new Promise((res) => (resolveVerdict = res));
+globalThis.__verdict = new Promise((res) => (resolveVerdict = res));
 
 let resolveRemoteId!: (designator: string) => void;
 const remoteId = new Promise<string>((res) => (resolveRemoteId = res));

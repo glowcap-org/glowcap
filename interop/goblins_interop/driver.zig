@@ -93,7 +93,7 @@ const unregistered_swiss = "pancakeUnknownSwissnumZZZZZZ9999";
 const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
-        const name: []const u8 = switch (msg.arg(0)) {
+        const name: []const u8 = switch (try msg.arg(0)) {
             .string => |s| s,
             .bytes => |b| b,
             else => "stranger",
@@ -110,7 +110,7 @@ const ProjectionResponder = struct {
         _ = self;
         const tag: []const u8 = if (msg.verb.len > 0)
             msg.verb
-        else switch (msg.arg(0)) {
+        else switch (try msg.arg(0)) {
             .string => |s| s,
             .bytes => |b| b,
             .symbol => |s| s,
@@ -118,7 +118,7 @@ const ProjectionResponder = struct {
         };
         const name_index: usize = if (msg.verb.len > 0) 0 else 1;
         if (std.mem.eql(u8, tag, "record")) {
-            const name: []const u8 = switch (msg.arg(name_index)) {
+            const name: []const u8 = switch (try msg.arg(name_index)) {
                 .string => |s| s,
                 .bytes => |b| b,
                 else => "anon",

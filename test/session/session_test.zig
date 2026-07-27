@@ -133,6 +133,70 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
     } });
 }
 
+test "a wide equal-hashed set pair is refused by the comparison bound, not ground through" {
+    const allocator = std.testing.allocator;
+
+    // Two spellings of one wide set: the same members, in opposite order. Set
+    // equality is multiset equality, so confirming this pair costs work
+    // quadratic in the width, and the commutative set hash puts the pair in
+    // one hash run so the fold actually confirms it. That is the shape a
+    // partner buys with a single frame, and the elements here are distinct, so
+    // the inner folds themselves spend nothing.
+    const wide = 256;
+    var forward: [wide]model.Argument = undefined;
+    var backward: [wide]model.Argument = undefined;
+    for (0..wide) |i| {
+        forward[i] = .{ .integer = @intCast(i) };
+        backward[i] = .{ .integer = @intCast(wide - 1 - i) };
+    }
+    var outer = [_]model.Argument{ .{ .set = &forward }, .{ .set = &backward } };
+    var args = [_]model.Argument{.{ .set = &outer }};
+    const deliver = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &args,
+        .answer = null,
+    } };
+
+    // Under the default bound the work stops early and loud.
+    var bounded = session.Session.init(allocator);
+    defer bounded.deinit();
+    try bounded.registerExport(.from(7));
+    try std.testing.expectError(
+        session.Error.CompareBudgetExhausted,
+        bounded.recordRecvView(model.view.Body.fromOwned(&deliver)),
+    );
+
+    // Given room to finish, the same pair really is Equal: the bound refuses a
+    // frame this session would otherwise have refused anyway, only sooner. So
+    // the early refusal is the budget doing its job, not a wrong comparison.
+    var generous = session.Session.initWith(allocator, .{ .limits = .{ .max_compare_visits = 1 << 24 } });
+    defer generous.deinit();
+    try generous.registerExport(.from(7));
+    try std.testing.expectError(
+        session.Error.DuplicateSetElement,
+        generous.recordRecvView(model.view.Body.fromOwned(&deliver)),
+    );
+
+    // A narrow pair stays under the bound, so the budget cannot false-fire on
+    // the ordinary duplicate refusal this fold exists for.
+    var narrow_a = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+    var narrow_b = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
+    var narrow_outer = [_]model.Argument{ .{ .set = &narrow_a }, .{ .set = &narrow_b } };
+    var narrow_args = [_]model.Argument{.{ .set = &narrow_outer }};
+    const narrow_deliver = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &narrow_args,
+        .answer = null,
+    } };
+    var narrow = session.Session.init(allocator);
+    defer narrow.deinit();
+    try narrow.registerExport(.from(7));
+    try std.testing.expectError(
+        session.Error.DuplicateSetElement,
+        narrow.recordRecvView(model.view.Body.fromOwned(&narrow_deliver)),
+    );
+}
+
 test "a sent duplicate set element or struct key is refused pre-commit, not at encode" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -1019,7 +1083,7 @@ test "session feature gates listen and sturdyref-bearing payloads" {
     try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(1) } },
-            .args = &.{.{ .reference = .{ .sturdy = .{
+            .args = &.{.{ .reference = .{ .sturdy = &.{
                 .peer = .{ .transport = "memory", .designator = "host" },
                 .swissnum = &.{ 1, 2, 3 },
             } } }},
@@ -1827,4 +1891,34 @@ test "a partner may reuse an answer position after releasing it" {
         .answer = .from(11),
     } });
     try std.testing.expectEqual(session.AnswerStatus.pending, s.inboundAnswer(.from(11)).?.status);
+}
+
+test "a V1.0 resolver cannot claim an import in the node's reserved range" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+
+    // A partner advertises its resolver by naming an import position in the
+    // deliver's `resolve_me_desc`, and this path installs that row itself
+    // rather than looking one up, so the ordinary reference checks never see
+    // the position. Everything at or above `REDEEMED_TOKEN_BASE` belongs to the
+    // node, which hands those ids to the application for redeemed capabilities
+    // and relies on them never colliding with a partner's import.
+    try std.testing.expectError(
+        session.Error.InvalidReference,
+        s.installInboundResolver(.from(99), .from(session.REDEEMED_TOKEN_BASE)),
+    );
+    try std.testing.expectError(
+        session.Error.InvalidReference,
+        s.installInboundResolver(.from(99), .from(std.math.maxInt(u64))),
+    );
+    // Nothing was installed by the refused calls.
+    try std.testing.expectEqual(@as(?model.ImportPosition, null), s.resolverForInboundAnswer(.from(99)));
+
+    // The position just below the range is an ordinary import and still works.
+    try s.installInboundResolver(.from(99), .from(session.REDEEMED_TOKEN_BASE - 1));
+    try std.testing.expectEqual(
+        @as(?model.ImportPosition, .from(session.REDEEMED_TOKEN_BASE - 1)),
+        s.resolverForInboundAnswer(.from(99)),
+    );
 }

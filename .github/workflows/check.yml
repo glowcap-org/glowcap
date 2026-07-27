@@ -1,7 +1,6 @@
 # The full gate sequence, run in the canonical devcontainer image via
-# ci/gates.sh. Origin is Codeberg, whose hosted runners cannot build the
-# image (no docker-in-docker), so its docker-capable mirror carries the full
-# sequence while .forgejo/workflows/check.yml runs the Zig-only checks.
+# ci/gates.sh. Codeberg remains the origin pending a maintainer hosting
+# decision, but has no project workflow; this mirror carries the full sequence.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
 # The devcontainer image is rebuilt from scratch on every run (push: never,
@@ -22,6 +21,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # The devcontainer's compose file declares both networks `external: true`,
+      # and names the side network through `EGRESS_NET` with a `:?` default that
+      # hard-errors when unset. A developer supplies both from the gitignored
+      # .devcontainer/.env; a fresh runner has neither, so compose refuses to
+      # start and every gate below it silently never runs. Create the networks
+      # and write the env compose auto-loads from this directory.
+      - name: Prepare the devcontainer's external networks
+        run: |
+          docker network create rooms-net 2>/dev/null || true
+          docker network create pancake-ci-egress 2>/dev/null || true
+          echo "EGRESS_NET=pancake-ci-egress" > .devcontainer/.env
 
       - name: Run the gates in the devcontainer
         uses: devcontainers/ci@v0.3

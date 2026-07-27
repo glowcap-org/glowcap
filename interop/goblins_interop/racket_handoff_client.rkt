@@ -27,7 +27,9 @@
 
 (define HOST "127.0.0.1")
 (define PORT (parse-port "racket-goblins-handoff" 22116 65534))
-(define RACKET "/usr/local/bin/racket")
+(define RACKET
+  (or (find-executable-path "racket")
+      (error 'racket-handoff-client "racket executable not found on PATH")))
 (define HOST-SCRIPT "conformance/goblins-peer/racket/handoff-introducer-host.rkt")
 
 (define-values (proc proc-out proc-in proc-err)

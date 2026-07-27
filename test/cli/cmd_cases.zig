@@ -231,3 +231,69 @@ test "missing dial locator is usage" {
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial" });
     try std.testing.expectEqual(cli.exit_codes.usage, code);
 }
+
+test "a flag does not swallow the next flag as its value" {
+    // `pancake --identity --json init` used to read `--json` as the identity
+    // path. It wrote a key to a file literally named `--json`, left a
+    // `--json.lock` beside it, dropped the flag the user actually typed, and
+    // exited zero. Nothing in that sequence told them anything was wrong.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = testCtx(gpa, &environ, &threaded);
+    defer c.deinit();
+
+    const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial", "--identity", "--json" });
+    try std.testing.expectEqual(cli.exit_codes.usage, code);
+}
+
+test "the same value flag given twice is usage, not last-wins" {
+    // `--identity old.key --identity new.key` used to read one key file and
+    // never mention the other. Persistent flags make this easy to hit by
+    // accident, since the same flag is accepted at the root and again at the
+    // subcommand.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = testCtx(gpa, &environ, &threaded);
+    defer c.deinit();
+
+    const code = try cli.cmd.dispatch(&fixture_root, &c, &.{
+        "--identity", "old.key", "ocapn", "--identity", "new.key", "dial", "ocapn://x",
+    });
+    try std.testing.expectEqual(cli.exit_codes.usage, code);
+}
+
+test "repeating an on/off flag is fine" {
+    // It says the same thing twice, so there is nothing to disagree about.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = testCtx(gpa, &environ, &threaded);
+    defer c.deinit();
+
+    const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "--json", "ocapn", "--json", "dial", "ocapn://x" });
+    try std.testing.expectEqual(cli.exit_codes.ok, code);
+}
+
+test "the short-flag advice names a form the parser accepts" {
+    // A short flag is matched as exactly two characters, so `-i=value` lands on
+    // "unknown flag". Advising it sent the user from one error to another.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = testCtx(gpa, &environ, &threaded);
+    defer c.deinit();
+
+    // The form the message recommends has to actually work.
+    const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "--identity=--json", "ocapn", "dial", "ocapn://x" });
+    try std.testing.expectEqual(cli.exit_codes.ok, code);
+}

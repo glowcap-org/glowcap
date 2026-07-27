@@ -449,8 +449,14 @@
 ;; (ADR-0009/ADR-0056), the iroh sibling of `dial-parsed-locator`'s TCP arm.
 ;; The core's `dial-exporter` loads it lazily for an iroh give. The keyed
 ;; handshake is the host's (`establish-dialed-locator-session` signs it under
-;; the host identity and drives it byte-fed over this transport).
-(define (connect-iroh/node node-id direct-addresses reachability m)
+;; the host identity and drives it byte-fed over this transport), and
+;; `handshake-timeout-ms` bounds it at `HANDSHAKE-TIMEOUT-MS` by default. The
+;; bound covers only the handshake over an established QUIC connection, never
+;; the dial-by-id resolution before it: `dial-resolving` owns that wait and its
+;; discovery retries, so a slow n0 lookup is not charged to the handshake.
+(define (connect-iroh/node node-id direct-addresses reachability m
+                           #:handshake-timeout-ms
+                           [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (define-values (netlayer _) (iroh-netlayer-new reachability))
   (define lp (make-iroh-loop netlayer))
   (define conn
@@ -461,10 +467,8 @@
                           (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
   (loop-register! lp conn)
   (define transport (iroh-loop-transport lp conn netlayer #t))
-  (define c
-    (with-handlers ([(lambda (_) #t)
-                     (lambda (e) ((async-transport-close! transport)) (raise e))])
-      (establish-dialed-locator-session m TRANSPORT-IROH node-id transport)))
+  (define c (establish-dialed-locator-session m TRANSPORT-IROH node-id transport
+                                                 #:handshake-timeout-ms handshake-timeout-ms))
   ;; Release fallback: the dialer owns its ephemeral netlayer, readiness loop
   ;; thread, and connection. If the caller drops `c` without an explicit
   ;; `session-close!`, run the transport's (idempotent) close lambda — the
@@ -553,27 +557,34 @@
 ;; Claim the next partner, complete the responder handshake (signing the server's
 ;; endpoint id as the locator designator), and return a ready connection — served
 ;; from the same loop as every other accepted connection. Parks on the loop's
-;; accept gate when none is pending; raises once the server is closed.
+;; accept gate when none is pending; raises once the server is closed. A partner
+;; that fails the handshake, or that opens a connection and then says nothing
+;; past the handshake deadline, is skipped and the next one is claimed instead,
+;; the same rule the TCP listeners follow: `accept-next-session` owns both
+;; halves, so the closed-server raise below is the only thing that reaches the
+;; caller.
 (define (iroh-server-accept s)
   (define lp (iroh-server-loop s))
-  (let loop ()
-    (define-values (rc conn) ((iroh-fn 'netlayer-try-accept) (iroh-netlayer-handle (iroh-server-netlayer s))))
-    (cond
-      [(= rc OK)
-       (define m (iroh-server-host s))
-       (loop-register! lp conn)
-       ;; The host publishes the host's giftables on the fresh connection as it
-       ;; is minted and answers a dialer's pipelined bootstrap fetch the instant
-       ;; the session opens; the responder signs the server's own endpoint id
-       ;; under the host's one retained identity, exactly as the TCP responder
-       ;; does.
-       (establish-accepted-session m TRANSPORT-IROH (iroh-server-node-id s)
-                                      (iroh-loop-transport lp conn #f #f))]
-      [(= rc WOULD-BLOCK)
-       (if (iroh-loop-accept-closed? lp)
-           (raise-pancake 'iroh-server-accept ERR-CLOSED "server closed")
-           (begin (semaphore-wait (iroh-loop-accept-sema lp)) (loop)))]
-      [else (check/iroh rc)])))
+  ;; The next partner's transport. iroh addresses a peer by endpoint id, so
+  ;; there is no accepted local address to report.
+  (define (next-partner)
+    (let loop ()
+      (define-values (rc conn) ((iroh-fn 'netlayer-try-accept) (iroh-netlayer-handle (iroh-server-netlayer s))))
+      (cond
+        [(= rc OK)
+         (loop-register! lp conn)
+         (values (iroh-loop-transport lp conn #f #f) "")]
+        [(= rc WOULD-BLOCK)
+         (if (iroh-loop-accept-closed? lp)
+             (raise-pancake 'iroh-server-accept ERR-CLOSED "server closed")
+             (begin (semaphore-wait (iroh-loop-accept-sema lp)) (loop)))]
+        [else (check/iroh rc)])))
+  ;; The host publishes the host's giftables on the fresh connection as it is
+  ;; minted and answers a dialer's pipelined bootstrap fetch the instant the
+  ;; session opens; the responder signs the server's own endpoint id under the
+  ;; host's one retained identity, exactly as the TCP responder does.
+  (accept-next-session (iroh-server-host s) TRANSPORT-IROH (iroh-server-node-id s)
+                          next-partner))
 
 ;; Stop accepting, stop the readiness loop (joining its thread and releasing
 ;; any still-registered connections), and release the server's endpoint.

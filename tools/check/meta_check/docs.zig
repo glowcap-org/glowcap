@@ -27,6 +27,10 @@ pub fn checkMarkdownLinks(
         "AGENTS.md",
         "README.md",
         "CONTRIBUTING.md",
+        // The two first-read pages a reviewer opens before any code. They are
+        // registered living-state; they should be the best-gated, not the least.
+        "PROVENANCE.md",
+        "SECURITY.md",
         "bindings/README.md",
         "bindings/rust/README.md",
         "bindings/ts/README.md",
@@ -236,6 +240,66 @@ pub fn checkSiteNavParity(
         defer gpa.free(needle);
         if (std.mem.indexOf(u8, nav, needle) == null) {
             try appendViolation(gpa, violations, "site/content/{s}: orphaned page, {s} has no `{s}` nav entry, so the page ships invisible in the sidebar", .{ entry.path, nav_path, needle });
+        }
+    }
+}
+
+/// The netlayer resident roster is recited in prose across several inventory
+/// docs, and the count and list have drifted before: a page hardcoded "four"
+/// after a fifth resident landed, and one dropped a resident entirely. The
+/// transport symbols are declared once in `src/ocapn/model/transport.zig`; the
+/// residents are the subset that carry a `src/net/transport/<name>.zig` netlayer
+/// (all but `keyed_relay`, a resident-less browser rendezvous symbol). This pins
+/// every roster doc to name every resident, so adding one forces each inventory
+/// to mention it rather than silently falling behind. It replaces a fragile
+/// negative phrase-ban with a positive set check.
+pub fn checkResidentRoster(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const Resident = struct { name: []const u8, alts: []const []const u8 };
+    // The spellings a doc may use for each resident, lowercased. Update this set
+    // in the same change as a new `src/net/transport/*.zig` resident; the gate
+    // then makes every roster doc name it.
+    const residents = [_]Resident{
+        .{ .name = "tcp", .alts = &.{"tcp"} },
+        .{ .name = "keyed-tcp", .alts = &.{ "keyed-tcp", "keyed tcp", "tcp_keyed" } },
+        .{ .name = "inproc", .alts = &.{ "inproc", "in-process", "in process" } },
+        .{ .name = "iroh", .alts = &.{"iroh"} },
+        .{ .name = "webrtc", .alts = &.{"webrtc"} },
+    };
+    const roster_docs = [_][]const u8{
+        "docs/ladder.md",
+        "docs/shipped.md",
+        // The page whose stated job is "the edges of what ships today". A
+        // transport that ships without its edge written down fails here.
+        "docs/boundaries.md",
+        "site/content/transports.smd",
+        "site/content/modules.smd",
+        "site/content/relay.smd",
+    };
+    for (roster_docs) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for resident-roster check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        const lower = try gpa.alloc(u8, contents.len);
+        defer gpa.free(lower);
+        _ = std.ascii.lowerString(lower, contents);
+        for (residents) |r| {
+            var found = false;
+            for (r.alts) |alt| {
+                if (std.mem.indexOf(u8, lower, alt) != null) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                try appendViolation(gpa, violations, "{s}: the netlayer resident roster omits `{s}`; every roster doc must name all residents (src/ocapn/model/transport.zig is the source), so a resident cannot silently fall behind", .{ path, r.name });
+            }
         }
     }
 }
@@ -576,6 +640,10 @@ fn checkMermaidBlocksInFile(
             continue;
         }
 
+        if (std.mem.indexOfScalar(u8, line, ';') != null) {
+            try appendViolation(gpa, violations, "{s}:{d}: Mermaid reads ';' as a statement separator even inside note and label text, so the rest of the line becomes a broken statement at render time. Reword without the semicolon.", .{ path, line_no });
+        }
+
         try block.appendSlice(gpa, line);
         try block.append(gpa, '\n');
     }
@@ -806,6 +874,59 @@ pub fn checkHumanDocVoice(
             try banConnectiveArrowOutsideFences(gpa, violations, path, contents);
         }
     }
+
+    // The em-dash overuse rows apply to prose wherever it lives, including the
+    // Zig doc comments the doc-voice audience table counts as human surfaces.
+    for (em_dash_overuse_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try banHabitualEmDash(gpa, violations, path, contents);
+        }
+    }
+}
+
+/// Where the em-dash overuse check runs. Wider than the human first-read scopes
+/// above, because the habit shows up most in source comments.
+const em_dash_overuse_scopes = [_]bans.Where{
+    .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
+    .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
+    // The registered living-state pages a reviewer opens before any code.
+    // They carried the least-checked prose on the branch that added most of
+    // it, which is the wrong way round for the first thing anyone reads.
+    .{ .files = &.{ "README.md", "SECURITY.md", "PROVENANCE.md", "CONTRIBUTING.md" } },
+    .{ .tree = .{ .dir = "conformance/ocapn-findings", .suffixes = &.{".md"} } },
+};
+
+/// The em-dash is a strong occasional tool, and doc-voice allows exactly two
+/// uses: a matched pair standing in for parentheses, and a single dash for a
+/// turn a comma cannot carry. It bans the rest by name, and these two spellings
+/// are the ones a writer reaches for out of habit — a relative clause or a
+/// continuation that a comma or a period carries just as well. They are checked
+/// rather than merely written down because habit is what a rule sentence is
+/// worst at stopping.
+fn banHabitualEmDash(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    const habits = [_][]const u8{ "— which", "— and then" };
+    for (habits) |needle| {
+        if (std.mem.indexOf(u8, contents, needle) != null) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: `{s}` is em-dash overuse (doc-voice) — a comma, a period, or parentheses carry it",
+                .{ path, needle },
+            );
+            return;
+        }
+    }
 }
 
 /// Arrow connective tissue in running prose (`miss→break`, `N→1`) is a doc-voice
@@ -886,6 +1007,148 @@ pub fn checkSiteSvgAscii(
                 break;
             }
             col += 1;
+        }
+    }
+}
+
+/// A site surface that declares an animation must also carry the
+/// `prefers-reduced-motion` guard that turns it off. The animated diagrams
+/// and the why-page walkthrough all pair `@keyframes` with a reduced-motion
+/// rule whose base styles are the finished static picture; a future animation
+/// added without that pair strips the accessibility fallback from a page
+/// nobody re-tests by hand. Checked wherever site-owned styles live:
+/// `site/assets`, `site/layouts`, and `site/content`.
+pub fn checkSiteMotionReducedGuard(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const dirs = [_][]const u8{ "site/assets", "site/layouts", "site/content" };
+    const exts = [_][]const u8{ ".svg", ".css", ".shtml", ".smd" };
+    for (dirs) |dir_path| {
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for motion-guard check with {s}", .{ dir_path, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            const matches_ext = for (exts) |ext| {
+                if (std.mem.endsWith(u8, entry.path, ext)) break true;
+            } else false;
+            if (!matches_ext) continue;
+
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+            defer gpa.free(path);
+
+            const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: failed to read for motion-guard check with {s}", .{ path, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(contents);
+
+            if (std.mem.indexOf(u8, contents, "@keyframes") == null) continue;
+            if (std.mem.indexOf(u8, contents, "prefers-reduced-motion") != null) continue;
+            try appendViolation(gpa, violations, "{s}: declares @keyframes with no prefers-reduced-motion guard; animated site styles must keep a static fallback (base styles = the finished picture)", .{path});
+        }
+    }
+}
+
+/// A displayed code example is indented the way the project's formatter for
+/// that language indents, so a reader who copies it gets the house style:
+/// TypeScript and JavaScript use tabs (deno fmt, `useTabs`), and the
+/// space-governed languages (zig fmt, ruff, shell) never start a line with a
+/// tab. One tab-indented example beside space-indented siblings reads as an
+/// accident, and no formatter runs inside a Markdown fence to catch it.
+pub fn checkExampleFenceIndent(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const tab_langs = [_][]const u8{ "ts", "typescript", "js", "javascript" };
+    const space_langs = [_][]const u8{ "zig", "python", "py", "sh", "bash", "json", "c", "rust", "rkt", "racket" };
+    const dirs = [_][]const u8{ "site/content", "docs", "bindings", "examples", "apps", "tools", "bench", "interop", "conformance", "transports", ".devcontainer" };
+    const top_files = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.md", "PROVENANCE.md", "AGENTS.md" };
+    const skip_fragments = [_][]const u8{ "target/", "node_modules/", "upstream/", "zig-out/", ".zig-cache/" };
+
+    for (top_files) |path| {
+        try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);
+    }
+    for (dirs) |dir_path| {
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for fence-indent check with {s}", .{ dir_path, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        walk: while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            const is_doc = std.mem.endsWith(u8, entry.path, ".md") or std.mem.endsWith(u8, entry.path, ".smd");
+            if (!is_doc) continue;
+            for (skip_fragments) |frag| {
+                if (std.mem.indexOf(u8, entry.path, frag) != null) continue :walk;
+            }
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+            defer gpa.free(path);
+            try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);
+        }
+    }
+}
+
+fn checkFenceIndentFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    path: []const u8,
+    tab_langs: []const []const u8,
+    space_langs: []const []const u8,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for fence-indent check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    var line_no: usize = 0;
+    var fence_lang: ?[]const u8 = null;
+    var fence_flagged = false;
+    while (lines.next()) |line| {
+        line_no += 1;
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (std.mem.startsWith(u8, trimmed, "```")) {
+            if (fence_lang == null) {
+                const info = std.mem.trim(u8, trimmed[3..], " \t\r");
+                const end = std.mem.indexOfAny(u8, info, " \t") orelse info.len;
+                fence_lang = info[0..end];
+                fence_flagged = false;
+            } else {
+                fence_lang = null;
+            }
+            continue;
+        }
+        const lang = fence_lang orelse continue;
+        if (fence_flagged or line.len == 0) continue;
+        const wants_tabs = for (tab_langs) |l| {
+            if (std.mem.eql(u8, lang, l)) break true;
+        } else false;
+        const wants_spaces = for (space_langs) |l| {
+            if (std.mem.eql(u8, lang, l)) break true;
+        } else false;
+        if (wants_tabs and line[0] == ' ') {
+            try appendViolation(gpa, violations, "{s}:{d}: space-indented line in a `{s}` example; this project's TypeScript/JavaScript style is tabs (deno fmt useTabs)", .{ path, line_no, lang });
+            fence_flagged = true;
+        } else if (wants_spaces and line[0] == '\t') {
+            try appendViolation(gpa, violations, "{s}:{d}: tab-indented line in a `{s}` example; that language's formatter here uses spaces", .{ path, line_no, lang });
+            fence_flagged = true;
         }
     }
 }
@@ -1004,4 +1267,540 @@ test "mermaidBlockKind recognizes supported diagram heads" {
     try std.testing.expectEqual(MermaidKind.sequence, (try mermaidBlockKind("\nsequenceDiagram\n    A->>B: hello\n")).?);
     try std.testing.expectEqual(MermaidKind.state, (try mermaidBlockKind("stateDiagram-v2\n    [*] --> Open\n")).?);
     try std.testing.expect(try mermaidBlockKind("notMermaid\n    A\n") == null);
+}
+
+/// The stability page scores every pluggable surface by what proves it, and
+/// the strongest tier means "proved on every push". That claim rests on one
+/// list of build steps, which is only true while it matches the sequence
+/// `ci/gates.sh` actually runs. So the two are compared in both directions:
+/// a step added to CI and not listed leaves a row under-scored, and a step
+/// removed from CI but still listed leaves a row claiming a proof that no
+/// longer runs. The second is the dangerous one, because it was believed.
+pub fn checkStabilityGateList(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const doc_path = "docs/stability.md";
+    const ci_path = "ci/gates.sh";
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const doc = root.readFileAlloc(io, doc_path, arena, .limited(1 << 20)) catch {
+        try appendViolation(gpa, violations, "{s}: missing, but the stability tiers are scored against it", .{doc_path});
+        return;
+    };
+    const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch {
+        try appendViolation(gpa, violations, "{s}: missing, so the stability gate list cannot be checked", .{ci_path});
+        return;
+    };
+
+    const begin = "<!-- ci-gate-list:begin -->";
+    const end = "<!-- ci-gate-list:end -->";
+    const from = std.mem.indexOf(u8, doc, begin) orelse {
+        try appendViolation(gpa, violations, "{s}: no `{s}` marker; the gate list cannot be checked", .{ doc_path, begin });
+        return;
+    };
+    const to = std.mem.indexOf(u8, doc, end) orelse {
+        try appendViolation(gpa, violations, "{s}: no `{s}` marker; the gate list cannot be checked", .{ doc_path, end });
+        return;
+    };
+    if (to < from) {
+        try appendViolation(gpa, violations, "{s}: gate-list markers are out of order", .{doc_path});
+        return;
+    }
+
+    var listed: std.ArrayList([]const u8) = .empty;
+    try collectBuildSteps(arena, doc[from + begin.len .. to], "- `zig build ", &listed);
+    var running: std.ArrayList([]const u8) = .empty;
+    try collectBuildSteps(arena, ci, "\ngate zig build ", &running);
+
+    for (running.items) |step| {
+        if (!containsStep(listed.items, step)) {
+            try appendViolation(gpa, violations, "{s}: `{s}` runs in {s} but is not listed; a row may be under-scored", .{ doc_path, step, ci_path });
+        }
+    }
+    for (listed.items) |step| {
+        if (!containsStep(running.items, step)) {
+            try appendViolation(gpa, violations, "{s}: lists `{s}`, which {s} no longer runs; the tiers that cite it are stale", .{ doc_path, step, ci_path });
+        }
+    }
+}
+
+/// The community-review matrix makes direct claims about which live evidence
+/// runs in CI. Derive those cells from the executable gate sequence so adding
+/// or removing a gate cannot leave a stale "yes" or "no" for reviewers.
+pub fn checkCommunityReviewCiMatrix(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const doc_path = "docs/community-review.md";
+    const ci_path = "ci/gates.sh";
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const doc = root.readFileAlloc(io, doc_path, arena, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for CI matrix check with {s}", .{ doc_path, @errorName(err) });
+        return;
+    };
+    const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for community-review CI matrix check with {s}", .{ ci_path, @errorName(err) });
+        return;
+    };
+
+    // One parser of `ci/gates.sh`, shared with `checkStabilityGateList`: two
+    // would be two definitions of "runs in CI".
+    var running: std.ArrayList([]const u8) = .empty;
+    try collectBuildSteps(arena, ci, "\ngate zig build ", &running);
+
+    const header = "| Evidence | CI | Proves | Does not prove |";
+    const hit = std.mem.indexOf(u8, doc, header) orelse {
+        try appendViolation(gpa, violations, "{s}: the evidence matrix header is gone, so nothing derives the CI column", .{doc_path});
+        return;
+    };
+
+    var rest = doc[hit + header.len ..];
+    var rows: usize = 0;
+    while (std.mem.indexOfScalar(u8, rest, '\n')) |nl| {
+        const row = rest[0..nl];
+        rest = rest[nl + 1 ..];
+        if (!std.mem.startsWith(u8, rest, "| ")) {
+            if (row.len == 0 or std.mem.startsWith(u8, row, "| ")) continue;
+            break;
+        }
+        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const line = rest[0..line_end];
+        if (std.mem.startsWith(u8, line, "| ---")) continue;
+
+        const evidence_end = std.mem.indexOfPos(u8, line, 2, " | ") orelse continue;
+        const evidence = line[2..evidence_end];
+        const cell_start = evidence_end + 3;
+        const cell_end = std.mem.indexOfPos(u8, line, cell_start, " |") orelse continue;
+        const cell = std.mem.trim(u8, line[cell_start..cell_end], " \t\r");
+        // A cell that is neither is a violation, not a row to skip. Skipping
+        // let any row opt out of the derivation by writing `Yes`, `partial`, or
+        // `yes*` — and because the skip also stepped over the row count, the
+        // empty-table backstop did not notice either.
+        if (!std.mem.eql(u8, cell, "yes") and !std.mem.eql(u8, cell, "no")) {
+            try appendViolation(gpa, violations, "{s}: evidence row `{s}` has CI cell `{s}`; the column is derived, so it must read exactly `yes` or `no`", .{ doc_path, evidence, cell });
+            continue;
+        }
+        rows += 1;
+
+        // The gates this row stands for: the first `zig build X` its Evidence
+        // mentions, or an inline annotation for a row that cannot say it in the
+        // cell — one whose step rides inside `check`, one that names a family
+        // with a glob.
+        //
+        // A row that names its own step may only annotate `check`, which is the
+        // one aggregate the sequence runs: that is the honest case of "my step
+        // is real but rides inside another." Left free, the annotation was a
+        // standing opt-out — any row could point at some unrelated step that
+        // does run and mint itself a `yes`.
+        //
+        // What this still cannot know is whether an annotated step is really
+        // the one that produces that row's evidence. That is the author's word,
+        // and it is taken only where the cell has no word of its own.
+        var gates: std.ArrayList([]const u8) = .empty;
+        const names_step = std.mem.indexOf(u8, evidence, "`zig build ") != null;
+        if (std.mem.indexOf(u8, line, "<!-- ci-gate:")) |ann| blk: {
+            const body = line[ann + "<!-- ci-gate:".len ..];
+            const body_end = std.mem.indexOf(u8, body, "-->") orelse body.len;
+            if (names_step and !std.mem.eql(u8, std.mem.trim(u8, body[0..body_end], " \t\r"), "check")) {
+                try appendViolation(gpa, violations, "{s}: evidence row `{s}` names its own `zig build` step and annotates a different one. Only `check` may override, for a step that rides inside it.", .{ doc_path, evidence });
+                break :blk;
+            }
+            const ann_start = ann + "<!-- ci-gate:".len;
+            const ann_end = std.mem.indexOfPos(u8, line, ann_start, "-->") orelse line.len;
+            var it = std.mem.splitScalar(u8, line[ann_start..ann_end], ',');
+            while (it.next()) |name| {
+                const trimmed = std.mem.trim(u8, name, " \t\r");
+                if (trimmed.len != 0) try gates.append(arena, trimmed);
+            }
+        }
+        if (gates.items.len == 0 and names_step) {
+            // No usable annotation: derive from the step the cell names.
+            const span = std.mem.indexOf(u8, evidence, "`zig build ").?;
+            const name_start = span + "`zig build ".len;
+            var stop = name_start;
+            while (stop < evidence.len and evidence[stop] != '`') stop += 1;
+            try gates.append(arena, std.mem.trim(u8, evidence[name_start..stop], " \t\r"));
+        }
+        if (gates.items.len == 0) {
+            try appendViolation(gpa, violations, "{s}: evidence row `{s}` names no `zig build` step and carries no `<!-- ci-gate: … -->`, so its CI cell derives from nothing", .{ doc_path, evidence });
+            continue;
+        }
+
+        var expected = true;
+        for (gates.items) |gate| {
+            if (!containsStep(running.items, gate)) {
+                expected = false;
+                break;
+            }
+        }
+        const expected_cell = if (expected) "yes" else "no";
+        if (!std.mem.eql(u8, cell, expected_cell)) {
+            try appendViolation(gpa, violations, "{s}: `{s}` says CI `{s}`, but {s} derives `{s}`", .{ doc_path, evidence, cell, ci_path, expected_cell });
+        }
+    }
+
+    // A table that stopped having rows would otherwise pass in silence.
+    if (rows == 0) {
+        try appendViolation(gpa, violations, "{s}: the evidence matrix has no derivable rows", .{doc_path});
+    }
+}
+
+/// Collect the build-step names that follow each occurrence of `prefix`, up to
+/// the next backtick or end of line.
+fn collectBuildSteps(
+    arena: std.mem.Allocator,
+    haystack: []const u8,
+    prefix: []const u8,
+    out: *std.ArrayList([]const u8),
+) !void {
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, haystack, at, prefix)) |hit| {
+        const start = hit + prefix.len;
+        var stop = start;
+        while (stop < haystack.len and haystack[stop] != '`' and haystack[stop] != '\n') stop += 1;
+        const name = std.mem.trim(u8, haystack[start..stop], " \t\r");
+        if (name.len > 0) try out.append(arena, name);
+        at = stop;
+    }
+}
+
+fn containsStep(steps: []const []const u8, needle: []const u8) bool {
+    for (steps) |step| {
+        if (std.mem.eql(u8, step, needle)) return true;
+    }
+    return false;
+}
+
+/// Every checked-in fuzz corpus entry must be wired as a seed.
+///
+/// The seeds were hand-picked once and the corpus kept growing, so most entries
+/// were shapes the fuzzer would never start from. A corpus file that is not a
+/// seed is invisible: nothing fails, the harness just covers less than it looks
+/// like it does. This is the kind of drift a rule cannot hold and a build check
+/// can.
+pub fn checkFuzzCorpusSeeds(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    // The seed list moved out of the codec target when every fuzz target began
+    // sharing it. The check follows it: pointed at the old path it would read a
+    // file with no seeds in it and pass, which is the quiet way a parity check
+    // stops being one.
+    const harness_path = "test/support/corpus_seeds.zig";
+    const corpus_dir = "test/oracle/corpus";
+
+    const harness = root.readFileAlloc(io, harness_path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for fuzz seed check with {s}", .{ harness_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(harness);
+
+    var dir = root.openDir(io, corpus_dir, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for fuzz seed check with {s}", .{ corpus_dir, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".bin")) continue;
+
+        const needle = try std.fmt.allocPrint(gpa, "corpus/{s}\")", .{entry.name});
+        defer gpa.free(needle);
+        if (std.mem.indexOf(u8, harness, needle) == null) {
+            try appendViolation(gpa, violations, "{s}: corpus entry `{s}` is not wired as a seed in {s}", .{ corpus_dir, entry.name, harness_path });
+        }
+    }
+}
+
+/// The longest a sentence may run on a page written for people.
+///
+/// The median sentence on these pages is under a hundred characters, so this is
+/// not a style preference dressed as a rule: it is the point past which a
+/// sentence has stopped being one. Every sentence over it that we looked at was
+/// three or four ideas joined by semicolons, usually with a stack of identifiers
+/// and a decision-record number wedged in. doc-voice already asks for one idea
+/// per sentence; this is the part of that a build can hold.
+const max_prose_sentence = 250;
+
+/// Refuse a sentence too long to read aloud, on the pages a person reads.
+///
+/// Fenced code, tables, and link-heavy lines are skipped: a table row is not
+/// prose, and a long URL is not a long sentence.
+/// The site's stability page repeats docs/stability.md's tier summary table.
+/// Hold the two `| Piece | Tier |` tables identical so the public copy cannot
+/// drift from the canonical one.
+pub fn checkStabilityTierParity(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const doc_path = "docs/stability.md";
+    const site_path = "site/content/stability.smd";
+    const doc = root.readFileAlloc(io, doc_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ doc_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(doc);
+    const site = root.readFileAlloc(io, site_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ site_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(site);
+
+    var doc_rows: std.ArrayList([]const u8) = .empty;
+    defer doc_rows.deinit(gpa);
+    try collectTierRows(gpa, doc, &doc_rows);
+    var site_rows: std.ArrayList([]const u8) = .empty;
+    defer site_rows.deinit(gpa);
+    try collectTierRows(gpa, site, &site_rows);
+
+    if (doc_rows.items.len == 0) {
+        try appendViolation(gpa, violations, "{s}: no `| Piece | Tier |` table found for the tier-parity check", .{doc_path});
+        return;
+    }
+    if (site_rows.items.len == 0) {
+        try appendViolation(gpa, violations, "{s}: no `| Piece | Tier |` table found for the tier-parity check", .{site_path});
+        return;
+    }
+    const shared = @min(doc_rows.items.len, site_rows.items.len);
+    var i: usize = 0;
+    while (i < shared) : (i += 1) {
+        if (!std.mem.eql(u8, doc_rows.items[i], site_rows.items[i])) {
+            try appendViolation(gpa, violations, "stability tier tables differ at row {d}: docs has `{s}`, site has `{s}`", .{ i + 1, doc_rows.items[i], site_rows.items[i] });
+            return;
+        }
+    }
+    if (doc_rows.items.len != site_rows.items.len) {
+        try appendViolation(gpa, violations, "stability tier tables differ in length: {s} has {d} rows, {s} has {d}", .{ doc_path, doc_rows.items.len, site_path, site_rows.items.len });
+    }
+}
+
+/// Collect the rows of the first `| Piece | Tier |` table in `contents`,
+/// excluding the header and its separator line.
+fn collectTierRows(
+    gpa: std.mem.Allocator,
+    contents: []const u8,
+    rows: *std.ArrayList([]const u8),
+) !void {
+    var in_table = false;
+    var past_separator = false;
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (!in_table) {
+            if (std.mem.eql(u8, line, "| Piece | Tier |")) in_table = true;
+            continue;
+        }
+        if (!past_separator) {
+            past_separator = true;
+            continue;
+        }
+        if (!std.mem.startsWith(u8, line, "|")) return;
+        try rows.append(gpa, line);
+    }
+}
+
+pub fn checkProseSentenceLength(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    for (em_dash_overuse_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            if (!std.mem.endsWith(u8, path, ".md") and !std.mem.endsWith(u8, path, ".smd")) continue;
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try checkSentencesIn(gpa, violations, path, contents);
+        }
+    }
+}
+
+fn isListItem(trimmed: []const u8) bool {
+    if (std.mem.startsWith(u8, trimmed, "- ") or std.mem.startsWith(u8, trimmed, "* ")) return true;
+    // An ordered item: digits then `.` or `)` then a space.
+    var i: usize = 0;
+    while (i < trimmed.len and std.ascii.isDigit(trimmed[i])) i += 1;
+    if (i == 0 or i + 1 >= trimmed.len) return false;
+    return (trimmed[i] == '.' or trimmed[i] == ')') and trimmed[i + 1] == ' ';
+}
+
+fn checkSentencesIn(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    var in_fence = false;
+    var line_no: usize = 0;
+    var run: usize = 0;
+    var run_line: usize = 1;
+
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |line| {
+        line_no += 1;
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (std.mem.startsWith(u8, trimmed, "```")) {
+            in_fence = !in_fence;
+            run = 0;
+            continue;
+        }
+        // Not prose: fenced code, headings, and blank lines.
+        if (in_fence or trimmed.len == 0 or trimmed[0] == '#') {
+            run = 0;
+            continue;
+        }
+        // A table row is prose when its cells are sentences. Exempting every
+        // row put the densest paragraphs in the tree — the evidence matrix a
+        // reviewer opens first — outside the only gate that reads for
+        // readability. A row of short labels carries no sentence punctuation
+        // and so cannot trip the bar anyway; a row whose cells argue in
+        // sentences is exactly what the bar is for. Each cell is measured on
+        // its own, because the pipes between them are column boundaries rather
+        // than anything a reader speaks.
+        if (trimmed[0] == '|') {
+            if (std.mem.startsWith(u8, trimmed, "| ---")) {
+                run = 0;
+                continue;
+            }
+            var cells = std.mem.splitScalar(u8, trimmed, '|');
+            while (cells.next()) |cell| {
+                var cell_run: usize = 0;
+                for (std.mem.trim(u8, cell, " \t\r")) |c| {
+                    cell_run += 1;
+                    switch (c) {
+                        '.', '!', '?' => {
+                            if (cell_run > max_prose_sentence) {
+                                try appendViolation(gpa, violations, "{s}:{d}: a {d}-character sentence in a table cell; doc-voice asks for one idea per sentence, and a cell is not exempt from it. Split it.", .{ path, line_no, cell_run });
+                            }
+                            cell_run = 0;
+                        },
+                        else => {},
+                    }
+                }
+                if (cell_run > max_prose_sentence) {
+                    try appendViolation(gpa, violations, "{s}:{d}: a {d}-character table cell with no sentence break at all; doc-voice asks for one idea per sentence. Split it.", .{ path, line_no, cell_run });
+                }
+            }
+            run = 0;
+            continue;
+        }
+        // A list item is a new thought, so it starts a new sentence. Without
+        // this a bulleted list of identifiers, which carries no sentence
+        // punctuation at all, reads as one enormous run-on.
+        if (isListItem(trimmed)) {
+            run = 0;
+            run_line = line_no;
+        }
+        if (run == 0) run_line = line_no;
+
+        for (trimmed) |c| {
+            run += 1;
+            switch (c) {
+                '.', '!', '?' => {
+                    if (run > max_prose_sentence) {
+                        try appendViolation(gpa, violations, "{s}:{d}: a {d}-character sentence; doc-voice asks for one idea per sentence, and this is several. Split it.", .{ path, run_line, run });
+                    }
+                    run = 0;
+                    run_line = line_no;
+                },
+                else => {},
+            }
+        }
+        run += 1; // the newline joining wrapped prose lines
+    }
+}
+
+/// Every page needs its own `<title>` and `<meta name="description">`. The base
+/// template builds both from the page's frontmatter, so a page that omits
+/// `.description` ships an empty description tag, and one that reuses another
+/// page's `.title` is indistinguishable from it in a browser tab, a bookmark, or
+/// a search result. This holds every `.smd` page to a non-empty description and
+/// a title unique across the site.
+pub fn checkSitePageMetadata(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "site/content", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/content: failed to open for page metadata check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var titles: std.StringHashMapUnmanaged([]const u8) = .empty;
+    defer {
+        var it = titles.iterator();
+        while (it.next()) |row| {
+            gpa.free(row.key_ptr.*);
+            gpa.free(row.value_ptr.*);
+        }
+        titles.deinit(gpa);
+    }
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
+
+        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "site/content/{s}: failed to read for page metadata check with {s}", .{ entry.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(body);
+
+        const title = frontmatterField(body, ".title = \"");
+        const description = frontmatterField(body, ".description = \"");
+
+        if (description == null or description.?.len == 0) {
+            try appendViolation(gpa, violations, "site/content/{s}: no `.description` in the frontmatter, so the page ships an empty <meta name=\"description\">", .{entry.path});
+        }
+        const seen_title = title orelse {
+            try appendViolation(gpa, violations, "site/content/{s}: no `.title` in the frontmatter, so the page has no <title>", .{entry.path});
+            continue;
+        };
+        if (titles.get(seen_title)) |other| {
+            try appendViolation(gpa, violations, "site/content/{s}: `.title` \"{s}\" is already used by site/content/{s}, so the two pages are one name in a browser tab", .{ entry.path, seen_title, other });
+            continue;
+        }
+        try titles.put(gpa, try gpa.dupe(u8, seen_title), try gpa.dupe(u8, entry.path));
+    }
+}
+
+/// The value of one `.field = "…"` line in an `.smd` frontmatter block, or null
+/// when the field is absent. Frontmatter is the leading `---`-delimited section,
+/// so the search stops at the closing fence rather than matching body prose.
+fn frontmatterField(body: []const u8, needle: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, body, "---\n")) return null;
+    const end = std.mem.indexOfPos(u8, body, 4, "\n---") orelse return null;
+    const front = body[4..end];
+    const at = std.mem.indexOf(u8, front, needle) orelse return null;
+    const rest = front[at + needle.len ..];
+    const close = std.mem.indexOfScalar(u8, rest, '"') orelse return null;
+    return rest[0..close];
 }

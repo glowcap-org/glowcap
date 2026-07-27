@@ -17,6 +17,7 @@
 const std = @import("std");
 
 const identity = @import("identity.zig");
+const path_io = @import("path_io.zig");
 const episode = @import("episode.zig");
 const log = @import("log.zig");
 
@@ -34,7 +35,11 @@ pub const Store = struct {
     seq: u64 = 0,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, signer: *identity.Identity, dir: []const u8) Error!Store {
-        std.Io.Dir.cwd().createDirPath(io, dir) catch return Error.MakePathFailed;
+        // Probe before creating; `path_io` says why. It distinguishes an absent
+        // directory from an `openDir` that failed for some other reason, and it
+        // re-verifies when another creator wins the race between the probe and
+        // the create.
+        path_io.ensureDirPath(io, dir) catch return Error.MakePathFailed;
         return .{
             .allocator = allocator,
             .io = io,

@@ -43,7 +43,7 @@ from pancake import Ref, connect, listen, socket_addr_designator, tcp_locator  #
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-gift", 22122, max_port=65534)
 
-RACKET = "/usr/local/bin/racket"
+RACKET = "racket"
 EXPORTER_SCRIPT = "conformance/goblins-peer/racket/gift-exporter-host.rkt"
 RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt"
 # pancake hardcodes the same swiss the exporter host registers, the way the

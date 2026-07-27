@@ -31,6 +31,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
@@ -98,9 +100,33 @@ async fn handle(stream: TcpStream) {
 	} else if let Some(to) = target_to.filter(|t| t.contains(':')) {
 		match TcpStream::connect(&to).await {
 			Ok(tcp) => pump(ws, tcp).await,
-			Err(e) => eprintln!("relay: dial failed: {e}"),
+			Err(e) => {
+				eprintln!("relay: dial failed: {e}");
+				close_with(ws, CloseCode::Error, "relay dial failed").await;
+			}
 		}
+	} else {
+		close_with(
+			ws,
+			CloseCode::Policy,
+			"relay requires ?to=host:port or ?locator=<uri>",
+		)
+		.await;
 	}
+}
+
+/// Close the socket with a code and a reason, so the peer learns which leg
+/// failed. The three sibling relays (Deno, Python, Racket) send `1008` for a
+/// missing or malformed target and `1011` for a dial that could not land;
+/// ADR-0086 is one contract with four implementations, so this one says the
+/// same thing.
+async fn close_with(mut ws: WebSocketStream<TcpStream>, code: CloseCode, reason: &'static str) {
+	let _ = ws
+		.close(Some(CloseFrame {
+			code,
+			reason: reason.into(),
+		}))
+		.await;
 }
 
 /// Pump bytes between the WebSocket and any byte channel, both directions, until
@@ -236,13 +262,25 @@ async fn dial_iroh_and_pump(_ws: WebSocketStream<TcpStream>, _locator: &str) {
 /// Percent-decode a `?locator=` value the browser encoded with
 /// `encodeURIComponent`. `?to=` values are plain `host:port` and skip this.
 fn percent_decode(s: &str) -> String {
+	// Decode from the bytes throughout. Slicing `s` here would panic when a
+	// `%` sits before a multi-byte character, because `i + 1 .. i + 3` can
+	// land inside a UTF-8 sequence — and this string is an inbound query
+	// parameter, so that is attacker-reachable.
+	fn hex(b: u8) -> Option<u8> {
+		match b {
+			b'0'..=b'9' => Some(b - b'0'),
+			b'a'..=b'f' => Some(b - b'a' + 10),
+			b'A'..=b'F' => Some(b - b'A' + 10),
+			_ => None,
+		}
+	}
 	let bytes = s.as_bytes();
 	let mut out = Vec::with_capacity(bytes.len());
 	let mut i = 0;
 	while i < bytes.len() {
 		if bytes[i] == b'%' && i + 2 < bytes.len() {
-			if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-				out.push(byte);
+			if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+				out.push(hi << 4 | lo);
 				i += 3;
 				continue;
 			}
@@ -251,4 +289,28 @@ fn percent_decode(s: &str) -> String {
 		i += 1;
 	}
 	String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::percent_decode;
+
+	#[test]
+	fn percent_decode_survives_a_multibyte_char_after_a_percent() {
+		// The query value is attacker-supplied. Decoding by slicing `&str`
+		// panics here, because `i + 1 .. i + 3` lands inside the euro sign's
+		// UTF-8 sequence.
+		assert_eq!(percent_decode("%\u{20AC}x"), "%\u{20AC}x");
+		assert_eq!(percent_decode("%zz"), "%zz");
+		assert_eq!(percent_decode("%2"), "%2");
+	}
+
+	#[test]
+	fn percent_decode_decodes_what_encode_uri_component_produces() {
+		assert_eq!(
+			percent_decode("ocapn%3A%2F%2Fabc.iroh"),
+			"ocapn://abc.iroh"
+		);
+		assert_eq!(percent_decode("plain"), "plain");
+	}
 }

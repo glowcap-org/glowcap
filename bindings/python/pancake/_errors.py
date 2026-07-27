@@ -112,17 +112,27 @@ def _check_host(code: int) -> None:
         raise _host_error(code)
 
 
-class VowBroken(PancakeException):
-    """Raised when an awaited vow settles broken; the message is the break reason."""
+class VowBroken(PancakeError):
+    """Raised when an awaited vow settles broken; ``reason`` is the partner's
+    break reason.
+
+    A :class:`PancakeError` whose ``code`` is ``ERR_BROKEN``, the same contract
+    as the other bindings' break errors, so ``except PancakeError`` with a
+    ``code`` check classifies a break exactly like a C ABI failure."""
+
+    def __init__(self, reason: str):
+        super().__init__(_abi.ERR_BROKEN, reason)
+        self.reason = reason
 
 
-class FetchFailed(PancakeException):
+class FetchFailed(PancakeError):
     """Raised when a ``fetch`` settles, but not with a capability.
 
     This is the application-level outcome — the partner answered, and the
     answer was not a reference — distinct from a marshalling failure or a
-    broken promise. ``name`` is the swiss-number the fetch asked for."""
+    broken promise. ``name`` is the swiss-number the fetch asked for; ``code``
+    is ``ERR_BROKEN``, matching the other bindings."""
 
     def __init__(self, name: str):
-        super().__init__(f'fetch("{name}") did not resolve to a capability')
+        super().__init__(_abi.ERR_BROKEN, f'fetch("{name}") did not resolve to a capability')
         self.name = name

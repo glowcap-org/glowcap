@@ -1,40 +1,254 @@
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 760 340"
+  viewBox="0 0 760 224"
   width="760"
-  height="340"
+  height="224"
   role="img"
-  aria-label="Two peers trade an offer, an answer, and ICE candidates through a signaling capability, then open a direct DataChannel and run the keyed session over it with the signaling host out of the byte path."
+  aria-label="The caller's offer goes through the signaling capability to the answerer, the answer comes back the same way, and then a direct DataChannel opens straight between the two peers, DTLS encrypted end to end."
 >
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); paint-order: stroke; stroke: var(--paper, #fff3df); stroke-width: 3.5px; stroke-linejoin: round; }
     .title { font-size: 15px; font-weight: 700; }
-    .sub { font-size: 12.5px; fill: #6b5d4d; }
-    .lbl { font-size: 12.5px; fill: #6b5d4d; }
-    .lblbytes { font-size: 13px; font-weight: 700; fill: #1b5f66; }</style>
+    .sub { font-size: 12.5px; fill: var(--ink-soft, #6b5d4d); }
+    .step { font-size: 13px; font-weight: 700; fill: var(--accent-deep, #a4560c); }
+    .lblbytes { font-size: 13px; font-weight: 700; fill: var(--teal-deep, #1b5f66); }
 
-  <!-- signaling setup: dashed, up to the capability and back down -->
-  <line x1="130" y1="150" x2="308" y2="94" stroke="#d8c19a" stroke-width="2" stroke-dasharray="5 5"/>
-  <line x1="452" y1="94" x2="630" y2="150" stroke="#d8c19a" stroke-width="2" stroke-dasharray="5 5"/>
-  <text x="380" y="128" text-anchor="middle" class="lbl">offer &#183; answer &#183; ICE candidates</text>
+    /* Motion: one 12s loop. The offer hops up through the signaling
+       capability and down to the answerer, the answer returns the same way,
+       and then the direct DataChannel snaps in between the peers and speaks
+       both directions. Base styles are the finished static diagram. */
+    .dot { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) {
+      .dot { visibility: visible; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .dot { visibility: hidden !important; }
+    }
 
-  <!-- the signaling capability -->
-  <rect x="290" y="26" width="180" height="68" rx="12" fill="#edf5f3" stroke="#cfe4e1"/>
-  <text x="380" y="54" text-anchor="middle" class="title" fill="#1b5f66">signaling capability</text>
-  <text x="380" y="76" text-anchor="middle" class="sub">room / relay: opaque strings</text>
+    .seg { animation-timing-function: ease-in-out; }
+    .s1 { animation: wr-s1 12s ease-in-out infinite, wr-march 0.8s linear infinite; }
+    @keyframes wr-s1 {
+      0%, 5% { opacity: 0; }
+      8% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .s2 { animation: wr-s2 12s ease-in-out infinite, wr-march 0.8s linear infinite; }
+    @keyframes wr-s2 {
+      0%, 14% { opacity: 0; }
+      17% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .s3 { animation: wr-s3 12s ease-in-out infinite, wr-march 0.8s linear infinite; }
+    @keyframes wr-s3 {
+      0%, 30% { opacity: 0; }
+      33% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .s4 { animation: wr-s4 12s ease-in-out infinite, wr-march 0.8s linear infinite; }
+    @keyframes wr-s4 {
+      0%, 39% { opacity: 0; }
+      42% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    @keyframes wr-march {
+      from { stroke-dashoffset: 10; }
+      to { stroke-dashoffset: 0; }
+    }
+    .h1 { animation: wr-h1 12s ease-out infinite; }
+    @keyframes wr-h1 {
+      0%, 14% { opacity: 0; }
+      16% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .h2 { animation: wr-h2 12s ease-out infinite; }
+    @keyframes wr-h2 {
+      0%, 23% { opacity: 0; }
+      25% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .h3 { animation: wr-h3 12s ease-out infinite; }
+    @keyframes wr-h3 {
+      0%, 39% { opacity: 0; }
+      41% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .h4 { animation: wr-h4 12s ease-out infinite; }
+    @keyframes wr-h4 {
+      0%, 48% { opacity: 0; }
+      50% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .d1 {
+      offset-path: path("M92 136 L268 59");
+      animation: wr-d1 12s ease-in-out infinite;
+    }
+    @keyframes wr-d1 {
+      0%, 5% { offset-distance: 0%; opacity: 0; }
+      7% { opacity: 1; }
+      12% { opacity: 1; }
+      14%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .d2 {
+      offset-path: path("M492 59 L660 136");
+      animation: wr-d2 12s ease-in-out infinite;
+    }
+    @keyframes wr-d2 {
+      0%, 14% { offset-distance: 0%; opacity: 0; }
+      16% { opacity: 1; }
+      21% { opacity: 1; }
+      23%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .d3 {
+      offset-path: path("M588 136 L458 94");
+      animation: wr-d3 12s ease-in-out infinite;
+    }
+    @keyframes wr-d3 {
+      0%, 30% { offset-distance: 0%; opacity: 0; }
+      32% { opacity: 1; }
+      37% { opacity: 1; }
+      39%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .d4 {
+      offset-path: path("M302 94 L172 136");
+      animation: wr-d4 12s ease-in-out infinite;
+    }
+    @keyframes wr-d4 {
+      0%, 39% { offset-distance: 0%; opacity: 0; }
+      41% { opacity: 1; }
+      46% { opacity: 1; }
+      48%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .capbox { animation: wr-capbox 12s ease-in-out infinite; }
+    @keyframes wr-capbox {
+      0%, 12% { stroke-width: 1; }
+      15% { stroke-width: 2.6; }
+      19% { stroke-width: 1; }
+      37% { stroke-width: 1; }
+      40% { stroke-width: 2.6; }
+      44%, 100% { stroke-width: 1; }
+    }
+    .step1 { animation: wr-step1 12s ease-in-out infinite; }
+    @keyframes wr-step1 {
+      0%, 5% { opacity: 0.3; }
+      9% { opacity: 1; }
+      90% { opacity: 1; }
+      96%, 100% { opacity: 0.3; }
+    }
+    .step2 { animation: wr-step2 12s ease-in-out infinite; }
+    @keyframes wr-step2 {
+      0%, 30% { opacity: 0.3; }
+      34% { opacity: 1; }
+      90% { opacity: 1; }
+      96%, 100% { opacity: 0.3; }
+    }
+    .dc {
+      stroke-dasharray: 328 328;
+      stroke-dashoffset: 0;
+      animation: wr-dc 12s ease-in-out infinite;
+    }
+    @keyframes wr-dc {
+      0%, 54% { stroke-dasharray: 0 328; stroke-dashoffset: 164; opacity: 1; }
+      62% { stroke-dasharray: 328 328; stroke-dashoffset: 0; }
+      92% { opacity: 1; }
+      97%, 100% { stroke-dasharray: 328 328; stroke-dashoffset: 0; opacity: 0; }
+    }
+    .plugs { animation: wr-plugs 12s ease-out infinite; }
+    @keyframes wr-plugs {
+      0%, 60% { opacity: 0; }
+      64% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .step3 { animation: wr-step3 12s ease-in-out infinite; }
+    @keyframes wr-step3 {
+      0%, 56% { opacity: 0.3; }
+      60% { opacity: 1; }
+      90% { opacity: 1; }
+      96%, 100% { opacity: 0.3; }
+    }
+    .dtls { animation: wr-dtls 12s ease-in-out infinite; }
+    @keyframes wr-dtls {
+      0%, 62% { opacity: 0; }
+      68% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .dcstream { animation: wr-dcstream 12s ease-in-out infinite; }
+    @keyframes wr-dcstream {
+      0%, 66% { opacity: 0; }
+      70% { opacity: 1; }
+      93% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .dcdot {
+      offset-path: path("M232 174 L528 174");
+      animation: wr-dcdot 1.8s ease-in-out infinite alternate;
+    }
+    @keyframes wr-dcdot {
+      from { offset-distance: 2%; }
+      to { offset-distance: 98%; }
+    }</style>
+
+  <!-- the signaling capability, up top between the peers -->
+  <rect class="capbox" x="280" y="22" width="200" height="64" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+  <text x="380" y="49" text-anchor="middle" class="title" fill="var(--teal-deep, #1b5f66)">signaling capability</text>
+  <text x="380" y="70" text-anchor="middle" class="sub">a room, or any shared object</text>
+
+  <!-- the offer: caller up into the capability's left edge, out its right
+       edge and down to the answerer; the answer returns on the lower lanes
+       through the capability's bottom corners -->
+  <path class="seg s1" d="M92 136 L268 59" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" stroke-dasharray="5 5"/>
+  <g class="h1" transform="translate(268 59) rotate(-23.63)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent, #c76f18)"/>
+  </g>
+  <path class="seg s2" d="M492 59 L660 136" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" stroke-dasharray="5 5"/>
+  <g class="h2" transform="translate(660 136) rotate(24.62)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent, #c76f18)"/>
+  </g>
+  <path class="seg s3" d="M588 136 L458 94" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" stroke-dasharray="5 5"/>
+  <g class="h3" transform="translate(458 94) rotate(-162.10)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent, #c76f18)"/>
+  </g>
+  <path class="seg s4" d="M302 94 L172 136" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2" stroke-dasharray="5 5"/>
+  <g class="h4" transform="translate(172 136) rotate(162.10)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent, #c76f18)"/>
+  </g>
+
+  <circle class="dot d1" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+  <circle class="dot d2" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+  <circle class="dot d3" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+  <circle class="dot d4" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+
+  <text x="140" y="86" text-anchor="middle" class="step step1">1&#8201;the offer</text>
+  <text x="380" y="122" text-anchor="middle" class="step step2">2&#8201;the answer</text>
 
   <!-- the two peers -->
-  <rect x="40" y="150" width="180" height="68" rx="12" fill="#fdf4e3" stroke="#ead9bb"/>
-  <text x="130" y="178" text-anchor="middle" class="title" fill="#a4560c">peer A</text>
-  <text x="130" y="200" text-anchor="middle" class="sub">offerer</text>
+  <rect x="40" y="142" width="170" height="64" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+  <text x="125" y="180" text-anchor="middle" class="title" fill="var(--accent-deep, #a4560c)">the caller</text>
 
-  <rect x="540" y="150" width="180" height="68" rx="12" fill="#fdf4e3" stroke="#ead9bb"/>
-  <text x="630" y="178" text-anchor="middle" class="title" fill="#a4560c">peer B</text>
-  <text x="630" y="200" text-anchor="middle" class="sub">answerer</text>
+  <rect x="550" y="142" width="170" height="64" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+  <text x="635" y="180" text-anchor="middle" class="title" fill="var(--accent-deep, #a4560c)">the answerer</text>
 
-  <!-- the direct DataChannel: solid and thick, straight between the peers -->
-  <line x1="220" y1="272" x2="540" y2="272" stroke="#1b5f66" stroke-width="3.5"/>
-  <line x1="130" y1="218" x2="130" y2="272" stroke="#1b5f66" stroke-width="3.5"/>
-  <line x1="630" y1="218" x2="630" y2="272" stroke="#1b5f66" stroke-width="3.5"/>
-  <text x="380" y="264" text-anchor="middle" class="lblbytes">direct DataChannel &#183; DTLS &#183; keyed session end to end</text>
-  <text x="380" y="304" text-anchor="middle" class="sub">the signaling host is out of the byte path: it saw the setup, never the session</text>
+  <!-- the direct DataChannel: one straight keyed line between the peers -->
+  <line class="dc" x1="216" y1="174" x2="544" y2="174" stroke="var(--teal-deep, #1b5f66)" stroke-width="3.5"/>
+  <g class="plugs">
+    <g stroke="var(--teal-deep, #1b5f66)" stroke-width="2" fill="var(--paper, #fff3df)">
+      <circle cx="232" cy="174" r="6"/>
+      <circle cx="528" cy="174" r="6"/>
+    </g>
+    <path d="M238 174 L252 174 M522 174 L508 174" stroke="var(--teal-deep, #1b5f66)" stroke-width="2"/>
+  </g>
+  <g class="dcstream">
+    <circle class="dot dcdot" r="4" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="1.5"/>
+  </g>
+  <text x="380" y="164" text-anchor="middle" class="lblbytes step3">3&#8201;now they speak directly</text>
+  <text x="380" y="196" text-anchor="middle" class="sub dtls">DTLS encrypted, end to end</text>
 </svg>

@@ -111,10 +111,14 @@ typedef struct PancakeSettled {
 /* Dial host:port, run the ephemeral keyed handshake, and return an owning
    session framing on `codec` and refusing inbound frames over max_frame_bytes,
    the C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`
-   is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec, a zero frame cap,
-   or an unparseable address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when
-   the dial fails. Release with pancake_tcp_session_release. */
-int32_t pancake_tcp_session_connect(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, uint32_t codec, size_t max_frame_bytes, PancakeTcpSession **out_session);
+   is borrowed. handshake_timeout_ms bounds the wait for the partner's hello and
+   settle_timeout_ms bounds every later blocking call on the session; 0 means
+   wait forever, which against a silent partner is a hang, so a caller that
+   dials the network passes finite budgets. PANCAKE_ERR_INVALID_ARGUMENT for a
+   bad codec, a zero frame cap, a timeout past INT32_MAX, or an unparseable
+   address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when the dial fails.
+   Release with pancake_tcp_session_release. */
+int32_t pancake_tcp_session_connect(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, uint32_t codec, size_t max_frame_bytes, uint32_t handshake_timeout_ms, uint32_t settle_timeout_ms, PancakeTcpSession **out_session);
 /* Fetch the partner's published capability `name`, writing the resolved far
    object reference into out_reference. Blocking. PANCAKE_ERR_BROKEN when the
    partner answers with a break (pancake_tcp_last_error names it),

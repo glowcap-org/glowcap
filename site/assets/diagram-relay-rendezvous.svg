@@ -6,43 +6,218 @@
   role="img"
   aria-label="Two browsers meet through the relay when neither can be dialed. One browser registers its keyed identity and leaves an inbound socket held at the relay; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers."
 >
-  <defs>
-    <marker id="rr-accent" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
-    </marker>
-    <marker id="rr-teal" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
-    </marker>
-  </defs>
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .head { font-size: 15px; font-weight: 700; }
     .label { font-size: 13.5px; }
-    .sub { font-size: 11px; fill: #6b5d4d; }
-    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }</style>
+    .sub { font-size: 11px; fill: var(--ink-soft, #6b5d4d); }
+    .mono { font-family: var(--font-mono, ui-monospace, "SF Mono", "Cascadia Code", monospace); font-size: 12.5px; }
 
-  <line x1="130" y1="100" x2="130" y2="288" stroke="#e7d4b7" stroke-width="2"></line>
-  <line x1="380" y1="100" x2="380" y2="288" stroke="#e7d4b7" stroke-width="2"></line>
-  <line x1="630" y1="100" x2="630" y2="288" stroke="#e7d4b7" stroke-width="2"></line>
+    /* Motion: one 12s loop. Browser A registers and its held socket blinks at
+       the relay while it waits; browser B cold-dials the same identity, the
+       relay matches, and the bridged session grows outward from the middle
+       with bytes streaming both ways. Base styles are the finished static
+       diagram. */
+    .dot { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) {
+      .dot { visibility: visible; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .dot { visibility: hidden !important; }
+    }
 
-  <rect x="55" y="24" width="150" height="44" rx="11" fill="#fff9ee" stroke="#c76f18"></rect>
-  <text x="130" y="51" text-anchor="middle" class="head" fill="#a4560c">browser A</text>
+    .reg {
+      stroke-dasharray: 246;
+      stroke-dashoffset: 0;
+      animation: rr-reg 12s ease-in-out infinite;
+    }
+    @keyframes rr-reg {
+      0%, 4% { stroke-dashoffset: 246; opacity: 0; }
+      5% { opacity: 1; }
+      13% { stroke-dashoffset: 0; }
+      91% { opacity: 1; }
+      96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+    .head-reg { animation: rr-head-reg 12s ease-out infinite; }
+    @keyframes rr-head-reg {
+      0%, 13% { opacity: 0; }
+      16% { opacity: 1; }
+      91% { opacity: 1; }
+      95%, 100% { opacity: 0; }
+    }
+    .dot-reg {
+      offset-path: path("M130 132 L 376 132");
+      animation: rr-dot-reg 12s ease-in-out infinite;
+    }
+    @keyframes rr-dot-reg {
+      0%, 4% { offset-distance: 0%; opacity: 0; }
+      6% { opacity: 1; }
+      11% { opacity: 1; }
+      13%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .lab-reg { animation: rr-lab-reg 12s ease-in-out infinite; }
+    @keyframes rr-lab-reg {
+      0%, 4% { opacity: 0.25; }
+      8% { opacity: 1; }
+      90% { opacity: 1; }
+      95%, 100% { opacity: 0.25; }
+    }
+    /* The held socket: A's registered identity waits at the relay, blinking,
+       until B's cold-dial consumes it into the bridge. */
+    .held { animation: rr-held 12s ease-in-out infinite; }
+    @keyframes rr-held {
+      0%, 13% { opacity: 0; }
+      15% { opacity: 1; }
+      21% { opacity: 0.35; }
+      27% { opacity: 1; }
+      33% { opacity: 0.35; }
+      39% { opacity: 1; }
+      45% { opacity: 0.35; }
+      50% { opacity: 1; }
+      56% { opacity: 1; }
+      60%, 100% { opacity: 0; }
+    }
+    .cold {
+      stroke-dasharray: 246;
+      stroke-dashoffset: 0;
+      animation: rr-cold 12s ease-in-out infinite;
+    }
+    @keyframes rr-cold {
+      0%, 32% { stroke-dashoffset: 246; opacity: 0; }
+      33% { opacity: 1; }
+      42% { stroke-dashoffset: 0; }
+      91% { opacity: 1; }
+      96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+    .head-cold { animation: rr-head-cold 12s ease-out infinite; }
+    @keyframes rr-head-cold {
+      0%, 42% { opacity: 0; }
+      45% { opacity: 1; }
+      91% { opacity: 1; }
+      95%, 100% { opacity: 0; }
+    }
+    .dot-cold {
+      offset-path: path("M630 172 L 384 172");
+      animation: rr-dot-cold 12s ease-in-out infinite;
+    }
+    @keyframes rr-dot-cold {
+      0%, 32% { offset-distance: 0%; opacity: 0; }
+      34% { opacity: 1; }
+      40% { opacity: 1; }
+      42%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .lab-cold { animation: rr-lab-cold 12s ease-in-out infinite; }
+    @keyframes rr-lab-cold {
+      0%, 32% { opacity: 0.25; }
+      36% { opacity: 1; }
+      90% { opacity: 1; }
+      95%, 100% { opacity: 0.25; }
+    }
+    .box-relay { animation: rr-box-relay 12s ease-in-out infinite; }
+    @keyframes rr-box-relay {
+      0%, 42% { stroke-width: 1; }
+      46% { stroke-width: 2.6; }
+      50%, 100% { stroke-width: 1; }
+    }
+    .sess {
+      stroke-dasharray: 496 496;
+      stroke-dashoffset: 0;
+      animation: rr-sess 12s ease-in-out infinite;
+    }
+    @keyframes rr-sess {
+      0%, 52% { stroke-dasharray: 0 496; stroke-dashoffset: 248; opacity: 1; }
+      60% { stroke-dasharray: 496 496; stroke-dashoffset: 0; }
+      92% { opacity: 1; }
+      97%, 100% { stroke-dasharray: 496 496; stroke-dashoffset: 0; opacity: 0; }
+    }
+    .head-sess { animation: rr-head-sess 12s ease-out infinite; }
+    @keyframes rr-head-sess {
+      0%, 60% { opacity: 0; }
+      63% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .lab-sess { animation: rr-lab-sess 12s ease-in-out infinite; }
+    @keyframes rr-lab-sess {
+      0%, 54% { opacity: 0.25; }
+      60% { opacity: 1; }
+      90% { opacity: 1; }
+      96%, 100% { opacity: 0.25; }
+    }
+    .sub-sess { animation: rr-sub-sess 12s ease-in-out infinite; }
+    @keyframes rr-sub-sess {
+      0%, 62% { opacity: 0; }
+      68% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .stream { animation: rr-stream 12s ease-in-out infinite; }
+    @keyframes rr-stream {
+      0%, 62% { opacity: 0; }
+      66% { opacity: 1; }
+      93% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    .flow-right {
+      offset-path: path("M132 248 L 628 248");
+      animation: rr-flow 2.6s linear infinite;
+    }
+    .flow-left {
+      offset-path: path("M628 248 L 132 248");
+      animation: rr-flow 2.6s linear infinite;
+    }
+    .flow-b { animation-delay: -1.3s; }
+    .flow-c { animation-delay: -0.65s; }
+    .flow-d { animation-delay: -1.95s; }
+    @keyframes rr-flow {
+      from { offset-distance: 0%; }
+      to { offset-distance: 100%; }
+    }</style>
+
+  <line x1="130" y1="100" x2="130" y2="288" stroke="var(--rule, #e7d4b7)" stroke-width="2"></line>
+  <line x1="380" y1="100" x2="380" y2="288" stroke="var(--rule, #e7d4b7)" stroke-width="2"></line>
+  <line x1="630" y1="100" x2="630" y2="288" stroke="var(--rule, #e7d4b7)" stroke-width="2"></line>
+
+  <rect x="55" y="24" width="150" height="44" rx="11" fill="var(--paper-raised, #fff9ee)" stroke="var(--accent, #c76f18)"></rect>
+  <text x="130" y="51" text-anchor="middle" class="head" fill="var(--accent-deep, #a4560c)">browser A</text>
   <text x="130" y="86" text-anchor="middle" class="sub">registers, then waits</text>
 
-  <rect x="305" y="24" width="150" height="44" rx="11" fill="#faf3e7" stroke="#8a7862"></rect>
-  <text x="380" y="51" text-anchor="middle" class="head" fill="#6b5d4d">relay</text>
+  <rect class="box-relay" x="305" y="24" width="150" height="44" rx="11" fill="var(--dia-warm-fill, #faf3e7)" stroke="var(--dia-muted, #8a7862)"></rect>
+  <text x="380" y="51" text-anchor="middle" class="head" fill="var(--ink-soft, #6b5d4d)">relay</text>
   <text x="380" y="86" text-anchor="middle" class="sub">matches name to held socket</text>
 
-  <rect x="555" y="24" width="150" height="44" rx="11" fill="#fff9ee" stroke="#c76f18"></rect>
-  <text x="630" y="51" text-anchor="middle" class="head" fill="#a4560c">browser B</text>
+  <rect x="555" y="24" width="150" height="44" rx="11" fill="var(--paper-raised, #fff9ee)" stroke="var(--accent, #c76f18)"></rect>
+  <text x="630" y="51" text-anchor="middle" class="head" fill="var(--accent-deep, #a4560c)">browser B</text>
   <text x="630" y="86" text-anchor="middle" class="sub">redeems an introduction</text>
 
-  <path d="M130 132 L 376 132" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#rr-accent)"></path>
-  <text x="253" y="124" text-anchor="middle" class="label" fill="#a4560c">register <tspan class="mono">?register=idA</tspan></text>
+  <path class="reg" d="M130 132 L 376 132" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2"></path>
+  <g class="head-reg" transform="translate(376 132)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent-deep, #a4560c)"></path>
+  </g>
+  <circle class="dot dot-reg" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"></circle>
+  <circle class="held" cx="376" cy="132" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2" opacity="0"></circle>
+  <text x="253" y="124" text-anchor="middle" class="label lab-reg" fill="var(--accent-deep, #a4560c)">register <tspan class="mono">?register=idA</tspan></text>
 
-  <path d="M630 172 L 384 172" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#rr-accent)"></path>
-  <text x="507" y="164" text-anchor="middle" class="label" fill="#a4560c">cold-dial <tspan class="mono">?rendezvous=idA</tspan></text>
+  <path class="cold" d="M630 172 L 384 172" fill="none" stroke="var(--accent-deep, #a4560c)" stroke-width="2"></path>
+  <g class="head-cold" transform="translate(384 172) rotate(180)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent-deep, #a4560c)"></path>
+  </g>
+  <circle class="dot dot-cold" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"></circle>
+  <text x="507" y="164" text-anchor="middle" class="label lab-cold" fill="var(--accent-deep, #a4560c)">cold-dial <tspan class="mono">?rendezvous=idA</tspan></text>
 
-  <path d="M132 248 L 628 248" fill="none" stroke="#1b5f66" stroke-width="2.5" marker-start="url(#rr-teal)" marker-end="url(#rr-teal)"></path>
-  <text x="380" y="240" text-anchor="middle" class="label" fill="#1b5f66">keyed CapTP session, A and B bridged end to end</text>
-  <text x="380" y="272" text-anchor="middle" class="sub">the room that introduced them is off the path</text>
+  <path class="sess" d="M132 248 L 628 248" fill="none" stroke="var(--teal-deep, #1b5f66)" stroke-width="2.5"></path>
+  <g class="head-sess" transform="translate(132 248) rotate(180) scale(1.25)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--teal-deep, #1b5f66)"></path>
+  </g>
+  <g class="head-sess" transform="translate(628 248) scale(1.25)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--teal-deep, #1b5f66)"></path>
+  </g>
+  <g class="stream">
+    <circle class="dot flow-right" r="3.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="1.5"></circle>
+    <circle class="dot flow-right flow-b" r="3.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="1.5"></circle>
+    <circle class="dot flow-left flow-c" r="3.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="1.5"></circle>
+    <circle class="dot flow-left flow-d" r="3.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="1.5"></circle>
+  </g>
+  <text x="380" y="240" text-anchor="middle" class="label lab-sess" fill="var(--teal-deep, #1b5f66)">keyed CapTP session, A and B bridged end to end</text>
+  <text x="380" y="272" text-anchor="middle" class="sub sub-sess">the room that introduced them is off the path</text>
 </svg>

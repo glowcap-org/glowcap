@@ -1125,6 +1125,14 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
             switch (try nextSyrupHintStep(bytes, cursor)) {
                 .skipped => continue,
                 .known => |borrowed| {
+                    // Hints are a dictionary, so a repeated name is malformed.
+                    // Refusing here is what makes the encoder's assumption
+                    // true: it emits entries in model order without a
+                    // uniqueness pass, so a duplicate that got this far would
+                    // come back out as a dict pancake's own decoder rejects.
+                    for (entries.items) |seen| {
+                        if (std.mem.eql(u8, seen.name, borrowed.name)) return Error.MalformedFrame;
+                    }
                     const name = try allocator.dupe(u8, borrowed.name);
                     errdefer allocator.free(name);
                     const value = try model.cloneHintValue(allocator, borrowed.value);

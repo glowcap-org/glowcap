@@ -1,6 +1,7 @@
 //! File harness for `pancake app rooms-peer` (state, inbox, replied ledger).
 const std = @import("std");
 const common = @import("common.zig");
+const argv = @import("../../argv.zig");
 
 const Io = common.Io;
 const Allocator = common.Allocator;
@@ -95,22 +96,13 @@ pub fn parseOutboxLine(gpa: Allocator, line: []const u8) ?OutboxLine {
     return .{ .text = text, .is_dm = is_dm, .peer = peer };
 }
 
-/// Write a JSON string literal (quotes + escaping) into an ArrayList.
-pub fn writeJsonString(list: *std.ArrayList(u8), gpa: Allocator, s: []const u8) !void {
-    try list.append(gpa, '"');
-    for (s) |c| switch (c) {
-        '"' => try list.appendSlice(gpa, "\\\""),
-        '\\' => try list.appendSlice(gpa, "\\\\"),
-        '\n' => try list.appendSlice(gpa, "\\n"),
-        '\r' => try list.appendSlice(gpa, "\\r"),
-        '\t' => try list.appendSlice(gpa, "\\t"),
-        else => if (c < 0x20) {
-            var buf: [8]u8 = undefined;
-            try list.appendSlice(gpa, std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch "");
-        } else try list.append(gpa, c),
-    };
-    try list.append(gpa, '"');
-}
+/// Write a JSON string literal (quotes and escaping) into an ArrayList.
+///
+/// This is the CLI's one escaper, reached from here so the inbox records and
+/// the JSON the CLI prints agree about what a string is. A room member's nick
+/// and line arrive over the wire, so they can be any bytes at all, and the
+/// escaper is what keeps `inbox.jsonl` parseable when they are not text.
+pub const writeJsonString = argv.writeJsonString;
 
 /// Append one inbound/outbound record to inbox.jsonl. `channel` is "room" or
 /// "dm"; `peer` names the dm partner (empty on the room arm).
@@ -135,10 +127,15 @@ pub fn recordInbox(io: Io, gpa: Allocator, dir: []const u8, kind: []const u8, ch
 
 /// Persist the outbox drain cursor. Only call after tell + drainActions both
 /// succeeded for every line up to `offset`.
-pub fn saveOutboxOffset(io: Io, dir: []const u8, offset: usize) void {
+///
+/// Reports whether it persisted. The write used to be swallowed, which made
+/// the fail-closed contract above unenforceable in the one case it is for: a
+/// read-only or full state directory left the cursor on disk behind the one in
+/// memory, so a restart resent every line since.
+pub fn saveOutboxOffset(io: Io, dir: []const u8, offset: usize) error{PersistFailed}!void {
     var buf: [24]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, "{d}\n", .{offset}) catch return;
-    overwriteFile(io, dir, "outbox.offset", text) catch {};
+    const text = std.fmt.bufPrint(&buf, "{d}\n", .{offset}) catch return error.PersistFailed;
+    overwriteFile(io, dir, "outbox.offset", text) catch return error.PersistFailed;
 }
 
 /// Load a persisted outbox offset (unclamped). Missing or corrupt → 0 so a
@@ -222,15 +219,17 @@ pub fn writeState(
     overwriteFile(io, dir, "state.json", list.items) catch return;
 }
 
-/// One string field out of state.json, owned; empty when absent.
+/// One string field out of state.json, owned; empty when absent. The empty
+/// answer is a static slice rather than a zero-length allocation, which the
+/// caller's `free` handles either way.
 /// Booleans stringify as `"true"` / `"false"` so callers can compare without a
 /// second helper (`registered` is written as a JSON bool). Extracts strings
 /// and bools only: numeric fields (`join_attempts`) surface through the raw
 /// state.json splice in `status`, or a caller's own JSON parse.
 pub fn stateField(io: Io, gpa: Allocator, dir: []const u8, key: []const u8) []u8 {
-    const raw = readFile(io, gpa, dir, "state.json") catch return gpa.dupe(u8, "") catch unreachable;
+    const raw = readFile(io, gpa, dir, "state.json") catch return "";
     defer gpa.free(raw);
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, raw, .{}) catch return gpa.dupe(u8, "") catch unreachable;
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, raw, .{}) catch return "";
     defer parsed.deinit();
     if (parsed.value == .object) {
         if (parsed.value.object.get(key)) |v| {
@@ -238,7 +237,7 @@ pub fn stateField(io: Io, gpa: Allocator, dir: []const u8, key: []const u8) []u8
             if (v == .bool) return gpa.dupe(u8, if (v.bool) "true" else "false") catch "";
         }
     }
-    return gpa.dupe(u8, "") catch "";
+    return "";
 }
 
 // --- replied ledger + pending scan ------------------------------------------
@@ -339,7 +338,13 @@ pub fn loadReplied(arena: Allocator, io: Io, dir: []const u8) std.StringHashMapU
 
 /// Fold `ids` into replied.json (dedup, newest last, capped). The one door that
 /// writes the ledger. Returns how many were newly added.
-pub fn markReplied(io: Io, gpa: Allocator, dir: []const u8, ids: []const []const u8) usize {
+///
+/// Fallible, because the count alone was a lie under a read-only or full state
+/// directory: it is computed from the in-memory fold, the write was swallowed,
+/// and the caller printed `"marked":true` while the ledger was unchanged — so
+/// the next tick surfaced the same message and the agent answered it again, on
+/// every cycle.
+pub fn markReplied(io: Io, gpa: Allocator, dir: []const u8, ids: []const []const u8) !usize {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -369,12 +374,15 @@ pub fn markReplied(io: Io, gpa: Allocator, dir: []const u8, ids: []const []const
 
     const start = if (order.items.len > replied_cap) order.items.len - replied_cap else 0;
     var out: std.ArrayList(u8) = .empty;
-    out.append(arena, '[') catch {};
+    // Built with `try`, so a half-written document is never handed to the
+    // writer. Swallowing these produced `["a","b` — unparseable, so the next
+    // load read an empty ledger and every answered message resurfaced.
+    try out.append(arena, '[');
     for (order.items[start..], 0..) |id, i| {
-        if (i > 0) out.append(arena, ',') catch {};
-        writeJsonString(&out, arena, id) catch {};
+        if (i > 0) try out.append(arena, ',');
+        try writeJsonString(&out, arena, id);
     }
-    out.append(arena, ']') catch {};
-    overwriteFile(io, dir, "replied.json", out.items) catch {};
+    try out.append(arena, ']');
+    overwriteFile(io, dir, "replied.json", out.items) catch return error.PersistFailed;
     return added;
 }

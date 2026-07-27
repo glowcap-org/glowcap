@@ -1,7 +1,7 @@
 // Deno caller for the accountability-on-pancake cross-seam demo.
 //
 // Connects to a running Zig host, generates an Ed25519 identity, signs the
-// request with the attestation preimage `invoke|<request>`, and invokes the
+// request with the attestation preimage `invoke|<subject>|<request>`, and invokes the
 // Affordance capability. The host verifies the attestation and returns an
 // ack, or refuses an unattested call with a broken promise. Both paths
 // are exercised.
@@ -56,7 +56,9 @@ async function main(): Promise<void> {
 
 	// --- Legitimate invocation -------------------------------------------------
 	const request = "read-thermostat";
-	const preimage = new TextEncoder().encode(`invoke|${request}`);
+	// The subject is in the signed bytes so the host can tell that this caller
+	// really is claiming this AID, and not borrowing somebody else's.
+	const preimage = new TextEncoder().encode(`invoke|${subject}|${request}`);
 	const sigRaw = new Uint8Array(
 		await crypto.subtle.sign("Ed25519", keyPair.privateKey, preimage),
 	);

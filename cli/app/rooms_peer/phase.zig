@@ -4,6 +4,8 @@
 //! Wire calls (dial, close, flush, state.json writes) stay in `peer.zig`; this
 //! module owns only the guards, the tick arithmetic, and the status
 //! projection, so the transitions are testable without a wire.
+
+const std = @import("std");
 const common = @import("common.zig");
 
 const model = common.model;
@@ -84,6 +86,33 @@ pub fn tickCooldown(cooldown: *u32) bool {
         return false;
     }
     return true;
+}
+
+/// Age a table of cooling-off refusals, freeing the key of each one whose wait
+/// is over, and return how many were forgotten.
+///
+/// A refusal is the one cached thing no object can invalidate. A capability
+/// names something that can report itself gone; a refusal names something that
+/// was never there, so only a clock can clear it. Held without one, a peer who
+/// was briefly unreachable stays unreachable for as long as the process lives.
+pub fn expireCooldowns(
+    gpa: std.mem.Allocator,
+    table: *std.StringHashMapUnmanaged(u32),
+) usize {
+    // Two passes: a hash map may not be mutated while its iterator is live.
+    var expired: [16][]const u8 = undefined;
+    var n: usize = 0;
+    var it = table.iterator();
+    while (it.next()) |entry| {
+        if (!tickCooldown(entry.value_ptr)) continue;
+        if (n == expired.len) break;
+        expired[n] = entry.key_ptr.*;
+        n += 1;
+    }
+    for (expired[0..n]) |key| {
+        if (table.fetchRemove(key)) |old| gpa.free(old.key);
+    }
+    return n;
 }
 
 /// A dial that never reached session open is dead: carry the countdown into

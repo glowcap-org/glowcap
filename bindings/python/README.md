@@ -55,22 +55,26 @@ and honors the host's action queue. Values are native Python: `int`, `float`,
 and the capability `Ref`:
 
 ```python
-from pancake import connect, tcp_locator
+import asyncio
 
-# tcp: the peer is a place, a cleartext host and port.
-partner = tcp_locator("127.0.0.1", 9099)
+from pancake import connect, tcp_locator, VowBroken
 
-session = await connect(partner)
-session.serve()
 
-greeter = await session.fetch("greeter")  # a capability, by name
-try:
-    reply = await session.send(greeter, "greet", ["world"])
-    print(reply)
-except Exception as reason:
-    print(f"the greeter refused: {reason}")
+async def main():
+    # tcp: the peer is a place, a cleartext host and port.
+    session = await connect(tcp_locator("127.0.0.1", 9099))
+    session.serve()
 
-await session.close()
+    greeter = await session.fetch("greeter")  # a capability, by name
+    try:
+        print(await session.send(greeter, "greet", ["world"]))
+    except VowBroken as reason:
+        print(f"the greeter refused: {reason}")
+
+    await session.close()
+
+
+asyncio.run(main())
 ```
 
 Hosting is the same surface from the other side. `await listen(bind_host, 0)`
@@ -81,6 +85,12 @@ itself a valid `send` target, so a dependent chain pipelines in one round trip.
 A host's identity and gift registry are shared through `server.host` /
 `connect(..., host=...)`, which is what makes a three-party handoff
 transparent.
+
+When a partner answers with an introduction, `await session.send_redeeming(...)`
+returns the reply together with `via`, the direct connection the binding dialed
+to redeem it. Host your reply inbox on `via` and send over `via`: a near export
+names a position on one specific connection's peer, so that is the one
+connection where a capability you hand the exporter is valid.
 
 The blocking shuttles are à la carte:
 

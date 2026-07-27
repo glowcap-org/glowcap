@@ -13,11 +13,12 @@
 //! module owns plan + channel open + the public [`connect`] dialer.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use tokio::net::TcpStream;
 
 use crate::host::{check_host, Host, HostShared};
-use crate::session::{io_err, Session};
+use crate::session::{io_err, Session, HANDSHAKE_TIMEOUT};
 use crate::sys::driver as ffi;
 use crate::{sys, Error, Result};
 
@@ -34,6 +35,10 @@ enum DialPlan {
 		reach_kind: u32,
 		reach_value: u32,
 	},
+	/// A signaling-mediated transport (webrtc) — no dialable address; the
+	/// channel comes up through an offer/answer/ICE exchange before the keyed
+	/// handshake. Cannot be opened from a bare locator; handoff-redeem only.
+	Signaling,
 }
 
 /// Host-owned pending-dial views (not input-buffer aliases).
@@ -103,6 +108,9 @@ fn plan_dial(
 			port: plan.port,
 		});
 	}
+	if plan.shape == sys::DIAL_SHAPE_SIGNALING {
+		return Ok(DialPlan::Signaling);
+	}
 	Err(Error::with_detail(
 		sys::ERR_INVALID_ARGUMENT,
 		format!("unknown dial shape {}", plan.shape),
@@ -142,7 +150,9 @@ const _: () =
 
 /// The one dial path for [`connect`] and handoff redeem alike: no dispatch, no
 /// grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,
-/// and this opens the byte channel the plan names.
+/// and this opens the byte channel the plan names. Every dial through here
+/// carries `handshake_timeout`: a peer that accepts the connection and never
+/// finishes the OCapN handshake costs one dial, not the caller.
 pub(crate) async fn dial_parsed_locator(
 	transport: &str,
 	designator: &str,
@@ -150,6 +160,7 @@ pub(crate) async fn dial_parsed_locator(
 	host: Option<Host>,
 	redeem: bool,
 	reachability: Option<Reachability>,
+	handshake_timeout: Option<Duration>,
 ) -> Result<Session> {
 	let dial_host = if redeem {
 		host.ok_or_else(|| {
@@ -193,8 +204,14 @@ pub(crate) async fn dial_parsed_locator(
 						_ => unreachable!("EXPLICIT reach_value is a Reachability discriminant"),
 					},
 				};
-				Session::connect_iroh_with_host(designator, &addresses, reachability, dial_host)
-					.await
+				Session::connect_iroh_with_host(
+					designator,
+					&addresses,
+					reachability,
+					dial_host,
+					handshake_timeout,
+				)
+				.await
 			}
 			#[cfg(not(feature = "iroh"))]
 			{
@@ -209,8 +226,20 @@ pub(crate) async fn dial_parsed_locator(
 			let stream = TcpStream::connect((host.as_str(), port))
 				.await
 				.map_err(io_err)?;
-			Session::establish_dialed_locator(shared, transport, designator, stream).await
+			Session::establish_dialed_locator(
+				shared,
+				transport,
+				designator,
+				stream,
+				handshake_timeout,
+			)
+			.await
 		}
+		DialPlan::Signaling => Err(Error::with_detail(
+			sys::ERR_INVALID_ARGUMENT,
+			"webrtc signaling dial cannot be opened from a bare locator; use a handoff give"
+				.to_string(),
+		)),
 	}
 }
 
@@ -223,8 +252,9 @@ pub(crate) async fn dial_parsed_locator(
 /// (`Direct`); a bare node id resolves by id under the host's configured
 /// redeem posture (default `Discovery`; a relay-policy node lowers it), so
 /// one give shape covers an offline direct dial and an internet dial-by-id
-/// alike. Binding-internal: the host's action drain calls this to redeem a
-/// give.
+/// alike. An exporter that never finishes the handshake breaks the redeem on
+/// [`HANDSHAKE_TIMEOUT`] rather than stalling the drain. Binding-internal: the
+/// host's action drain calls this to redeem a give.
 pub(crate) async fn dial_exporter(
 	transport: &str,
 	designator: &str,
@@ -238,6 +268,7 @@ pub(crate) async fn dial_exporter(
 		Some(Host::from_shared(host)),
 		true,
 		None,
+		Some(HANDSHAKE_TIMEOUT),
 	)
 	.await
 }
@@ -291,10 +322,34 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 /// compiled in, so a call site never changes when the feature is turned on —
 /// without it, an `iroh` locator fails with a rebuild hint rather than dialing,
 /// and a tcp-only build links no iroh companion library.
+///
+/// The OCapN handshake is bounded at [`HANDSHAKE_TIMEOUT`] once the byte
+/// channel is open, so a peer that accepts the connection and then says
+/// nothing fails with [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut)
+/// instead of parking the caller. [`connect_with_timeout`] chooses a different
+/// budget, or none at all.
 pub async fn connect(
 	uri: &str,
 	reachability: Option<Reachability>,
 	host: Option<Host>,
+) -> Result<Session> {
+	connect_with_timeout(uri, reachability, host, Some(HANDSHAKE_TIMEOUT)).await
+}
+
+/// [`connect`] under a caller-chosen handshake budget — how a dialer with its
+/// own deadline, or one that means to wait indefinitely, says so.
+///
+/// `handshake_timeout` bounds the OCapN handshake once the byte channel is
+/// open; `None` waits unbounded, which this project's rule for CapTP waits
+/// treats as a hang rather than a slow success, so ask for it only with a
+/// deadline of your own around the call. It does not cover opening the channel:
+/// a TCP connect keeps the OS's own timeout, and an iroh dial-by-id keeps its
+/// discovery retry budget (ADR-0082), both spent before the handshake starts.
+pub async fn connect_with_timeout(
+	uri: &str,
+	reachability: Option<Reachability>,
+	host: Option<Host>,
+	handshake_timeout: Option<Duration>,
 ) -> Result<Session> {
 	let loc = crate::uri::parse_locator(uri)?;
 	let hint = loc
@@ -309,6 +364,7 @@ pub async fn connect(
 		host,
 		false,
 		reachability,
+		handshake_timeout,
 	)
 	.await
 }

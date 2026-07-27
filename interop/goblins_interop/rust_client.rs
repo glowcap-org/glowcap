@@ -22,7 +22,7 @@ const HOST: &str = "127.0.0.1";
 /// The Goblins vat's fixed port; `--port=N` (from
 /// `zig build rust-goblins-interop -Dport=N`) moves it when 22096 is taken.
 const DEFAULT_PORT: u16 = 22096;
-const RACKET: &str = "/usr/local/bin/racket";
+const RACKET: &str = "racket";
 const HOST_SCRIPT: &str = "conformance/goblins-peer/racket/goblins-host.rkt";
 
 fn parse_port() -> Result<u16, Fail> {

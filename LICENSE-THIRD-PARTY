@@ -1,0 +1,56 @@
+# Third-party code in this repository
+
+pancake's own code is licensed under Apache-2.0; see LICENSE-APACHE.
+Some files here are not pancake's, and their notices travel with them.
+
+## `tools/fuzz/test_runner.zig`
+
+Zig's own `compiler/test_runner.zig`, copied from the toolchain pinned in
+`.devcontainer/pins.sh`, with exactly one call renamed. The file itself says why
+at the top, and `zig build meta-check` holds it against the installed toolchain.
+This copied file is MIT-only; it is not offered under pancake's Apache-2.0
+alternative.
+
+Copyright (c) Zig contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## `ui/fonts/`
+
+IBM Plex Sans and IBM Plex Mono, the typefaces the documentation site and the
+rooms interface are set in. The five `.woff2` files are the Latin subsets
+published by the Fontsource project from IBM's releases, taken from
+`@fontsource-variable/ibm-plex-sans@5` and `@fontsource/ibm-plex-mono@5` and
+vendored on 27 July 2026. Both surfaces reach these files through symlinks, so
+this directory is the only copy.
+
+They are vendored rather than loaded from a font CDN, and that is not a
+temporary arrangement to be undone later. Browsers partitioned the HTTP cache,
+which ended the cross-site font caching a CDN used to buy, so a CDN now costs
+two extra connections and gains nothing; and it would disclose every reader's
+address to a third party, which is a poor arrangement for a project about not
+handing out authority. Track upstream by bumping the Fontsource versions above;
+there is no condition under which these files go away.
+
+Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex".
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The licence travels with the files as `ui/fonts/OFL.txt`, in full: the licence
+requires each copy of the Font Software to carry it, and a summary would not
+satisfy that.

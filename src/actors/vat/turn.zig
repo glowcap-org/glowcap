@@ -229,6 +229,10 @@ pub fn beginTurn(self: *Vat) std.mem.Allocator {
         // outermost turn's moved bytes at the same boundary its scratch
         // resets. A borrowed reply from the last turn is now invalid too.
         drainMovedReplies(self);
+        // Boxes a `become` swapped out share that lifetime too: a reply
+        // borrowing the state a past turn ran as is invalid from here, so the
+        // box behind it can go.
+        drainRetiredBoxes(self);
     }
     self.turn_depth += 1;
     return self.turn_arena.allocator();
@@ -355,6 +359,22 @@ fn finishCellRun(self: *Vat, id: u64) void {
     if (cell.running != 0) return;
     const next = cell.pending_become orelse return;
     cell.pending_become = null;
-    releaseBox(self.allocator, cell.box);
+    // Retire rather than release: a reply handed back by an earlier frame of
+    // this same actor may still borrow the outgoing box, and that frame has
+    // already returned, so no sever can reach it. `stageBecome` reserved this
+    // slot, so the append cannot fail here during unwind.
+    self.retired_boxes.appendAssumeCapacity(cell.box);
     cell.box = next;
+}
+
+/// Drop the vat's reference to every box a `become` swapped out. Called when an
+/// outermost turn begins and at teardown, the same boundary that reclaims moved
+/// replies, so a retired box outlives every reply that can still borrow it. A
+/// snapshot sharing the box keeps it alive past this.
+pub fn drainRetiredBoxes(self: *Vat) void {
+    for (self.retired_boxes.items) |box| releaseBox(self.allocator, box);
+    self.retired_boxes.clearRetainingCapacity();
+    if (self.retired_boxes.capacity * @sizeOf(*StateBox) > vat_mod.steady_list_bytes) {
+        self.retired_boxes.clearAndFree(self.allocator);
+    }
 }

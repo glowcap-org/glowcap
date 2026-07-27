@@ -19,7 +19,7 @@ pub const Symbol = shared.symbols.Symbol;
 pub const OmittedFamily = shared.symbols.OmittedFamily;
 
 /// No whole family is omitted from the TypeScript table on this archive; the
-/// six per-symbol omissions below carry their reasons on the row.
+/// per-symbol omissions below carry their reasons on the row.
 pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
@@ -48,7 +48,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_host_reference_exporter", .out_params = &.{2} },
     .{ .name = "pancake_host_plan_accept", .out_params = &.{6} },
     .{ .name = "pancake_host_session_release" },
-    .{ .name = "pancake_host_session_session_open" },
+    .{ .name = "pancake_host_session_is_open" },
     .{
         .name = "pancake_host_session_feed",
         .rust_omit = "the Rust pump feeds raw bytes (feed_bytes); no PancakeFrame is built binding-side",

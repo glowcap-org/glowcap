@@ -88,7 +88,7 @@ const AttenuatorActor = struct {
 
 /// Spawn a caretaker over `target`: a revocable forwarding view. Returns the
 /// proxy to delegate and the lever to revoke it. The proxy forwards to `target`
-/// — which may be a far reference — so this hands out a revocable view of a
+/// (which may be a far reference), so this hands out a revocable view of a
 /// capability the holder need not own locally.
 pub fn caretaker(vat: *Vat, target: Ref) !Caretaker {
     const cell = try vat.allocator.create(RevokeCell);

@@ -6,7 +6,8 @@ codec, abort domains, the dial plan, and the caps) are generated into
 once and ``zig build gen-binding-constants-check`` rejects a stale copy. This
 module adds the transport string symbols, which mirror ``model.transport`` (a
 different authority, guarded by ``meta-check`` name-presence) rather than a
-``pancake_*.h`` value. ``HOST_ACTION_*`` lives in the generated
+``pancake_*.h`` value, and the binding's own handshake bound, which the dialer
+and the accept loop both reach. ``HOST_ACTION_*`` lives in the generated
 ``_host_action_gen`` module.
 """
 
@@ -18,6 +19,14 @@ FORWARD_CYCLE_MESSAGE = "forward cycle: the local forward chain never terminates
 # Locator hint name for dial addresses when the designator is a key
 # (keyed-tcp, iroh); mirrors model.transport.hint_direct_addresses.
 HINT_DIRECT_ADDRESSES = "direct-addresses"
+
+# How long a partner has to finish the keyed handshake once the byte channel is
+# open, on the dialing and the accepting side alike. Matches the CLI's own
+# product default. Something finite is the point: this project's rule for CapTP
+# waits is that an unbounded one is a hang rather than a slow success, and a
+# dialer inherits that from every peer it reaches just as a listener does from
+# every partner it accepts.
+HANDSHAKE_TIMEOUT_MS = 10_000
 
 # OCapN transport symbols; mirrors model.transport.*.
 TRANSPORT_TCP = "tcp"

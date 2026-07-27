@@ -1,5 +1,6 @@
 ---
 .title = "The relay: a peer without a socket",
+.description = "A relay carries a browser peer's keyed CapTP session over a WebSocket to a peer that has a socket. Only bytes cross it; it holds no capability of yours.",
 .date = @date("2026-07-21T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -27,18 +28,20 @@ reaches the far side two ways.
 
 ### Dialing a far peer
 
-The browser names a target and the relay dials it. The rooms relay a browser talks
-to opens `ws://relay/relay?target=<locator>` and classifies that locator through the
-same `pancake_host_plan_dial` a native dial uses: a `host:port` opens a TCP socket,
-an `ocapn://` node opens an iroh channel. The relay then pipes the WebSocket to
-whatever it dialed.
+The browser names a target and the relay dials it. The reference relay reads
+the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
+`?locator=<ocapn-uri>` opens an iroh channel. The rooms app embeds the same
+pump behind its own `/relay?target=<locator>` route and classifies the
+locator through the same `pancake_host_plan_dial` a native dial uses; that
+spelling is the app's, not the reference contract. Either way the relay then
+pipes the WebSocket to whatever it dialed.
 
 [The browser names the peer it wants; the relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
 
 The dial policy is the embedding app's. The [rooms demo]($link.page('examples'))
 pins its TCP target to the room server, so a classified TCP dial reaches the room
-and nothing else. iroh reaches any key-verified node, a wider destination the app
-accepts and bounds by capacity and backpressure.
+and nothing else. An iroh target may be any key-verified node, a wider reach the
+app accepts and bounds with its own admission caps.
 
 ### Cold-dial rendezvous
 
@@ -60,7 +63,10 @@ A relay carries other peers' sessions, so it bounds what it holds. Backpressure 
 both legs caps the bytes in flight: a stalled reader stops the relay reading its
 partner, and the stall reaches the sender instead of the middle
 (`zig build deno-relay-backpressure-test`). A silent session is reclaimed on an idle
-timeout (`zig build deno-relay-idle-test`). An embedding app adds its own ceilings on
+timeout (`zig build deno-relay-idle-test`). A relayed connection costs buffers and no session
+state, since the relay holds no session of its own. `zig build relay-scaling`
+measures the figure on your machine and holds thousands of relayed sessions at
+once. An embedding app adds its own ceilings on
 the live-session and held-registration counts as admission policy, which the
 [rooms demo]($link.page('examples')) sets. The relay counts bytes and sessions, never
 messages, because it reads none.
@@ -75,12 +81,14 @@ session whichever runtime carries it.
 
 ## Not a netlayer
 
-The relay is not a netlayer. pancake ships four of those (TCP, keyed-tcp,
-in-process, iroh), and a session dispatches on a
-[locator]($link.page('concepts'))'s transport symbol; the relay is none of them, and
-nothing dials it. The cold-dial rendezvous does put a `keyed-relay` symbol on a
-locator, `ocapn://<key>.keyed-relay`, but that locator names the waiting peer's key,
-and the relay stays resident-less (ADR-0088). A peer with its own socket dials a
+The relay is not a netlayer. pancake ships five of those (TCP, keyed-tcp,
+in-process, iroh, and WebRTC), and a dial dispatches on a
+[locator]($link.page('concepts'))'s transport symbol; the relay is none of them,
+and no locator names it. The cold-dial rendezvous does put a `keyed-relay` symbol
+on a locator, `ocapn://<key>.keyed-relay`, but that locator names the waiting
+peer's key, not the relay, and the relay registers no transport resident of its
+own. That rendezvous is settled in
+[ADR-0088](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md). A peer with its own socket dials a
 [transport]($link.page('transports')) directly and never touches a relay.
 
 ## See it run
@@ -95,8 +103,26 @@ zig build bindings-relay-iroh   # the same session, dialing a live iroh endpoint
 zig build rooms-web-dm-tabs     # two browser tabs cold-dial each other by relay rendezvous
 ```
 
-The [rooms]($link.page('examples')) chat and its browser direct messages run over a
-real relay. [Concepts]($link.page('concepts')) covers locators, handoffs, and
-sturdyrefs, [Transports]($link.page('transports')) sets the netlayers beside each
-other, and [the TypeScript binding]($link.page('bindings/ts')) is where the browser
-peer lives.
+## Running one
+
+The Deno reference relay is a single file you point at a port:
+
+```sh
+deno run --allow-net --allow-ffi --allow-env --allow-read \
+    bindings/ts/relay/serve.ts 9000
+# DENO-RELAY-READY 9000
+```
+
+It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
+reclaims a silent session once its idle timeout passes (`PANCAKE_RELAY_IDLE_MS`,
+one minute by default). Target allow-lists and admission caps are left to the app
+embedding it. The rooms relay
+([`relay_server.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/deno/relay_server.ts))
+shows what a hardened embedding adds. The
+[relay README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/relay/README.md)
+covers the package itself, and the Python, Rust, and Racket relays take the
+same shape.
+
+The [rooms]($link.page('examples')) chat and its browser direct messages run
+over a real relay, and [the TypeScript binding]($link.page('bindings/ts')) is
+where the browser peer lives.

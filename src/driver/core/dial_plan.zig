@@ -12,9 +12,10 @@
 //! helpers, so this is that path's byte-fed twin, not a second copy of its
 //! rules.
 //!
-//! Open shapes are `host_port` (tcp / keyed-tcp) and `peer_id` (today produced
-//! only by the `iroh` locator scheme). The product string stays in the policy
-//! table; the plan tag names what to open, not which netlayer archive opens it.
+//! Open shapes are `host_port` (tcp / keyed-tcp), `peer_id` (iroh), and
+//! `signaling` (webrtc, which names no dialable address). The product string
+//! stays in the policy table; the plan tag names what to open, not which
+//! netlayer archive opens it.
 //!
 //! Every returned view borrows the caller's `transport` / `designator` / hint
 //! buffers (or, for a missing accept address, a static placeholder). The plan
@@ -30,7 +31,7 @@ const crypto = foundation.crypto;
 
 pub const Error = error{
     /// The locator names a transport this planner does not dial (only `tcp`,
-    /// `keyed-tcp`, and `iroh` are dialable here).
+    /// `keyed-tcp`, `iroh`, and `webrtc` are admitted here).
     UnknownTransport,
     /// A `tcp` designator, or the first entry of a `keyed-tcp` direct-addresses
     /// hint, is not the `host:port` grammar.
@@ -59,9 +60,8 @@ pub const Reach = union(enum) {
     explicit: u32,
 };
 
-/// A resolved dial: what to open and how. A true sum — `host_port` and
-/// `peer_id` are not told apart by a shape flag plus nullable reach. Views
-/// borrow the planner's inputs. Transport/designator stay with the caller.
+/// A resolved dial: what to open and how. Views borrow the planner's inputs;
+/// transport and designator stay with the caller.
 pub const DialPlan = union(enum) {
     host_port: struct {
         host: []const u8,
@@ -71,6 +71,13 @@ pub const DialPlan = union(enum) {
         addresses: []const u8,
         reach: Reach,
     },
+    /// A signaling-mediated transport (webrtc). No dialable address: the channel
+    /// is brought up through a signaling exchange (offer, answer, ICE candidates)
+    /// before the keyed handshake runs over the open DataChannel. The plan exists
+    /// so `planDial` recognizes the transport symbol and validates the key
+    /// designator; the signaling reference arrives through the handoff mechanism
+    /// (ADR-0089).
+    signaling,
 };
 
 /// Tag of `DialPlan` — the C ABI's `PANCAKE_DIAL_SHAPE_*` mirror.
@@ -124,6 +131,14 @@ pub fn planDial(
             .explicit_none => return Error.ReachabilityRequired,
         };
         return .{ .peer_id = .{ .addresses = direct_addresses_hint, .reach = reach } };
+    }
+
+    if (std.mem.eql(u8, transport, model.transport.webrtc)) {
+        // No dialable address; validate the key designator and hand back the
+        // signaling plan.
+        if (crypto.PeerKey.fromDesignator(designator) == null)
+            return Error.DesignatorNotPeerKey;
+        return .signaling;
     }
 
     return Error.UnknownTransport;

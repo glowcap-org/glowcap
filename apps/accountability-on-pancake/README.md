@@ -33,14 +33,30 @@ The run walks eight steps and asserts each:
    opens over TCP.
 4. The caller writes an **Attempt** Episode _before_ the wire send (intent is
    durable first), then invokes.
-5. The host **verifies the caller's signature** over the request and resolves
-   the call. Attribution is attested, not a trusted header.
+5. The host **verifies the caller's signature** over the AID the caller claims
+   and the request it is making, then resolves the call. Because the AID is part
+   of the signed bytes, a captured signature cannot be re-presented under a
+   different AID. See "Where the demo stops short" below for what that check
+   does not cover.
 6. A caller the host **cannot attest** (a tampered signature) is **refused**:
    the refusal travels back as a broken promise with a typed reason, and the
    host writes no Episode for it. This is the load-bearing accountability property.
 7. The host's **Outcome** Episode attributes the _true_ caller's AID.
 8. Every Episode **audits** (countersignature + payload signature), and the
    transparency roots are stable.
+
+### Where the demo stops short
+
+The host checks that whoever holds the presented key signed this exact subject
+and request. It does not check that the key belongs to the AID being claimed:
+doing that means reading the caller's key event log, walking its rotations, and
+arriving at the key that is current now. This demo does not exchange key event
+logs, so a caller who signs under its own key can still name another AID as the
+subject and the host will attribute it there.
+
+A production deployment closes that by resolving the AID before it attributes
+anything, whether from a log the caller presents or from a witness it already
+trusts.
 
 ## Files
 

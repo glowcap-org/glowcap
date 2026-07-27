@@ -27,7 +27,6 @@ import { dial, loopbackTcpDesignator } from "./deno/lib/locator.ts";
 import { enterOrOpen } from "./deno/lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "./lib/room_client.ts";
 import { waitUntil } from "./dm_handoff.ts";
-import { DM } from "./lib/protocol.ts";
 
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from a non-listening sender";

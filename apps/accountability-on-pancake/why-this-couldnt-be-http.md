@@ -2,8 +2,7 @@
 
 The accountability app makes one claim that is hard to fake: **every invocation
 produces a verifiable Episode attributing the true caller.** That claim is what
-forces a capability protocol instead of HTTP. The argument is not "OCapN is
-nicer." It is structural.
+forces a capability protocol instead of HTTP. The argument is structural.
 
 ## The thing HTTP cannot do
 
@@ -66,10 +65,10 @@ the distinctness of "who holds it" across an introduction. Accountability that
 survives delegation is a direct consequence of that, not a feature layered on
 top.
 
-That is the bite OCapN can take out of HTTP: not raw speed, not a nicer RPC, but
-a class of guarantees: unforgeable attribution, per-recipient authority,
-delegation that is visible in the call: that HTTP's bearer-token shape cannot
-express, only approximate. This app demonstrates it running on pancake.
+That is the bite OCapN takes out of HTTP: a class of guarantees HTTP's
+bearer-token shape cannot express, only approximate — unforgeable attribution,
+per-recipient authority, and delegation that is visible in the call itself. This
+app demonstrates it running on pancake.
 
 ## Scope of this run
 

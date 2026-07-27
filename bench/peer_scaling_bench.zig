@@ -25,6 +25,10 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
+/// A finite handshake budget. A benchmark that hangs reports nothing; one that
+/// fails reports what broke.
+const handshake_budget_ms: i32 = 30_000;
+
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
@@ -214,13 +218,15 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     // bounded partner-abort retention), so sizing the bare `Vat` would
     // under-count the real slot.
     //
-    // The `completion.Loop` wrapper (`Conn`) adds ~112 bytes of its own slot
+    // The `completion.Loop` wrapper (`Conn`) adds 128 bytes of its own slot
     // bookkeeping on top of this — the outbound queue's two `ArrayList` headers,
-    // the spill header, the intrusive free/starved link, and the in-flight and
-    // app-context words — held inline in `conns[]` and knowingly *not* in this
-    // figure. That overhead is gated separately by the `conn_slot_overhead_bytes`
-    // ceiling in `net/completion/loop.zig`, so the two guards partition the slot:
-    // this bench tracks `Peer` + `Served`, the ceiling tracks the wrapper.
+    // the spill header, the link pair the free, starved, and parked lists share,
+    // and the in-flight and app-context words — held inline in `conns[]` and
+    // knowingly *not* in this figure. That overhead is held separately by
+    // `conn_slot_overhead_bytes` in `net/completion/loop.zig`, so the two guards
+    // partition the slot: this bench tracks `Peer` + `Served`, that constant
+    // tracks the wrapper. `meta-check` holds the number the same in all three
+    // places that state it.
     const vat_inline: usize = if (holds_vat) @sizeOf(driver.Served) else 0;
     const inline_bytes: f64 = @floatFromInt(@sizeOf(engine.Peer) + vat_inline);
     const heap_per_peer = @as(f64, @floatFromInt(after - before)) / @as(f64, @floatFromInt(sample));
@@ -299,7 +305,7 @@ fn liveClientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerror!
     defer allocator.free(write_buf);
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

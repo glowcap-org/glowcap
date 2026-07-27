@@ -18,7 +18,10 @@ const std = @import("std");
 const c = @import("c_abi_net_transport_tcp");
 const header_emit = @import("header_emit.zig");
 
-pub const header_path = "include/pancake_net_transport_tcp.h";
+const Output = @import("output").Output;
+pub const outputs = [_]Output{
+    .{ .path = "include/pancake_net_transport_tcp.h", .generate = generate },
+};
 pub const step_name = "gen-header-net-transport-tcp";
 
 // Every prototype the header emits, in order. `emitFn` refuses a name missing
@@ -73,7 +76,7 @@ comptime {
 }
 
 /// Build the full header text. Caller owns the returned bytes.
-pub fn generate(gpa: std.mem.Allocator) ![]u8 {
+fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: Buf = .empty;
     errdefer b.deinit(gpa);
 
@@ -177,7 +180,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
 
-    try emitFn(&b, gpa, "pancake_tcp_session_connect", &.{ "netlayer", "host", "host_len", "port", "codec", "max_frame_bytes", "out_session" }, "Dial host:port, run the ephemeral keyed handshake, and return an owning\nsession framing on `codec` and refusing inbound frames over max_frame_bytes,\nthe C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`\nis borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec, a zero frame cap,\nor an unparseable address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when\nthe dial fails. Release with pancake_tcp_session_release.");
+    try emitFn(&b, gpa, "pancake_tcp_session_connect", &.{ "netlayer", "host", "host_len", "port", "codec", "max_frame_bytes", "handshake_timeout_ms", "settle_timeout_ms", "out_session" }, "Dial host:port, run the ephemeral keyed handshake, and return an owning\nsession framing on `codec` and refusing inbound frames over max_frame_bytes,\nthe C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`\nis borrowed. handshake_timeout_ms bounds the wait for the partner\'s hello and\nsettle_timeout_ms bounds every later blocking call on the session; 0 means\nwait forever, which against a silent partner is a hang, so a caller that\ndials the network passes finite budgets. PANCAKE_ERR_INVALID_ARGUMENT for a\nbad codec, a zero frame cap, a timeout past INT32_MAX, or an unparseable\naddress; PANCAKE_ERR_IO (see pancake_tcp_last_error) when the dial fails.\nRelease with pancake_tcp_session_release.");
     try emitFn(&b, gpa, "pancake_tcp_session_fetch", &.{ "session", "name", "name_len", "out_reference" }, "Fetch the partner's published capability `name`, writing the resolved far\nobject reference into out_reference. Blocking. PANCAKE_ERR_BROKEN when the\npartner answers with a break (pancake_tcp_last_error names it),\nPANCAKE_ERR_UNSUPPORTED_VALUE when it fulfils with a non-capability,\nPANCAKE_ERR_CLOSED when the partner left. `name` is borrowed.");
     try emitFn(&b, gpa, "pancake_tcp_session_call", &.{ "session", "target", "verb", "verb_len", "args", "args_len", "out_settled" }, "Send verb/args to `target` and block until the reply settles, projecting the\noutcome into out_settled (release with pancake_tcp_settled_release). `target`\ncomes from a prior fetch or a received argument; only a near/far object\nreference is callable (else PANCAKE_ERR_INVALID_ARGUMENT). target, verb, and\nargs are borrowed. PANCAKE_ERR_CLOSED if the partner left before settling.");
 

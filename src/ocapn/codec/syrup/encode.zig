@@ -391,7 +391,7 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: model.Argumen
         },
         // An `<error message>` in argument position — symmetric with the decoder,
         // which reads this record back into `.@"error"` (`readNeutralArgument`).
-        // The load-bearing case is a Goblins V1.0 resolver-callback `break`
+        // The load-bearing case is a V1.0 resolver-callback `break`
         // resolution, which ships its `model.BreakReason` as a deliver argument.
         .@"error" => |err| try writeError(sink, err),
         .big_integer => |big| {

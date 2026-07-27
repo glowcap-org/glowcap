@@ -149,7 +149,17 @@ export class Directory {
 	 * `notify("registered", …)`. */
 	register(nick: string, locator: string): Promise<void> {
 		return new Promise((resolve, reject) => {
-			let timer: ReturnType<typeof setTimeout>;
+			// The timeout is armed before `settle` exists because `settle` has to
+			// clear it. Neither forward reference runs early: the callback below
+			// is stored, not called, and the block finishes before any task can
+			// fire it.
+			const timer = setTimeout(
+				() =>
+					settle(() =>
+						reject(new Error(`register("${nick}") was not acknowledged in time`))
+					),
+				REGISTER_ACK_TIMEOUT_MS,
+			);
 			const settle = (run: () => void) => {
 				clearTimeout(timer);
 				run();
@@ -164,13 +174,6 @@ export class Directory {
 			// hangs — a hang would pin the caller out of the DM roster silently.
 			this.session.send(this.#directory, REGISTER, [nick, locator, inbox]).catch(
 				(err) => settle(() => reject(err)),
-			);
-			timer = setTimeout(
-				() =>
-					settle(() =>
-						reject(new Error(`register("${nick}") was not acknowledged in time`))
-					),
-				REGISTER_ACK_TIMEOUT_MS,
 			);
 		});
 	}
@@ -222,6 +225,13 @@ export class DirectMessage {
 	#dm: Ref;
 	#replyInbox: Ref | null;
 	readonly peer: string;
+
+	/** Whether the connection this line rides is still open. A line outlives
+	 * the peer that went offline, and every send on it fails; asking first lets
+	 * a caller re-introduce instead of spending a message to find out. */
+	get live(): boolean {
+		return this.#session.sessionOpen;
+	}
 
 	private constructor(session: Session, dm: Ref, peer: string, replyInbox: Ref | null) {
 		this.#session = session;

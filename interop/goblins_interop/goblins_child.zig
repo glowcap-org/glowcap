@@ -10,10 +10,10 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const crypto = pancake.foundation.crypto;
 
-/// Absolute path to `racket`, so it can self-locate its `collects` (a bare
-/// PATH-resolved `argv[0]` doesn't give it that), the devcontainer symlink,
-/// which is where the gated interop steps' `racket` always lives.
-pub const racket_path = "/usr/local/bin/racket";
+/// Resolved through PATH so the live interop runs on any host with a working
+/// Racket, not only the devcontainer's install location. The spawned child
+/// still self-locates its `collects` from its own resolved executable path.
+pub const racket_path = "racket";
 
 /// True once the peer's session has completed the handshake, the `runUntil`
 /// predicate every interop driver pumps toward.

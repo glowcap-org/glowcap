@@ -17,7 +17,7 @@ runDmHandoff({
 		"Bob accepted 1 iroh connection: Carol's direct dial by id",
 		"Carol's DM reached Bob over her own encrypted-QUIC connection",
 	],
-	async startBob(dm) {
+	startBob(dm) {
 		const host = new Host();
 		host.publishGiftable("dm", dm);
 		const bob = listenIroh(Reachability.Discovery, undefined, host);
@@ -25,7 +25,7 @@ runDmHandoff({
 		console.log(`rooms-dm-iroh-discovery: Bob published ${locator} (id only)`);
 		return { host, sessions: bob, locator, close: () => bob.close() };
 	},
-	async startRoom() {
+	startRoom() {
 		const room = listenIroh(Reachability.Discovery, undefined, new Host());
 		const locator = formatPeerUri("iroh", room.nodeId);
 		console.log(`rooms-dm-iroh-discovery: Room published ${locator} (id only)`);

@@ -762,25 +762,23 @@
 ;; ── A rude probe cannot close the listener ────────────────────────────────────
 ;; A rude TCP probe — connect, say nothing, hang up — is that connection's
 ;; failure, not the listener's. `accept` completes the keyed handshake, so the
-;; probe makes that one accept raise; the host catches it and keeps accepting,
-;; and the next, real client is served. Without that isolation one port scan
-;; takes a long-lived server down.
+;; probe fails inside the accept; the accept skips it, waits for the next
+;; partner, and returns the real client to the caller. Without that isolation
+;; one port scan takes a long-lived server down.
 (define rp-server (listen "127.0.0.1" 0))
 (define rp-ready (make-semaphore 0))
 (define rp-host
   (thread
    (lambda ()
-     (let accept-loop ()
-       (define hsession
-         (with-handlers ([(lambda (_) #t) (lambda (_e) #f)])
-           (accept rp-server)))
-       (cond
-         [hsession
-          (session-publish hsession "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
-          (semaphore-post rp-ready)
-          (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-            (session-serve hsession))]
-         [else (accept-loop)])))))
+     ;; The handler posts `rp-ready` so a regression fails the fetch below
+     ;; loudly instead of parking this scene on an unposted semaphore.
+     (with-handlers ([(lambda (_) #t) (lambda (_e) (semaphore-post rp-ready))])
+       ;; One accept, no retry loop: skipping the probe is `accept`'s own job.
+       (define hsession (accept rp-server))
+       (session-publish hsession "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
+       (semaphore-post rp-ready)
+       (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+         (session-serve hsession))))))
 ;; The probe: open a socket and immediately hang up.
 (define-values (rp-in rp-out) (tcp-connect "127.0.0.1" (server-port rp-server)))
 (close-output-port rp-out)
@@ -1208,6 +1206,108 @@
 
 (printf "racket zig-smoke OK: a redeem dial runs post-lock and a stalled exporter parks one redeem, not the host\n")
 
+;; ── Answering across an introduction: session-send-redeeming's `via` ──────────
+;; An introduction answers with a capability whose home is a different
+;; connection: the host redeems the give by dialing the exporter, and the reply
+;; lives on that fresh direct connection rather than on the session the
+;; introduction arrived over. `session-send-redeeming` returns that connection
+;; as `via`. It matters because an OCapN near export names a position on one
+;; specific connection's peer, so an inbox the caller hands back to the
+;; exporter is only meaningful when it was spawned on the connection the
+;; exporter is reached over. This scene proves the whole loop: `via` is a live
+;; session, an ordinary send to the redeemed capability rides it, and an inbox
+;; spawned on it is reachable — the exporter calls it and the note arrives. The
+;; last two expectations pin the #f arm, where no redeemed route is in play.
+(define sr-e-server (listen "127.0.0.1" 0))
+;; The session the recipient's redeem dial opens. The exporter answers the
+;; caller's inbox over it, which is the far half of the same claim.
+(define sr-direct (box #f))
+(host-publish-giftable
+ (server-host sr-e-server)
+ "gifted"
+ (methods
+  [(use) 7]
+  [(dm text inbox)
+   ;; A hosted turn must not drive the host, so a separate thread tells the
+   ;; caller's inbox and flushes it, exactly as the cross-thread scene above.
+   (thread (lambda ()
+             (with-handlers ([(lambda (_) #t) void])
+               (define d (unbox sr-direct))
+               (session-tell d inbox 'note text)
+               (session-flush! d))))
+   "sent"]))
+(define sr-e-thread
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) void])
+       (let accept-loop ([n 0])
+         (define hsession (accept sr-e-server))
+         ;; The first partner is the gifter depositing the gift; the second is
+         ;; the recipient's redeem dial, the connection an inbox belongs on.
+         (unless (zero? n) (set-box! sr-direct hsession))
+         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))
+         (accept-loop (add1 n)))))))
+(define sr-g-server (listen "127.0.0.1" 0))
+(define sr-gc (connect (tcp-locator "127.0.0.1" (server-port sr-e-server))
+                       #:host (server-host sr-g-server)))
+(define sr-tool (session-fetch sr-gc "gifted"))
+(define sr-g-ready (make-semaphore 0))
+(define sr-g-thread
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) void])
+       (define hsession (accept sr-g-server))
+       ;; Spawned before the turn, not inside it: a hosted method may not drive
+       ;; the host, and this is the ordinary-reply control for the scene.
+       (define own (session-spawn hsession (lambda (bcom) (methods [(hi) "hi"]))))
+       (session-publish hsession "intro"
+                        (lambda (bcom)
+                          (methods
+                           ;; A capability hosted on another connection, so
+                           ;; replying with it makes the host originate a give.
+                           [(get-tool) sr-tool]
+                           ;; A capability of this session's own.
+                           [(get-own) own])))
+       (semaphore-post sr-g-ready)
+       (session-serve hsession)))))
+(define sr-r (connect (tcp-locator "127.0.0.1" (server-port sr-g-server))))
+(semaphore-wait sr-g-ready)
+(define sr-intro (session-fetch sr-r "intro"))
+(define-values (sr-tool-cap sr-via) (session-send-redeeming sr-r sr-intro 'get-tool))
+(expect (session? sr-via)
+        "send-redeeming: the redeemed reply surfaced its exporter session")
+(expect (not (eq? sr-via sr-r))
+        "send-redeeming: the exporter session is not the introducing session")
+(expect (= 7 (session-send sr-via sr-tool-cap 'use))
+        "send-redeeming: the redeemed capability answered over its own session")
+;; The point of the whole verb: an inbox spawned on `via` is a position the
+;; exporter can reach, so the exporter's reply lands in it.
+(define sr-note (box #f))
+(define sr-noted (make-semaphore 0))
+(define sr-inbox
+  (session-spawn sr-via
+                 (lambda (bcom)
+                   (methods [(note text) (set-box! sr-note text) (semaphore-post sr-noted)]))))
+(expect (equal? "sent" (session-send sr-via sr-tool-cap 'dm "hello" sr-inbox))
+        "send-redeeming: the direct session carried the reply inbox to the exporter")
+(expect (sync/timeout 30 sr-noted)
+        "send-redeeming: the exporter reached the inbox hosted on the direct session")
+(expect (equal? "hello" (unbox sr-note))
+        "send-redeeming: the exporter's answer arrived on the direct session")
+;; An ordinary far reply names no redeemed route, so there is nothing to
+;; surface and `via` is #f. A caller then works on the session it already has.
+(define-values (sr-own-cap sr-own-via) (session-send-redeeming sr-r sr-intro 'get-own))
+(expect (eq? #f sr-own-via)
+        "send-redeeming: an ordinary far reply has no exporter session")
+(expect (equal? "hi" (session-send (or sr-own-via sr-r) sr-own-cap 'hi))
+        "send-redeeming: (or via c) is the session an ordinary reply works on")
+(session-close! sr-r)
+(session-close! sr-gc)
+(server-close! sr-g-server)
+(server-close! sr-e-server)
+
+(printf "racket zig-smoke OK: session-send-redeeming surfaces the direct session a redeemed reply lives on\n")
+
 ;; ── À-la-carte transports: one round-trip over each composable transport module ─
 ;; Each transport archive ships as its own composable module (`pancake-tcp.rkt`,
 ;; `pancake-inproc.rkt`) whose endpoints shuttle whole frames. These two
@@ -1264,8 +1364,10 @@
   (define server-session (open-accepted-over shost "tcp" (socket-addr-designator "127.0.0.1" 2)
                                           (endpoint-transport server-read server-write!)))
   (drain-host! shost)  ; the acceptor's hello crosses it
-  (finish-establish! server-session)
-  (finish-establish! client-session)
+  ;; #f: no handshake bound. Both hellos are already in the paired in-memory
+  ;; transports, so each pump reads a frame that is waiting for it.
+  (finish-establish! server-session #f)
+  (finish-establish! client-session #f)
   ;; Publish, fetch, call: deliver, serve, resolve, one leg at a time.
   (session-publish server-session "counter" ^counter 10)
   (define fetched (scripted-fetch! client-session "counter"))

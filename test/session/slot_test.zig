@@ -22,12 +22,12 @@ fn encodeFulfillRef(allocator: std.mem.Allocator, reference: model.Reference) ![
     return try allocator.dupe(u8, frame.bytes());
 }
 
-test "slot projects each CapTP wire descriptor" {
-    try std.testing.expectEqual(slot.WireDescriptor.desc_import_promise, slot.wireDescriptor(.{ .local_unresolved = 7 }).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_answer, slot.wireDescriptor(.{ .remote_unresolved = 7 }).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_import_object, slot.wireDescriptor(.{ .local_value = 7 }).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_export, slot.wireDescriptor(.{ .remote_value = 7 }).?);
-    try std.testing.expect(slot.wireDescriptor(.{ .broken = .{ .mint = .local, .position = 7 } }) == null);
+test "slot projects each CapTP wire reference" {
+    try std.testing.expect(slot.toReference(.{ .local_unresolved = 7 }).?.near.kind == .promise);
+    try std.testing.expect(slot.toReference(.{ .remote_unresolved = 7 }).? == .promise);
+    try std.testing.expect(slot.toReference(.{ .local_value = 7 }).?.near.kind == .object);
+    try std.testing.expect(slot.toReference(.{ .remote_value = 7 }).?.far.kind == .object);
+    try std.testing.expect(slot.toReference(.{ .broken = .{ .mint = .local, .position = 7 } }) == null);
 }
 
 test "slot toReference matches the Reference the syrup codec already encodes" {
@@ -73,13 +73,6 @@ test "slot projection through real syrup codec matches oracle corpus descriptors
     }
 }
 
-test "export and import positions project onto value arms" {
-    try std.testing.expectEqual(slot.Slot{ .local_value = 9 }, slot.fromExport(9));
-    try std.testing.expectEqual(slot.Slot{ .remote_value = 5 }, slot.fromImport(5));
-    try std.testing.expectEqual(slot.WireDescriptor.desc_import_object, slot.wireDescriptor(slot.fromExport(9)).?);
-    try std.testing.expectEqual(slot.WireDescriptor.desc_export, slot.wireDescriptor(slot.fromImport(5)).?);
-}
-
 test "impossible product cells are not constructible — sum only exposes legal arms" {
     const info = @typeInfo(slot.Slot);
     try std.testing.expect(info == .@"union");
@@ -96,11 +89,11 @@ test "Slot never stores a wire descriptor or kind tag — projection only" {
                 std.mem.eql(u8, field.name, "wire_descriptor") or
                 std.mem.indexOf(u8, field.name, "desc") != null)
             {
-                @compileError("Slot must not store a wire descriptor/kind field; project via wireDescriptor");
+                @compileError("Slot must not store a wire descriptor/kind field; project via toReference");
             }
         }
     }
-    _ = slot.wireDescriptor(.{ .local_value = 1 });
+    _ = slot.toReference(.{ .local_value = 1 });
 }
 
 test "slot fulfill and break are one transition path preserving mint" {

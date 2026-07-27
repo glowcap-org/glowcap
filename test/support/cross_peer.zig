@@ -76,11 +76,23 @@ pub fn deliverGive(
     try pumpOne(gifter, recipient);
 }
 
+/// The receiver identity the exporter checks the receive against, derived the
+/// way `engine.bootstrap.resolveForWithdraw` derives it: from the two ends of
+/// the session the withdraw arrived on. A harness peer that never handshaked
+/// has no partner key, so there is nothing to derive and nothing to check.
+fn expectedReceiver(exporter: *Peer) !?engine.handoff_names.ExpectedReceiver {
+    const partner_key = exporter.session_state.partnerSessionKey() orelse return null;
+    if (exporter.session_state.localSessionKey()) |our_key| {
+        return try engine.handoff_names.ExpectedReceiver.derive(partner_key, our_key);
+    }
+    return try engine.handoff_names.ExpectedReceiver.fromPartner(partner_key);
+}
+
 /// Run the recipient's withdraw leg to the exporter.
 ///
 /// Before the recipient sends the handoff-receive and the exporter's gift
-/// registry authorizes the withdrawal (gift existence, recipient match,
-/// handoff-count monotonicity), both certificates are checked at the boundary by the injected
+/// registry authorizes the withdrawal (gift existence, recipient match, the
+/// derived receiver identity, handoff-count monotonicity), both certificates are checked at the boundary by the injected
 /// verifier, each over its *canonical signed bytes* (ADR-0009): the gifter's
 /// signature over the embedded `desc:handoff-give` record, and the recipient's
 /// signature over the `desc:handoff-receive` record. The signed domain is the
@@ -115,8 +127,9 @@ pub fn withdrawGift(
     // `.handoff` event, but the withdrawal is applied explicitly against the
     // exporter's gift registry.
     const registry = exporter.giftRegistry();
-    try registry.validateWithdraw(receive);
-    _ = try registry.applyWithdraw(exporter.allocator, exporter.limits(), receive);
+    const expected = try expectedReceiver(exporter);
+    try registry.validateWithdraw(receive, expected);
+    _ = try registry.applyWithdraw(exporter.allocator, exporter.limits(), receive, expected);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpOne(recipient, exporter);

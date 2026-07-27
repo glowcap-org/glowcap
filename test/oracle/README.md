@@ -31,7 +31,7 @@ Spritely Goblins.
 The two generators agreeing byte-for-byte proves only that the two upstream
 Syrup _serializers_ agree on pancake's records. It does **not** establish that
 Goblins independently emits these messages. That stronger, external authority
-comes from a live Goblins peer captured on the wire (see
+comes from a Goblins peer exercised live over a socket (see
 [`../../conformance/goblins-peer/`](../../conformance/goblins-peer/)) and the
 upstream OCapN conformance suite, not from this corpus.
 

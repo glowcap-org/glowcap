@@ -1,8 +1,9 @@
 # What ships today
 
-Inventory of implemented behavior, held by a check, scenario, or live interop
-run. Complement: [boundaries](boundaries.md). Fit: [architecture](architecture.md).
-Destination: [vision](vision.md).
+Inventory of implemented behavior, each entry held by a check, a scenario, or a
+live interop run. Where each of these ends is [boundaries](boundaries.md); how
+the pieces fit is [architecture](architecture.md); where it is all headed is
+[vision](vision.md).
 
 ## Frames
 
@@ -11,15 +12,17 @@ Destination: [vision](vision.md).
   explicitly.
 - **Codec-neutral model.** CapTP message types exist independently of the wire
   encoding that carried them.
-- **Distributed equality.** `model.referencesEqual` is the codec-neutral
-  structural-equality predicate for OCapN Pass Invariant Equality
-  ([ADR-0012](decisions/adr/ADR-0012-sturdyref-shape-and-enliven.md)):
-  same-session equality is on `(import_position, kind)`; the sturdyref dedup
-  cache collapses sturdyref versus handoff. Session-pair uniqueness is Host
-  enrollment posture, not CapTP wire law: a second dial to a live partner
-  session or keyed dial to a verified partner key refuses
-  `HostError.SessionPairExists` (`test/driver/core_host_test.zig`). An accepted
-  tcp session's declared designator does not squat dial availability.
+- **Session-local reference comparison.**
+  `model.referencesStructurallyEqual` compares two references as the session
+  tables hold them. Far references compare on `(import_position, kind)` within
+  one session, and repeat sturdyref enlivenment reuses that session's cached
+  import row. What that does not reach is in
+  [boundaries](boundaries.md#reference-lifecycle).
+- **Session-pair uniqueness.** Host enrollment posture, not CapTP wire law: a
+  second dial to a live partner session, or a keyed dial to a verified partner
+  key, refuses `HostError.SessionPairExists`
+  (`test/driver/core_host_test.zig`). An accepted tcp session's declared
+  designator does not squat dial availability.
   Crossed-hello races beside a dial are edged in [boundaries](boundaries.md).
 
 ## Codecs
@@ -100,12 +103,12 @@ Destination: [vision](vision.md).
 - **Handshake and feature negotiation.** `engine.negotiation.negotiate` is the
   pure, symmetric pick of CapTP version, codec, and intersected
   `model.FeatureSet` (`pipelining`, `handoff`, `wire_delta`, `sturdyref`) over
-  two `Offer`s. `Offer.goblins()` and `Offer.native()` are the two real jobs.
+  two `Offer`s. `Offer.v1_0Syrup()` and `Offer.native()` are the two real jobs.
   `op:start-session` carries only the selected captp-version string, so both
-  ends must already share offers. Goblins interop targets authenticated
-  `"1.0"` / Syrup; native pancake-to-pancake prefers `"pancake-next"` / Cap'n
-  Proto via `Offer.native()`, with Syrup / `"1.0"` as fallback. Host
-  `connect` / `listen` stay on Goblins `"1.0"`.
+  ends must already share offers. The interop floor is authenticated
+  `"1.0"` / Syrup (what a Goblins peer speaks); native pancake-to-pancake
+  prefers `"pancake-next"` / Cap'n Proto via `Offer.native()`, with Syrup /
+  `"1.0"` as fallback. Host `connect` / `listen` stay on the `"1.0"` floor.
 - **Fail-loud aborts.** A rejected inbound frame projects through
   `engine.abort_projection`: the peer commits a typed outbound `op:abort`
   before the error reaches the caller and closes the CapTP session when
@@ -138,12 +141,16 @@ Destination: [vision](vision.md).
   `connect` / `fetch` / `send` with no application choreography, native Zig and
   every binding
   ([ADR-0072](decisions/adr/ADR-0072-driver-tier-over-c-abi.md),
-  [ADR-0076](decisions/adr/ADR-0076-loop-fed-host-bridge.md)). Evidence:
-  `goblins-handoff`, `goblins-gift`, `bindings-*-handoff` / `*-gift`,
-  `deno-gifter-handoff`, `demo-rooms-dm`, plus iroh Direct and Discovery
-  (`demo-rooms-dm-iroh`, `demo-rooms-dm-iroh-discovery`,
-  `bindings-iroh-handoff`, `bindings-iroh-redeem-posture`,
-  `bindings-iroh-reachability`). Mechanics: [architecture](architecture.md).
+  [ADR-0076](decisions/adr/ADR-0076-loop-fed-host-bridge.md)).
+
+  The evidence runs in three groups. Against a live Goblins vat, as gifter and
+  as recipient: `goblins-handoff` and `goblins-gift`, and the same pair per
+  binding. Between
+  pancake peers: `deno-gifter-handoff` and `demo-rooms-dm`. And over iroh, in
+  both its direct and discovery postures: `demo-rooms-dm-iroh`,
+  `demo-rooms-dm-iroh-discovery`, `bindings-iroh-handoff`,
+  `bindings-iroh-redeem-posture`, and `bindings-iroh-reachability`. How it
+  works is in [architecture](architecture.md).
 
 ## Actors
 
@@ -171,7 +178,7 @@ Destination: [vision](vision.md).
 ## Netlayers
 
 - **Pluggable transports.** A netlayer is a runtime contract the driver
-  dispatches against, not a privileged built-in
+  dispatches against
   ([ADR-0043](decisions/adr/ADR-0043-netlayer-contract.md)).
   `net.netlayer.Netlayer` dials a locator to a `Connection` and binds a
   listener; `driver.connectVia` / `acceptVia` resolve the locator's transport
@@ -194,60 +201,56 @@ Destination: [vision](vision.md).
   (`bindings/racket/relay.rkt`). `zig build bindings-relay` proves TCP
   forwarding, the backpressure clause, and idle reclaim across all four, and
   `zig build bindings-relay-iroh` proves the iroh leg for each against a real
-  iroh endpoint. The `rooms-web-*` steps drive it through a real Chromium. The
-  contract and threat model are in
+  iroh endpoint. The `rooms-web-*` steps drive it through a real Chromium. Per
+  relayed connection the relay keeps no session state, only about 80 KiB of
+  runtime and socket overhead. That works out to roughly thirteen thousand
+  connections per gigabyte of RAM. Reaching hundreds of thousands needs both
+  the RAM to match and a raised descriptor limit. `zig build
+  relay-scaling` measures that cost and proves the relay holds thousands of
+  connections at once, the relay-tier sibling of `bench-peer-scaling`. The rooms
+  relay's admission caps size to the host and take an operator override
+  (`PANCAKE_RELAY_MAX_SESSIONS` / `PANCAKE_RELAY_MAX_REGISTRATIONS`), so the
+  default is a safe floor, not a scale limit. The contract and threat model are
+  in
   [ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md); the browser DM
   and cold-dial story are in
   [ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md).
-- **iroh.** `zig build iroh-interop` proves configurable `Reachability`
-  (`direct` / `discovery` / `discovery_no_relay` / `local_discovery`) that
-  dials by node id alone; opt-in `iroh-reachability` and
-  `bindings-iroh-reachability` prove dial-by-id over the public internet. One
+- **iroh.** `zig build iroh-interop` proves each addressing posture pancake
+  offers, from a direct dial to full discovery, dialing by node id alone. Two
+  opt-in steps do the same over the public internet rather than loopback,
+  `iroh-reachability` and `bindings-iroh-reachability`. One
   Ed25519 key is at once the iroh node id, the OCapN locator designator, and
   the session signing key. Binding `listen_iroh` mints that one seed for the
   endpoint and the `Host` (`driver.core.vocab`; ADR-0075). A sturdyref
   outlives an endpoint restart. `zig build iroh-mesh` proves three-party
   handoff by gifted node id.
-- **webrtc (ADR-0089, in progress).** A peer-to-peer WebRTC DataChannel carries
-  one keyed OCapN session. Two native peers hold a live keyed conversation over
-  a real DataChannel with `zig build webrtc-interop` (real ICE on loopback, DTLS,
-  the keyed handshake, a greet round-trip); the native Rust sidecar is
-  `libpancake_webrtc_sidecar.a` and the Zig resident is
-  `src/net/transport/webrtc.zig`. The public C ABI ships as
-  `libpancake_net_transport_webrtc` (`pancake_webrtc_*`) with a parity-checked
-  header. The `webrtc` transport is a key-designator scheme
-  (`driver.core.vocab`), the same as keyed-tcp and iroh, and it is a registerable
-  netlayer whose dial fails closed until signaling. A signaling hub routes the
-  offer, answer, and ICE candidates between two native peers by designator, and a
-  keyed session runs over the channel it brings up (`zig build webrtc-mesh`,
-  ADR-0089 phase 5's signaling mechanism). Those same signaling verbs also run as
-  a real OCapN capability over a keyed CapTP session: the exporter hosts a
-  signaling inbox behind a keyed session, the recipient drives the whole channel
-  bring-up through its capability calls, and a keyed session then runs over the
-  DataChannel (`zig build webrtc-signaling-captp`). A real headless Chromium is
-  the browser arm: `@pancake/webrtc` drives an `RTCPeerConnection`, the wasm Host
-  runs the keyed session, and it greets a native peer over the DataChannel (`zig
-  build webrtc-browser-peer`). Two browsers reach the same end state: two
-  headless Chromium peers exchange signaling through a byte relay, bring up a
-  direct DataChannel between them, and hold a keyed session over it with the
-  signaling host out of the byte path (`zig build webrtc-browser-to-browser`). A
-  three-party handoff redeems over webrtc too: a gifter signs a give naming the
-  exporter by webrtc designator, and the recipient redeems it by bringing up a
-  DataChannel through the exporter's signaling inbox, running the keyed
-  handshake, and presenting a `withdraw-gift` the exporter's engine verifies
-  before handing back the gifted capability, which the recipient calls over the
-  meshed session (`zig build webrtc-handoff`, webrtc's `iroh-mesh`). Unlike the
-  four mature transports, webrtc is not yet dialable by a bare locator: the
-  remaining phases are the dial classifier's signaling plan so the Host
-  auto-redeems a `webrtc` locator (the redeem mechanism itself is proven by
-  `webrtc-handoff`; what is missing is wiring it into `pancake_host_plan_dial`),
-  the room-hosted signaling topology, and the completion-loop scale tier, named
-  in [ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md) and
-  [roadmap](roadmap.md). The native binding FFI mirror for
-  `libpancake_net_transport_webrtc` is generated and gated across Python, Racket,
-  and Rust; the TypeScript binding is browser-native (`@pancake/webrtc`). Phase
-  1's de-risk proof is `zig build
-  webrtc-datachannel-test` (a real Chromium DataChannel against the sidecar).
+- **webrtc.** A peer-to-peer WebRTC DataChannel carries one keyed OCapN session,
+  DTLS-encrypted through the `transports/webrtc` Rust sidecar
+  ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)). Two native
+  peers hold a live conversation over a real channel, with real ICE on loopback
+  and a greet round-trip (`zig build webrtc-interop`). A signaling hub routes
+  the offer, the answer, and the ICE candidates between the two peers, keyed by
+  designator (`webrtc-mesh`). Those same signaling verbs also work as an OCapN
+  capability rather than a side channel. The exporter publishes a signaling
+  inbox behind a keyed session, and the recipient brings the connection up
+  through calls on it (`webrtc-signaling-captp`).
+
+  The browser is a first-class peer here. A real headless Chromium runs
+  `@pancake/webrtc` against a native peer (`webrtc-browser-peer`). Two Chromium
+  peers also bring up a channel directly between themselves and hold a keyed
+  session over it, with the signaling host out of the byte path entirely
+  (`webrtc-browser-to-browser`). A three-party give redeems over the channel
+  too: the gifter names the exporter by webrtc designator, and the recipient
+  opens a
+  DataChannel through the exporter's signaling inbox before presenting its
+  `withdraw-gift` (`webrtc-handoff`).
+
+  The public C ABI ships as `libpancake_net_transport_webrtc` (`pancake_webrtc_*`)
+  with a parity-checked header, mirrored into the Python, Racket, and Rust FFI
+  tables; the TypeScript binding is browser-native. A `webrtc` locator is not yet
+  dialable on its own — the classifier recognizes it and validates its key
+  designator, but the resident is not registered as a netlayer. Where that ends is
+  [boundaries](boundaries.md); what would close it is [roadmap](roadmap.md).
 - **Scale loops.** iroh's event-driven completion loop
   ([ADR-0057](decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)) feeds
   the same `driver.Bridge` + `driver_core.Host` spine as TCP (ADR-0076) and
@@ -307,13 +310,15 @@ Destination: [vision](vision.md).
   signs from a caller-supplied seed; `pancake_host_new` / `_new_in` take a
   `local_turn_budget` (ADR-0076). `libpancake_net_transport_tcp` also ships
   the owning `PancakeTcpSession` (`test/c_abi/tcp_session_test.zig`).
-- **One embedder contract, every binding.** Every binding rides the shared
-  driver archive (ADR-0072) with a named `pump` module (conn bytes),
-  named `action` (host-action decode/execute), named `promise`
-  (`RemotePromise` / session-vow, projections, fetch/enliven, far-send
-  factories `promiseFor` / `sendFar`), named `gc` (ADR-0063), named `dial`,
-  named `listen` (`Server` / keyed-tcp host), a named trampoline per binding,
-  and Rust's named `session_shared`. The embedder-spine module split is complete; the
+- **One embedder contract, every binding.** Every binding is built from the
+  same shared driver archive (ADR-0072), and each splits into the same named
+  modules rather than one file per language. A `pump` moves bytes on and off
+  the connection. An `action` module decodes and runs what the host asks for.
+  A `promise` module holds remote promises, projections, `fetch` and `enliven`,
+  and the far-send factories `promiseFor` and `sendFar`. Then `gc` (ADR-0063),
+  `dial`, `listen`, and a trampoline for dispatching into the language's own
+  objects; Rust adds `session_shared`.
+  The embedder-spine module split is complete in every binding; the
   per-binding roll-call detail lives in the
   [bindings README](../bindings/README.md)'s embedder contract. Zig
   `embedder_pump` and opt-in `pancake_host_pump_drain` drain the action queue
@@ -321,6 +326,18 @@ Destination: [vision](vision.md).
   the trampoline Forward-chase bound. Handshake completes before `connect` /
   `listen` return. `examples/c/host_embedder_pump.c` is the choreography
   checklist. Consumer route: [consuming-from-c](consuming-from-c.md).
+- **The binding FFI and pump spine are generated, not hand-mirrored.** Every
+  language's C signature table is generated from one annotated inventory of
+  symbols, `symbols.zig`, kept beside each archive. That covers Rust's extern
+  blocks, Python's ctypes declarations, Racket's `_fun` signatures, and the
+  TypeScript loaders. The annotations carry what reflection alone cannot: which
+  buffers are written by the callee, and how pointers cross the boundary. A
+  check fails the build when any of them falls behind (`gen-binding-rust-ffi`,
+  `gen-binding-python-ffi`, `gen-binding-racket-ffi`, `gen-ts-abi`). Above them
+  the readiness-pump tail moved behind one C verb:
+  `pancake_host_session_feed_bytes` owns framing and the unconsumed stream tail
+  (`HostSession.feed_tail`), so every binding pump is now read, feed, drain. The
+  `binding_spine` needle checks in `tools/check/meta_check` hold the shape.
 - **One application surface, every binding.** Each binding exposes the same
   small surface in its own idiom
   ([bindings contract](../bindings/README.md)). Every binding hosts as well as
@@ -332,12 +349,13 @@ Destination: [vision](vision.md).
 - **Rust C ABI binding check.** A Rust crate links the pancake archives through
   the C ABI and drives a peer smoke test through the public host boundary.
 - **Browser peer (ADR-0070 Milestone 1).** `zig build wasm-driver` compiles
-  the byte-fed Host and the ocapn vocabulary to one freestanding `wasm32`
-  module, and `@pancake/web` (`bindings/ts/web`) runs the full
-  `@pancake/stack` surface over it: FFI over linear memory, struct layout
-  from the module's own descriptor (held against the generated manifest by
-  `zig build wasm-abi-layout-check`), the single behavior-trampoline import
-  (`zig build wasm-import-check`), and a WebSocket byte channel.
+  the byte-fed host and the OCapN vocabulary into one freestanding `wasm32`
+  module. Over that module, `@pancake/web` runs the whole `@pancake/stack`
+  surface a native consumer gets. Four pieces make that work: calls cross into
+  linear memory, struct layouts come from the module's own descriptor, the
+  module imports exactly one function for dispatching into a behavior, and
+  bytes arrive over a WebSocket. Two checks hold the middle two honest,
+  `zig build wasm-abi-layout-check` and `zig build wasm-import-check`.
   `zig build web-peer-test` proves a browser-shaped peer completing the keyed
   handshake inside wasm against a native WebSocket-accepting host, with calls
   in both directions; `zig build wasm-driver-test` proves the raw exports
@@ -353,9 +371,9 @@ Destination: [vision](vision.md).
   `Host.publishGiftable` object answers its caller over the connection the call
   arrived on, so a peer that never listens, such as a browser or a NAT'd peer,
   receives the reply on the connection it opened (`zig build demo-rooms-dm-reply`).
-  The same holds across a redeemed introduction: the sender hosts its reply inbox
-  on the redeemed direct connection, and the member answers over it with no dial
-  back (`zig build demo-rooms-dm-back`, and end to end from a real browser with
+  The same holds across a redeemed introduction. The sender publishes its reply
+  inbox on the connection it opened, and the member answers over that, never
+  dialing back (`zig build demo-rooms-dm-back`, and from a real browser with
   `zig build rooms-web-dm`). This is C-ABI-neutral TypeScript in the shared
   stack, so it covers both the wasm Host and native Deno and Bun peers.
 
@@ -363,16 +381,17 @@ Destination: [vision](vision.md).
   opens no listening socket, so it cannot be dialed directly. It registers its
   keyed identity and a held inbound socket at the relay under a resident-less
   `keyed-relay` transport symbol, and advertises an `ocapn://<key>.keyed-relay`
-  locator. A second browser that redeems a room introduction to it cold-dials
-  that identity through the relay's rendezvous leg, and the keyed OCapN session
-  opens tab-to-tab through two byte-transparent relay legs with the room off the
-  message path — the relay parses nothing and, because the handshake authenticates
-  the designator end to end, cannot impersonate. `zig build rooms-web-dm-tabs`
-  proves it with two real Chromium tabs, including the reply riding back over the
-  arriving connection. The honest scope is browser-to-browser on a shared relay:
-  the cold-*dialer* is itself a browser (only the browser binding carries a
-  rendezvous adapter), and the locator names the identity, not the relay, so a
-  redeemer reaches it only through the relay it is already configured for. Native
+  locator. A second browser redeems a room introduction to it and dials that
+  identity cold, through the relay's rendezvous leg. The keyed OCapN session
+  then opens from one tab to the other across two relay legs, with the room
+  itself out of the message path. The relay cannot read or impersonate what it
+  carries: it parses nothing, and the handshake authenticates the designator
+  end to end. `zig build rooms-web-dm-tabs` proves this with two real Chromium
+  tabs, including the reply riding back over the arriving connection. The
+  scope is browser-to-browser on a shared relay. The peer doing the cold
+  dial is itself a browser, because only the browser binding carries a
+  rendezvous adapter. And the locator names an identity rather than a relay, so
+  a redeemer reaches it only through the relay it is already using. Native
   cold-dial and cross-relay cold-dial stay designed, not built, in
   [ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md).
 
@@ -382,13 +401,13 @@ Destination: [vision](vision.md).
   [example applications](../examples/README.md) (rooms, tasks, and tools)
   each run a server and one client per language over one OCapN wire and assert
   the result (pancake-to-pancake; need only `deno`; other languages join when
-  present). Live Goblins proof for the binding surface is separate:
-  `zig build deno-goblins-interop`, `python-goblins-interop`,
-  `rust-goblins-interop`, and `racket-goblins-interop` prove the client
-  direction (keyed handshake, `enliven` + dedup, echo deliver/resolve; not
-  demo apps, and not the native projection / break legs that `goblins-interop`
-  owns), and `zig build deno-goblins-listen` proves the listener direction for
-  one binding: the Deno binding publishes a greeter and a real Goblins vat
+  present). The bindings prove themselves against Goblins separately.
+  `zig build bindings-goblins-interop` runs one live conversation per binding,
+  covering the client direction: the keyed handshake, `enliven` and its dedup,
+  and an echo call and its reply. It does not cover the demo apps, nor the
+  native projection and break legs, which `goblins-interop` owns.
+  `zig build deno-goblins-listen` covers the other direction for one binding:
+  the Deno binding publishes a greeter and a real Goblins vat
   dials it. The other bindings' listener direction has no live step. All run
   as siblings of in-tree `check`.
 - **Accountability.** `zig build accountability` runs KERI-anchored identity,
@@ -411,19 +430,22 @@ Destination: [vision](vision.md).
   a real Spritely Goblins conversation each way
   ([ADR-0035](decisions/adr/ADR-0035-live-goblins-interop.md)). As client:
   keyed `op:start-session`, bootstrap-fetch echo, pipelined `op:index` /
-  `op:get`, and enliven with ADR-0012 dedup. As listener: swiss-hosted vat
-  actor, settled call, reverse-pipelined enliven-and-call, unknown-swiss
-  break, and Goblins' own `listen` settling fulfill against a live pancake
-  object export (listen semantics:
+  `op:get`, and enliven with ADR-0012 dedup.
+
+  As the listener, five more: a vat actor published under a swissnum, a settled
+  call, a reverse-pipelined enliven-and-call, the break for an unknown
+  swissnum, and Goblins' own `listen` settling against a live pancake export.
+  What `listen` means is in
   [ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md) and
-  [boundaries](boundaries.md)). `zig build goblins-gc` proves inbound
+  [boundaries](boundaries.md). `zig build goblins-gc` proves inbound
   `op:gc-exports` after echo consumes a near export. Binding
   `*-goblins-interop` steps prove the client direction only over the C ABI.
-- **Protocol reference bridge.** `zig build oracle-check` enumerates shipped
-  message arms, checks pancake-authored Syrup fixture parity against upstream
-  Syrup encoders, and runs engine scenarios including multi-peer third-party
-  handoff, deliver-then-resolve, handshake auto-serve of bootstrap fetch, and
-  borrowed-versus-owned inbound entry-point parity.
+- **Protocol reference bridge.** `zig build oracle-check` does three things.
+  It enumerates every message arm that ships. It checks pancake's Syrup
+  fixtures byte for byte against what upstream Syrup encoders produce. And it
+  runs whole-conversation scenarios: three-party handoff across peers,
+  deliver-then-resolve, a bootstrap fetch answered during the handshake, and
+  the two inbound entry points agreeing with each other.
 - **Wall-clock performance tripwire.** `zig build perf-check` (member of
   `check`) holds ladder step 2 ceilings for warm inbound dispatch, answered
   outbound send, and the `op:gc-answers` release-storm growth ratio

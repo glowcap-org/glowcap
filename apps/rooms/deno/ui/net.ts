@@ -32,16 +32,7 @@ import { dial } from "../lib/locator.ts";
 import { NICK_TAKEN, PEER_OFFLINE } from "../../lib/errors.ts";
 import { roomErrorOf } from "../lib/errors.ts";
 import type { ChatItem, DmConv } from "./types.ts";
-import {
-	app,
-	composer,
-	joinBtn,
-	joinScreen,
-	membersToggle,
-	newDmBtn,
-	nickInput,
-	roomInput,
-} from "./dom.ts";
+import { app, composer, joinBtn, membersToggle, newDmBtn, nickInput, roomInput } from "./dom.ts";
 import {
 	activeConv,
 	chatItem,
@@ -68,6 +59,7 @@ import {
 	setComposerEnabled,
 	setJoinError,
 	setStatus,
+	showJoinScreen,
 	switchTo,
 	toActive,
 } from "./render.ts";
@@ -124,14 +116,27 @@ function inboxDm(verb: string, args: unknown[]): null {
 	const reply = args[2];
 	// Capture the arriving connection synchronously inside the turn: it is null
 	// once the turn returns, so a later reply must read it now and send on a
-	// later turn. `from` is a display label the caller supplies, not authority, so
-	// this key is best-effort UI routing (a caller could claim another's nick and
-	// overwrite the entry) — the reply's authority is the `reply` capability it
-	// travels to, never the label, so no capability is misdirected by a spoofed
-	// name.
+	// later turn.
+	//
+	// `from` is a display label the caller supplies, not authority. No
+	// *capability* is misdirected by a spoofed one, because a reply travels to
+	// the `reply` capability rather than to the name — but the message content
+	// is another matter, and this route is what later messages to that nick are
+	// sent over. An unsolicited caller claiming a nick we are already talking to
+	// would take the route and receive everything we typed for the real peer.
+	//
+	// So a live route is not displaced. A caller who is first, or who arrives
+	// after the previous connection died, still takes it: that is the same trust
+	// as any unauthenticated nick in this room, and the roster says as much. What
+	// this refuses is the interesting case, where a route we are actively using
+	// is taken out from under us.
 	const session = currentSession();
 	if (session !== null && reply instanceof Ref) {
-		dmBackChannels.set(from.toLowerCase(), { session, reply });
+		const key = from.toLowerCase();
+		const held = dmBackChannels.get(key);
+		if (held === undefined || !held.session.sessionOpen) {
+			dmBackChannels.set(key, { session, reply });
+		}
 	}
 	receiveDmReply(from, from, text);
 	return null;
@@ -244,7 +249,12 @@ function postRoomLine(item: ChatItem, text: string): void {
 // A room line that cannot be confirmed: drop it from the echo queue and tint it failed.
 function failRoomSend(item: ChatItem): void {
 	const i = pendingRoomSends.indexOf(item);
-	if (i >= 0) pendingRoomSends.splice(i, 1);
+	// Already off the queue means the room echoed this line back and
+	// `confirmRoomEcho` cleared it. A `say` that rejects afterwards is reporting
+	// on a line the room demonstrably received, so tinting it failed here would
+	// contradict the echo the user can see.
+	if (i < 0) return;
+	pendingRoomSends.splice(i, 1);
 	item.state = "failed";
 	refreshSendState(item);
 }
@@ -292,6 +302,14 @@ export function switchRoom(name: string): void {
 	void enterRoom(name, state.nick);
 }
 
+/// A join the user asked for before the peer session was open. The session is
+/// fetched, instantiated, and handshaked after the page loads, and a returning
+/// visitor's name is prefilled with the Join button focused — so pressing Enter
+/// inside that window is the *common* first interaction, not an unusual one.
+/// It used to be dropped silently, leaving a disabled "Joining…" button with no
+/// way back but a reload.
+let pendingJoin: { room: string; nick: string } | null = null;
+
 export function join(): void {
 	state.nick = (nickInput.value || "guest").trim();
 	const room = (roomInput.value || "general").trim();
@@ -307,6 +325,14 @@ export function join(): void {
 	joinBtn.disabled = true;
 	joinBtn.textContent = "Joining…";
 	setJoinError("");
+	if (!isConnected()) {
+		// Held, not dropped. The button already reads "Joining…", which is true:
+		// the session is still opening, and `openSession` replays this the
+		// moment it can.
+		pendingJoin = { room, nick: state.nick };
+		setStatus("connecting", "reaching the room server…");
+		return;
+	}
 	setStatus("connecting", "entering #" + room + "…");
 	void enterRoom(room, state.nick);
 }
@@ -315,7 +341,7 @@ function rejectJoin(text: string): void {
 	userPickedRoom = false;
 	composer.hidden = true;
 	membersToggle.hidden = true;
-	joinScreen.style.display = "";
+	showJoinScreen(true);
 	resetJoinButton();
 	setJoinError(text);
 	setStatus("disconnected", "pick another name");
@@ -330,7 +356,13 @@ function resetJoinButton(): void {
 // current one, so a rejected claim leaves the current room intact — the same
 // order the room_client client uses.
 async function enterRoom(name: string, nick: string, attempt = 0): Promise<void> {
-	if (!dir) return;
+	if (!dir) {
+		// Never silently: a caller that reaches here with no session has a live
+		// "Joining…" button waiting on an answer that will not come.
+		resetJoinButton();
+		setJoinError("not connected to the room server yet");
+		return;
+	}
 	try {
 		const ref = await enterOrOpen(dir, name);
 		const next = await Room.subscribe(
@@ -400,11 +432,32 @@ function enteredRoom(name: string): void {
 
 // Deliver a room's lines to its conversation until we switch away (a newer pump
 // token) or the stream ends.
+//
+// Read through an explicit reader rather than `for await (… of room.messages)`.
+// Iterating a ReadableStream needs `Symbol.asyncIterator` on its prototype, and
+// WebKit did not have it until December 2025: the request was filed in February
+// 2019 as WebKit bug 194379 and landed in 303970@main on 2025-12-05, so every
+// Safari built before that lacks it, iOS 26 included. Where it is missing the
+// loop throws before the first read, and the room then looks entirely healthy —
+// it joins, it sends, presence and the typing indicator both arrive, because
+// `room_client` routes those around the stream as callbacks — while not one
+// line is ever delivered. `getReader` works wherever ReadableStream does, and
+// is already how `bindings/ts/web` reads its socket. The date is written down
+// because it is checkable against the bug, and the answer is not guessable.
 async function pump(room: Room): Promise<void> {
 	const token = ++pumpToken;
+	const reader = room.messages.getReader();
 	try {
-		for await (const { from, text, system, presence } of room.messages) {
-			if (token !== pumpToken) return;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return;
+			if (token !== pumpToken) {
+				// A newer pump owns the view. Drop this stream rather than leave it
+				// locked and half-read; `for await` used to do this on return.
+				await reader.cancel().catch(() => {});
+				return;
+			}
+			const { from, text, system, presence } = value;
 			const roomConv = state.joinedRoom ? ensureRoom(state.joinedRoom) : null;
 			if (!roomConv) continue;
 			if (presence) applyPresence(roomConv, presence);
@@ -420,7 +473,19 @@ async function pump(room: Room): Promise<void> {
 				}
 			}
 		}
-	} catch { /* the stream ended under us */ }
+	} catch (err) {
+		// Leaving a room ends the stream cleanly, which arrives as `done` above,
+		// not here. Reaching this means something actually broke, and silence is
+		// what made the missing-iterator failure take so long to find: the room
+		// simply never spoke. Say so where the reader is looking.
+		if (token === pumpToken) {
+			toActive(sysItem("This room stopped delivering messages: " + reason(err)));
+		}
+	} finally {
+		try {
+			reader.releaseLock();
+		} catch { /* already released by cancel above */ }
+	}
 }
 
 // ── Direct messages by introduction ───────────────────────────────────────
@@ -455,13 +520,29 @@ function sendDm(conv: DmConv, item: ChatItem, peer: string, text: string): void 
 	item.state = "sending";
 	refreshSendState(item);
 	const key = peer.toLowerCase();
-	const back = dmBackChannels.get(key);
 	// A peer who direct-messaged us first handed us a reply capability on the
 	// connection their message arrived on. Answer over that same connection
 	// (ADR-0088 receiver primitive), the only path that reaches a peer that
 	// opened no listener; otherwise open (or reuse) an introduced line to them.
+	//
+	// The capability is only good while that connection is. A peer who went
+	// offline and came back is a *new* connection, and nothing else drops the
+	// entry: the `unregistered` arm below clears their introduced line, and the
+	// clear at disconnect is about our own session ending, not theirs.
+	let cached = dmBackChannels.get(key);
+	if (cached && !cached.session.sessionOpen) {
+		dmBackChannels.delete(key);
+		cached = undefined;
+	}
+	const back = cached;
+	// Started inside a promise on purpose. Anything this expression raises
+	// synchronously would escape the `.catch` below, and that catch is what
+	// drops the dead route. Skipping it once turned one lost message into every
+	// message: the entry stayed, so the next send failed in the same place.
+	// `Session.send` itself now reports a closed session as a rejected handle
+	// rather than a throw, but this is the wrapper for everything else.
 	const delivered = back
-		? (back.session.send(back.reply, DM, [state.nick, text]) as Promise<unknown>)
+		? (async () => await back.session.send(back.reply, DM, [state.nick, text]))()
 		: openDm(peer).then((line) => line.say(state.nick, text));
 	delivered
 		.then(() => {
@@ -501,12 +582,22 @@ function dmFailureText(peer: string, err: unknown): string {
 // paints in the peer's DM thread — the member never dials us.
 function openDm(peer: string): Promise<DirectMessage> {
 	const key = peer.toLowerCase();
-	let line = dmLines.get(key);
-	if (!line) {
-		if (!dir) return Promise.reject(new Error("not connected"));
-		line = DirectMessage.open(dir, peer, (from, text) => receiveDmReply(peer, from, text));
-		dmLines.set(key, line);
+	const existing = dmLines.get(key);
+	if (existing) {
+		// Same staleness as the back-channel above, one step softer: `say` is
+		// async, so a dead line surfaces as a rejection and repairs itself after
+		// one visibly failed message. Checking here spends no message at all.
+		const reopen = () => {
+			// Only if it is still the entry we looked at; a concurrent send may
+			// already have replaced it.
+			if (dmLines.get(key) === existing) dmLines.delete(key);
+			return openDm(peer);
+		};
+		return existing.then((line) => (line.live ? line : reopen()), reopen);
 	}
+	if (!dir) return Promise.reject(new Error("not connected"));
+	const line = DirectMessage.open(dir, peer, (from, text) => receiveDmReply(peer, from, text));
+	dmLines.set(key, line);
 	return line;
 }
 
@@ -645,10 +736,17 @@ async function openSession(): Promise<void> {
 			stableTimer = null;
 		}, BACKOFF_STABLE_MS);
 
-		// If we were in a room, re-enter it; otherwise wait for the user to pick.
+		// If we were in a room, re-enter it. Otherwise honour a join the user
+		// asked for while this session was still opening, and only then wait.
 		if (state.joinedRoom && state.nick) {
 			setStatus("connecting", "rejoining #" + state.joinedRoom + "…");
 			void enterRoom(state.joinedRoom, state.nick);
+		} else if (pendingJoin) {
+			const wanted = pendingJoin;
+			pendingJoin = null;
+			state.nick = wanted.nick;
+			setStatus("connecting", "entering #" + wanted.room + "…");
+			void enterRoom(wanted.room, wanted.nick);
 		} else setStatus("connecting", "pick a room");
 	} catch (err) {
 		// Surface the real cause for the devtools console; the user sees a plain
@@ -656,6 +754,9 @@ async function openSession(): Promise<void> {
 		// load failure is otherwise invisible.
 		console.error("rooms: could not open the peer session:", err);
 		if (!state.joinedRoom) {
+			// A staged join is not lost on a failed attempt: the retry below
+			// opens another session, which replays it. The button comes back so
+			// the user can change their mind.
 			resetJoinButton();
 			setJoinError("could not reach the room server; retrying…");
 		}

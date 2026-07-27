@@ -40,10 +40,7 @@ pub const step_name = "gen-ts-abi";
 
 /// One generated file: its path and the emitter that produces its full bytes.
 /// The shared `tools/gen` emit/verify harness writes and staleness-checks each.
-pub const Output = struct {
-    path: []const u8,
-    generate: *const fn (std.mem.Allocator) anyerror![]u8,
-};
+const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/abi/constants.ts", .generate = generateConstants },
@@ -138,6 +135,7 @@ const constants = [_]Const{
     k("BUFFER_TOO_SMALL", "PANCAKE_ERR_BUFFER_TOO_SMALL"),
     k("UNSUPPORTED_VALUE", "PANCAKE_ERR_UNSUPPORTED_VALUE"),
     k("BROKEN", "PANCAKE_ERR_BROKEN"),
+    k("TIMEOUT", "PANCAKE_ERR_TIMEOUT"),
     k("FRAME_SHAPE_BYTE", "PANCAKE_FRAME_SHAPE_BYTE"),
     k("FRAME_SHAPE_WORD", "PANCAKE_FRAME_SHAPE_WORD"),
     // The byte-fed host tier's action queue (libpancake_driver, ADR-0072):
@@ -157,6 +155,7 @@ const constants = [_]Const{
     // byte channel to open (PancakeDialPlan.shape) and, for peer_id, the posture.
     kd("DIAL_SHAPE_HOST_PORT", "PANCAKE_DIAL_SHAPE_HOST_PORT"),
     kd("DIAL_SHAPE_PEER_ID", "PANCAKE_DIAL_SHAPE_PEER_ID"),
+    kd("DIAL_SHAPE_SIGNALING", "PANCAKE_DIAL_SHAPE_SIGNALING"),
     kd("DIAL_REACH_DIRECT", "PANCAKE_DIAL_REACH_DIRECT"),
     kd("DIAL_REACH_CONFIGURED", "PANCAKE_DIAL_REACH_CONFIGURED"),
     kd("DIAL_REACH_EXPLICIT", "PANCAKE_DIAL_REACH_EXPLICIT"),

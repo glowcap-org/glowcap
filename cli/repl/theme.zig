@@ -18,8 +18,6 @@ pub const tip_fg = Color{ .index = 221 };
 pub const open_fg = Color{ .index = 114 };
 pub const link_fg = Color{ .index = 75 };
 pub const user_fg = Color{ .index = 229 };
-pub const surface = Color{ .index = 234 };
-pub const surface_hi = Color{ .index = 236 };
 /// Selection wash — bright enough to read as “selected” on dark surfaces.
 pub const select_bg = Color{ .index = 61 };
 pub const status_bg = Color{ .index = 235 };
@@ -50,9 +48,6 @@ pub fn styleDanger() Style {
 }
 pub fn styleTip() Style {
     return .{ .fg = tip_fg };
-}
-pub fn styleOpen() Style {
-    return .{ .fg = open_fg, .bold = true };
 }
 pub fn styleMono() Style {
     return .{ .fg = chrome_fg };

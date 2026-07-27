@@ -104,7 +104,17 @@ overrides it for hosts whose reply patterns want a different trade.
 Per-connection park (this ADR) remains the default. Opt-in
 `completion.Loop.Options.fan_in_throttle` additionally parks *source* reads
 while any connection is a true sink park (outbound past high-water). Opt-in
-`park_kill_ms` closes a connection that stays `.parked` past a wall-clock
-deadline. Both live on the completion loop only; they do not change CapTP wire
+`park_kill_ms` closes a connection that stays `.parked` past a monotonic
+deadline, reported as `CloseReason.park_kill`.
+
+A condemned connection's terminal flush is bounded separately, by
+`drain_kill_ms`, and reported as `CloseReason.drain_kill`. That one is
+finite by default: waiting for a partner to read an abort is teardown rather
+than a policy about healthy slow readers, and no embedder should have to opt
+in to avoid leaking a slot to a partner that never reads. The loop's poll
+carries whichever deadline is nearest, so a quiet connection's deadline still
+fires.
+
+All of these live on the completion loop only; they do not change CapTP wire
 or the sans-io core. See
 [ADR-0082](ADR-0082-adapter-continuity-and-host-resource-honesty.md).

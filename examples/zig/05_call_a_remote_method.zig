@@ -6,9 +6,10 @@
 //! `engine.Peer`, with manual exports and imports, explicit `step`, and
 //! hand-shuttled frames.
 //!
-//! `pairing.pairedGoblins` runs both `op:start-session` halves in-process and
-//! leaves both sessions open on authenticated CapTP v1.0 over Syrup. That is the
-//! Goblins interop profile. (Real peers do the same handshake over a netlayer.)
+//! `pairing.pairedV1_0Syrup` runs both `op:start-session` halves in-process and
+//! leaves both sessions open on authenticated CapTP v1.0 over Syrup. That is
+//! the interop floor a live Goblins peer speaks. (Real peers do the same
+//! handshake over a netlayer.)
 //! V1.0 has no wire `op:resolve`. When a deliver carries an `answer`, the
 //! runtime attaches a resolver, and the partner's reply comes back as an
 //! ordinary `op:deliver` to that resolver. `Event.view()` re-projects that
@@ -27,7 +28,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
     // `pancake.Peer` is the front-door alias for `engine.Peer`, the type this
     // whole chapter drives by hand.
@@ -66,8 +67,11 @@ pub fn main() !void {
     const fulfilled = switch (body.resolve.resolution) {
         .fulfill => |arg| arg,
         .@"break" => |err| {
+            // Fail, do not just report. This example runs under `zig build
+            // examples`, and a chapter that prints a problem and exits zero
+            // tells the gate everything worked.
             std.debug.print("call broke: {s}\n", .{err.message});
-            return;
+            return error.CallBroke;
         },
     };
     const receipt_import = switch (fulfilled) {

@@ -23,7 +23,21 @@ export type Reference =
 	| { kind: "sturdy" }
 	| { kind: "broken" };
 
-export const near = (id: bigint, promise = false): Reference => ({
+/** The wire identity a capability in hand takes: a local `near` export or a
+ * partner-held `far` token. These are the only two shapes a {@link Ref} holds. A
+ * pipeline promise, sturdyref, or broken reference is not a capability you hold,
+ * so those three {@link Reference} kinds are excluded here. Mirrors the Python
+ * binding's `Near | Far` and the fetch classifier `asLiveRef`. */
+export type LiveReference =
+	| { kind: "near"; id: bigint; promise?: boolean }
+	| { kind: "far"; id: bigint; promise?: boolean };
+
+/** A wire reference that is not a capability in hand: a pipeline promise, a
+ * sturdyref, or a broken reference. These arrive in the application vocabulary
+ * as plain wire values, never as a {@link Ref}. */
+export type NonLiveReference = Exclude<Reference, LiveReference>;
+
+export const near = (id: bigint, promise = false): LiveReference => ({
 	kind: "near",
 	id,
 	promise,
@@ -118,17 +132,24 @@ export function isReference(v: unknown): v is Reference {
  * You get a `Ref` two ways: `conn.spawn(behavior)` (a local actor you host) or
  * `conn.fetch(name)` (a capability a partner published). A `Ref` is opaque: pass
  * it as an argument to `send` and it marshals to the right wire reference
- * automatically. You never construct `near`/`far` references by hand. */
+ * automatically. You never construct `near`/`far` references by hand.
+ *
+ * A `Ref` names only a `near` export or a `far` token — the two shapes a
+ * capability in hand takes. A promise, sturdyref, or broken reference is not one
+ * (a pipeline promise is a {@link RemotePromise}, and the rest arrive as plain
+ * wire values), so a `Ref`'s reference is a {@link LiveReference}. */
 export class Ref {
 	constructor(
 		/** The wire reference this marshals to when passed as a `send` argument. */
-		readonly reference: Reference,
+		readonly reference: LiveReference,
 	) {}
 }
 
 /** A value an application sends or receives: any OCapN `Argument`, a capability
- * `Ref`, or a list of those. The binding marshals `Ref`s to/from wire references
- * at the boundary, so applications work with capabilities as ordinary values. */
+ * `Ref`, or a list of those. The binding marshals a `near`/`far` reference
+ * to/from a `Ref` at the boundary, so applications work with capabilities as
+ * ordinary values. A promise, sturdyref, or broken reference is not a capability
+ * in hand, so it arrives as a plain wire `Reference` rather than a `Ref`. */
 export type AppValue =
 	| bigint
 	| number
@@ -139,6 +160,7 @@ export type AppValue =
 	| Kw
 	| null
 	| Ref
+	| NonLiveReference
 	| AppValue[]
 	| PSet<AppValue>
 	| Tagged<AppValue>;
@@ -159,12 +181,15 @@ export function lowerArg(arg: AppValue): Argument {
 	return arg;
 }
 
-// Lift a decoded argument to the application vocabulary: a wire `Reference`
-// becomes a `Ref` the app can `send` to or pass on; lists, set items, and a
-// tagged record's value recurse, so a capability arrives as a `Ref` wherever
-// it is nested.
+// Lift a decoded argument to the application vocabulary: a `near`/`far`
+// reference becomes a `Ref` the app can `send` to or pass on; a promise,
+// sturdyref, or broken reference is not a capability in hand, so it passes
+// through as a plain wire `Reference`. Lists, set items, and a tagged record's
+// value recurse, so a capability arrives as a `Ref` wherever it is nested.
 export function liftArg(arg: Argument): AppValue {
-	if (isReference(arg)) return new Ref(arg);
+	if (isReference(arg)) {
+		return arg.kind === "near" || arg.kind === "far" ? new Ref(arg) : arg;
+	}
 	if (Array.isArray(arg)) return arg.map(liftArg);
 	if (arg instanceof PSet) {
 		return new PSet(arg.items.map(liftArg));
@@ -175,16 +200,19 @@ export function liftArg(arg: Argument): AppValue {
 	return arg;
 }
 
-/** A behavior's tail-forward of its answer to another capability — the
- * binding's `Turn.forward` (ADR-0064). Return `new Forward(target, verb, args)`
- * from an actor and the host resolves the caller's answer from
- * `target <- verb(args)` instead of from a value: a target hosted on the same
- * connection composes in process (a caretaker over an attenuator forwards
- * through both), and a far target defers the answer onto the forwarded send's
- * reply. It is the whole mechanism behind `Session.caretaker` and
- * `Session.attenuate` — each proxy is an ordinary spawned actor whose
- * behavior forwards, or throws to refuse. Package-internal; applications reach
- * it through those verbs. */
+/** A behavior's tail-forward of its answer to another capability, the
+ * binding's `Turn.forward` (ADR-0064). A behavior that returns one has its
+ * caller's answer resolved from `target <- verb(args)` instead of from a
+ * value: a target hosted on the same connection composes in process (a
+ * caretaker over an attenuator forwards through both), and a far target defers
+ * the answer onto the forwarded send's reply. It is the whole mechanism behind
+ * `Session.caretaker` and `Session.attenuate`, where each proxy is an ordinary
+ * spawned actor whose behavior forwards, or throws to refuse.
+ *
+ * Package-internal, and deliberately not exported from `mod.ts`: applications
+ * reach it through those two verbs rather than constructing one. It stays in
+ * `Behavior`'s return union because the proxies this package spawns are
+ * ordinary behaviors. */
 export class Forward {
 	constructor(
 		readonly target: Ref,

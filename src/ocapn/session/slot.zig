@@ -42,36 +42,6 @@ pub const Slot = union(enum) {
     broken: struct { mint: Mint, position: Position },
 };
 
-/// The four CapTP wire descriptor tags. Never stored on `Slot` — only returned
-/// by `wireDescriptor`.
-pub const WireDescriptor = enum {
-    desc_export,
-    desc_import_object,
-    desc_import_promise,
-    desc_answer,
-
-    pub fn tag(self: WireDescriptor) []const u8 {
-        return switch (self) {
-            .desc_export => "desc:export",
-            .desc_import_object => "desc:import-object",
-            .desc_import_promise => "desc:import-promise",
-            .desc_answer => "desc:answer",
-        };
-    }
-};
-
-/// Project a slot to its wire descriptor tag (encode / sender perspective).
-/// `broken` has no position descriptor — returns null.
-pub fn wireDescriptor(slot: Slot) ?WireDescriptor {
-    return switch (slot) {
-        .local_unresolved => .desc_import_promise,
-        .remote_unresolved => .desc_answer,
-        .local_value => .desc_import_object,
-        .remote_value => .desc_export,
-        .broken => null,
-    };
-}
-
 /// Project a slot onto the codec-neutral `model.Reference` the syrup encoder
 /// already knows how to render. This is the only projection seam — bytes come
 /// from the real codec, never from a second encoder here.
@@ -94,16 +64,6 @@ pub fn position(slot: Slot) Position {
         .remote_value => |p| p,
         .broken => |b| b.position,
     };
-}
-
-/// A live export row is a local-mint value (today's ExportTable position).
-pub fn fromExport(pos: Position) Slot {
-    return .{ .local_value = pos };
-}
-
-/// A live import row is a remote-mint value (today's ImportTable position).
-pub fn fromImport(pos: Position) Slot {
-    return .{ .remote_value = pos };
 }
 
 /// Mint axis of a slot.

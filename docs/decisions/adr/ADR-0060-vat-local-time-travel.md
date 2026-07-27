@@ -50,9 +50,16 @@ no collector.
 - **`Vat.restore`** requires quiescence, builds the new actor table by sharing
   the snapshot's boxes (refcount up) before releasing the live boxes, so a
   failure leaves the live table intact, and the snapshot stays reusable across
-  repeated restores. It sets `next_actor` from the snapshot and captures local
-  actor state only, never `peer`, `exports`, `far_listeners`, or the turn
-  arenas.
+  repeated restores. It captures local actor state only, never `peer`,
+  `exports`, `far_listeners`, or the turn arenas.
+
+  The actor-id counter is deliberately left alone by a restore. An id is what
+  the export table maps a wire position to, and that table is not local state,
+  so a snapshot has no business rewinding it. Rewinding only the counter would
+  be worse than either extreme: the next spawn takes an id a live export still
+  names, and a partner's capability quietly reaches an object it was never
+  granted. Leaving the counter monotonic costs only reproducible ids across
+  repeated restores, which nothing depends on.
 - **Mutable actors (tier 2).** An actor that defines
   `pub fn clone(self, allocator)` is copied-on-write: `ensureUnshared` runs at
   the top of `callLocal` and the `serve` deliver path and, if the box is shared

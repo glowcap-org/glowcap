@@ -541,8 +541,10 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
 
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    // The contract surface degrades to empty on a short buffer (as tcp's
-    // does); the typed surface is `Resident.nodeId`, whose exactly-sized
+    // Honors netlayer's no-truncation contract (`netlayer.writeDesignator`)
+    // inline: `nodeId` writes the id straight into `out`, so there is no stored
+    // slice to route through the helper, and an `out` too short yields the empty
+    // defect slice. The typed surface is `Resident.nodeId`, whose exactly-sized
     // buffer cannot be short.
     if (out.len < node_id_len) return out[0..0];
     return box.resident.nodeId(out[0..node_id_len]);
@@ -582,7 +584,6 @@ pub const Backend = struct {
 
     const Pending = struct {
         read_ud: ?u64 = null,
-        read_is_recv: bool = false,
         write_ud: ?u64 = null,
         write_bytes: ?[]const u8 = null,
         readable_hint: bool = false,
@@ -611,7 +612,7 @@ pub const Backend = struct {
     wakeup_w: i32 = -1,
     /// Completions that need no further readiness (closes, immediate accepts
     /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
-    ready: std.ArrayList(completion.Completion) = .empty,
+    ready: completion.ReadyQueue = .{},
     /// Accepted connections waiting for a `submitAccept` to claim them — edge-
     /// triggered accept can queue several before the loop re-arms.
     accept_stash: std.ArrayList(*CConn) = .empty,
@@ -625,7 +626,10 @@ pub const Backend = struct {
     poll_timeout_ms: i32 = 200,
     /// Protects `connect_done` between dial workers and the loop thread.
     /// Short critical sections only — spin, no Io (workers are OS threads).
-    connect_mutex: std.atomic.Mutex = .unlocked,
+    /// Spin-lock for the short connect/accept critical sections reached from
+    /// backend callbacks. `net.sync.SpinLock` holds only across a map
+    /// insertion or sidecar-call — never across a wait.
+    connect_mutex: net.sync.SpinLock = .{},
     connect_done: std.ArrayList(ConnectDone) = .empty,
     connects_in_flight: std.atomic.Value(usize) = .init(0),
 
@@ -661,12 +665,12 @@ pub const Backend = struct {
         while (self.connects_in_flight.load(.acquire) != 0) {
             std.Thread.yield() catch {};
         }
-        lockConnect(&self.connect_mutex);
+        self.connect_mutex.lock();
         for (self.connect_done.items) |done| {
             if (done.cconn) |cconn| pancake_iroh_sidecar_conn_free(cconn);
         }
         self.connect_done.deinit(self.allocator);
-        unlockConnect(&self.connect_mutex);
+        self.connect_mutex.unlock();
         closeWakeup(self.wakeup_r, self.wakeup_w);
         self.wakeup_r = -1;
         self.wakeup_w = -1;
@@ -796,7 +800,7 @@ pub const Backend = struct {
             break :blk @ptrCast(opaque_conn);
         };
 
-        lockConnect(&self.connect_mutex);
+        self.connect_mutex.lock();
         const queued = blk: {
             self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = cconn }) catch {
                 if (cconn) |c| pancake_iroh_sidecar_conn_free(c);
@@ -809,7 +813,7 @@ pub const Backend = struct {
             };
             break :blk true;
         };
-        unlockConnect(&self.connect_mutex);
+        self.connect_mutex.unlock();
         if (queued) self.wake();
     }
 
@@ -820,10 +824,10 @@ pub const Backend = struct {
     }
 
     fn drainConnectDone(self: *Backend) !void {
-        lockConnect(&self.connect_mutex);
+        self.connect_mutex.lock();
         var batch = self.connect_done;
         self.connect_done = .empty;
-        unlockConnect(&self.connect_mutex);
+        self.connect_mutex.unlock();
         defer batch.deinit(self.allocator);
 
         for (batch.items) |done| {
@@ -875,7 +879,6 @@ pub const Backend = struct {
             // Keep the hint: the loop re-arms once a buffer recycles.
         }
         entry.pending.read_ud = null;
-        entry.pending.read_is_recv = false;
         try self.ready.append(self.allocator, comp);
         _ = fd;
     }
@@ -903,7 +906,6 @@ pub const Backend = struct {
     pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
         const entry = try self.entryPtr(fd);
         entry.pending.read_ud = user_data;
-        entry.pending.read_is_recv = true;
         if (entry.pending.readable_hint) try self.completeRecv(fd, entry);
     }
 
@@ -951,7 +953,7 @@ pub const Backend = struct {
         const entry = self.conns.getPtr(fd) orelse return;
         if (ev.events & (ev_readable | ev_closed) != 0) {
             entry.pending.readable_hint = true;
-            if (entry.pending.read_ud != null and entry.pending.read_is_recv)
+            if (entry.pending.read_ud != null)
                 try self.completeRecv(fd, entry);
         }
         if (ev.events & ev_writable != 0) {
@@ -961,7 +963,7 @@ pub const Backend = struct {
     }
 
     fn takeReady(self: *Backend, out: []completion.Completion) usize {
-        return completion.drainReady(&self.ready, out);
+        return self.ready.drain(out);
     }
 
     /// Non-blocking harvest of dial wakeups and sidecar readiness. Must run
@@ -1034,13 +1036,33 @@ pub const Backend = struct {
     }
 };
 
+/// Whether this platform can create a pipe with its flags already set.
+/// `posix.system.pipe2` is `void` where the call does not exist rather than
+/// absent,
+/// so the test is on the type, and it names no platform namespace
+/// (arch-check).
+const has_pipe2 = @TypeOf(posix.system.pipe2) != void;
+
 fn openWakeup() !struct { r: i32, w: i32 } {
-    // posix.system.pipe2: libc when linked, Linux syscalls otherwise — never
-    // names a platform namespace in this file (arch-check).
     var fds: [2]posix.fd_t = undefined;
-    switch (posix.errno(posix.system.pipe2(&fds, .{ .CLOEXEC = true, .NONBLOCK = true }))) {
-        .SUCCESS => {},
-        else => return error.WakeupFailed,
+    if (comptime has_pipe2) {
+        // One syscall sets both flags, so no `fork` can inherit an fd this
+        // process has not finished configuring. Taking this arm also keeps the
+        // Linux build off libc, which several compile-only checks require.
+        switch (posix.errno(posix.system.pipe2(&fds, .{ .CLOEXEC = true, .NONBLOCK = true }))) {
+            .SUCCESS => {},
+            else => return error.WakeupFailed,
+        }
+        return .{ .r = fds[0], .w = fds[1] };
+    }
+    // Darwin: create the pipe, then apply both flags before publishing either
+    // fd. On any failure, close the pair.
+    if (std.c.pipe(&fds) < 0) return error.WakeupFailed;
+    errdefer closeWakeup(fds[0], fds[1]);
+    for (fds) |fd| {
+        if (!net.socket.setNonblocking(fd)) return error.WakeupFailed;
+        if (std.c.fcntl(fd, std.c.F.SETFD, @as(c_int, std.c.FD_CLOEXEC)) < 0)
+            return error.WakeupFailed;
     }
     return .{ .r = fds[0], .w = fds[1] };
 }
@@ -1048,12 +1070,4 @@ fn openWakeup() !struct { r: i32, w: i32 } {
 fn closeWakeup(r: i32, w: i32) void {
     if (r >= 0) _ = posix.system.close(r);
     if (w >= 0 and w != r) _ = posix.system.close(w);
-}
-
-fn lockConnect(m: *std.atomic.Mutex) void {
-    while (!m.tryLock()) std.atomic.spinLoopHint();
-}
-
-fn unlockConnect(m: *std.atomic.Mutex) void {
-    m.unlock();
 }

@@ -71,7 +71,9 @@ file shape: [`personas/README.md`](personas/README.md).
 | Persona | Purpose |
 | ------- | ------- |
 | [agentic-lead](personas/agentic-lead.md) | Multi-agent orchestration lead (default rooms-team lead) |
+| [fresh-eyes](personas/fresh-eyes.md) | Seasoned engineer, zero OCapN exposure — does the doc teach a newcomer, or is it rehearsed? |
 | [scaffold-rigor](personas/scaffold-rigor.md) | Agent scaffolding sharpness — short skills, gates over folklore |
+| [stability-steward](personas/stability-steward.md) | Support tiers a consumer can plan against — a claim is the evidence that runs for it |
 | [wire-clarity](personas/wire-clarity.md) | Protocol evidence over folklore — CapTP/OCapN seams |
 
 ## Hooks

@@ -1,8 +1,9 @@
 #lang racket/base
 ;; The listen / accept surface (binding spine Pass 3d): `server`,
 ;; `keyed-tcp-server`, and the top-level `listen` / `listen-keyed-tcp`
-;; hosters. Session owns mint/handshake (`establish-accepted-session`); this
-;; module owns the listening socket, accept loop, and self-designator bind.
+;; hosters. Session owns mint/handshake and the accept rule
+;; (`accept-next-session`); this module owns the listening socket, how a
+;; partner is claimed off it, and the self-designator bind.
 ;; iroh hosting lives in `pancake-iroh.rkt`, not here.
 ;;
 ;; Lazy-require breaks the session ↔ listen cycle: listen lazy-requires
@@ -20,7 +21,7 @@
 
 (lazy-require
  ["session.rkt"
-  (establish-accepted-session)])
+  (accept-next-session)])
 
 (provide (struct-out server)
          (struct-out keyed-tcp-server)
@@ -39,6 +40,12 @@
 ;; server; `accept` blocks for the next partner, completes the keyed OCapN
 ;; handshake (the exchange is symmetric, both ends send their op:start-session
 ;; first, then read), and returns a ready session exactly like `connect`.
+;; A partner that fails that handshake — or that connects and then says
+;; nothing past the handshake deadline — is skipped and `accept` waits for the
+;; next one, so a rude probe never reaches the caller and never ends a
+;; server's accept loop; `accept-next-session` in `private/session.rkt` owns
+;; that rule for every listening surface. Only the listener's own failure (a
+;; closed listener) raises.
 ;; Each accepted partner gets its own session and vat. Pass port 0 for an
 ;; ephemeral port and read the bound one back with `server-port`. `accept`
 ;; takes `#:time-travel?`: pass #t to give the accepted session's vat a
@@ -84,20 +91,15 @@
   (keyed-tcp-locator (keyed-tcp-server-designator s) bound-host bound-port))
 
 (define (keyed-tcp-server-accept s #:time-travel? [time-travel? #f])
-  (define-values (in out) (tcp-accept (keyed-tcp-server-listener s)))
-  (define-values (local-host local-port _rh _rp) (tcp-addresses out #t))
-  (with-handlers ([(lambda (_) #t)
-                   (lambda (e)
-                     (with-handlers ([(lambda (_) #t) void])
-                       (close-output-port out)
-                       (close-input-port in))
-                     (raise e))])
-    (establish-accepted-session (keyed-tcp-server-host s)
-                                   TRANSPORT-KEYED-TCP
-                                   (keyed-tcp-server-designator s)
-                                   (port-transport in out)
-                                   #:accepted-local-addr (socket-addr-designator local-host local-port)
-                                   #:time-travel? time-travel?)))
+  (accept-next-session (keyed-tcp-server-host s)
+                          TRANSPORT-KEYED-TCP
+                          (keyed-tcp-server-designator s)
+                          (lambda ()
+                            (define-values (in out) (tcp-accept (keyed-tcp-server-listener s)))
+                            (define-values (local-host local-port _rh _rp) (tcp-addresses out #t))
+                            (values (port-transport in out)
+                                    (socket-addr-designator local-host local-port)))
+                          #:time-travel? time-travel?))
 
 (define (keyed-tcp-server-close! s) (tcp-close (keyed-tcp-server-listener s)))
 
@@ -106,13 +108,13 @@
   port)
 
 (define (accept s #:time-travel? [time-travel? #f])
-  (define-values (in out) (tcp-accept (server-listener s)))
-  (define m (server-host s))
-  (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
-  (establish-accepted-session m TRANSPORT-TCP ""
-                                 (port-transport in out)
-                                 #:accepted-local-addr (socket-addr-designator local-host local-port)
-                                 #:time-travel? time-travel?))
+  (accept-next-session (server-host s) TRANSPORT-TCP ""
+                          (lambda ()
+                            (define-values (in out) (tcp-accept (server-listener s)))
+                            (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
+                            (values (port-transport in out)
+                                    (socket-addr-designator local-host local-port)))
+                          #:time-travel? time-travel?))
 
 ;; Stop accepting new partners. Connections already accepted are unaffected.
 (define (server-close! s) (tcp-close (server-listener s)))

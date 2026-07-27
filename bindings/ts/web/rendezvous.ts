@@ -95,7 +95,20 @@ export function serveRendezvous(
 		// reaches the relay's held channel even though no dialer is bridged yet.
 		const onOpen = () => {
 			ws.removeEventListener("error", onPreOpenError);
-			Session.establishAccepted(host, RENDEZVOUS_TRANSPORT, designator, webSocketChannel(ws))
+			// The one accept in this binding that opts out of the handshake bound.
+			// A registration is *meant* to park: it holds an open socket until a
+			// dialer is bridged onto it, which may be minutes away, and there is
+			// no accept loop behind it for a silent partner to block. The pool
+			// replenishes on close, so a dead registration costs one socket, not
+			// a hang.
+			Session.establishAccepted(
+				host,
+				RENDEZVOUS_TRANSPORT,
+				designator,
+				webSocketChannel(ws),
+				"",
+				0,
+			)
 				.then((session) => {
 					opened = true;
 					if (!stopped) registerOne(); // a dial landed; refill the pool

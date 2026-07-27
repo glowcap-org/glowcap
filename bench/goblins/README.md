@@ -164,7 +164,7 @@ per-turn cost and the one-time COW alongside the snapshot sweep.
   suite, both substrates start from a fresh, identically-warmed server, so the
   _backend-to-backend_ comparison is sound even where the absolute number is
   noisy.
-- **Promise pipelining is deliberately not exercised.** Both substrates can
+- **Promise pipelining is not exercised.** Both substrates can
   invoke a returned promise before it resolves (Goblins natively, the pancake
   binding through `<-` on a promise, ADR-0007), but the registry suite resolves
   a capability and _then_ invokes it (two sequential round-trips) so both sides

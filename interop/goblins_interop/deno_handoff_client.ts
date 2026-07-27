@@ -32,7 +32,7 @@ for (const a of Deno.args) {
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65534) {
 	fail("deno-goblins-handoff", "--port must be an integer in 1..65534 (bob listens on port+1)");
 }
-const RACKET = "/usr/local/bin/racket";
+const RACKET = "racket";
 const HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
 
 const child = new Deno.Command(RACKET, {

@@ -903,7 +903,7 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
 
 test "an inbound protocol violation emits a typed op:abort and closes the session" {
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     // An inbound `op:deliver` to `<desc:export 7>` — an export this open peer
@@ -932,7 +932,7 @@ test "an inbound protocol violation emits a typed op:abort and closes the sessio
 
 test "an app-queued op:abort commits outbound then closes the CapTP session" {
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
@@ -990,7 +990,7 @@ test "a closing projected abort still closes when the abort frame cannot allocat
 
 test "a malformed inbound frame emits a malformed-frame abort and closes" {
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     // Garbage that is not a decodable Syrup frame.

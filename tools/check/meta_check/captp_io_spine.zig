@@ -106,6 +106,19 @@ pub fn check(
                 }
             }
         }
+        // The iroh Pending dropped its `read_is_recv` flag too (ADR-0057), so
+        // hold the flag out of iroh the same way it is held out of kqueue.
+        const iroh_path = "src/net/transport/iroh.zig";
+        const iroh_src = root.readFileAlloc(io, iroh_path, gpa, .limited(2 << 20)) catch |err| blk: {
+            try appendViolation(gpa, violations, "{s}: failed to read for iroh Pending flag check with {s}", .{ iroh_path, @errorName(err) });
+            break :blk null;
+        };
+        defer if (iroh_src) |bytes| gpa.free(bytes);
+        if (iroh_src) |bytes| {
+            if (std.mem.indexOf(u8, bytes, "read_is_recv") != null) {
+                try appendViolation(gpa, violations, "{s}: forbidden `read_is_recv`; iroh Pending distinguishes read from write by its request kind, not a flag (ADR-0057)", .{iroh_path});
+            }
+        }
         const pool_paths = [_][]const u8{
             "src/net/completion/kqueue.zig",
             "src/net/transport/iroh.zig",
@@ -213,7 +226,7 @@ pub fn check(
         },
         .{
             .needle = "three real residents",
-            .reason = "four netlayer residents: `tcp`, `keyed-tcp`, `inproc`, and iroh",
+            .reason = "do not recite a fixed resident count in prose; the roster is `tcp`, `keyed-tcp`, `inproc`, `iroh`, and `webrtc`, pinned per doc by `checkResidentRoster`",
         },
     };
     for (ghost_docs) |path| {

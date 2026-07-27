@@ -54,7 +54,7 @@ pub const StreamOptions = struct {
 
 /// Set `TCP_NODELAY` on a freshly dialed or accepted `stream`, disabling Nagle's
 /// algorithm. OCapN is a request/response wire: a peer writes a frame — or, with
-/// promise pipelining, a batch of them — and then waits for the reply. Nagle holds
+/// promise pipelining, a batch of them, then waits for the reply. Nagle holds
 /// a small trailing segment until the prior one is ACKed, and the idle peer only
 /// ACKs on its delayed-ACK timer (~40 ms), so every round trip can eat that stall
 /// for nothing — and it erases pipelining's whole point, turning a one-round-trip

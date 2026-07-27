@@ -51,7 +51,6 @@ pub fn publisher(comptime swiss: []const u8, comptime Actor: type) fn (?*anyopaq
 
 const wait = @import("support_wait");
 
-pub const WaitError = wait.Error;
 pub const deadlineAfter = wait.deadlineAfter;
 pub const expired = wait.expired;
 pub const untilFlag = wait.untilFlag;

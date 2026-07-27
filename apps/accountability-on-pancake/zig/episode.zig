@@ -95,19 +95,9 @@ pub fn emit(allocator: std.mem.Allocator, io: std.Io, signer: *const identity.Id
     });
 }
 
-/// What an auditor recovers from an Episode line.
-pub const Verified = struct {
-    kind: []const u8,
-    subject: []const u8,
-    affordance: []const u8,
-    object: []const u8,
-    graph: []const u8,
-};
-
 /// Verify an Episode line end to end: recompute the payload, check the
 /// countersignature of the ephemeral key against the signer's verkey, and check
-/// the payload signature against the ephemeral key. The returned slices borrow
-/// the parsed JSON, valid until `parsed.deinit()`.
+/// the payload signature against the ephemeral key.
 pub fn verify(allocator: std.mem.Allocator, line: []const u8) Error!void {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch return Error.BadEpisode;
     defer parsed.deinit();

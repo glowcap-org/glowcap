@@ -54,17 +54,29 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
+    // Listen on a designator, the peer's name on its transport: for tcp a
+    // `host:port`, with port 0 letting the OS pick one.
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+        .handshake_timeout_ms = 10_000,
+        .settle_timeout_ms = 10_000,
+    });
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;
-    const designator = server.localDesignator(&addr_buf);
+    // `try`: a bound listener that cannot report a dialable designator is a
+    // defect, and signing an empty one publishes an address nobody can dial.
+    const designator = try server.localDesignator(&addr_buf);
 
     var hosting = try io.concurrent(host, .{&server});
 
     // `pancake.Session` is the front-door alias for the owning
     // `driver.Session` this call hands back.
-    var session: *pancake.Session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
+    // Finite budgets, not the zero defaults: those mean "wait forever", and a
+    // peer that never answers would park this program with no way out.
+    var session: *pancake.Session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{
+        .handshake_timeout_ms = 10_000,
+        .settle_timeout_ms = 10_000,
+    });
     const greeter = try session.fetch("greeter");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);

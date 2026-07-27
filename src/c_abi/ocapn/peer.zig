@@ -1113,7 +1113,7 @@ fn projectResolve(ptr: *engine.Peer, slot: *PancakeResolve) i32 {
     // value `argumentToC` can render. Redeem goes through `projectGiveForRedeem`
     // so the give span and dialable `ocapn://` URI come from the structural
     // exporter locator rather than the ordinary value path.
-    if (resolveHandoffGive(a, peeked, body)) |projection| {
+    if (resolveHandoffGive(a, body)) |projection| {
         projected = true;
         var event = ptr.pollEvent().?;
         event.deinit();
@@ -1176,12 +1176,11 @@ const HandoffGiveProjection = struct {
 /// `PancakeHandoffGive`, copying the verbatim give span and the exporter's
 /// dialable `ocapn://…` locator into `a`. Returns `error.NotHandoff` (the caller
 /// then takes the ordinary value path) unless the resolution is exactly a
-/// fulfilled give. Reads the borrowed `view`/`event` through
-/// `projectGiveForRedeem` so the structural exporter locator and Syrup span
-/// (when present) survive into the C projection.
+/// fulfilled give. Reads the borrowed `body` through `projectGiveForRedeem` so
+/// the structural exporter locator and the give's own signed span survive into
+/// the C projection.
 fn resolveHandoffGive(
     a: std.mem.Allocator,
-    event: *const engine.Event,
     body: model.view.Body,
 ) error{ NotHandoff, OutOfMemory }!HandoffGiveProjection {
     if (body != .resolve) return error.NotHandoff;
@@ -1191,7 +1190,7 @@ fn resolveHandoffGive(
     if (arg != .handoff or arg.handoff != .give) return error.NotHandoff;
     const give = arg.handoff.give;
 
-    var projected = engine.handoff_recipient.projectGiveForRedeem(a, event.bytes(), give) catch return error.OutOfMemory;
+    var projected = engine.handoff_recipient.projectGiveForRedeem(a, give) catch return error.OutOfMemory;
     const give_span = projected.bytes() orelse {
         projected.deinit(a);
         return error.NotHandoff;

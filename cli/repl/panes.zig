@@ -327,7 +327,7 @@ pub fn drawTranscriptBlocks(
             if (flat >= start and row < inner.height) {
                 const screen_row = origin_y + row;
                 const span = if (range) |r|
-                    select_mod.contentSpan(r.a, r.b, screen_row, origin_x, line.len)
+                    select_mod.contentSpan(r.a, r.b, screen_row, origin_x, select_mod.charCount(line))
                 else
                     null;
                 var style = styleForBlockKind(b.kind);
@@ -350,7 +350,11 @@ pub fn drawTranscriptBlocks(
                     while (si < n) : (si += 1) {
                         if (spans[si].start < line.len) {
                             const sl = spans[si].slice(line);
-                            printLine(inner, row, @intCast(@min(spans[si].start, inner.width)), sl, theme.styleLink());
+                            // The scanner reports byte offsets; the screen
+                            // counts characters, so a link after any accented
+                            // text would otherwise underline the wrong cells.
+                            const col = select_mod.charCount(line[0..spans[si].start]);
+                            printLine(inner, row, @intCast(@min(col, inner.width)), sl, theme.styleLink());
                         }
                     }
                 }

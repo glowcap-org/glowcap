@@ -97,6 +97,12 @@ never onto the sans-io CapTP core.
   `frame_cap` as the admission field mapped into limits, plus selective
   `pancake_host_set_session_limits` (`max_frame_bytes` / `queue_cap`).
 - `completion.Loop.Options` grows fan-in, park-kill, and `on_park` fields;
+  `on_park` carries a `ParkReason`, because the two parks are operationally
+  different: `.sink` is this connection's own partner failing to drain,
+  `.fan_in` is this connection throttled for somebody else's. An embedder
+  watching lag cannot act on the two the same way, and from outside the loop
+  they are indistinguishable — the park is transient, so sampling loop state
+  misses it entirely;
   the N-to-1 fan-in behavioral test pins source park while a sink is held and
   source re-arm when the last sink drains. `ResilientClient.on_dial_outcome`
   surfaces dial metrics.

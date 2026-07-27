@@ -344,7 +344,10 @@ pub const Reference = union(enum) {
                 const peer = try sturdy.peer.toOwned(allocator);
                 errdefer model.freePeerLocator(allocator, peer);
                 const swissnum = try allocator.dupe(u8, sturdy.swissnum);
-                break :blk .{ .sturdy = .{ .peer = peer, .swissnum = swissnum } };
+                errdefer allocator.free(swissnum);
+                const box = try allocator.create(model.SturdyRef);
+                box.* = .{ .peer = peer, .swissnum = swissnum };
+                break :blk .{ .sturdy = box };
             },
             .broken => |broken| .{ .broken = .{ .message = try allocator.dupe(u8, broken.message) } },
         };

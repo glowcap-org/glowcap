@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ctypes
 import secrets
-from typing import Optional
 
 from . import _constants as _abi
 from ._errors import PancakeError, VowBroken, _check_host

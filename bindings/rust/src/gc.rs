@@ -63,11 +63,11 @@ pub(crate) fn guard_for(conn: &Rc<SessionShared>, id: u64) -> Option<Rc<ImportGu
 /// token (ADR-0069) — only ids in the token range are tracked — and the host
 /// resolves the token to its home connection and real wire import when the
 /// release fires. The guard captures only the bare token, never the `Ref`.
-pub(crate) fn track_import(shared: &Rc<SessionShared>, reference: crate::Reference) -> Ref {
-	if let crate::Reference::Far { id, .. } = reference {
+pub(crate) fn track_import(shared: &Rc<SessionShared>, wire: crate::LiveRef) -> Ref {
+	if let crate::LiveRef::Far { id, .. } = wire {
 		if let Some(guard) = guard_for(shared, id) {
-			return Ref::tracked(reference, guard);
+			return Ref::tracked(wire, guard);
 		}
 	}
-	Ref::bare(reference)
+	Ref::bare(wire)
 }

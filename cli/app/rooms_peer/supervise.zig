@@ -1,4 +1,5 @@
-//! Start/stop supervision for `pancake app rooms-peer`.
+//! Start/stop supervision, and the JSON emitter every rooms-peer verb reports
+//! through, for `pancake app rooms-peer`.
 const std = @import("std");
 const signals = @import("../../operability/signals.zig");
 const log = @import("../../operability/log.zig");
@@ -19,6 +20,110 @@ const removeFile = harness.removeFile;
 const stateField = harness.stateField;
 const writeJsonString = harness.writeJsonString;
 const writeState = harness.writeState;
+
+// --- json emit --------------------------------------------------------------
+
+/// One JSON document, built member by member. The braces, the commas, and the
+/// string escaping are written here so an emitter names its fields instead of
+/// spelling punctuation, and every method is fallible: a builder runs under
+/// `try`, and its caller reports a single failure rather than a document that
+/// stops mid-string.
+///
+/// Containers nest by `beginObject` / `arrayMember` and a matching `end`; the
+/// depth this area needs is an object holding an array of objects.
+pub const Json = struct {
+    gpa: Allocator,
+    buf: std.ArrayList(u8) = .empty,
+    /// Whether the container open at each depth already holds a member.
+    filled: [4]bool = @splat(false),
+    /// The byte that closes the container open at each depth.
+    closer: [4]u8 = @splat('}'),
+    depth: usize = 0,
+
+    pub fn init(gpa: Allocator) Json {
+        return .{ .gpa = gpa };
+    }
+
+    pub fn deinit(self: *Json) void {
+        self.buf.deinit(self.gpa);
+    }
+
+    /// Open an object: the document root, or one element of an open array.
+    pub fn beginObject(self: *Json) !void {
+        if (self.depth > 0) try self.separate();
+        try self.push('{', '}');
+    }
+
+    /// Open an array-valued member. Elements follow until `end`.
+    pub fn arrayMember(self: *Json, key: []const u8) !void {
+        try self.member(key);
+        try self.push('[', ']');
+    }
+
+    pub fn string(self: *Json, key: []const u8, value: []const u8) !void {
+        try self.member(key);
+        try writeJsonString(&self.buf, self.gpa, value);
+    }
+
+    pub fn boolean(self: *Json, key: []const u8, value: bool) !void {
+        try self.member(key);
+        try self.buf.appendSlice(self.gpa, if (value) "true" else "false");
+    }
+
+    pub fn number(self: *Json, key: []const u8, value: anytype) !void {
+        try self.member(key);
+        try self.buf.print(self.gpa, "{d}", .{value});
+    }
+
+    /// A value that is already JSON: `null`, or a document read off disk.
+    pub fn rawValue(self: *Json, key: []const u8, value: []const u8) !void {
+        try self.member(key);
+        try self.buf.appendSlice(self.gpa, value);
+    }
+
+    /// Close the innermost container.
+    pub fn end(self: *Json) !void {
+        std.debug.assert(self.depth > 0);
+        self.depth -= 1;
+        try self.buf.append(self.gpa, self.closer[self.depth]);
+    }
+
+    /// The finished document plus its trailing newline, ready for one write.
+    /// Only a builder that reached here has a document worth emitting.
+    pub fn line(self: *Json) ![]const u8 {
+        std.debug.assert(self.depth == 0);
+        try self.buf.append(self.gpa, '\n');
+        return self.buf.items;
+    }
+
+    fn push(self: *Json, open: u8, close: u8) !void {
+        std.debug.assert(self.depth < self.filled.len);
+        try self.buf.append(self.gpa, open);
+        self.filled[self.depth] = false;
+        self.closer[self.depth] = close;
+        self.depth += 1;
+    }
+
+    fn separate(self: *Json) !void {
+        if (self.filled[self.depth - 1]) try self.buf.append(self.gpa, ',');
+        self.filled[self.depth - 1] = true;
+    }
+
+    fn member(self: *Json, key: []const u8) !void {
+        try self.separate();
+        try writeJsonString(&self.buf, self.gpa, key);
+        try self.buf.append(self.gpa, ':');
+    }
+};
+
+/// The one failure door for a rooms-peer JSON emitter. A document that did not
+/// build is reported as a whole, parseable error object and fails with the
+/// internal exit code, so the agent reading this stdout never parses a
+/// truncated document or takes a half report for success.
+pub fn emitInternalError(io: Io) error{PeerFailed} {
+    emitStdout(io, "{\"ok\":false,\"error\":\"internal\"}\n");
+    return error.PeerFailed;
+}
 
 // --- start ------------------------------------------------------------------
 
@@ -68,11 +173,13 @@ pub fn readPid(io: Io, gpa: Allocator, dir: []const u8) ?i32 {
     return std.fmt.parseInt(i32, trimmed, 10) catch null;
 }
 
-fn absDir(io: Io, gpa: Allocator, dir: []const u8) []u8 {
-    if (dir.len > 0 and dir[0] == '/') return gpa.dupe(u8, dir) catch @constCast(dir);
+/// Always returns an owned copy the caller frees; an unreadable working
+/// directory degrades to the relative spelling, still owned.
+fn absDir(io: Io, gpa: Allocator, dir: []const u8) ![]u8 {
+    if (dir.len > 0 and dir[0] == '/') return gpa.dupe(u8, dir);
     var buf: [4096]u8 = undefined;
-    const n = std.process.currentPath(io, &buf) catch return gpa.dupe(u8, dir) catch @constCast(dir);
-    return std.fmt.allocPrint(gpa, "{s}/{s}", .{ buf[0..n], dir }) catch gpa.dupe(u8, dir) catch @constCast(dir);
+    const n = std.process.currentPath(io, &buf) catch return gpa.dupe(u8, dir);
+    return std.fmt.allocPrint(gpa, "{s}/{s}", .{ buf[0..n], dir });
 }
 
 pub fn runStart(init: std.process.Init, flags: Flags) !void {
@@ -82,7 +189,7 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
         emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"start needs --dir and --nick\"}}\n", .{});
         return error.UsageFailed;
     }
-    const dir = absDir(io, gpa, flags.dir);
+    const dir = try absDir(io, gpa, flags.dir);
     defer gpa.free(dir);
     // Keep the bootstrap URL (often `http(s)://…/locator`) for the daemon so each
     // reconnect re-fetches a fresh `ocapn://` after the room CapTP child remints.
@@ -201,8 +308,7 @@ fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8,
             if (is_reg or grace_done) {
                 const locator = stateField(io, gpa, dir, "locator");
                 defer gpa.free(locator);
-                reportStarted(io, gpa, exe, dir, nick, room, pid, started, locator, is_reg);
-                return;
+                return reportStarted(io, gpa, exe, dir, nick, room, pid, started, locator, is_reg);
             }
         } else if (waited >= join_deadline_ms) {
             return failJoinTimeout(io, gpa, dir, pid, started);
@@ -210,16 +316,26 @@ fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8,
         if (!pidAlive(io, gpa, pid)) {
             const tail = readFile(io, gpa, dir, "peer.out") catch gpa.dupe(u8, "") catch "";
             defer gpa.free(tail);
-            var esc: std.ArrayList(u8) = .empty;
-            defer esc.deinit(gpa);
-            writeJsonString(&esc, gpa, tailOf(tail, 600)) catch {};
-            emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"peer-exited\",\"detail\":\"peer exited during startup\",\"peer_out\":{s}}}\n", .{esc.items});
+            var doc = Json.init(gpa);
+            defer doc.deinit();
+            const bytes = buildPeerExited(&doc, tailOf(tail, 600)) catch return emitInternalError(io);
+            emitStdout(io, bytes);
             return error.PeerFailed;
         }
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(300), .real) catch {};
         waited += 300;
     }
     return failJoinTimeout(io, gpa, dir, pid, started);
+}
+
+fn buildPeerExited(doc: *Json, peer_out: []const u8) ![]const u8 {
+    try doc.beginObject();
+    try doc.boolean("ok", false);
+    try doc.string("error", "peer-exited");
+    try doc.string("detail", "peer exited during startup");
+    try doc.string("peer_out", peer_out);
+    try doc.end();
+    return doc.line();
 }
 
 /// The `join_attempts` counter out of state.json. `stateField` extracts
@@ -250,18 +366,25 @@ fn failJoinTimeout(io: Io, gpa: Allocator, dir: []const u8, pid: i32, started: b
     defer gpa.free(status);
     const join_attempts = stateJoinAttempts(io, gpa, dir);
     if (started) _ = stopPeerPid(io, gpa, dir, pid);
-    var esc: std.ArrayList(u8) = .empty;
-    defer esc.deinit(gpa);
-    writeJsonString(&esc, gpa, status) catch {};
-    emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"join-timeout\",\"status\":{s},\"join_attempts\":{d},\"detail\":\"{s}\"}}\n", .{
-        esc.items,
-        join_attempts,
-        if (started)
-            "peer did not report joined in time and was stopped; check the locator and that the room is reachable"
-        else
-            "existing peer has not joined; left running (its own backoff may recover it) — rooms-peer stop if wedged",
-    });
+    var doc = Json.init(gpa);
+    defer doc.deinit();
+    const bytes = buildJoinTimeout(&doc, status, join_attempts, started) catch return emitInternalError(io);
+    emitStdout(io, bytes);
     return error.PeerFailed;
+}
+
+fn buildJoinTimeout(doc: *Json, status: []const u8, join_attempts: u32, started: bool) ![]const u8 {
+    try doc.beginObject();
+    try doc.boolean("ok", false);
+    try doc.string("error", "join-timeout");
+    try doc.string("status", status);
+    try doc.number("join_attempts", join_attempts);
+    try doc.string("detail", if (started)
+        "peer did not report joined in time and was stopped; check the locator and that the room is reachable"
+    else
+        "existing peer has not joined; left running (its own backoff may recover it) — rooms-peer stop if wedged");
+    try doc.end();
+    return doc.line();
 }
 
 fn tailOf(s: []const u8, n: usize) []const u8 {
@@ -285,36 +408,44 @@ fn reportStarted(
     started: bool,
     locator: []const u8,
     registered: bool,
-) void {
+) error{PeerFailed}!void {
+    var doc = Json.init(gpa);
+    defer doc.deinit();
+    const bytes = buildStarted(&doc, exe, dir, nick, room, pid, started, locator, registered) catch
+        return emitInternalError(io);
+    emitStdout(io, bytes);
+}
+
+fn buildStarted(
+    doc: *Json,
+    exe: []const u8,
+    dir: []const u8,
+    nick: []const u8,
+    room: []const u8,
+    pid: i32,
+    started: bool,
+    locator: []const u8,
+    registered: bool,
+) ![]const u8 {
     const prefix = peerCliPrefix(exe);
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(gpa);
-    out.appendSlice(gpa, "{\"ok\":true,\"started\":") catch {};
-    out.appendSlice(gpa, if (started) "true" else "false") catch {};
-    out.appendSlice(gpa, ",\"pid\":") catch {};
-    var pb: [16]u8 = undefined;
-    out.appendSlice(gpa, std.fmt.bufPrint(&pb, "{d}", .{pid}) catch "0") catch {};
-    out.appendSlice(gpa, ",\"nick\":") catch {};
-    writeJsonString(&out, gpa, nick) catch {};
-    out.appendSlice(gpa, ",\"room\":") catch {};
-    writeJsonString(&out, gpa, room) catch {};
-    out.appendSlice(gpa, ",\"locator\":") catch {};
-    writeJsonString(&out, gpa, locator) catch {};
-    out.appendSlice(gpa, ",\"registered\":") catch {};
-    out.appendSlice(gpa, if (registered) "true" else "false") catch {};
-    out.appendSlice(gpa, ",\"dir\":") catch {};
-    writeJsonString(&out, gpa, dir) catch {};
+    // One scratch buffer for the three commands: each is escaped into the
+    // document before the next overwrites it.
     var cb: [4608]u8 = undefined;
-    out.appendSlice(gpa, ",\"loop_cmd\":") catch {};
-    writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 120", .{ exe, prefix, dir }) catch "") catch {};
-    out.appendSlice(gpa, ",\"reply_cmd\":") catch {};
-    writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}reply --dir {s} --id <ID> --text '…'", .{ exe, prefix, dir }) catch "") catch {};
-    out.appendSlice(gpa, ",\"stop_cmd\":") catch {};
-    writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}stop --dir {s}", .{ exe, prefix, dir }) catch "") catch {};
-    out.appendSlice(gpa, ",\"next\":") catch {};
-    writeJsonString(&out, gpa, "Run loop_cmd repeatedly: it returns pending messages (waits up to 120s); reply to each with its prefilled reply command, then loop. Do your own work between ticks. Run stop_cmd when done. registered=true means DM introduce works.") catch {};
-    out.append(gpa, '}') catch {};
-    emitStdoutFmt(io, "{s}\n", .{out.items});
+    try doc.beginObject();
+    try doc.boolean("ok", true);
+    try doc.boolean("started", started);
+    try doc.number("pid", pid);
+    try doc.string("nick", nick);
+    try doc.string("room", room);
+    try doc.string("locator", locator);
+    try doc.boolean("registered", registered);
+    try doc.string("dir", dir);
+    try doc.string("loop_cmd", std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 120", .{ exe, prefix, dir }) catch "");
+    try doc.string("reply_cmd", std.fmt.bufPrint(&cb, "{s} {s}reply --dir {s} --id <ID> --text '…'", .{ exe, prefix, dir }) catch "");
+    try doc.string("stop_cmd", std.fmt.bufPrint(&cb, "{s} {s}stop --dir {s}", .{ exe, prefix, dir }) catch "");
+    try doc.string("next", "Run loop_cmd repeatedly: it returns pending messages (waits up to 120s); reply to each with its prefilled reply command, then loop. Do your own work between ticks. Run stop_cmd when done. registered=true means DM introduce works.");
+    try doc.end();
+    return doc.line();
 }
 
 // --- stop -------------------------------------------------------------------

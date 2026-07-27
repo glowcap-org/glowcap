@@ -1081,3 +1081,29 @@ test "queueUniqueSessionAction keeps one flush and one close per conn" {
     try std.testing.expectEqual(@as(usize, 2), flushes);
     try std.testing.expectEqual(@as(usize, 1), closes);
 }
+
+test "a keyed dial to a malformed designator refuses without freeing it twice" {
+    // `keyed-tcp` pins the session to the key its designator names, so a
+    // designator that is not canonical Ed25519 hex is refused after the shell
+    // has been minted. The refusal path unwinds the mint, and the dialed
+    // designator has exactly one owner, so this is a plain error rather than a
+    // second free of bytes the shell already released. Reachable straight from
+    // `pancake_host_session_open_dialed_locator`, which passes an embedder's
+    // transport and designator through untouched.
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x21} ** 32, .{});
+    defer host.deinit();
+
+    try std.testing.expectError(error.InvalidAddress, host.openDialedLocator(.{
+        .transport = "keyed-tcp",
+        .designator = "not-a-key",
+        .hints = model.Hints.emptyFalse(),
+    }));
+
+    // The refusal left nothing behind: the same designator dials again.
+    try std.testing.expectError(error.InvalidAddress, host.openDialedLocator(.{
+        .transport = "keyed-tcp",
+        .designator = "not-a-key",
+        .hints = model.Hints.emptyFalse(),
+    }));
+}

@@ -26,6 +26,10 @@ const driver = pancake.driver;
 const tcp = pancake.net.tcp;
 
 const frame_cap = 4096;
+// Finite budgets, like any caller that dials the network. A test that inherits
+// the unbounded default does not fail against a silent partner, it hangs.
+const handshake_budget_ms: u32 = 10_000;
+const settle_budget_ms: u32 = 10_000;
 
 /// The published actor: answers `echo(value)` with `value` unchanged.
 const Echo = struct {
@@ -65,7 +69,7 @@ test "c-abi owning session: connect + keyed handshake, fetch, call round-trips a
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
     const port = address.getPort();
 
     var host_future = try io.concurrent(serveOnce, .{&server});
@@ -95,6 +99,8 @@ fn sessionRoundTrip(port: u16) !void {
         port,
         c.PANCAKE_CODEC_SYRUP,
         frame_cap,
+        handshake_budget_ms,
+        settle_budget_ms,
         &session,
     ));
     const session_ptr = session.?;
@@ -209,7 +215,7 @@ test "c-abi owning session: promise pipelining drives create->assign->complete->
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
     const port = address.getPort();
 
     var host_future = try io.concurrent(serveBoardOnce, .{&server});
@@ -242,6 +248,8 @@ fn pipelineRoundTrip(port: u16) !void {
         port,
         c.PANCAKE_CODEC_SYRUP,
         frame_cap,
+        handshake_budget_ms,
+        settle_budget_ms,
         &session,
     ));
     const session_ptr = session.?;
@@ -351,16 +359,56 @@ test "c-abi owning session: connect reports invalid arguments distinctly" {
     // A zero frame cap is an invalid argument, not a codec problem.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ct.pancake_tcp_session_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, 0, &session),
+        ct.pancake_tcp_session_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, 0, handshake_budget_ms, settle_budget_ms, &session),
     );
     // An unknown codec selector is an invalid argument.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ct.pancake_tcp_session_connect(netlayer_ptr, host.ptr, host.len, 9, 999, frame_cap, &session),
+        ct.pancake_tcp_session_connect(netlayer_ptr, host.ptr, host.len, 9, 999, frame_cap, handshake_budget_ms, settle_budget_ms, &session),
     );
     // A null required pointer is a null-pointer error.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_NULL_POINTER,
-        ct.pancake_tcp_session_connect(null, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, &session),
+        ct.pancake_tcp_session_connect(null, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, handshake_budget_ms, settle_budget_ms, &session),
     );
+    // A deadline past the signed millisecond range is a caller error, not a
+    // silently wrapped budget.
+    const past_i32: u32 = @as(u32, std.math.maxInt(i32)) + 1;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ct.pancake_tcp_session_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, past_i32, settle_budget_ms, &session),
+    );
+}
+
+// The reason `pancake_tcp_session_connect` takes deadlines at all: a partner
+// that completes the TCP connect and then says nothing. Without a budget the
+// call parks the calling thread forever, which is the slowloris an owning
+// session must not hold still for. With one it comes back as a distinct
+// `PANCAKE_ERR_TIMEOUT`, so a C caller can tell its own budget from a partner
+// refusal or a socket fault.
+test "c-abi owning session: a silent partner times out the handshake" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Bind but never accept: the kernel completes connect into the backlog while
+    // the partner stays silent through the whole handshake window.
+    var listener = try pancake.net.tcp.Listener.bind(io, .{ .ip4 = std.Io.net.Ip4Address.loopback(0) });
+    defer listener.deinit();
+    const port = listener.localAddress().ip4.port;
+
+    var netlayer: ?*ct.PancakeTcpNetlayer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_netlayer_new(&netlayer));
+    const netlayer_ptr = netlayer.?;
+    defer ct.pancake_tcp_netlayer_release(netlayer_ptr);
+
+    const host = "127.0.0.1";
+    var session: ?*ct.PancakeTcpSession = null;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_TIMEOUT,
+        ct.pancake_tcp_session_connect(netlayer_ptr, host.ptr, host.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, 200, settle_budget_ms, &session),
+    );
+    try std.testing.expect(session == null);
 }

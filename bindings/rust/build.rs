@@ -5,6 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
+mod archive_hygiene;
+
 #[derive(Debug, Deserialize)]
 struct Contract {
 	abi_version: String,
@@ -442,30 +444,23 @@ fn fetch_into_cache(
 /// Refuse/link and extract failures hard-fail; tar list failure returns Err
 /// (tooling soft-fail at the caller).
 fn safe_extract_prefix(tarball: &Path, stage: &Path, prefix: &str) -> Result<(), String> {
+	// One environment for both tar calls below. `TAR_OPTIONS` would otherwise
+	// let the listing and the extract see different archives: flags that hide
+	// a member from validation, then admit it at extract.
 	let listing = Command::new("tar")
-		.args(["-tvzf"])
+		.args(["--numeric-owner", "-tvzf"])
 		.arg(tarball)
+		.env("LC_ALL", "C")
+		.env_remove("TAR_OPTIONS")
 		.output()
 		.map_err(|e| format!("tar list: {e}"))?;
 	if !listing.status.success() {
 		return Err("tar list failed".into());
 	}
-	let prefix_slash = format!("{prefix}/");
-	for line in String::from_utf8_lossy(&listing.stdout).lines() {
-		if line.is_empty() {
-			continue;
-		}
-		let kind = line.as_bytes()[0];
-		let name = tar_tv_name(line);
-		if name != prefix && !name.starts_with(&prefix_slash) {
-			continue;
-		}
-		if name.starts_with('/') || name.split('/').any(|p| p == "..") {
-			hard_fail(&format!("refusing unsafe tar member: {name}"));
-		}
-		if kind == b'l' || kind == b'h' {
-			hard_fail(&format!("refusing link tar member: {name}"));
-		}
+	if let Some(violation) =
+		archive_hygiene::listing_violation(&String::from_utf8_lossy(&listing.stdout), prefix)
+	{
+		hard_fail(&violation);
 	}
 	let status = Command::new("tar")
 		.args(["-xzf"])
@@ -474,22 +469,12 @@ fn safe_extract_prefix(tarball: &Path, stage: &Path, prefix: &str) -> Result<(),
 		.arg(stage)
 		.arg("--no-same-owner")
 		.arg(prefix)
+		.env("LC_ALL", "C")
+		.env_remove("TAR_OPTIONS")
 		.status()
 		.map_err(|e| format!("tar: {e}"))?;
 	if !status.success() {
 		hard_fail("tar extract failed");
 	}
 	Ok(())
-}
-
-fn tar_tv_name(line: &str) -> String {
-	let without_link = line.split(" -> ").next().unwrap_or(line);
-	let parts: Vec<&str> = without_link.split_whitespace().collect();
-	if parts.len() >= 8 {
-		parts[7..].join(" ")
-	} else if let Some(last) = parts.last() {
-		(*last).to_string()
-	} else {
-		String::new()
-	}
 }

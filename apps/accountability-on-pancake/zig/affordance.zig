@@ -34,11 +34,31 @@ pub const data_root = "apps/accountability-on-pancake/.data";
 /// The single verb the Affordance answers.
 pub const invoke_verb = "invoke";
 
-/// The signed preimage that binds a caller to a request. The caller signs it; the
-/// host verifies it before attributing an Episode. Signer and host must hash the
-/// same bytes, so the form is fixed here.
-pub fn attestation(buf: []u8, request: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "invoke|{s}", .{request}) catch unreachable;
+/// The signed preimage that binds a caller to the subject it claims and to the
+/// request it is making. The caller signs it; the host verifies it before
+/// attributing an Episode. Signer and host must hash the same bytes, so the form
+/// is fixed here.
+///
+/// The subject is in the preimage because the Episode attributes it. What that
+/// buys is narrow and worth stating exactly: a captured (verkey, request,
+/// signature) triple cannot be re-presented under a different AID, because the
+/// AID is part of what was signed. It does not stop a caller signing under its
+/// own key and naming an AID it does not control, which needs the caller's key
+/// event log to catch.
+///
+/// The request arrives from the wire and can be as large as a frame, so the
+/// preimage is allocated rather than built in a fixed buffer. Callers pass a
+/// scratch allocator; the host passes its turn arena.
+/// The subject is a fixed-width AID rather than a slice, so the two fields
+/// cannot run together. With both unbounded, `("a|b", "c")` and `("a", "b|c")`
+/// would sign identical bytes; the width is what makes the split unambiguous,
+/// and it belongs here rather than in whichever caller happens to check it.
+pub fn attestation(
+    allocator: std.mem.Allocator,
+    subject: *const [identity.SAID_LEN]u8,
+    request: []const u8,
+) std.mem.Allocator.Error![]u8 {
+    return std.fmt.allocPrint(allocator, "invoke|{s}|{s}", .{ subject, request });
 }
 
 pub fn strArg(a: model.Argument) ?[]const u8 {
@@ -57,9 +77,15 @@ pub const Attestation = struct {
     /// The signature over the request preimage, base64url-no-pad (86 bytes).
     signature: [enc.calcSize(64)]u8,
 
-    pub fn sign(key: identity.Key, request: []const u8, tamper: bool) Attestation {
-        var att_buf: [512]u8 = undefined;
-        const att = attestation(&att_buf, request);
+    pub fn sign(
+        allocator: std.mem.Allocator,
+        key: identity.Key,
+        subject: *const [identity.SAID_LEN]u8,
+        request: []const u8,
+        tamper: bool,
+    ) std.mem.Allocator.Error!Attestation {
+        const att = try attestation(allocator, subject, request);
+        defer allocator.free(att);
         var sig = key.sign(att);
         if (tamper) sig[0] ^= 0xff;
 
@@ -92,12 +118,18 @@ pub const Affordance = struct {
         // malformed, not attributable. Validate before the fixed-size copy below.
         if (subject.len != identity.SAID_LEN) return error.BadInvocation;
 
-        // Attribution is attested, not trusted. Verify the caller's signature
-        // over the request against the presented verkey; refuse otherwise.
+        // Verify the caller's signature over the subject it claims and the
+        // request it is making, against the presented verkey. Because the
+        // subject is in the signed bytes, a captured signature cannot be
+        // re-presented under a different AID.
+        //
+        // What this does not prove is that the presented verkey belongs to that
+        // AID. A caller can still sign under its own key and name an AID it does
+        // not control. Catching that needs the caller's key event log, which
+        // this demo does not exchange; the README says so.
         const verkey = identity.decodeVerkey(verkey_b64) catch return error.UnattestedCaller;
         const sig = identity.decodeSig(sig_b64) catch return error.UnattestedCaller;
-        var att_buf: [512]u8 = undefined;
-        const att = attestation(&att_buf, request);
+        const att = try attestation(turn.arena, subject[0..identity.SAID_LEN], request);
         identity.verify(verkey, att, sig) catch return error.UnattestedCaller;
 
         // The capability invocation succeeds; account for it.

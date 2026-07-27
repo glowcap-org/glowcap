@@ -55,9 +55,7 @@
 //! A `Vow` is observed with `Vat.on` and has no matching `off`. A listener fires
 //! exactly once, when the vow settles or when `breakFarVows` breaks every far vow
 //! on disconnect, so there is nothing to cancel: dropping interest before a settle
-//! is the break path's job, not a listener removal. An `off(vow)` handle is the
-//! shape to add if a real timeout-or-cancel consumer ever wants one; none does
-//! today.
+//! is the break path's job, not a listener removal.
 //!
 //! The unified `Ref` can name a local actor or a far object, and a `Vow`
 //! can settle from a local turn or from a wire answer. An application sends to a
@@ -65,7 +63,7 @@
 //! focused on codecs and authority. The vat sits above it and imports the engine,
 //! never the reverse.
 //!
-//! ## Local time-travel (snapshot / restore) — opt-in, off by default
+//! ## Local time-travel (snapshot / restore)
 //!
 //! A vat can `snapshot` its local actor heap and later `restore` it, Goblins's
 //! `snapshot-whactormap` shaped in Zig (ADR-0060). Each actor's state lives behind
@@ -94,7 +92,7 @@
 //! `NotSnapshottable`, so a silent partial snapshot is impossible.
 //!
 //! Time-travel is **local only.** A snapshot captures local actor state and
-//! `next_actor`; it never touches `peer`, `exports`, far listeners, or the turn
+//! it never touches `peer`, `exports`, far listeners, or the turn
 //! arenas. A restore rewinds no remote peer, and far references in restored state
 //! are copied as data — their wire meaning is engine-owned and forward-only. Both
 //! `snapshot` and `restore` require quiescence (no turn or drive in flight, empty
@@ -173,8 +171,49 @@ pub const Message = struct {
     verb: []const u8,
     args: []const model.Argument = &.{},
 
-    pub fn arg(self: Message, i: usize) model.Argument {
+    /// What an argument accessor refuses. A handler returns these like any
+    /// other error, and the vat turns a handler error into the partner's
+    /// `op:resolve` break, so a malformed call breaks its own answer instead
+    /// of reaching the host.
+    pub const ArgError = error{ MissingArgument, WrongArgumentType };
+
+    /// The argument at `i`, or `MissingArgument`.
+    ///
+    /// Arity is the *partner's* choice: `serve` peels the leading symbol as the
+    /// verb and hands the rest through, so a deliver carrying only a verb
+    /// arrives with no arguments at all. An unchecked index on that is a safety
+    /// panic in a safe build and an out-of-bounds read otherwise, which on a
+    /// multi-session host takes down every other session with it. The typed
+    /// accessors below are shorter to write than the unwrap they replace, so
+    /// there is no cheaper wrong path left; `msg.args` is still there for a
+    /// handler that has already checked `args.len`.
+    pub fn arg(self: Message, i: usize) ArgError!model.Argument {
+        if (i >= self.args.len) return error.MissingArgument;
         return self.args[i];
+    }
+
+    /// The `bytes` argument at `i`.
+    pub fn argBytes(self: Message, i: usize) ArgError![]const u8 {
+        return switch (try self.arg(i)) {
+            .bytes => |b| b,
+            else => error.WrongArgumentType,
+        };
+    }
+
+    /// The `string` argument at `i`.
+    pub fn argString(self: Message, i: usize) ArgError![]const u8 {
+        return switch (try self.arg(i)) {
+            .string => |s| s,
+            else => error.WrongArgumentType,
+        };
+    }
+
+    /// The `integer` argument at `i`.
+    pub fn argInt(self: Message, i: usize) ArgError!i64 {
+        return switch (try self.arg(i)) {
+            .integer => |n| n,
+            else => error.WrongArgumentType,
+        };
     }
 };
 
@@ -352,7 +391,8 @@ pub const Vat = struct {
     /// connection holds nothing here; capped at `max_served_dropped_far_answers`
     /// so a stream of unclaimed drops cannot grow it without bound (past the cap
     /// a late `on` falls back to parking, the pre-guard behavior). An entry is
-    /// removed when a late `on` claims it, and the whole set frees at `deinit`.
+    /// never removed once recorded, so a retried `on` hits the same refusal
+    /// (`AlreadySettled`), and the whole set frees at `deinit`.
     served_dropped_far: std.AutoHashMapUnmanaged(model.AnswerPosition, void) = .{},
     /// Local actor id for each export position published on the peer.
     exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
@@ -415,6 +455,15 @@ pub const Vat = struct {
     /// outermost turn begins, so a moved reply stays valid for the caller until
     /// then — with no copy, since the handler already owned the bytes.
     moved_replies: std.ArrayList([]const u8) = .empty,
+    /// State boxes a `become` has swapped out of their actor, awaiting their
+    /// last reference to drop. Held to the same boundary as `moved_replies`,
+    /// and for the same reason: a handler may return a reply that borrows the
+    /// state it ran as, and that reply stays valid until the vat's next
+    /// outermost turn. The frame that installs a become can sever its own
+    /// reply, but not one an *earlier* frame of the same actor already handed
+    /// back to a caller still running; that frame has closed. Freeing the box
+    /// here instead of at the install makes both replies outlive it.
+    retired_boxes: std.ArrayList(*boxed.StateBox) = .empty,
 
     const Queued = struct { target: u64, msg: Message, vow: u64 };
 
@@ -463,6 +512,8 @@ pub const Vat = struct {
         self.exports.deinit(self.allocator);
         turn_mod.drainMovedReplies(self);
         self.moved_replies.deinit(self.allocator);
+        turn_mod.drainRetiredBoxes(self);
+        self.retired_boxes.deinit(self.allocator);
         self.turn_arena.deinit();
         self.queue_arena.deinit();
         self.settle_arena.deinit();
@@ -490,9 +541,15 @@ pub const Vat = struct {
     /// consumed on every outcome: on failure its resources are reclaimed
     /// through the state's `deinit`, so the caller never frees it.
     pub fn spawn(self: *Vat, comptime Behavior: type, initial: Behavior) Error!Ref {
-        const box = try boxed.makeBox(self, Behavior, initial);
-        errdefer releaseBox(self.allocator, box);
+        return self.registerBox(try boxed.makeBox(self, Behavior, initial));
+    }
 
+    /// Enroll a freshly minted `box` as the next actor and return its local ref.
+    /// The one registration tail `spawn` and `spawnHosted` share; it adopts the
+    /// box (releasing it if the table insert fails, so the caller never frees a
+    /// box it handed over).
+    fn registerBox(self: *Vat, box: *StateBox) Error!Ref {
+        errdefer releaseBox(self.allocator, box);
         const id = self.next_actor;
         try self.actors.put(self.allocator, id, .{ .box = box });
         self.next_actor += 1;
@@ -510,13 +567,7 @@ pub const Vat = struct {
     /// double-frees. The box carries no `clone`, so a vat holding a hosted actor
     /// is not snapshottable (`snapshot` returns `NotSnapshottable`).
     pub fn spawnHosted(self: *Vat, hosted: HostedActor) Error!Ref {
-        const box = try boxed.makeHostedBox(self, hosted);
-        errdefer releaseBox(self.allocator, box);
-
-        const id = self.next_actor;
-        try self.actors.put(self.allocator, id, .{ .box = box });
-        self.next_actor += 1;
-        return .{ .local = id };
+        return self.registerBox(try boxed.makeHostedBox(self, hosted));
     }
 
     /// The synchronous near-call (`$`): run `target`'s handler now and return its
@@ -541,13 +592,19 @@ pub const Vat = struct {
     pub fn send(self: *Vat, target: Ref, msg: Message) Error!Vow {
         switch (target) {
             .local => |id| return .{ .local = try self.enqueueLocal(id, msg) },
-            .far => |far_ref| {
-                const peer = self.peer orelse return Error.NotConnected;
-                const answer = model.AnswerPosition.from(peer.allocateAnswer());
-                try self.farDeliver(far_ref, msg, answer);
-                return .{ .far = answer };
-            },
+            .far => |far_ref| return self.sendFarTo(.{ .far = far_ref }, msg),
         }
+    }
+
+    /// Mint an answer, put one answer-requesting far `op:deliver` to `target` on
+    /// the wire, and return the `.far` Vow for its result. The spine `send`'s far
+    /// arm (a settled far ref) and `sendToAnswer` (a pending answer) share, differing
+    /// only in the wire `target`.
+    fn sendFarTo(self: *Vat, target: model.Reference, msg: Message) Error!Vow {
+        const peer = self.peer orelse return Error.NotConnected;
+        const answer = model.AnswerPosition.from(peer.allocateAnswer());
+        try self.farDeliverTo(target, msg, answer);
+        return .{ .far = answer };
     }
 
     /// Promise pipelining (the questioner half of ADR-0007): eventual-send `msg`
@@ -564,10 +621,7 @@ pub const Vat = struct {
     /// bound. The empty-path target rides the engine's flat `desc:answer` send;
     /// a multi-hop path is the engine's decomposition concern, not this surface.
     pub fn sendToAnswer(self: *Vat, answer_pos: model.AnswerPosition, msg: Message) Error!Vow {
-        const peer = self.peer orelse return Error.NotConnected;
-        const answer = model.AnswerPosition.from(peer.allocateAnswer());
-        try self.farDeliverTo(.{ .promise = .{ .answer_position = answer_pos } }, msg, answer);
-        return .{ .far = answer };
+        return self.sendFarTo(.{ .promise = .{ .answer_position = answer_pos } }, msg);
     }
 
     /// The fire-and-forget eventual-send (Goblins `<-np`): like `send`, but it
@@ -808,7 +862,7 @@ pub const Vat = struct {
     /// `become`-frees that state under the borrow. So the one argument is
     /// cloned into the vat's queue arena: `settleLocal` runs only inside
     /// `drive` (`drive_depth >= 1`), and that arena resets only when the
-    /// *outermost* drive has fully drained — which cannot happen while this
+    /// *outermost* drive has fully drained, which cannot happen while this
     /// listener is still on the outermost drive's stack — so the clone
     /// outlives the listener call with no gpa traffic and no per-settle free.
     /// A broken resolution carries `@errorName`'s static string, which no

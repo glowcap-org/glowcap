@@ -5,7 +5,7 @@
 // Rust (cargo) when each is on PATH. Each agent
 // proves the capability trio (delegation, attenuation, revocation) over an OCapN session on the `tcp` netlayer.
 // The coordinator and the agent are different languages on the wire, so the
-// capability passing, attenuation, and revocation are real, not in-process.
+// capability passing, attenuation, and revocation cross a real wire.
 //
 // Run by `zig build demo-tools`, which passes the built Zig agent's path as argv[0].
 // `--port=N` (from `-Dport`) pins the coordinator's port instead of an ephemeral

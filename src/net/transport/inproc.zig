@@ -1,17 +1,14 @@
 //! The in-process netlayer (`inproc`): a second resident behind the netlayer
 //! contract, with no sockets at all.
 //!
-//! With only tcp behind it, the [netlayer contract](netlayer.zig) could have
-//! been accidentally socket-shaped; this resident proves it is not. A
-//! `Network` is a switchboard: a listener binds to a designator, a dialer names
-//! that designator, and the two are wired by a pair of in-process byte pipes —
-//! one per direction — exposed as the same `*std.Io.Reader` / `*std.Io.Writer`
-//! pair tcp produces. The driver dials and hosts it through the identical
-//! `connectVia` / `acceptVia` path, with the same verified keyed handshake, and
-//! nothing in the driver or core knows which transport it got. Two genuinely
-//! different residents (tcp and inproc) are the shape that generalizes: the
-//! QUIC/iroh resident (ADR-0055) registered as the third the same way, without
-//! re-privileging any of them.
+//! A `Network` is a switchboard. A listener binds to a designator, a dialer
+//! names that designator, and the two are wired by a pair of in-process byte
+//! pipes, one per direction, exposed as the same `*std.Io.Reader` /
+//! `*std.Io.Writer` pair every other resident produces. The driver dials and
+//! hosts it through the identical `connectVia` / `acceptVia` path, with the same
+//! verified keyed handshake, and nothing in the driver or core knows which
+//! transport it got. That is what the netlayer contract (`../netlayer.zig`)
+//! buys: a resident with no sockets in it satisfies the contract unchanged.
 //!
 //! This transport is for in-process testing and mocking: a full OCapN
 //! conversation between two peers in one program, with no kernel transport and no
@@ -28,7 +25,7 @@
 //! backs the conversation (a threaded backend blocks the thread; a fiber backend
 //! yields). The two places a vtable callback runs without an `io` in hand — the
 //! transport-handle `close` and the listener `close` — use a tiny non-blocking
-//! spinlock (`std.atomic.Mutex`) over short critical sections only (a refcount, a
+//! spinlock (`net.sync.SpinLock`) over short critical sections only (a refcount, a
 //! map removal), never to wait.
 
 const std = @import("std");
@@ -42,18 +39,7 @@ const frame_stream = @import("../frame_stream.zig");
 
 const Io = std.Io;
 
-/// A non-blocking spinlock for the short critical sections reached from vtable
-/// `close` callbacks, which have no `io` to drive an `Io.Mutex`. Held only across
-/// a refcount decrement or a hash-map removal, never across a wait.
-const SpinLock = struct {
-    inner: std.atomic.Mutex = .unlocked,
-    fn lock(self: *SpinLock) void {
-        while (!self.inner.tryLock()) std.atomic.spinLoopHint();
-    }
-    fn unlock(self: *SpinLock) void {
-        self.inner.unlock();
-    }
-};
+const SpinLock = @import("../sync.zig").SpinLock;
 const Connection = connection.Connection;
 const Netlayer = netlayer.Netlayer;
 const Listener = netlayer.Listener;
@@ -381,7 +367,7 @@ pub const Network = struct {
 
     /// Drop a dial's pin on `listener` and wake a `listenerClose` parked on
     /// it. The decrement happens under the network lock (the counter's guard)
-    /// while the listener mutex is held, so the close path — which rechecks
+    /// while the listener mutex is held, so the close path, which rechecks
     /// the counter under both — cannot free the listener until this returns.
     fn releaseDial(self: *Network, listener: *InprocListener) void {
         const io = self.io;
@@ -607,11 +593,7 @@ fn dialsPinned(self: *InprocListener) bool {
 
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
-    // The contract forbids truncation: a partial designator is not a dialable
-    // address, so an `out` too small yields the empty defect slice instead.
-    if (out.len < self.designator.len) return out[0..0];
-    @memcpy(out[0..self.designator.len], self.designator);
-    return out[0..self.designator.len];
+    return netlayer.writeDesignator(out, self.designator);
 }
 
 fn listenerClose(ctx: *anyopaque) void {

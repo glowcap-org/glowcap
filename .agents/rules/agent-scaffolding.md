@@ -114,6 +114,31 @@ standard is worth keeping, this rule and the gate are where it keeps, expressed
 as a consequence an agent can act on, never as a name an agent is asked to
 impersonate.
 
+**A commit message is a committed file, and it is the one this rule keeps
+losing.** History carries persona slugs, skill names, review-loop vocabulary,
+and engineering-taste proper names in dozens of subjects, where a stranger reads
+them as either name-dropping or an internal code name. No build step can reach a
+message — it is immutable by the time any gate runs — so the discipline is the
+only thing holding it:
+
+- **Keep it short.** A subject line under about 70 characters, then a body only
+  when the *why* is not obvious from the diff. One paragraph is the normal size;
+  three is the ceiling, and reaching it should feel like a decision. The bar is
+  what a maintainer writes at the end of a working day, not a report. If the
+  change genuinely needs more explanation than that, it needs an ADR, and the
+  message should link to it instead. No gate can hold this, so it is on you.
+- A message says what changed and why. It never says which lens, persona, skill,
+  or review pass produced it. `git log` is the project's record, not the
+  session's.
+- A message asserts only what its own diff demonstrates. A claim about
+  pre-existing code — "this also fixes a bug where X" — quotes the pre-image from
+  `git show <sha>^:<path>` before it is written. A remembered line is not
+  evidence, and a fabricated defect in the permanent record is worse than the
+  defect would have been.
+- Paths, symbols, and shas in a message are read back off the diff, never from
+  the plan that preceded it. A plan that said `foundation/sync.zig` does not make
+  it true when the diff created `net/sync.zig`.
+
 ## Scaffolding litmus
 
 Before changing the scaffolding, ask:

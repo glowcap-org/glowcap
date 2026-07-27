@@ -33,6 +33,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
 use crate::abi_constants::{DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS};
+use crate::session::HANDSHAKE_TIMEOUT;
 use crate::sys::iroh as ffi;
 use crate::{sys, Error, Host, Reachability, Result, Session};
 
@@ -285,11 +286,17 @@ fn try_dial(netlayer: *mut PancakeIrohNetlayer, node_id: &str, hints: &str) -> R
 // read — the teardown hazard the thread-per-connection path had.
 struct ConnPtr(*mut PancakeIrohConn);
 
-// The pointer is single-owner (one `IrohStream`); it is held behind an `Arc` only
-// so the readiness loop can address the connection by its handle value, never
-// dereferenced from another thread.
+// SAFETY: `Send` is required — an `IrohStream` moves between threads (the relay
+// pumps one inside `tokio::spawn` tasks on a multithreaded runtime), so
+// `pancake_iroh_conn_try_read`/`try_write` run on whichever thread polls it and
+// `Drop`'s `pancake_iroh_conn_release` on whichever thread drops it, not the
+// thread that dialed. That FFI use is defined because the sidecar connection is
+// internally synchronized (mutex-guarded stream state over iroh's `Send + Sync`
+// connection), and the pointer is single-owner (one `IrohStream` field), so the
+// release runs exactly once. Not `Sync`: no `&ConnPtr` is ever shared across
+// threads — the loop addresses the connection by its `key: usize`, never
+// through this pointer.
 unsafe impl Send for ConnPtr {}
-unsafe impl Sync for ConnPtr {}
 
 impl Drop for ConnPtr {
 	fn drop(&mut self) {
@@ -532,7 +539,7 @@ fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut Vec<W
 /// (`owns_loop`) stops its own loop and releases its ephemeral endpoint; an
 /// accepted stream just leaves the server's loop and releases its connection.
 pub struct IrohStream {
-	conn: Arc<ConnPtr>,
+	conn: ConnPtr,
 	key: usize,
 	iloop: Arc<IrohLoop>,
 	owns_loop: bool,
@@ -549,7 +556,7 @@ impl IrohStream {
 		owns_loop: bool,
 	) -> IrohStream {
 		IrohStream {
-			conn: Arc::new(ConnPtr(conn)),
+			conn: ConnPtr(conn),
 			key: conn as usize,
 			iloop,
 			owns_loop,
@@ -787,17 +794,32 @@ impl IrohServer {
 	/// handshake and signing this endpoint's id as the locator designator. The
 	/// byte-fed pump carries the session over the accepted stream exactly as over
 	/// TCP.
+	///
+	/// The sidecar bounds only the QUIC stream open, so a partner that opens its
+	/// stream and then says nothing would park this inline handshake and every
+	/// later dial behind it; [`HANDSHAKE_TIMEOUT`] bounds the handshake itself.
+	/// A partner that fails it or overruns the bound is that session's failure,
+	/// never the listener's, so it is skipped and the next dial is served. The
+	/// error this returns is the endpoint's own — it closed.
 	pub async fn accept(&self) -> Result<Session> {
 		let node_id = self.node_id().to_string();
-		let stream = self.accept_stream().await?;
-		Session::establish_accepted(
-			self.host.shared(),
-			crate::abi_constants::TRANSPORT_IROH,
-			&node_id,
-			stream,
-			"",
-		)
-		.await
+		loop {
+			let stream = self.accept_stream().await?;
+			// A failed or timed-out handshake closes the transport, which
+			// unregisters the connection from this server's loop and releases it.
+			if let Ok(session) = Session::establish_accepted(
+				self.host.shared(),
+				crate::abi_constants::TRANSPORT_IROH,
+				&node_id,
+				stream,
+				"",
+				Some(HANDSHAKE_TIMEOUT),
+			)
+			.await
+			{
+				return Ok(session);
+			}
+		}
 	}
 
 	/// Wait (on the readiness loop, never a parked thread) for the next dial and
@@ -881,11 +903,17 @@ impl Session {
 	/// Binding-internal Host-keyed iroh dial behind [`connect`](crate::connect)
 	/// and handoff redeem. Application code uses
 	/// `connect(locator, Some(reachability), Some(host))`.
+	///
+	/// `handshake_timeout` bounds the OCapN handshake only. The dial-by-id
+	/// budget above it (a `Discovery` posture retries while the exporter's
+	/// pkarr record propagates, ADR-0082) is already spent by the time the
+	/// stream exists, so a slow discovery never eats the handshake's bound.
 	pub(crate) async fn connect_iroh_with_host(
 		node_id: &str,
 		direct_addresses: &str,
 		reachability: Reachability,
 		host: Host,
+		handshake_timeout: Option<std::time::Duration>,
 	) -> Result<Session> {
 		let stream = IrohStream::connect(node_id, direct_addresses, reachability).await?;
 		Session::establish_dialed_locator(
@@ -893,6 +921,7 @@ impl Session {
 			crate::abi_constants::TRANSPORT_IROH,
 			node_id,
 			stream,
+			handshake_timeout,
 		)
 		.await
 	}

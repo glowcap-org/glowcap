@@ -31,10 +31,7 @@ const c = @import("c_abi");
 const cd = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 
-pub const Output = struct {
-    path: []const u8,
-    generate: *const fn (std.mem.Allocator) anyerror![]u8,
-};
+const Output = @import("output").Output;
 
 pub const step_name = "gen-binding-ffi-layouts";
 

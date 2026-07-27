@@ -36,7 +36,6 @@ const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void",
 	U64 = "u64";
 
 export const driverS = lazySymbols(() => libPath("pancake_driver"), {
@@ -48,7 +47,7 @@ export const driverS = lazySymbols(() => libPath("pancake_driver"), {
 		result: I,
 		outBuffers: [7],
 	},
-	pancake_host_release: { parameters: [P], result: V },
+	pancake_host_release: { parameters: [P], result: I },
 	pancake_host_designator_from_seed: { parameters: [B, U, B, U], result: I, outBuffers: [2] },
 	pancake_host_set_self_designator: { parameters: [P, B, U], result: I, outBuffers: [] },
 	pancake_host_set_session_limits: { parameters: [P, U, U], result: I },
@@ -71,8 +70,8 @@ export const driverS = lazySymbols(() => libPath("pancake_driver"), {
 	pancake_host_pending_dial: { parameters: [P, U64, B], result: I, outBuffers: [2] },
 	pancake_host_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	pancake_host_plan_accept: { parameters: [B, U, B, U, B, U, B], result: I, outBuffers: [6] },
-	pancake_host_session_release: { parameters: [P], result: V },
-	pancake_host_session_session_open: { parameters: [P], result: I },
+	pancake_host_session_release: { parameters: [P], result: I },
+	pancake_host_session_is_open: { parameters: [P], result: I },
 	// The byte pump and action queue. The fed chunk (index 1) is input-only:
 	// the annotation is what keeps the wasm boundary at one copy-in per feed
 	// with no full-chunk copy-back.

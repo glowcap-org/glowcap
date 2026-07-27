@@ -47,7 +47,7 @@ mod session;
 #[cfg(feature = "async")]
 mod session_shared;
 #[cfg(feature = "async")]
-pub use session::Session;
+pub use session::{Redeemed, Session, HANDSHAKE_TIMEOUT};
 #[cfg(feature = "async")]
 pub use session_shared::{Caretaker, Ref};
 #[cfg(feature = "async")]
@@ -89,9 +89,11 @@ mod host_action_gen;
 // feature the dialer still takes the reachability argument — so an `async` consumer's call
 // site never changes when iroh is turned on — and an `iroh` locator fails with a
 // rebuild hint instead of dialing. A tcp-only consumer therefore never links the
-// iroh companion library, yet writes the same call as an iroh-enabled one.
+// iroh companion library, yet writes the same call as an iroh-enabled one. Both
+// dialers bound the OCapN handshake; `connect_with_timeout` is the one that
+// lets the caller name the budget.
 #[cfg(feature = "async")]
-pub use dial::{connect, Reachability};
+pub use dial::{connect, connect_with_timeout, Reachability};
 #[cfg(feature = "iroh")]
 pub use iroh::{listen_iroh, listen_iroh_with_seed, IrohServer};
 
@@ -221,6 +223,10 @@ pub enum ErrorKind {
 	/// A caller-provided output buffer was too small
 	/// (`PANCAKE_ERR_BUFFER_TOO_SMALL`).
 	BufferTooSmall,
+	/// A caller-set deadline elapsed (`PANCAKE_ERR_TIMEOUT`): the handshake or a
+	/// blocking answer-wait ran out its budget. Nothing failed on the wire, so a
+	/// retry with a longer budget is a reasonable response.
+	TimedOut,
 	/// Any other code with no named family (unknown or retired). The raw
 	/// [`code`](Error::code) is preserved.
 	Other(i32),
@@ -262,6 +268,7 @@ impl Error {
 			sys::ERR_BROKEN => ErrorKind::Broken,
 			sys::ERR_NOT_FOUND => ErrorKind::NotFound,
 			sys::ERR_BUFFER_TOO_SMALL => ErrorKind::BufferTooSmall,
+			sys::ERR_TIMEOUT => ErrorKind::TimedOut,
 			other => ErrorKind::Other(other),
 		}
 	}
@@ -489,6 +496,44 @@ impl Reference {
 	/// The common case: call a partner object you hold as import `id`.
 	pub fn far(id: u64) -> Reference {
 		Reference::Far { id, promise: false }
+	}
+}
+
+/// The wire identity a capability in hand takes: a local `Near` export or a
+/// partner-held `Far` token. These are the only two shapes a [`Ref`] holds. A
+/// pipeline promise is a [`RemotePromise`], and a sturdyref or broken reference
+/// arrives as a plain wire value, so those three [`Reference`] variants are
+/// unconstructible here. This mirrors the Python binding's `Near | Far` and
+/// makes a `Ref`'s `near`/`far` views total: exactly one is set.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LiveRef {
+	/// A local export this session hosts.
+	Near { id: u64, promise: bool },
+	/// A partner-held capability this host holds.
+	Far { id: u64, promise: bool },
+}
+
+impl LiveRef {
+	/// Widen to the full wire [`Reference`] for marshaling.
+	pub fn reference(&self) -> Reference {
+		match *self {
+			LiveRef::Near { id, promise } => Reference::Near { id, promise },
+			LiveRef::Far { id, promise } => Reference::Far { id, promise },
+		}
+	}
+}
+
+impl TryFrom<&Reference> for LiveRef {
+	type Error = ();
+
+	/// A capability is a `Near` or a `Far`; a promise, sturdyref, or broken
+	/// reference is not one, and lifts to `Err`.
+	fn try_from(r: &Reference) -> std::result::Result<LiveRef, ()> {
+		match *r {
+			Reference::Near { id, promise } => Ok(LiveRef::Near { id, promise }),
+			Reference::Far { id, promise } => Ok(LiveRef::Far { id, promise }),
+			_ => Err(()),
+		}
 	}
 }
 
@@ -936,6 +981,10 @@ mod tests {
 	// A marshalled argument round-trips through the C layout: the send arena
 	// builds the C tree over borrowed payloads and the lift copies it back into
 	// owned values, so the two halves of the boundary agree on every kind.
+	// `SendArena` and `arg_from_sys` are both behind `async`, so this rides the
+	// same feature: without it the test target does not compile at all, which
+	// makes a plain `cargo test` fail before it runs anything.
+	#[cfg(feature = "async")]
 	#[test]
 	fn arguments_round_trip_through_the_c_layout() {
 		let original = Argument::List(vec![

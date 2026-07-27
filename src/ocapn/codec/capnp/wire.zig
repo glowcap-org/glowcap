@@ -94,6 +94,9 @@ pub fn decodeStructPointer(word: u64) StructPtr {
     };
 }
 
+/// The widest element count a list pointer can carry: the wire field is 29 bits.
+pub const max_list_elements: usize = std.math.maxInt(u29);
+
 pub fn encodeListPointer(offset: i32, elem: ElementSize, count: u29) u64 {
     return @intFromEnum(PointerKind.list) |
         offsetBits(offset) |

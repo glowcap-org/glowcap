@@ -50,10 +50,6 @@ pub const Log = struct {
         try self.leaves.append(self.allocator, leaf);
     }
 
-    pub fn count(self: *const Log) usize {
-        return self.leaves.items.len;
-    }
-
     /// Recompute the Merkle root over the current leaves. An empty log has the
     /// all-zero root; a single leaf is its own root.
     pub fn root(self: *const Log) std.mem.Allocator.Error!Digest {

@@ -9,9 +9,9 @@ test "value-tree types stay within their documented size budget" {
     // element of a deliver's args (the memory rule's load-bearing-allocations
     // budget). These bounds turn that budget into a gate, a regression here is
     // the bench's printed `model_layout` numbers drifting silently.
-    try std.testing.expect(@sizeOf(model.Argument) <= 88);
-    try std.testing.expect(@sizeOf(model.Resolution) <= 96);
-    try std.testing.expect(@sizeOf(model.Reference) <= 80);
+    try std.testing.expect(@sizeOf(model.Argument) <= 40);
+    try std.testing.expect(@sizeOf(model.Resolution) <= 48);
+    try std.testing.expect(@sizeOf(model.Reference) <= 32);
 }
 
 test "CapTP versions parse and render wire strings" {

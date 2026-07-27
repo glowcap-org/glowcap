@@ -12,7 +12,7 @@
 // owns mint/handshake (`establishDialedLocator` / `establishAccepted`); this
 // module owns plan + channel open + the public `connect` dialer.
 
-import { Session } from "./session.ts";
+import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 import { Host } from "./host.ts";
 import { driverS } from "./internal/ffi/driver.ts";
 import { ensureRuntimeReady, ffi, net } from "./internal/ffi/runtime.ts";
@@ -34,6 +34,7 @@ import {
 	DIAL_REACH_DIRECT,
 	DIAL_SHAPE_HOST_PORT,
 	DIAL_SHAPE_PEER_ID,
+	DIAL_SHAPE_SIGNALING,
 	INVALID_ARGUMENT,
 } from "@pancake/abi";
 
@@ -55,6 +56,9 @@ export interface DialRequest {
 	readonly reachability?: Reachability;
 	/** The host's configured redeem reachability, used for a hint-less redeem. */
 	readonly redeemReachability: Reachability;
+	/** How long the OCapN handshake may take once the byte channel is open;
+	 * `0` or `null` waits unbounded. */
+	readonly handshakeTimeoutMs: number | null;
 }
 
 /** A resolved dial from `pancake_host_plan_dial`: language sum over the C
@@ -132,6 +136,12 @@ function planDial(
 			port: dv.getUint16(L.DIAL_PLAN_PORT_OFF, true),
 		};
 	}
+	if (shape === DIAL_SHAPE_SIGNALING) {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			`webrtc signaling dial shape ${shape} cannot be opened from a bare locator; use a handoff give`,
+		);
+	}
 	throw new PancakeError(INVALID_ARGUMENT, `unknown dial shape ${shape}`);
 }
 
@@ -188,7 +198,10 @@ function reachOf(
 }
 
 /** The one dial path. Resolve the plan in the core, then open the byte channel
- * it names and drive the keyed handshake to a ready `Session`. */
+ * it names and drive the keyed handshake to a ready `Session`. Every dial
+ * through here carries `req.handshakeTimeoutMs`: a peer that accepts the
+ * connection and never finishes the OCapN handshake costs one dial, not the
+ * caller. */
 export async function dialResolved(host: Host, req: DialRequest): Promise<Session> {
 	// `keyed-relay` names a peer by key alone with no dialable address: its byte
 	// path is a relay rendezvous, not a socket, so it bypasses the socket-dial
@@ -203,6 +216,7 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 				req.transport,
 				req.designator,
 				channel,
+				req.handshakeTimeoutMs,
 			);
 		} catch (err) {
 			channel.close();
@@ -223,6 +237,7 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 				plan.addresses,
 				reachOf(plan, req.redeemReachability),
 				host,
+				req.handshakeTimeoutMs,
 			);
 		}
 		case "host_port": {
@@ -233,6 +248,7 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 					req.transport,
 					req.designator,
 					tcp,
+					req.handshakeTimeoutMs,
 				);
 			} catch (err) {
 				tcp.close();
@@ -253,6 +269,7 @@ export async function dialParsedLocator(
 		reachability?: Reachability;
 		redeem?: boolean;
 		codec?: Codec;
+		handshakeTimeoutMs?: number | null;
 	} = {},
 ): Promise<Session> {
 	const redeem = opts.redeem ?? false;
@@ -275,13 +292,18 @@ export async function dialParsedLocator(
 		redeem,
 		reachability: opts.reachability,
 		redeemReachability: dialHost.redeemReachability,
+		handshakeTimeoutMs: opts.handshakeTimeoutMs === undefined
+			? HANDSHAKE_TIMEOUT_MS
+			: opts.handshakeTimeoutMs,
 	});
 }
 
 /** Dial an exporter a DIAL action names, keyed with `host`'s retained
  * identity, and bind the result to that same host so the redeemed
  * capability and any further handoff it triggers share one identity and
- * connection table. Binding-internal: the host's action drain calls this. */
+ * connection table. An exporter that never finishes the handshake breaks the
+ * redeem on `HANDSHAKE_TIMEOUT_MS` rather than stalling the drain.
+ * Binding-internal: the host's action drain calls this. */
 export async function dialExporter(
 	transport: string,
 	designator: string,
@@ -331,12 +353,21 @@ export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
 	}
 }
 
-/** Dial a partner from its `ocapn://` locator — the one public dialer. */
+/** Dial a partner from its `ocapn://` locator — the one public dialer.
+ *
+ * `handshakeTimeoutMs` bounds the OCapN handshake once the byte channel is
+ * open, at `HANDSHAKE_TIMEOUT_MS` by default. A peer that accepts the
+ * connection and then says nothing rejects with `PancakeError` carrying
+ * `TIMEOUT` instead of parking the caller; pass `0` or `null` to wait without a
+ * bound. It does not cover opening the channel itself: a TCP connect keeps the
+ * runtime's own timeout, and an iroh dial-by-id keeps its discovery retry
+ * budget (ADR-0082) before the handshake starts. */
 export async function connect(
 	uri: string,
 	reachability?: Reachability,
 	host?: Host,
 	codec?: Codec,
+	handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 ): Promise<Session> {
 	await ensureRuntimeReady();
 	const loc = parseLocator(uri);
@@ -352,6 +383,6 @@ export async function connect(
 		loc.designator,
 		directHint,
 		host,
-		{ reachability, codec },
+		{ reachability, codec, handshakeTimeoutMs },
 	);
 }

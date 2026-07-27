@@ -52,6 +52,11 @@ class Broken:
 
 Reference: TypeAlias = Near | Far | Promise | Sturdy | Broken
 
+#: A wire reference that is not a capability in hand: a pipeline promise, a
+#: sturdyref, or a broken reference. These arrive in the application vocabulary
+#: as plain wire values, never as a :class:`Ref`.
+NonLiveReference: TypeAlias = Promise | Sturdy | Broken
+
 
 @dataclass(frozen=True)
 class Ref:
@@ -136,7 +141,7 @@ Argument: TypeAlias = int | float | bool | bytes | str | Symbol | Keyword | None
 # (the binding marshals it to/from a wire reference at the boundary), so an app
 # works with capabilities as ordinary values; this is the vocabulary the
 # application-surface `Session` speaks.
-Value: TypeAlias = "int | float | bool | bytes | str | Symbol | Keyword | None | Ref | list | Set | Tagged"
+Value: TypeAlias = "int | float | bool | bytes | str | Symbol | Keyword | None | Ref | NonLiveReference | list | Set | Tagged"
 
 # An actor: handle a ``(verb, args)`` call and return a reply (``None`` is the
 # OCapN void). ``args`` may contain :class:`Ref`s (capabilities handed to you);
@@ -161,8 +166,10 @@ def _lower_value(value):
 
 
 def _lift_value(value):
-    """Lift a wire value to the application vocabulary: a capability reference
-    becomes a :class:`Ref`, recursing into containers."""
+    """Lift a wire value to the application vocabulary: a ``Near``/``Far``
+    reference becomes a :class:`Ref`; a promise, sturdyref, or broken reference
+    is not a capability in hand, so it passes through as a plain wire value.
+    Recurses into containers."""
     if isinstance(value, Far):
         return Ref(value)
     if isinstance(value, Near):

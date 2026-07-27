@@ -1,6 +1,6 @@
 ---
 id: ADR-0009
-status: accepted
+status: superseded
 date: 2026-05-05
 tags: [
   handoff,
@@ -17,6 +17,13 @@ superseded_by: [ADR-0056]
 ---
 
 # ADR-0009 Three-party handoff substrate
+
+> **Scope of supersession.**
+> [ADR-0056](ADR-0056-vat-scoped-gift-registry.md) replaces only the
+> session-owned gift tables with the vat-scoped registry. The Syrup signing
+> domain, the `desc:sig-envelope` shape, replay rejection, and the cross-peer
+> routing design recorded here remain current, and living docs cite this
+> record for them.
 
 ## Context
 
@@ -235,8 +242,8 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 
 ## Forward compatibility
 
-The three wire shapes are final; a spec-level change reshapes the `v1_0`
-projection, not the model. A second codec inherits the decoded-field signing
+These are pancake's current `v1_0` compatibility shapes; an upstream change may
+revise that projection, not the model. A second codec inherits the decoded-field signing
 contract: it must canonicalize the signed object to the same bytes for
 verification, regardless of its own wire shape.
 

@@ -44,7 +44,7 @@ const HOST: &str = "127.0.0.1";
 /// at spawn time. `--port=N` (from `zig build rust-goblins-gift -Dport=N`) moves
 /// the pair when 22124 is taken.
 const DEFAULT_PORT: u16 = 22124;
-const RACKET: &str = "/usr/local/bin/racket";
+const RACKET: &str = "racket";
 const EXPORTER_SCRIPT: &str = "conformance/goblins-peer/racket/gift-exporter-host.rkt";
 const RECIPIENT_SCRIPT: &str = "conformance/goblins-peer/racket/gift-recipient.rkt";
 // pancake hardcodes the same swiss the exporter host registers, the way the

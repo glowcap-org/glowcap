@@ -154,6 +154,14 @@ fn runLoopCapturing(loop: *net.TcpLoop, until_closed: usize, out_err: *?anyerror
     loop.run(.{ .after_closed = until_closed }) catch |err| {
         out_err.* = err;
     };
+    // `run` returns on the close count alone, so other slots can still hold an
+    // armed recv, most often a connection the drain poke opened. `deinit`
+    // refuses to free a slot with an op in flight, because a submitted send
+    // borrows that slot's buffer until the backend retires it, so the drain
+    // belongs here on the loop-owner thread rather than at the assertion.
+    loop.closeAndDrain() catch |err| {
+        out_err.* = err;
+    };
     loop_done.store(true, .release);
 }
 

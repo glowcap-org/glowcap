@@ -21,7 +21,7 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | Quick fix in one layer                                                     | Focused rule for that surface ([rule index](.agents/README.md))                                 | `zig build test` or narrower                            |
 | Substantial feature, refactor, sweep, or release check                     | [`docs/vision.md`](docs/vision.md) + [work skill](.agents/skills/work/SKILL.md)                 | `zig build check`                                       |
-| Protocol semantics or layer boundary                                       | [architecture rule](.agents/rules/architecture.md) + [tests rule](.agents/rules/tests.md)       | `zig build oracle-check`                                |
+| Protocol semantics or layer boundary                                       | [architecture rule](.agents/rules/architecture.md) + [tests rule](.agents/rules/tests.md)       | `zig build oracle-check`, then `check-external`          |
 | Inbound parsing, length limits, or any attacker-controlled bytes           | [resilience rule](.agents/rules/resilience.md)                                                  | `zig build test` + `zig build oracle-check`             |
 | Allocation, copy, or frame ownership on the wire path                      | [memory rule](.agents/rules/memory.md)                                                          | `zig build test` (alloc and footprint budgets run here) |
 | Runtime seam — `actors`, `net`, or `driver` (`std.Io`, sockets, turn loop) | [architecture rule](.agents/rules/architecture.md) + [memory rule](.agents/rules/memory.md)     | `zig build test`                                        |
@@ -36,7 +36,7 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 **Context map** (when you need authority, not a tour):
 
 - Destination: [`docs/vision.md`](docs/vision.md)
-- Route to 1.0 and rung standings: [`docs/ladder.md`](docs/ladder.md)
+- Route to 1.0 and step standings: [`docs/ladder.md`](docs/ladder.md)
 - Concrete remaining work, ordered: [`docs/roadmap.md`](docs/roadmap.md)
 - Layer ownership: [`docs/architecture.md`](docs/architecture.md)
 - Settled decisions: [`docs/decisions/adr/`](docs/decisions/adr/)

@@ -47,7 +47,10 @@ export {
 export { Context, type ContextAllocator } from "./context.ts";
 export { Host } from "./host.ts";
 export { RemotePromise } from "./promise.ts";
-export { type Channel, currentSession, Session } from "./session.ts";
+// The handshake bound is applied inside `Session`'s establish spine, which
+// every dial and every accept path reaches; the constant is exported so a
+// caller choosing its own budget can say how it relates to the default.
+export { type Channel, currentSession, HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 export { classifyRelayTarget, connect, type RelayTarget } from "./dial.ts";
 export { KeyedTcpServer, listen, listenKeyedTcp, Server } from "./listen.ts";
 // Bun loads its FFI adapter asynchronously (its `bun:ffi` import stays off the

@@ -1,4 +1,4 @@
-//! The Goblins V1.0 resolver-callback translation (ADR-0010), end to end.
+//! The OCapN V1.0 resolver-callback translation (ADR-0010), end to end.
 //!
 //! OCapN V1.0 has no wire `op:resolve`; a promise settles through a *resolver
 //! capability* instead. The round trip lives in this one file. On the way out,
@@ -14,7 +14,6 @@
 //! session authority through it — the names say so — exactly like the engine's
 //! `pipeline` half.
 
-const codec = @import("codec");
 const model = @import("model");
 const session_mod = @import("session");
 
@@ -77,14 +76,7 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
             .wants_partial = false,
         },
     };
-    var frame = try codec.dispatch.encodeMessageForProfile(
-        peer.session_state.codec,
-        peer.allocator,
-        peer.session_state.captp_version,
-        wire,
-    );
-    errdefer frame.deinit();
-    try peer.outbound.push(peer.allocator, frame);
+    try peer.pushEncoded(wire);
 }
 
 /// Encode a semantic `Resolve` as its V1.0 resolver-callback `op:deliver`
@@ -115,14 +107,7 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
             .resolve_me_desc = null,
         },
     };
-    var frame = try codec.dispatch.encodeMessageForProfile(
-        peer.session_state.codec,
-        peer.allocator,
-        peer.session_state.captp_version,
-        wire,
-    );
-    errdefer frame.deinit();
-    try peer.outbound.push(peer.allocator, frame);
+    try peer.pushEncoded(wire);
 }
 
 /// The outcome of intercepting an inbound V1.0 deliver.

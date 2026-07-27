@@ -33,6 +33,27 @@ pub fn give() model.HandoffGive {
     };
 }
 
+/// The side name an exporter derives from `recipient_key`.
+///
+/// The byte constants above are wire-shape fixtures: a codec only has to
+/// round-trip whatever bytes it is handed, so `receiving_side` there is an
+/// arbitrary constant, and the checked-in Syrup corpus was encoded from it. An
+/// *authority* test goes through the exporter's check, which compares a receive
+/// against this derivation rather than against its own words, so it builds its
+/// receive with `receiveFromRecipient` instead.
+pub const recipient_side = blk: {
+    @setEvalBranchQuota(100_000);
+    break :blk pancake.ocapn.engine.handoff_recipient.sideName(recipient_key[0..]) catch unreachable;
+};
+
+/// `receive`, but naming the side the exporter will derive. For tests that
+/// exercise the gift registry rather than the codec.
+pub fn receiveFromRecipient() model.HandoffReceive {
+    var value = receive();
+    value.receiving_side = recipient_side[0..];
+    return value;
+}
+
 pub fn receive() model.HandoffReceive {
     return .{
         .receiving_session = receiving_session[0..],

@@ -23,6 +23,7 @@ change as the state they describe:
 - `README.md`
 - `CONTRIBUTING.md`
 - `SECURITY.md`
+- `PROVENANCE.md`
 - `docs/vision.md`
 - `docs/architecture.md`
 - `docs/ladder.md`
@@ -31,6 +32,7 @@ change as the state they describe:
 - `docs/consuming-from-c.md`
 - `docs/cli.md`
 - `docs/shipped.md`
+- `docs/stability.md`
 - `docs/boundaries.md`
 - `docs/community-review.md`
 - `docs/decisions/README.md`
@@ -44,7 +46,9 @@ change as the state they describe:
 - `examples/README.md`
 - `apps/README.md`
 - `tools/README.md`
+- `ui/README.md`
 - `bench/goblins/README.md`
+- `conformance/ocapn-findings/README.md`
 - `.devcontainer/README.md`
 - `AGENTS.md`
 - `.agents/**`
@@ -87,6 +91,11 @@ surface; do not let old plan language masquerade as current architecture.
   work it captured has shipped and its lessons live in the code, ADRs, or
   living-state docs. A snapshot is a transition, not a permanent home.
 - When an API name changes, sweep docs, tests, examples, and agent rules in the
-  same change.
+  same change. A rename that updates its target file and leaves the referrers
+  behind is the commonest drift here, and the compiler will not catch it in
+  prose: grep the old name across the tree before calling the rename done.
+- A Zig doc comment naming `Type.method` is a claim `zig build meta-check`
+  checks (`checkZigDocSymbolClaims`): the method must be declared under `src/`.
+  Fix the name or delete the claim; do not weaken the check.
 - When scaffolding topology changes, update `.agents/README.md`,
   `tools/check/meta_check.zig`, and the affected tool overlay docs together.

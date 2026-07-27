@@ -20,7 +20,7 @@ const HostAction = host_action.HostAction;
 /// `pending_flush` is the encode worklist (sessions that need
 /// `Served.driveFed`). `HostAction.flush` is a different queue by design:
 /// the embedder signal that outbound frames are ready to write.
-pub fn markDirty(self: *Host, peer_id: engine.PeerId) !void {
+fn markDirty(self: *Host, peer_id: engine.PeerId) !void {
     for (self.pending_flush.items) |queued| {
         if (queued == peer_id) return;
     }

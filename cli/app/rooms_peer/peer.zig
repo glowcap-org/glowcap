@@ -84,11 +84,29 @@ const PeerState = struct {
 
     /// Cached DM caps from `directory.introduce(nick)` (owned refs + keys).
     dm_caps: std.StringHashMapUnmanaged(model.Reference) = .{},
-    /// Nicks with an introduce in flight (owned keys).
-    pending_introduces: std.StringHashMapUnmanaged(void) = .{},
-    /// Nicks whose introduce broke. Outbox drain stops at their DM lines
-    /// without advancing the offset so reconnect can retry; cleared on reconnect.
-    failed_introduces: std.StringHashMapUnmanaged(void) = .{},
+    /// Nicks with an introduce in flight, and how many wakes are left before
+    /// the wait is abandoned (owned keys). A directory that accepts
+    /// `introduce` and never settles the vow would otherwise hold its entry
+    /// for the session's life, and the outbox drain stops at that peer's DM
+    /// lines without advancing, so every later line stops behind it — the same
+    /// stall the refusal cooldown below was added to end, one state over.
+    /// Expiry demotes to that cooldown rather than retrying at once, so an
+    /// unresponsive directory is not hammered.
+    pending_introduces: std.StringHashMapUnmanaged(u32) = .{},
+    /// Nicks whose introduce broke, and how many wakes to wait before trying
+    /// again (owned keys). The outbox drain stops at their DM lines without
+    /// advancing the offset, so nothing is dropped while the cooldown runs.
+    ///
+    /// A countdown rather than a verdict, because a negative result has no
+    /// object whose death can clear it. A capability caches the thing it names
+    /// and is repaired when that thing reports gone; a *refusal* names
+    /// something that was never there, so the only thing that can invalidate it
+    /// is a clock. This used to clear only when our own room session dropped —
+    /// which for a healthy long-lived session never happens, so a peer who was
+    /// briefly offline stayed unreachable forever, and because the drain stops
+    /// without advancing, every later line behind it stopped too, including
+    /// room posts.
+    failed_introduces: std.StringHashMapUnmanaged(u32) = .{},
 
     fn stopRequested() bool {
         return signals.stopRequested();
@@ -442,9 +460,46 @@ fn onIntroduced(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 }
 
 fn rememberFailedIntroduce(state: *PeerState, peer: []const u8) void {
-    if (state.failed_introduces.contains(peer)) return;
+    if (state.failed_introduces.getPtr(peer)) |cooldown| {
+        cooldown.* = redial_cooldown_wakes;
+        return;
+    }
     const key = state.gpa.dupe(u8, peer) catch return;
-    state.failed_introduces.put(state.gpa, key, {}) catch state.gpa.free(key);
+    state.failed_introduces.put(state.gpa, key, redial_cooldown_wakes) catch state.gpa.free(key);
+}
+
+/// How many wakes an unsettled `introduce` is waited on before the peer is
+/// moved to the refusal cooldown. A directory that answers at all answers
+/// within a wake or two; one that never answers must not pin the outbox.
+const introduce_wait_wakes: u32 = 13;
+
+/// Age every refusal, and forget the ones whose wait is over. Called once per
+/// maintained wake, before the outbox drain reads them, so a peer who has come
+/// back is retried on the same wake rather than the next one.
+fn tickFailedIntroduces(state: *PeerState) void {
+    _ = phase_mod.expireCooldowns(state.gpa, &state.failed_introduces);
+}
+
+/// Age every in-flight introduce, and give up on the ones whose wait is over.
+/// A settle that arrives later finds no pending row and is ignored, which is
+/// the same thing that happens when the room wire is cleared under it.
+fn tickPendingIntroduces(state: *PeerState) void {
+    var expired: [16][]const u8 = undefined;
+    var n: usize = 0;
+    var it = state.pending_introduces.iterator();
+    while (it.next()) |entry| {
+        if (!phase_mod.tickCooldown(entry.value_ptr)) continue;
+        if (n == expired.len) break;
+        expired[n] = entry.key_ptr.*;
+        n += 1;
+    }
+    for (expired[0..n]) |key| {
+        log.err(state.io, "introduce \"{s}\" never settled", .{key});
+        if (state.pending_introduces.fetchRemove(key)) |old| {
+            rememberFailedIntroduce(state, old.key);
+            state.gpa.free(old.key);
+        }
+    }
 }
 
 fn startIntroduce(state: *PeerState, peer: []const u8) void {
@@ -459,7 +514,7 @@ fn startIntroduce(state: *PeerState, peer: []const u8) void {
         state.gpa.free(map_key);
         return;
     };
-    state.pending_introduces.put(state.gpa, map_key, {}) catch {
+    state.pending_introduces.put(state.gpa, map_key, introduce_wait_wakes) catch {
         state.gpa.free(map_key);
         state.gpa.free(ctx_peer);
         return;
@@ -533,8 +588,9 @@ fn drainOutbox(state: *PeerState) void {
                     continue;
                 }
                 if (state.failed_introduces.contains(parsed.peer)) {
-                    // Do not advance: dropping the line made DMs vanish across
-                    // reconnect (failed_introduces clears on clearDmTables).
+                    // Do not advance: dropping the line would make the DM
+                    // vanish. The refusal ages out on its own, so this stops
+                    // for a cooldown rather than until the room session drops.
                     log.err(state.io, "dm outbox blocked: introduce failed for {s} (retry after reconnect)", .{parsed.peer});
                     break;
                 }
@@ -574,8 +630,14 @@ fn drainOutbox(state: *PeerState) void {
 }
 
 fn commitOutboxOffset(state: *PeerState, pos: usize) void {
+    // Disk first. A cursor that did not persist must not advance in memory
+    // either, or a restart resends every line since it — silently, and long
+    // after the write that failed. One duplicate now beats a replay later.
+    saveOutboxOffset(state.io, state.dir, pos) catch {
+        log.err(state.io, "outbox cursor not persisted at {d}; holding at {d}", .{ pos, g_offset });
+        return;
+    };
     g_offset = pos;
-    saveOutboxOffset(state.io, state.dir, pos);
 }
 
 /// Why `flushBridge` was called — outbox paths fail closed on `ReenteredHost`.
@@ -682,6 +744,8 @@ fn maintain(state: *PeerState) void {
                 },
                 .registered => {},
             }
+            tickPendingIntroduces(state);
+            tickFailedIntroduces(state);
             drainOutbox(state);
             _ = flushBridge(state, .maintain);
         },
@@ -936,9 +1000,16 @@ fn runStack(
     };
 
     while (!PeerState.stopRequested()) {
-        loop.runUntil(&g_wake, 0) catch |err| {
-            loop.closeAndDrain() catch {};
-            return err;
+        // Bounded poll, not `0`. A zero deadline polls forever, and the pacer
+        // sets `g_wake` from another thread without waking this loop's poll, so
+        // a quiet room would never re-read the stop flag and the daemon would
+        // sit through its SIGTERM grace. A timeout is an ordinary tick.
+        loop.runUntil(&g_wake, timer_ms) catch |err| switch (err) {
+            error.Timeout => {},
+            else => {
+                loop.closeAndDrain() catch {};
+                return err;
+            },
         };
         g_wake.store(false, .release);
         maintain(&state);

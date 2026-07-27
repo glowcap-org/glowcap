@@ -7,7 +7,7 @@
 //! session it opens, so an exporter verifies a `desc:handoff-receive` against
 //! one key), the set of `engine.Peer`s it routes between (keyed by an integer
 //! `peer_id`), one shared
-//! `engine.bootstrap.GiftRegistry` ([ADR-0056](../../../docs/decisions/adr/ADR-0056-vat-scoped-gift-registry.md))
+//! `engine.bootstrap.GiftRegistry` (ADR-0056)
 //! so a deposit on a gifter session meets a withdraw on the recipient session,
 //! and the two routing tables that make three-party handoff transparent: the
 //! `redeemed` map from a synthetic far token to the exporter session that
@@ -19,7 +19,7 @@
 //! its own transport and async loop, registers each live session's peer with
 //! the node, feeds the peer the bytes it reads, drains the bytes the peer
 //! produces, and asks the node to route sends. Every route value is an integer
-//! `peer_id` or owned bytes, so the router is pure data — which is exactly why it
+//! `peer_id` or owned bytes, so the router is pure data, which is exactly why it
 //! lives here in the sync, no-I/O engine core (not the I/O-bearing driver layer)
 //! instead of being reimplemented per binding, and why the sans-io
 //! `libpancake_ocapn` archive can project it (ADR-0066). The vat (turn loop,
@@ -133,17 +133,15 @@ pub const Node = struct {
     /// standardizes (retiring the per-binding `Ref.home` field).
     pub const REDEEMED_TOKEN_BASE: u64 = session_mod.REDEEMED_TOKEN_BASE;
 
-    /// The session's virtual inbound-answer floor, re-exported beside the token
-    /// base so an embedder minting its own synthetic id range can assert, at
-    /// comptime, that the reserved ranges stay disjoint without reaching into
-    /// the session layer.
-    pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = session_mod.VIRTUAL_INBOUND_ANSWER_BASE;
-
     allocator: std.mem.Allocator,
-    /// The retained 32-byte node identity, reused for every CapTP session this
-    /// node opens so an exporter verifies a `desc:handoff-receive` (and a gifter's
-    /// `desc:handoff-give` signature) against the one key it saw.
-    seed: [crypto.SEED_BYTES]u8,
+    /// The node's session identity, expanded once at construction and reused for
+    /// every CapTP session this node opens, so an exporter verifies a
+    /// `desc:handoff-receive` (and a gifter's `desc:handoff-give` signature)
+    /// against the one key it saw. Expanding it is a scalar multiplication and
+    /// the connect path asks for it twice per dial, so it is held rather than
+    /// derived. `SecretKey.seed` recovers the 32 bytes it was built from; they
+    /// are not stored twice.
+    secret: crypto.SecretKey,
     /// One deposited-gift / handoff-count authority shared across every peer this
     /// node registers, so an exporter's deposit (on the gifter session) and
     /// withdraw (on the recipient session) resolve against the same table.
@@ -211,7 +209,7 @@ pub const Node = struct {
     /// seed is the node's stable session identity; draw it at the embedder's I/O
     /// boundary (the sans-io core never generates entropy) and pass it here.
     pub fn init(allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8) Node {
-        return .{ .allocator = allocator, .seed = seed };
+        return .{ .allocator = allocator, .secret = crypto.SecretKey.fromSeed(seed) };
     }
 
     /// Tear down the node: free every registered peer, the routing tables (and
@@ -454,7 +452,7 @@ pub const Node = struct {
     /// reference forwards to `exporter_peer` with `reference` (the real
     /// exporter-side ref) swapped in. The node adopts a clone of `reference`; the
     /// caller keeps its own. The caller reserves one slot in `redeemed` first, so
-    /// the only fallible step here is the clone — which commits nothing on
+    /// the only fallible step here is the clone, which commits nothing on
     /// failure. Without that, a plain `put` failing after the clone would leave a
     /// half-committed row and a bumped token behind a returned error.
     fn enrollRedeemed(self: *Node, exporter_peer: PeerId, reference: model.Reference) !model.Reference {
@@ -627,7 +625,7 @@ pub const Node = struct {
     /// the introducer and the direct connection and verifies a
     /// `desc:handoff-receive` against it.
     pub fn secretKey(self: *const Node) crypto.SecretKey {
-        return crypto.SecretKey.fromSeed(self.seed);
+        return self.secret;
     }
 
     // ── The serve step: the sans-io redeem state machine ─────────────────────

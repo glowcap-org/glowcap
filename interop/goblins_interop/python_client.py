@@ -26,7 +26,7 @@ from pancake import connect, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-interop", 22097)
-RACKET = "/usr/local/bin/racket"
+RACKET = "racket"
 HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt"
 
 

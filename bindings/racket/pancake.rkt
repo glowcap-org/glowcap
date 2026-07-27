@@ -53,9 +53,9 @@
 ;; keeps the full prefix so the application-surface close reads distinctly from
 ;; the netlayer's `endpoint-release!`. The Goblins verbs (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`)
 ;; are unchanged, you use them through the session's vat.
-(provide (struct-out session)
-         (struct-out server)
+(provide (struct-out server)
          connect listen accept server-port server-close! server-host
+         HANDSHAKE-TIMEOUT-MS
          listen-keyed-tcp keyed-tcp-server-port keyed-tcp-server-uri
          keyed-tcp-server-accept keyed-tcp-server-close!
          keyed-tcp-server-host keyed-tcp-server-designator
@@ -67,7 +67,8 @@
          host-redeem-reachability-value set-host-redeem-reachability!
          designator-from-seed
          session-vat session-async session-host session-spawn session-publish
-         session-fetch session-enliven session-send session-send-promise session-await
+         session-fetch session-enliven session-send session-send-redeeming
+         session-send-promise session-await
          session-index session-untag session-get session-serve session-tell session-close!
          session-with-gc! session-caretaker session-attenuate session-revoke!
          TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-INPROC TRANSPORT-IROH
@@ -81,9 +82,13 @@
 ;; reaches a transport through its companion module's own surface, and the raw
 ;; FFI stays private to the binding. The companion that drives a live session
 ;; (iroh) constructs an `async-transport` over its own FFI and hands it to
-;; `establish-dialed-locator-session` / `establish-accepted-session`, which mint
+;; `establish-dialed-locator-session` / `accept-next-session`, which mint
 ;; the host session, drive the keyed handshake byte-fed, and return a ready
-;; `session`. The explicit netlayer companions (tcp, inproc) reuse
+;; `session`; both bound that handshake at `HANDSHAKE-TIMEOUT-MS` unless the
+;; companion hands them its own budget. A hosting companion goes through
+;; `accept-next-session` so it inherits the one accept rule (bounded handshake,
+;; skip a bad partner) rather than calling `establish-accepted-session` itself.
+;; The explicit netlayer companions (tcp, inproc) reuse
 ;; `check-with` to raise the same typed `exn:fail:pancake` from their own
 ;; last-error reader, `pin-immobile` to pin borrowed byte inputs, and
 ;; `codec-id` to spell a codec symbol. The cstruct and managed-frame release
@@ -91,7 +96,7 @@
 (module* seam #f
   (provide (struct-out async-transport) make-fresh-host make-host
            establish-dialed-locator-session
-           establish-accepted-session
+           establish-accepted-session accept-next-session HANDSHAKE-TIMEOUT-MS
            host-set-self-designator! host-set-session-limits! format-peer-uri
            check check-with read-last-error raise-pancake bytes<-c codec-id
            pin-immobile

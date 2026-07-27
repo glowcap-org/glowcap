@@ -9,7 +9,6 @@ const help_mod = @import("help.zig");
 pub const help = help_mod;
 pub const completion = @import("completion.zig");
 
-pub const FlagKind = types.FlagKind;
 pub const Flag = types.Flag;
 pub const Positional = types.Positional;
 pub const Parsed = types.Parsed;
@@ -19,20 +18,17 @@ fn isHelpFlag(a: []const u8) bool {
     return std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help");
 }
 
+/// Does this argument read as a flag rather than a value?
+///
+/// A lone `-` is the conventional stand-in for stdin, so it counts as a value.
+/// Everything else starting with a dash is a flag, including where a value was
+/// expected. `pancake --identity --json init` used to read `--json` as the
+/// identity path: it wrote a key to a file literally called `--json`, left a
+/// `--json.lock` beside it, silently dropped the flag the user did write, and
+/// exited zero. A value that genuinely begins with a dash is still reachable
+/// through `--flag=value`, which cannot be misread.
 fn looksLikeFlag(a: []const u8) bool {
     return std.mem.startsWith(u8, a, "-") and !std.mem.eql(u8, a, "-");
-}
-
-fn collectPersistent(path: []const *const Command, buf: *[48]Flag, n: *usize) void {
-    n.* = 0;
-    for (path) |cmd| {
-        for (cmd.flags) |f| {
-            if (!f.persistent) continue;
-            if (n.* >= buf.len) return;
-            buf[n.*] = f;
-            n.* += 1;
-        }
-    }
 }
 
 fn matchFlag(flags: []const Flag, token: []const u8) ?Flag {
@@ -92,6 +88,28 @@ fn storeFlag(parsed: *Parsed, flag: Flag, value: ?[]const u8) !void {
     }
 }
 
+/// Refuse a value-taking flag that was already given.
+///
+/// Two spellings of the same flag disagree about what the user wants, and we
+/// have no way to tell which one they meant. Keeping the last one silently
+/// picked a winner: `--identity old.key --identity new.key` read one key file
+/// and never mentioned the other. Persistent flags make this easy to hit by
+/// accident, because the same flag is accepted at the root and again at the
+/// subcommand. Repeating a plain on/off flag is still fine; it says the same
+/// thing twice.
+fn refuseRepeatedFlag(
+    ctx: *Ctx,
+    parsed: *const Parsed,
+    flag: Flag,
+    value: []const u8,
+    path: []const *const Command,
+) !void {
+    const first = parsed.strings.get(flag.long) orelse return;
+    log.err(ctx.io, "--{s} was given twice, as \"{s}\" and then \"{s}\"; keep the one you meant", .{ flag.long, first, value });
+    try help_mod.writeNodeHelpErr(ctx.io, path);
+    return error.Usage;
+}
+
 fn consumeFlag(
     ctx: *Ctx,
     parsed: *Parsed,
@@ -128,12 +146,25 @@ fn consumeFlag(
                         try help_mod.writeNodeHelpErr(ctx.io, path);
                         return error.Usage;
                     }
+                    if (looksLikeFlag(argv_in[i])) {
+                        log.err(ctx.io, "--{s} needs a value, but the next argument is {s}; write --{s}=<value> if you meant it literally", .{ flag.long, argv_in[i], flag.long });
+                        try help_mod.writeNodeHelpErr(ctx.io, path);
+                        return error.Usage;
+                    }
                     value = argv_in[i];
                     i += 1;
                 }
             } else {
                 if (i >= argv_in.len) {
                     log.err(ctx.io, "-{c} needs a value", .{flag.short.?});
+                    try help_mod.writeNodeHelpErr(ctx.io, path);
+                    return error.Usage;
+                }
+                if (looksLikeFlag(argv_in[i])) {
+                    // The advice names the long form on purpose: only `--flag=value`
+                    // parses. A short flag is matched as exactly two characters,
+                    // so `-i=value` would land the user on "unknown flag".
+                    log.err(ctx.io, "-{c} needs a value, but the next argument is {s}; write --{s}=<value> if you meant it literally", .{ flag.short.?, argv_in[i], flag.long });
                     try help_mod.writeNodeHelpErr(ctx.io, path);
                     return error.Usage;
                 }
@@ -145,6 +176,7 @@ fn consumeFlag(
                 try help_mod.writeNodeHelpErr(ctx.io, path);
                 return error.Usage;
             }
+            try refuseRepeatedFlag(ctx, parsed, flag, value, path);
             try storeFlag(parsed, flag, value);
             applyToCtx(ctx, flag, value) catch {
                 try help_mod.writeNodeHelpErr(ctx.io, path);
@@ -155,7 +187,6 @@ fn consumeFlag(
     }
 }
 
-/// Dispatch `argv` (program name already consumed) against `root`.
 pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u8 {
     var path_buf: [12]*const Command = undefined;
     path_buf[0] = root;
@@ -176,7 +207,7 @@ pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u
         const a = argv_in[i];
         const path = path_buf[0..path_len];
         const cur = path_buf[path_len - 1];
-        collectPersistent(path, &persist_buf, &persist_n);
+        types.collectPersistent(path, &persist_buf, &persist_n);
 
         if (!options_ended and std.mem.eql(u8, a, "--")) {
             options_ended = true;
@@ -276,15 +307,6 @@ pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u
         },
         else => err,
     };
-}
-
-/// Collect CapTP leaves under `cmd` (depth-first).
-pub fn walkLeaves(cmd: *const Command, out: *std.ArrayList(*const Command), gpa: std.mem.Allocator) !void {
-    if (cmd.isLeaf() and cmd.run != null) {
-        try out.append(gpa, @constCast(cmd));
-        return;
-    }
-    for (cmd.children) |*c| try walkLeaves(c, out, gpa);
 }
 
 /// Render help for a topic path under root (e.g. `ocapn`, `ocapn` `dial`).

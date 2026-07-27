@@ -6,31 +6,31 @@
   role="img"
   aria-label="Anatomy of an ocapn URI. A peer locator carries a designator naming who, a transport symbol saying how, and optional hints that are a routing aid, never authority. The second line is the same locator with /s/ and a swiss number naming one object at that peer: a sturdyref."
 >
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-    .uri { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 18px; font-weight: 600; }
-    .term { font-size: 11.5px; font-weight: 700; fill: #3a3027; }
-    .sub { font-size: 11.5px; fill: #6b5d4d; }</style>
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
+    .uri { font-family: var(--font-mono, ui-monospace, "SF Mono", "Cascadia Code", monospace); font-size: 18px; font-weight: 600; }
+    .term { font-size: 11.5px; font-weight: 700; fill: var(--ink, #3a3027); }
+    .sub { font-size: 11.5px; fill: var(--ink-soft, #6b5d4d); }</style>
 
   <!-- A peer locator, one continuous string; textLength pins each span so the
        underline bars line up whichever monospace face the platform picks. -->
-  <text x="40" y="56" class="uri"><tspan x="40" textLength="86.4" lengthAdjust="spacingAndGlyphs" fill="#8a7862">ocapn://</tspan><tspan x="126.4" textLength="97.2" lengthAdjust="spacingAndGlyphs" fill="#1b5f66">4f1d&#8230;9c2a</tspan><tspan x="223.6" textLength="10.8" lengthAdjust="spacingAndGlyphs" fill="#3a3027">.</tspan><tspan x="234.4" textLength="43.2" lengthAdjust="spacingAndGlyphs" fill="#a4560c">iroh</tspan><tspan x="277.6" textLength="86.4" lengthAdjust="spacingAndGlyphs" fill="#8a7862">?relay=&#8230;</tspan></text>
+  <text x="40" y="56" class="uri"><tspan x="40" textLength="86.4" lengthAdjust="spacingAndGlyphs" fill="var(--dia-muted, #8a7862)">ocapn://</tspan><tspan x="126.4" textLength="97.2" lengthAdjust="spacingAndGlyphs" fill="var(--teal-deep, #1b5f66)">4f1d&#8230;9c2a</tspan><tspan x="223.6" textLength="10.8" lengthAdjust="spacingAndGlyphs" fill="var(--ink, #3a3027)">.</tspan><tspan x="234.4" textLength="43.2" lengthAdjust="spacingAndGlyphs" fill="var(--accent-deep, #a4560c)">iroh</tspan><tspan x="277.6" textLength="86.4" lengthAdjust="spacingAndGlyphs" fill="var(--dia-muted, #8a7862)">?relay=&#8230;</tspan></text>
 
-  <rect x="126.4" y="63" width="97.2" height="4" rx="2" fill="#1b5f66"/>
-  <rect x="234.4" y="63" width="43.2" height="4" rx="2" fill="#a4560c"/>
-  <rect x="277.6" y="63" width="86.4" height="4" rx="2" fill="#8a7862"/>
+  <rect x="126.4" y="63" width="97.2" height="4" rx="2" fill="var(--teal-deep, #1b5f66)"/>
+  <rect x="234.4" y="63" width="43.2" height="4" rx="2" fill="var(--accent-deep, #a4560c)"/>
+  <rect x="277.6" y="63" width="86.4" height="4" rx="2" fill="var(--dia-muted, #8a7862)"/>
 
   <!-- The sturdyref: the same locator, dimmed, plus one object's name -->
-  <text x="40" y="120" class="uri"><tspan x="40" textLength="86.4" lengthAdjust="spacingAndGlyphs" fill="#8a7862" opacity="0.45">ocapn://</tspan><tspan x="126.4" textLength="97.2" lengthAdjust="spacingAndGlyphs" fill="#1b5f66" opacity="0.45">4f1d&#8230;9c2a</tspan><tspan x="223.6" textLength="10.8" lengthAdjust="spacingAndGlyphs" fill="#3a3027" opacity="0.45">.</tspan><tspan x="234.4" textLength="43.2" lengthAdjust="spacingAndGlyphs" fill="#a4560c" opacity="0.45">iroh</tspan><tspan x="277.6" textLength="32.4" lengthAdjust="spacingAndGlyphs" fill="#3a3027">/s/</tspan><tspan x="310" textLength="108" lengthAdjust="spacingAndGlyphs" fill="#c76f18">gr8h&#8230;swiss</tspan></text>
+  <text x="40" y="120" class="uri"><tspan x="40" textLength="86.4" lengthAdjust="spacingAndGlyphs" fill="var(--dia-muted, #8a7862)" opacity="0.45">ocapn://</tspan><tspan x="126.4" textLength="97.2" lengthAdjust="spacingAndGlyphs" fill="var(--teal-deep, #1b5f66)" opacity="0.45">4f1d&#8230;9c2a</tspan><tspan x="223.6" textLength="10.8" lengthAdjust="spacingAndGlyphs" fill="var(--ink, #3a3027)" opacity="0.45">.</tspan><tspan x="234.4" textLength="43.2" lengthAdjust="spacingAndGlyphs" fill="var(--accent-deep, #a4560c)" opacity="0.45">iroh</tspan><tspan x="277.6" textLength="32.4" lengthAdjust="spacingAndGlyphs" fill="var(--ink, #3a3027)">/s/</tspan><tspan x="310" textLength="108" lengthAdjust="spacingAndGlyphs" fill="var(--accent, #c76f18)">gr8h&#8230;swiss</tspan></text>
 
-  <rect x="310" y="127" width="108" height="4" rx="2" fill="#c76f18"/>
+  <rect x="310" y="127" width="108" height="4" rx="2" fill="var(--accent, #c76f18)"/>
 
   <!-- Legend, one column on the right, swatch-keyed to the bars -->
-  <rect x="464" y="32" width="14" height="4" rx="2" fill="#1b5f66"/>
-  <text x="494" y="40"><tspan class="term">designator</tspan><tspan class="sub">: who you name</tspan></text>
-  <rect x="464" y="64" width="14" height="4" rx="2" fill="#a4560c"/>
-  <text x="494" y="72"><tspan class="term">transport</tspan><tspan class="sub">: how bytes move</tspan></text>
-  <rect x="464" y="96" width="14" height="4" rx="2" fill="#8a7862"/>
-  <text x="494" y="104"><tspan class="term">hints</tspan><tspan class="sub">: routing aid, never authority</tspan></text>
-  <rect x="464" y="128" width="14" height="4" rx="2" fill="#c76f18"/>
-  <text x="494" y="136"><tspan class="term">swiss number</tspan><tspan class="sub">: names one object, a sturdyref</tspan></text>
+  <rect x="464" y="31" width="14" height="4" rx="2" fill="var(--teal-deep, #1b5f66)"/>
+  <text x="486" y="40"><tspan class="term">designator</tspan><tspan class="sub">: who you name</tspan></text>
+  <rect x="464" y="63" width="14" height="4" rx="2" fill="var(--accent-deep, #a4560c)"/>
+  <text x="486" y="72"><tspan class="term">transport</tspan><tspan class="sub">: how bytes move</tspan></text>
+  <rect x="464" y="95" width="14" height="4" rx="2" fill="var(--dia-muted, #8a7862)"/>
+  <text x="486" y="104"><tspan class="term">hints</tspan><tspan class="sub">: routing aid, never authority</tspan></text>
+  <rect x="464" y="127" width="14" height="4" rx="2" fill="var(--accent, #c76f18)"/>
+  <text x="486" y="136"><tspan class="term">swiss number</tspan><tspan class="sub">: one object, a sturdyref</tspan></text>
 </svg>

@@ -73,7 +73,7 @@ import { connect, tcpLocator } from "@pancake/stack";
 const partner = tcpLocator("127.0.0.1", 9099);
 
 const session = await connect(partner);
-session.serve().catch(() => {});
+session.serve().catch((err) => console.error("session ended:", err));
 
 const greeter = await session.fetch("greeter"); // a capability, by name
 try {

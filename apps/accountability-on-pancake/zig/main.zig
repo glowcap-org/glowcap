@@ -28,6 +28,11 @@ const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
 const log = @import("log.zig");
 
+/// A finite handshake budget for the dial below. The library default waits
+/// forever, which for an application means a partner that connects and then
+/// goes silent hangs it rather than reporting.
+const handshake_budget_ms: i32 = 10_000;
+
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
@@ -59,7 +64,7 @@ fn hostServe(args: HostArgs) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf);
+    var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf, handshake_budget_ms);
     defer vat.deinit();
 
     _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
@@ -87,7 +92,7 @@ fn invoke(
     tamper: bool,
     arena: std.mem.Allocator,
 ) !driver.Settled {
-    const att = affordance.Attestation.sign(caller.current, request, tamper);
+    const att = try affordance.Attestation.sign(arena, caller.current, &caller.aid, request, tamper);
     return cv.call(target, .{
         .verb = affordance.invoke_verb,
         .args = &.{
@@ -106,7 +111,7 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    std.debug.print("accountability-on-pancake, a real application on pancake's runtime\n\n", .{});
+    std.debug.print("accountability-on-pancake\n\n", .{});
 
     // ---- Identities (above pancake) -------------------------------------------
     banner(1, "Host vat and caller each incept a KERI-anchored identity");
@@ -152,7 +157,7 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
     std.debug.print("      session open over TCP {f}\n", .{address});
 
     const affordance_ref = try cv.fetch(AFFORDANCE_NAME);
@@ -242,6 +247,10 @@ pub fn main(init: std.process.Init) !void {
         \\OCapN session on the `tcp` netlayer between two pancake peers, and the host produced a
         \\verifiable Episode attributing the attested caller. pancake hosted the
         \\wire; identity, Episodes, and the transparency log stayed above it.
+        \\
+        \\One check this demo does not make: that the key a caller presents really
+        \\belongs to the AID it claims. See "Where the demo stops short" in the
+        \\README for what that would take.
         \\
     , .{});
 }

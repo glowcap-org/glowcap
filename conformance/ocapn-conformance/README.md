@@ -40,7 +40,11 @@ bash conformance/ocapn-conformance/run.sh shell
 The suite can be pointed at a _pancake_ peer, not only Goblins.
 `pancake_peer.zig` serves the canonical conformance swiss-nums over the
 `tcp-testing-only` netlayer, and `run-against-pancake.sh` starts it and runs the
-suite against it:
+suite against it. The peer is the production Host stack, plus what the Host
+cannot know: the conformance actors and three suite-required interceptors on
+the serve path (a promise-resolver bootstrap object, the recipient's give
+redeem, and the gifter's enliven claim), each driving library seams. The
+file's header inventories them.
 
 ```sh
 zig build ocapn-conformance              # default: every upstream test module
@@ -63,7 +67,10 @@ upstream module, today:
 | `tests.third_party_handoffs` | Handoff-give and handoff-receive flows, including wait-before-deposit.                   |
 
 Crossed-hellos cases in `op_start_session` can use most of a module's time
-budget. `handshake_abort_probe.py` covers the invalid-signature and
+budget, so a slow machine can hit the 5s per-module cap on a module that would
+have passed. Raise it with `OCAPN_MODULE_TIMEOUT` (and the probe's with
+`OCAPN_PROBE_TIMEOUT`) rather than reading the timeout as a protocol failure.
+`handshake_abort_probe.py` covers the invalid-signature and
 invalid-version aborts on their own. The default
 `zig build ocapn-conformance` wrapper runs that probe (10s cap) before the suite
 modules. Pass `--port=N` or set `PANCAKE_OCAPN_CONFORMANCE_PORT` to match the

@@ -248,9 +248,8 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     try std.testing.expectEqual(cap_export, cached.cached.far.import_position.int());
     try std.testing.expectEqual(model.RefKind.object, cached.cached.far.kind);
 
-    // Pass Invariant Equality (ADR-0012): the repeat enliven returns a target
-    // equal to the first, and equal to the far-ref a handoff arrival of the same
-    // import would land, same-session equality on (import_position, kind).
-    try std.testing.expect(model.referencesEqual(enlivened, cached.cached));
-    try std.testing.expect(model.referencesEqual(cached.cached, .{ .far = .{ .import_position = .from(cap_export), .kind = .object } }));
+    // The repeat enliven reuses the same session-local import row. This does not
+    // exercise a handoff or prove target identity across two network paths.
+    try std.testing.expect(model.referencesStructurallyEqual(enlivened, cached.cached));
+    try std.testing.expect(model.referencesStructurallyEqual(cached.cached, .{ .far = .{ .import_position = .from(cap_export), .kind = .object } }));
 }

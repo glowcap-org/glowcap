@@ -1,5 +1,6 @@
 ---
 .title = "Project & status",
+.description = "Where pancake stands: what runs today, where the edges are, and where it is going. Nothing is frozen, and nothing has been reviewed for security.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -10,22 +11,30 @@ This is where pancake stands: what runs today, where the edges are, and where th
 project is going. The code is the truth about the present; the documents linked
 below argue the direction without pretending unfinished work is done.
 
+The short version: nothing here is frozen, and nothing here has been reviewed
+for security. pancake is not audited, not hardened, and not ready to carry
+anything you would mind losing.
+[SECURITY.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/SECURITY.md)
+says that in full, and says how to report a vulnerability privately.
+[What you can depend on]($link.page('stability')) maps which pieces are already
+proved against implementations this project does not control.
+
 ```=html
 <nav class="cards" aria-label="Project status">
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md">
-		<h3>What ships today</h3>
-		<p>The verified inventory of implemented behavior: the wire operation surface, both codecs, the shipped netlayers, the actor layer, third-party handoffs, Zig bidirectional Goblins interop, and per-binding client-direction Goblins check steps. A claim that stops matching the tree is treated as a bug.</p>
+		<h2>What ships today</h2>
+		<p>The verified inventory of implemented behavior: the wire operation surface, both codecs, the shipped netlayers, the actor layer, and third-party handoffs. The checks behind it include live Goblins conversations in both directions and both handoff roles, from Zig and from the Deno, Python, Rust, and Racket bindings. A claim that stops matching the tree is treated as a bug.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md">
-		<h3>Where the edges are</h3>
-		<p>Where the implemented surface ends, plainly: transport is cleartext TCP with encryption riding the separate iroh artifact, bootstrap registrations live for the process, and the OCapN Null (the spec's placeholder value) is not modeled: an unknown record arrives as a tagged value.</p>
+		<h2>Where the edges are</h2>
+		<p>The record of where the implemented surface ends. The TCP transports are cleartext, and encryption is the iroh transport's job. Bootstrap registrations live only as long as the process. The OCapN Null, the spec's placeholder value, is not modeled; an unknown record arrives as a tagged value.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md">
-		<h3>Where it is going</h3>
+		<h2>Where it is going</h2>
 		<p>The goal is a fully canonical OCapN implementation, proven by interop, with performance held to a measured contract rather than asserted.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/README.md">
-		<h3>Why the boundaries sit here</h3>
+		<h2>Why the boundaries sit here</h2>
 		<p>The accepted decision records: the netlayer contract, the one-parser framing, the C ABI allocation context, the iroh sidecar, and the rest. When a boundary moves, a superseding record explains the move.</p>
 	</a>
 </nav>
@@ -40,3 +49,8 @@ concrete remaining work. For an OCapN or Goblins-facing read,
 is the one-page brief of what each evidence check step proves. Each claim in the shipped
 inventory is held by a check step, a scenario, or a live interop run against
 [Spritely Goblins](https://spritely.institute/goblins/).
+
+If what you want from this page is whether a particular piece is safe to build
+on, [What you can depend on]($link.page('stability')) answers that surface by
+surface, and [Start building]($link.page('start')) is the shortest way to try
+one.

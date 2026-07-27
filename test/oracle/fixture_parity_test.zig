@@ -104,7 +104,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     try cross_peer.withdrawGift(
         &recipient_to_exporter,
         &exporter,
-        handoff_fixtures.receive(),
+        handoff_fixtures.receiveFromRecipient(),
         cross_peer.testOnlyAcceptingVerifier(),
     );
     try std.testing.expect(!exporter.giftRegistry().giftLive(handoff_fixtures.gift_id[0..]));

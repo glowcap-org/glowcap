@@ -57,7 +57,7 @@ This budgets the protocol core measured in-process. It does not budget the
 transport. A live connection on the completion loop also holds a fixed read
 buffer that dominates the core state, and a real 500k-connection run's accept
 throughput, syscalls per turn, and resident-set growth are not measured here.
-That live-socket measurement is rung 5 of the ladder, where the budget meets a
+That live-socket measurement is step 5 of the ladder, where the budget meets a
 socket. No surface claims 500k as an achievement on the strength of this ADR;
 this ADR defends the core's part of the budget, not the whole-system number.
 
@@ -82,12 +82,12 @@ fails to compile if `Peer` outgrows it. `test/engine/footprint_budget_test.zig`
 and the shared `test/support/alloc_metrics.zig` are new; `alloc_budget_test.zig`
 moved its counting allocator into that shared module. `build.zig` runs the
 peer-scaling bench in `--smoke` mode under `check` instead of the full
-report-writing run. The ladder's rung 2 ("The Performance Contract, In Numbers")
+report-writing run. The ladder's step 2 ("The Performance Contract, In Numbers")
 and the vision's "The Number" section are the living-state surfaces that quote
 these budgets; changing a budget changes them in the same diff.
 
 ## Notes
 
 Relates to ADR-0041 and ADR-0042, which bound the transport-side per-connection
-memory the live-socket measurement on rung 5 will weigh against this core
+memory the live-socket measurement on step 5 will weigh against this core
 budget.

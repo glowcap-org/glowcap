@@ -30,6 +30,7 @@ import { Socket } from "node:net";
 import {
 	type Channel,
 	formatPeerUri,
+	HANDSHAKE_TIMEOUT_MS,
 	HINT_DIRECT_ADDRESSES,
 	Host,
 	PancakeError,
@@ -678,12 +679,18 @@ async function dialResolving(
 /** Binding-internal iroh dial behind the core's `connect(locator)`. Application
  * code dials through `connect(locator, reachability[, host])` only. The local
  * endpoint is ephemeral and released with the connection. `reachability` is
- * required. Needs the iroh ABI library (`zig build iroh-abi`). */
+ * required. Needs the iroh ABI library (`zig build iroh-abi`).
+ *
+ * `handshakeTimeoutMs` bounds the OCapN handshake only. The dial-by-id budget
+ * above it (a `Discovery` posture retries while the exporter's pkarr record
+ * propagates, ADR-0082) is already spent by the time the channel exists, so a
+ * slow discovery never eats the handshake's bound. */
 export async function _connectIroh(
 	nodeId: string,
 	directAddresses: string,
 	reachability: Reachability,
 	host: Host = new Host(),
+	handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 ): Promise<Session> {
 	const netlayer = new IrohNetlayer(reachability);
 	const loop = new IrohLoop(netlayer);
@@ -698,7 +705,8 @@ export async function _connectIroh(
 	loop.register(conn);
 	loop.start();
 	// The transport owns the dialer-minted connection, loop, and ephemeral
-	// netlayer (`ownsLoop`); on a handshake failure `establishDialedLocator` abandons
+	// netlayer (`ownsLoop`); on a handshake failure or an elapsed handshake
+	// bound `establishDialedLocator` abandons
 	// the half-built connection, and its transport close is what unregisters
 	// and releases the sidecar connection, stops the readiness loop (closing
 	// the dup'd fd), and releases the netlayer. The connection is minted
@@ -711,6 +719,7 @@ export async function _connectIroh(
 		TRANSPORT_IROH,
 		nodeId,
 		transport,
+		handshakeTimeoutMs,
 	);
 }
 
@@ -845,15 +854,18 @@ export class IrohServer {
 				this.#loop.register(conn);
 				// A handshake failure belongs to that one connection (a partner that
 				// dialed and died), never the server — release it and keep accepting.
-				let connection: Session;
+				// The sidecar bounds only the QUIC stream open, so a partner that
+				// opens its stream and then says nothing is bounded by the establish
+				// spine's `HANDSHAKE_TIMEOUT_MS` instead, the same bound the core's
+				// accept loop and every dial ride; the unregister is what unparks
+				// its abandoned handshake read.
+				let connection: Session | null;
 				try {
-					connection = await acceptIroh(
-						conn,
-						this.#nodeId,
-						this.#loop,
-						this.#host,
-					);
+					connection = await acceptIroh(conn, this.#nodeId, this.#loop, this.#host);
 				} catch {
+					connection = null;
+				}
+				if (connection === null) {
 					this.#loop.unregister(conn);
 					conn.release();
 					continue;

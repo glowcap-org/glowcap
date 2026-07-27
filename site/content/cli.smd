@@ -1,5 +1,6 @@
 ---
 .title = "CapTP CLI",
+.description = "Call a capability from your shell, host a short-lived peer, open a REPL, or wire CapTP into an agent over MCP — the same library the Zig package holds.",
 .date = @date("2026-07-16T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -7,8 +8,8 @@
 ---
 
 Call a capability from your shell, host a short-lived peer, open a REPL, or
-wire CapTP into an agent via MCP. Same library as the Zig package, not a second
-stack. More recipes live in
+wire CapTP into an agent via MCP. The binary holds the same library as the Zig
+package, not a second stack. More recipes live in
 [docs/cli.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/cli.md).
 
 ```sh
@@ -19,17 +20,21 @@ pancake help
 
 ## Round-trip
 
-Demo greeter in the CLI adapter only (same shape as the README): verb `greet`
-plus one arg becomes `Hello, <arg>`. `--publish` accepts one partner, then
-exits. `Ctrl+C` / `SIGTERM` stops a waiting or serving `listen` (exit 0).
-Paste A's locator into `LOC`.
+The demo greeter lives in the CLI adapter, not the library, and it is the same
+greeter the README uses: verb `greet` plus one argument becomes `Hello, <arg>`.
+`--publish` serves one partner and then exits, and `Ctrl+C` or `SIGTERM` stops
+a waiting or serving `listen` cleanly with exit 0. Run terminal A first, then
+paste its printed locator (the peer's dialable `ocapn://` address) into `LOC`
+in terminal B. `init` mints the identity keys a peer signs its sessions with,
+stored under `PANCAKE_STATE`; each terminal gets its own directory so it acts
+as its own peer.
 
 ```sh
 # terminal A
 export PANCAKE_STATE=/tmp/pancake-a
 pancake --json init
 pancake --json ocapn listen --publish greeter
-# {"ok":true,"locator":"ocapn://127.0.0.1%3A46659.tcp"}
+# {"ok":true,"locator":"ocapn://127.0.0.1%3A46659.tcp"}   (%3A is the : of host:port, URI-encoded)
 
 # terminal B
 export PANCAKE_STATE=/tmp/pancake-b
@@ -41,10 +46,20 @@ pancake --json ocapn call "$LOC" greeter greet world
 # {"ok":true,"value":"Hello, world"}
 ```
 
-## Also
+## What else can it do?
+
+The same binary serves agents over MCP and completes your shell. `pancake repl`
+opens an interactive CapTP lab on a live session: the exports, imports, and
+answers appear beside the prompt as you type the verbs, and typing `guide`
+turns on a staged walkthrough. The REPL and `probe` want a live listener, so
+those recipes stay in docs/cli.md.
 
 ```sh
 pancake mcp --tools default                # agent control plane
 eval "$(pancake completion bash)"          # tab completion
 # probe / REPL: see docs/cli.md (need a fresh or long-lived listen)
 ```
+
+When the round-trip works, the [demo apps]($link.page('examples')) are the
+next act: the same verbs driving a chat room, a task board, and a capability
+showcase across five languages.

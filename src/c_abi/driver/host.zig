@@ -125,11 +125,16 @@ pub export fn pancake_host_new_in(
 /// are freed with it — release the sessions first if you hold them, and never
 /// touch one after its host is gone. Refused (with the last error set) from
 /// inside a callback.
-pub export fn pancake_host_release(host: ?*PancakeHost) void {
-    const inst = instanceFrom(host) orelse return;
+pub export fn pancake_host_release(host: ?*PancakeHost) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_OK;
     if (inst.core.in_callback) {
+        // A code, not a bare return. The refusal frees nothing, so an embedder
+        // that dropped the pointer here leaked the whole host — and the only
+        // signal was a thread-local nobody was told to read. Its sibling
+        // `pancake_host_set_session_limits` reports the identical refusal with
+        // exactly this value.
         shared.setLastError("host: release re-entered from a callback", .{});
-        return;
+        return PANCAKE_ERR_INVALID_ARGUMENT;
     }
     const alloc = inst.allocator;
     // Breaks every parked far vow; the completions those breaks queue are
@@ -144,6 +149,7 @@ pub export fn pancake_host_release(host: ?*PancakeHost) void {
     inst.turn_scratch.deinit();
     inst.completion_scratch.deinit();
     alloc.destroy(inst);
+    return PANCAKE_OK;
 }
 
 /// Derive the canonical key designator (exactly 64 lowercase hex digits) from
@@ -338,6 +344,13 @@ pub export fn pancake_host_plan_dial(
                     break :blk c.PANCAKE_DIAL_REACH_EXPLICIT;
                 },
             };
+        },
+        .signaling => {
+            slot.shape = c.PANCAKE_DIAL_SHAPE_SIGNALING;
+            setView(&.{}, &slot.host, &slot.host_len);
+            slot.port = 0;
+            setView(&.{}, &slot.addresses, &slot.addresses_len);
+            slot.reach_kind = c.PANCAKE_DIAL_REACH_DIRECT;
         },
     }
     return PANCAKE_OK;

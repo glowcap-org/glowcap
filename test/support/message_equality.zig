@@ -17,11 +17,11 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
     return switch (a) {
         .deliver => |x| blk: {
             const y = b.deliver;
-            if (!model.referencesEqual(x.target, y.target)) break :blk false;
+            if (!model.referencesStructurallyEqual(x.target, y.target)) break :blk false;
             if (x.answer != y.answer) break :blk false;
             if ((x.resolve_me_desc == null) != (y.resolve_me_desc == null)) break :blk false;
             if (x.resolve_me_desc) |xr| {
-                if (!model.referencesEqual(xr, y.resolve_me_desc.?)) break :blk false;
+                if (!model.referencesStructurallyEqual(xr, y.resolve_me_desc.?)) break :blk false;
             }
             break :blk model.equality.argumentSlicesEqual(x.args, y.args);
         },
@@ -29,13 +29,13 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
         .gc_export => |x| std.mem.eql(u64, x.positions, b.gc_export.positions) and std.mem.eql(u64, x.deltas, b.gc_export.deltas),
         .gc_answer => |x| std.mem.eql(u64, x.positions, b.gc_answer.positions),
         .abort => |x| x.kind == b.abort.kind and std.mem.eql(u8, x.message, b.abort.message),
-        .listen => |x| model.referencesEqual(x.target, b.listen.target) and
-            model.referencesEqual(x.listener, b.listen.listener) and x.wants_partial == b.listen.wants_partial,
-        .get => |x| model.referencesEqual(x.receiver, b.get.receiver) and
+        .listen => |x| model.referencesStructurallyEqual(x.target, b.listen.target) and
+            model.referencesStructurallyEqual(x.listener, b.listen.listener) and x.wants_partial == b.listen.wants_partial,
+        .get => |x| model.referencesStructurallyEqual(x.receiver, b.get.receiver) and
             std.mem.eql(u8, x.field, b.get.field) and x.answer == b.get.answer,
-        .index => |x| model.referencesEqual(x.receiver, b.index.receiver) and
+        .index => |x| model.referencesStructurallyEqual(x.receiver, b.index.receiver) and
             x.index == b.index.index and x.answer == b.index.answer,
-        .untag => |x| model.referencesEqual(x.receiver, b.untag.receiver) and
+        .untag => |x| model.referencesStructurallyEqual(x.receiver, b.untag.receiver) and
             std.mem.eql(u8, x.tag, b.untag.tag) and x.answer == b.untag.answer,
         .start_session => |x| blk: {
             const y = b.start_session;

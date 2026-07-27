@@ -46,6 +46,16 @@ pub fn partnerSessionKey(self: *const Session) ?[]const u8 {
     return self.partner_session_key;
 }
 
+/// This side's own session public key, from the `op:start-session` half we
+/// sent, or null if that half has not been sent or carried no key. An exporter
+/// derives from it the session name an inbound `desc:handoff-receive` must
+/// carry, so a withdrawal cannot claim to belong to a session it is not part of
+/// (ADR-0009).
+pub fn localSessionKey(self: *const Session) ?[]const u8 {
+    if (self.local_session_key.len == 0) return null;
+    return self.local_session_key;
+}
+
 /// The partner's location designator from its `op:start-session`, or null if
 /// the handshake half has not arrived with one.
 pub fn partnerDesignator(self: *const Session) ?[]const u8 {

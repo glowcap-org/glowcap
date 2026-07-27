@@ -21,10 +21,12 @@ import {
 /** The shared accept-loop server: owns the listening socket, the bind, and the
  * accept loop. A subclass supplies only `acceptOne` — how to mint the accepting
  * session over one accepted socket. The loop closes every socket whose accept
- * fails (a rude caller, a stray probe, or a handshake that throws before a
- * `Session` exists to own the socket) and keeps accepting, so one bad connection
- * neither takes the server down nor leaks its fd. That close-on-failure
- * guarantee lives here once, not copied — and drifting — per subclass. */
+ * fails (a rude caller, a stray probe, a handshake that throws before a
+ * `Session` exists to own the socket, or one that overruns
+ * `HANDSHAKE_TIMEOUT_MS`) and keeps accepting, so one bad connection neither
+ * takes the server down nor leaks its fd. That close-on-failure guarantee lives
+ * here once, not copied — and drifting — per subclass; the handshake bound
+ * itself lives in `Session`'s establish spine, which the dialer reaches too. */
 abstract class AcceptLoopServer {
 	#pending: Promise<NetListener>;
 	#listener: NetListener | null = null;
@@ -89,14 +91,19 @@ abstract class AcceptLoopServer {
 					return; // the listener was closed
 				}
 				// A handshake failure belongs to that one connection — a client that
-				// dialed and died, or a stray port probe. Close its socket and keep
-				// accepting, so one rude caller neither takes the whole server down
-				// nor leaks an fd (the throw may land before `acceptOne` built a
-				// `Session` to close the socket itself).
-				let session: Session;
+				// dialed and died, a stray port probe, or one that connects and
+				// then says nothing (the accept runs inline, so an unbounded wait
+				// on that partner parks every later connection behind it). Close
+				// its socket and keep accepting, so one rude caller neither takes
+				// the whole server down nor leaks an fd (the throw may land before
+				// `acceptOne` built a `Session` to close the socket itself).
+				let session: Session | null;
 				try {
 					session = await this.acceptOne(tcp);
 				} catch {
+					session = null;
+				}
+				if (session === null) {
 					tcp.close();
 					continue;
 				}

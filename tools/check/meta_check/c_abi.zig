@@ -817,10 +817,36 @@ pub fn checkCAbiResolve(
             if (std.mem.indexOf(u8, contents, "--no-same-owner") == null) {
                 try appendViolation(gpa, violations, "{s}: tar extract must pass --no-same-owner (ADR-0077 §5)", .{path});
             }
-            if (std.mem.indexOf(u8, contents, "refusing link") == null and
-                std.mem.indexOf(u8, contents, "refusing link tar member") == null)
+            if (std.mem.indexOf(u8, contents, "archive_hygiene.ts") == null or
+                std.mem.indexOf(u8, contents, "archiveListingViolation") == null)
             {
-                try appendViolation(gpa, violations, "{s}: must reject symlink/hardlink tar members before extract (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: must validate tar listings through archive_hygiene.ts before extract (ADR-0077 §5)", .{path});
+            }
+            // The validator only parses the two C-locale listing layouts, so
+            // the call site that runs `tar` owns forcing that locale, and it
+            // owns clearing `TAR_OPTIONS`: flags that hide a member from the
+            // listing and admit it at extract defeat the validator entirely.
+            if (std.mem.indexOf(u8, contents, "LC_ALL") == null) {
+                try appendViolation(gpa, violations, "{s}: must run `tar -tv` under LC_ALL=C so the listing matches the gated parser", .{path});
+            }
+            // The mechanism, not a comment naming it: a fresh env object for
+            // both tar calls. Spreading `process.env` back in would re-open the
+            // hole while any mention of TAR_OPTIONS still satisfied a grep.
+            // Both tar calls, not one: sanitizing the listing and leaving the
+            // extract inheriting (or the reverse) means the two see different
+            // archives, which is the whole hole. Count the uses.
+            //
+            // The variable must be neutralized by name. Omitting it from a
+            // fresh object is not enough: Deno's `spawnSync` merges the given
+            // env with the parent's rather than replacing it, so an omitted
+            // `TAR_OPTIONS` still reached tar. The matrix runs this exact
+            // path under a hostile value, which is how that was found.
+            if (std.mem.indexOf(u8, contents, "const tarEnv = {") == null or
+                std.mem.indexOf(u8, contents, "...process.env") != null or
+                std.mem.indexOf(u8, contents, "TAR_OPTIONS: \"\"") == null or
+                std.mem.count(u8, contents, "env: tarEnv") < 2)
+            {
+                try appendViolation(gpa, violations, "{s}: both tar calls must pass one fresh `env: tarEnv` and must not spread `process.env` (ADR-0077 §5)", .{path});
             }
             if (std.mem.indexOf(u8, contents, "isDirectory") == null) {
                 try appendViolation(gpa, violations, "{s}: extract success must require extract_prefix is a directory", .{path});
@@ -834,10 +860,30 @@ pub fn checkCAbiResolve(
             if (std.mem.indexOf(u8, contents, "--no-same-owner") == null) {
                 try appendViolation(gpa, violations, "{s}: tar extract must pass --no-same-owner (ADR-0077 §5)", .{path});
             }
-            if (std.mem.indexOf(u8, contents, "refusing link") == null and
-                std.mem.indexOf(u8, contents, "refusing link tar member") == null)
-            {
-                try appendViolation(gpa, violations, "{s}: must reject symlink/hardlink tar members before extract (ADR-0077 §5)", .{path});
+            const owns_or_imports_hygiene =
+                (std.mem.eql(u8, path, "bindings/rust/build.rs") and
+                    std.mem.indexOf(u8, contents, "mod archive_hygiene") != null and
+                    std.mem.indexOf(u8, contents, "listing_violation") != null) or
+                (std.mem.eql(u8, path, "bindings/racket/private/lib-resolve.rkt") and
+                    std.mem.indexOf(u8, contents, "tar-listing-violation") != null);
+            if (!owns_or_imports_hygiene) {
+                try appendViolation(gpa, violations, "{s}: must own or import the gated tar-listing validator before extract (ADR-0077 §5)", .{path});
+            }
+            // Same contract as the TypeScript loader above.
+            if (std.mem.indexOf(u8, contents, "LC_ALL") == null) {
+                try appendViolation(gpa, violations, "{s}: must run `tar -tv` under LC_ALL=C so the listing matches the gated parser", .{path});
+            }
+            // Again the mechanism: the call that clears the variable, in the
+            // spelling this port uses.
+            // Once is not enough: the listing and the extract each need the
+            // sanitized environment, or they see different archives. Rust
+            // clears per command; Racket parameterizes one env over both, so
+            // the parameterize is what must appear twice.
+            const clears_both =
+                std.mem.count(u8, contents, ".env_remove(\"TAR_OPTIONS\")") >= 2 or
+                std.mem.count(u8, contents, "parameterize ([current-environment-variables env])") >= 2;
+            if (!clears_both) {
+                try appendViolation(gpa, violations, "{s}: both the listing and the extract must run under the sanitized environment (ADR-0077 §5)", .{path});
             }
             if (std.mem.indexOf(u8, contents, "--absolute-names") != null or
                 std.mem.indexOf(u8, contents, " -P\n") != null or
@@ -950,8 +996,13 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, script, "--no-same-owner") == null) {
         try appendViolation(gpa, violations, "{s}: must extract with --no-same-owner", .{expected_operator_script});
     }
-    if (std.mem.indexOf(u8, script, "refusing link") == null) {
-        try appendViolation(gpa, violations, "{s}: must reject symlink/hardlink tar members before extract (ADR-0077 §5)", .{expected_operator_script});
+    if (std.mem.indexOf(u8, script, "archive-hygiene.sh") == null or
+        std.mem.indexOf(u8, script, "archive_hygiene_check") == null)
+    {
+        try appendViolation(gpa, violations, "{s}: must source the gated archive-hygiene owner before extract (ADR-0077 §5)", .{expected_operator_script});
+    }
+    if (std.mem.indexOf(u8, script, "TAR_OPTIONS=") == null) {
+        try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the extract, so it runs in the environment its listing was validated under (ADR-0077 §5)", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "hard_fail") == null) {
         try appendViolation(gpa, violations, "{s}: must define hard_fail for hygiene/checksum/HTTPS (ADR-0077)", .{expected_operator_script});
@@ -1115,16 +1166,87 @@ pub fn checkCAbiResolve(
         try appendViolation(gpa, violations, "{s}: must offer workflow_dispatch for dry-run archive builds", .{release_workflow});
     }
 
-    // Extract matrix apex: hermetic refuse fixtures must stay wired.
+    // Extract matrix apex: hostile fixtures must execute the same validators
+    // the production ports import, not reassuring source-string greps.
     const extract_matrix = "tools/c-abi/c-abi-extract-matrix.sh";
     const matrix = root.readFileAlloc(io, extract_matrix, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ extract_matrix, @errorName(err) });
         return;
     };
     defer gpa.free(matrix);
-    for ([_][]const u8{ "refusing unsafe", "refusing link", "python", "deno", "hard_fail", "hard-fail!" }) |needle| {
+    for ([_][]const u8{
+        "archive-hygiene.sh",
+        "archive_hygiene.ts",
+        "rust-archive-hygiene-check.rs",
+        "racket-archive-hygiene-check.rkt",
+        "adversarial",
+        "slip.tar.gz",
+        "link.tar.gz",
+        // The hostile fixtures each stand for a defect that reached this
+        // tree: an owner field shaped like a date, a member name carrying
+        // tar's own link separator, and a member that is neither file,
+        // directory, nor link. Dropping one silently un-tests its fix.
+        "arrow",
+        "mkfifo",
+        "dotslash",
+        "TAR_OPTIONS",
+        "python",
+        "deno",
+    }) |needle| {
         if (std.mem.indexOf(u8, matrix, needle) == null) {
             try appendViolation(gpa, violations, "{s}: must exercise `{s}` in the hermetic extract matrix", .{ extract_matrix, needle });
+        }
+    }
+    // Every port that decides which archive members may be extracted. All of
+    // them refuse a member that is not a regular file or a directory. One
+    // property varies: four parse `tar -tv` text and so owe a fail-closed
+    // verdict on a layout they cannot read, while the Python port reads tar
+    // headers through `tarfile` and has no listing text to misread.
+    //
+    // The C locale is checked where tar is actually invoked, not here: for
+    // the shell port that is this same file, and for the other three it is
+    // the importer, covered by the binding-loader rows above.
+    const HygieneOwner = struct {
+        path: []const u8,
+        parses_listing: bool = true,
+    };
+    const hygiene_owners = [_]HygieneOwner{
+        .{ .path = "tools/c-abi/archive-hygiene.sh" },
+        .{ .path = "bindings/racket/private/lib-resolve.rkt" },
+        .{ .path = "bindings/ts/stack/internal/ffi/archive_hygiene.ts" },
+        .{ .path = "bindings/rust/archive_hygiene.rs" },
+        .{ .path = "bindings/python/pancake/_lib_resolve.py", .parses_listing = false },
+    };
+    for (hygiene_owners) |owner_spec| {
+        const path = owner_spec.path;
+        const owner = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read tar-listing hygiene owner with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(owner);
+        if (owner_spec.parses_listing and
+            std.mem.indexOf(u8, owner, "unrecognized tar listing format") == null)
+        {
+            try appendViolation(gpa, violations, "{s}: tar-listing owner must fail closed on a layout it cannot parse", .{path});
+        }
+        if (std.mem.indexOf(u8, owner, "refusing non-file tar member") == null) {
+            try appendViolation(gpa, violations, "{s}: must refuse a member that is not a regular file or a directory", .{path});
+        }
+        // The shell port is the one owner that both parses the listing and
+        // runs the tar producing it; the other three are parsers whose
+        // importer owns the invocation.
+        if (std.mem.eql(u8, path, "tools/c-abi/archive-hygiene.sh") and
+            std.mem.indexOf(u8, owner, "LC_ALL") == null)
+        {
+            try appendViolation(gpa, violations, "{s}: must run `tar -tv` under LC_ALL=C so the listing matches its own parser", .{path});
+        }
+        // The shell port's listing and its extract live in different files, so
+        // the sanitized environment has to be required in both. Only the
+        // listing side is exercised by the matrix fixture.
+        if (std.mem.eql(u8, path, "tools/c-abi/archive-hygiene.sh") and
+            std.mem.indexOf(u8, owner, "TAR_OPTIONS=") == null)
+        {
+            try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the listing (ADR-0077 §5)", .{path});
         }
     }
     const boundaries = root.readFileAlloc(io, "docs/boundaries.md", gpa, .limited(1 << 20)) catch |err| {
@@ -2206,4 +2328,63 @@ test "zigLineHasAdrInStringLiteral ignores comments and flags string literals" {
     try std.testing.expect(zigLineHasAdrInStringLiteral("@panic(\"needs store (ADR-0082)\");"));
     try std.testing.expect(zigLineHasAdrInStringLiteral(".message = \"cap (ADR-0025)\","));
     try std.testing.expect(!zigLineHasAdrInStringLiteral(".message = \"cap exceeded\","));
+}
+
+/// A C-ABI entry point that can set the error slot must be able to report that
+/// it did.
+///
+/// The rule is the body, not the name. Thirty `void` exports are genuinely
+/// infallible releases and must stay `void`; two others refused from inside a
+/// callback, freed nothing, wrote the per-thread diagnostic, and returned
+/// `void` anyway — so an embedder that dropped the handle leaked a whole host
+/// and the only signal was a slot nobody was told to read. The generated
+/// header even documented a code they could not return. "Writes the error slot"
+/// is exactly the line between the two groups, and it is greppable.
+pub fn checkAbiReturnShape(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "src/c_abi", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "src/c_abi: cannot open it to check return shapes ({s})", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const path = try std.fmt.allocPrint(gpa, "src/c_abi/{s}", .{entry.path});
+        defer gpa.free(path);
+        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        defer gpa.free(contents);
+
+        const opener = "pub export fn ";
+        var at: usize = 0;
+        while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
+            at = hit + opener.len;
+            var name_end = at;
+            while (name_end < contents.len and isIdentChar(contents[name_end])) name_end += 1;
+            const name = contents[at..name_end];
+            const body_start = std.mem.indexOfScalarPos(u8, contents, name_end, '{') orelse break;
+            const signature = contents[name_end..body_start];
+            // Only the `void` returns are in question; a code already reports.
+            if (std.mem.indexOf(u8, signature, ") void") == null) continue;
+
+            var depth: usize = 0;
+            var i = body_start;
+            while (i < contents.len) : (i += 1) {
+                if (contents[i] == '{') depth += 1;
+                if (contents[i] == '}') {
+                    depth -= 1;
+                    if (depth == 0) break;
+                }
+            }
+            const body = contents[body_start..@min(i + 1, contents.len)];
+            if (std.mem.indexOf(u8, body, "setLastError") == null) continue;
+            try appendViolation(gpa, violations, "{s}: `{s}` returns `void` and writes the error slot, so an embedder cannot see the failure it just recorded. Give it an `i32` code, or stop recording one.", .{ path, name });
+        }
+    }
 }

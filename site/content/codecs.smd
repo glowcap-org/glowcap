@@ -1,5 +1,6 @@
 ---
 .title = "Codecs",
+.description = "pancake is codec-neutral: the session reasons in messages and a codec turns them into bytes. Syrup is the OCapN wire format; Cap'n Proto is the second codec.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -22,14 +23,15 @@ A codec only reads and writes bytes; it never decides what a message *means* or
 whether it is *allowed*. That authority stays in the session, so changing codecs
 changes the wire and never the behavior. Decode the same message through either
 codec and you get the same borrowed view; encode through either and the bytes come
-back equivalent. A build check holds that line: the deliver/resolve and
-bootstrap-fetch scenarios produce identical observable traces on both codecs.
+back equivalent. A build check holds that line: the reference scenarios, from
+deliver/resolve through handoff and GC, must produce identical observable
+traces on both codecs.
 
 ## The two that ship
 
 | Codec | Wire shape | Reach for it when |
 | --- | --- | --- |
-| Syrup | length-prefixed, variable-length byte records | anything on the far side might not be pancake (it is the default, and the only codec that reaches Goblins or any other OCapN peer), or per-connection density matters |
+| Syrup | length-prefixed, variable-length byte records | anything on the far side might not be pancake (it is the default, and the only codec a non-pancake peer speaks), or per-connection density matters |
 | Cap'n Proto | fixed 8-byte-aligned words, every field at a known offset | two pancake peers, after measuring that fixed-offset access pays for the larger frames |
 
 ### Syrup
@@ -48,8 +50,8 @@ itself is riding Cap'n Proto.
 
 Reading a Syrup value means walking its records in order: a byte record has no fixed
 offset, so jumping to element *i* of a list re-scans from the start. That is the
-price of compactness. The engine's steady-state path iterates forward on purpose, a
-single pass over a borrowed view, so it never pays that price.
+price of compactness. The engine's steady-state path iterates forward, a single
+pass over a borrowed view, so it never pays that price.
 
 ### Cap'n Proto
 
@@ -57,21 +59,24 @@ Cap'n Proto is the second codec. It lays messages out as 8-byte words where ever
 field sits at a known
 offset, reached by following struct and list pointers. pancake hand-rolled its
 encoder against the wire format with no schema compiler in the build. Cap'n Proto
-here is a pancake-to-pancake dialect on the `pancake-next` profile, not a wire shape
-any third-party reader must satisfy, so a generated schema would buy nothing. Two
-pancake peers settle on it at the handshake (`pairedWithCodec` in Zig,
-`pancake_peer_new_negotiated` over the C ABI, the matching idiom in every binding),
-and the whole conversation rides it from there. It never reaches a Goblins peer.
+here is a pancake-to-pancake dialect on the `pancake-next` profile (the dialect
+two pancake peers can negotiate up to), not a wire shape
+any third-party reader must satisfy, so a generated schema would buy nothing.
+Two pancake peers agree on it by configuration rather than on the wire: both ends
+construct with the same choice, and the whole conversation rides it from there.
+That is `codec = .capnp` in the Zig driver's `SessionOptions`,
+`pancake_peer_new_negotiated` over the C ABI, and the matching idiom in every
+binding. It never reaches a Goblins peer.
 
-Fixed offsets are the point: field *i* is arithmetic, not a scan. The cost is
+Fixed offsets are the point: you can jump straight to field *i*. The cost is
 size: word padding and pointers enlarge small control messages. Cap'n Proto can
 also carry a typed value (an abort reason) where Syrup projects a string.
 Numbers for one message shape: [Performance]($link.page('performance')).
 
 ## The tradeoffs, plainly
 
-Neither codec is "the fast one." Four axes matter, and only the first is a hard
-constraint:
+Neither codec wins on every message shape. Four axes matter, and only the first
+is a hard constraint:
 
 | Axis | Favors | In a phrase |
 | --- | --- | --- |
@@ -87,15 +92,15 @@ the session retains a message). Neither silently coerces a value the model rejec
 
 `zig build bench-codec` times one representative call, a method invocation with a small
 mixed-type argument list, and the [Performance]($link.page('performance')) page shows the
-result. On that message Syrup encodes a little faster and into a much smaller frame, and
-Cap'n Proto decodes a little faster; the MB/s figures look lopsided only because Cap'n Proto
-is moving several times as many bytes for the same message. Read per message, the two are
-close.
+result. On that message Syrup encodes in well under half the time and into a frame a
+fraction of the size, and the two decode in about the same time. The MB/s figures look
+lopsided only because Cap'n Proto is moving several times as many bytes for the same
+message; read per message, decode is close and encode is not.
 
-That closeness is the headline for *typical* CapTP traffic, which is small control
-messages. It is not a verdict that Cap'n Proto is pointless: its advantage is
-constant-time field access over large, structured, or partially read payloads, a
-different message shape than the benchmark measures.
+That is the headline for *typical* CapTP traffic, which is small control messages:
+on them, Syrup gives up nothing. It is not a verdict that Cap'n Proto is pointless: its
+advantage is constant-time field access over large, structured, or partially read
+payloads, a different message shape than the benchmark measures.
 
 ## Which to reach for
 
@@ -107,7 +112,7 @@ with `zig build bench-codec` on the message shapes you actually send rather than
 
 ## Bring your own
 
-The set is open on purpose: the codec layer is a registry, not a fixed switch. A
+The set is open: the codec layer is a registry the build resolves. A
 Zig consumer declares `pub const pancake_codecs` in the root source file, binds a
 wire id to an implementation, and the same core speaks it with no change to the
 session above. The registry resolves at compile time, so a third codec costs the
@@ -116,3 +121,7 @@ the C ABI and the four bindings negotiate among the codecs the archives were
 compiled with, which today means Syrup and Cap'n Proto. The
 [architecture doc](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
 spells out the codec layer's contract.
+
+When the choice matters, [Performance]($link.page('performance')) carries the
+measured per-message numbers, and [Concepts]($link.page('concepts')) covers the
+negotiation that picks the dialect.

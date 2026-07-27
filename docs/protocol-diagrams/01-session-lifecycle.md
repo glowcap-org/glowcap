@@ -54,7 +54,7 @@ sequenceDiagram
     A->>B: op:start-session (captp-version 1.0, ...)
     Note over B: version unsupported, or location-sig invalid
     B->>A: op:abort (reason)
-    Note over A,B: session never Opened; B stays Negotiating (SL-6)
+    Note over A,B: session never Opened, B stays Negotiating (SL-6)
 ```
 
 ## SL-4: Crossed hellos

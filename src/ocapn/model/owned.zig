@@ -139,6 +139,7 @@ pub fn freeReference(allocator: std.mem.Allocator, reference: model.Reference) v
         .sturdy => |sturdy| {
             freePeerLocator(allocator, sturdy.peer);
             allocator.free(sturdy.swissnum);
+            allocator.destroy(sturdy);
         },
         .broken => |broken| allocator.free(broken.message),
         .promise => |promise| freePipelinePath(allocator, promise.path),

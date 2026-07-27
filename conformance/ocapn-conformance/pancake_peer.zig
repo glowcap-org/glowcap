@@ -134,7 +134,7 @@ const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
         if (msg.args.len < 1) return error.BadGreet;
-        const target: actors.Ref = switch (msg.arg(0)) {
+        const target: actors.Ref = switch (try msg.arg(0)) {
             .reference => |reference| switch (reference) {
                 .far => |far_ref| .{ .far = far_ref },
                 else => return error.BadGreet,
@@ -160,7 +160,7 @@ const CarFactory = struct {
     pub fn handle(self: *CarFactory, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
         if (msg.args.len < 1) return error.BadArgs;
-        const items = switch (msg.arg(0)) {
+        const items = switch (try msg.arg(0)) {
             .list => |l| l,
             else => return error.BadArgs,
         };

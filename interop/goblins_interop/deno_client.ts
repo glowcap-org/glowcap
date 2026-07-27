@@ -25,7 +25,7 @@ for (const a of Deno.args) {
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
 	fail("deno-goblins-interop", "--port must be an integer in 1..65535");
 }
-const RACKET = "/usr/local/bin/racket";
+const RACKET = "racket";
 const HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt";
 
 const child = new Deno.Command(RACKET, {

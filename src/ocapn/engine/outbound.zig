@@ -7,8 +7,6 @@
 
 const std = @import("std");
 
-const codec = @import("codec");
-const foundation = @import("foundation");
 const model = @import("model");
 
 const engine = @import("mod.zig");
@@ -228,7 +226,7 @@ pub fn stepPending(self: *Peer, item: Outbound) !void {
 /// so the answer store and the imported-promise store are reached the same
 /// way. The returned resolution borrows the store; it is valid only until
 /// the store is next mutated.
-pub fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
+fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
     row_id: u64,
     resolution: *const model.Resolution,
 } {
@@ -281,7 +279,7 @@ pub fn resolveStoreChecked(self: *Peer, target: FireTarget) ?*const model.Resolu
 /// next encodes the message as it stands. Borrows `message`; the caller
 /// owns and frees it. An `op:abort` goes through `commitAbortOutbound`
 /// (close after successful push) so the partner can still take the frame.
-pub fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
+fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
     if (message == .abort) {
         try self.commitAbortOutbound(message.abort, .close);
         return;
@@ -300,16 +298,7 @@ pub fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
         try v1_0.installResolverForOutboundDeliver(self, message.deliver)
     else
         message;
-    {
-        var frame = try codec.dispatch.encodeMessageForProfile(
-            self.session_state.codec,
-            self.allocator,
-            self.session_state.captp_version,
-            wire_message,
-        );
-        errdefer frame.deinit();
-        try self.outbound.push(self.allocator, frame);
-    }
+    try self.pushEncoded(wire_message);
 
     if (needs_v1_0) switch (message) {
         .get => |g| try v1_0.installListenerForOutboundProjection(self, g.answer),

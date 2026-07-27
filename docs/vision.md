@@ -17,11 +17,32 @@ Correctness comes first. A fast wrong answer is worthless. Performance and
 ergonomics are co-equal seconds: shipping one without the other misses the goal.
 When two right answers conflict, find the design that honors both.
 
+## Why this exists
+
+Its author needs an object-capability substrate to build infrastructure on, and
+would rather build on one whose allocations, boundaries, and failure modes are
+visible than on one that hides them.
+
+The other reason is that a specification is better off with an implementation
+written by someone other than its authors. A second peer finds the sentences that
+admit two readings, gives the conformance suite another subject to run against,
+and is evidence that the spec can be built from its own text. Where pancake
+reads the spec differently from Goblins, the difference is written down rather
+than smoothed over: [`boundaries.md`](boundaries.md) records where each
+capability stops, and [`community-review.md`](community-review.md) lists the
+divergences and open questions. Those notes are offered to OCapN as findings,
+not as arguments.
+
+pancake is not trying to replace [Spritely Goblins](https://spritely.institute/goblins/).
+Goblins is the reference this project is measured against, which is why the live
+interop steps exist: so the measurement keeps happening instead of being claimed
+once.
+
 ## The number
 
-One node should hold five hundred thousand live CapTP sessions. Treat that as a
-budget, not a claim. No surface calls 500k an achievement until a check proves it
-under real socket load.
+One node should hold five hundred thousand live CapTP sessions. That number is
+a budget the code draws against, and no surface calls 500k an achievement until
+a check proves it under real socket load.
 
 The portable core is synchronous and does no I/O, so it cannot deliver 500k by
 itself. It can make 500k impossible by letting per-session state bloat or by
@@ -55,7 +76,7 @@ partner calls it back. Happy-path application code carries no export-position
 bookkeeping, no manual flush, no hand-rolled receive loop, and no protocol
 vocabulary.
 
-The surface is composition, not abstraction. The `Session` composes the sans-io
+The `Session` composes the sans-io
 peer, the actor vat, and the I/O adapter. A consumer who outgrows it reaches the
 peer at `session.peer`. Delegation is passing a reference. Attenuation and
 revocation are one `session.attenuate` or `session.caretaker` call each
@@ -66,8 +87,8 @@ revocation are one `session.attenuate` or `session.caretaker` call each
 
 Use the netlayers and codecs pancake ships, or bring your own. That holds in Zig
 and in every binding. Netlayers and codecs are contracts the core dispatches
-against, not privileged built-ins. If swapping one out means reaching into the
-core, the boundary is wrong.
+against. If swapping one out means reaching into the core, the boundary is
+wrong.
 
 ## Reachable on modern networks
 
@@ -120,17 +141,6 @@ calls a pancake-hosted actor is the `goblins-interop` listener brackets plus
 one binding: `zig build deno-goblins-listen` has a real Goblins vat dial a
 greeter the Deno binding publishes. The other bindings' listener direction is
 not proven by a live build check.
-
-## What never gets traded
-
-These do not get sacrificed for convenience, a deadline, or one binding's
-comfort:
-
-- Performance. Wire-path copies stay forbidden, intentional, or measured.
-- The architecture. Authority stays in the session, I/O stays in adapters, the
-  core stays sans-io.
-- This destination. A shortcut that eases one binding by blocking the others, or
-  that passes a test by diverging from Goblins on the wire, is a regression.
 
 ## Where we are
 

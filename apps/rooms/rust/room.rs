@@ -9,7 +9,7 @@
 //!
 //!   let dir = Directory::connect(addr).await?;
 //!   let mut room = Room::subscribe(dir.session(), dir.enter("general").await?, "alice").await?;
-//!   room.say("hello").await;
+//!   room.say("hello").await?;
 //!   while let Some(msg) = room.recv().await { println!("{}: {}", msg.from, msg.text); }
 //!   room.leave().await;
 //!
@@ -289,9 +289,15 @@ impl Room {
 		})
 	}
 
-	/// Say a line to everyone in the room.
-	pub async fn say(&self, text: &str) {
-		let _ = self.session.send(&self.room, "post", &[text.into()]).await;
+	/// Say a line to everyone in the room. Fails if the room rejects the line or
+	/// the session is gone; a caller that drops the error is silently dropping
+	/// the message.
+	pub async fn say(&self, text: &str) -> Result<(), String> {
+		self.session
+			.send(&self.room, "post", &[text.into()])
+			.await
+			.map(|_| ())
+			.map_err(|err| format!("say: {err}"))
 	}
 
 	/// The next line the room pushes, or `None` once it has ended.

@@ -1,6 +1,6 @@
 ---
 id: ADR-0043
-status: accepted
+status: superseded
 date: 2026-06-10
 tags: [net, driver, transport, architecture]
 decision: "A netlayer is a runtime resident vtable the driver dispatches against by transport symbol, over a transport-generic Connection; tcp is its first resident."

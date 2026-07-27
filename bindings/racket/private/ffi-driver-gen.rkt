@@ -38,7 +38,7 @@
   (_fun _pointer _size _size _uint32 _uint32 _uint32 _pointer -> _int32)
   #:c-id pancake_host_new)
 (define pancake_host_new (wrap-out1 pancake_host_new* _pointer #f))
-(define-driver pancake_host_release (_fun _pointer -> _void))
+(define-driver pancake_host_release (_fun _pointer -> _int32))
 (define-driver pancake_host_designator_from_seed
   (_fun _pointer _size _pointer _size -> _int32))
 (define-driver pancake_host_set_self_designator (_fun _pointer _pointer _size -> _int32))
@@ -64,8 +64,8 @@
 (define pancake_host_reference_exporter (wrap-out1 pancake_host_reference_exporter* _pointer #f))
 (define-driver pancake_host_plan_accept
   (_fun _pointer _size _pointer _size _pointer _size _PancakeAcceptPlan-pointer -> _int32))
-(define-driver pancake_host_session_release (_fun _pointer -> _void))
-(define-driver pancake_host_session_session_open (_fun _pointer -> _int32))
+(define-driver pancake_host_session_release (_fun _pointer -> _int32))
+(define-driver pancake_host_session_is_open (_fun _pointer -> _int32))
 (define-driver pancake_host_session_feed_bytes (_fun _pointer _pointer _size -> _int32))
 (define-driver pancake_host_session_take_outbound
   (_fun _pointer _PancakeManagedFrame-pointer -> _int32))

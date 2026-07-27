@@ -1,13 +1,16 @@
 //! The netlayer contract: a transport the driver dials and hosts against, never
 //! a privileged built-in.
 //!
-//! OCapN addresses a peer by a locator whose `transport` symbol (`tcp`,
-//! `inproc`, or `iroh`) selects how to reach it. A netlayer is the thing that turns
-//! that symbol into bytes on a wire: it dials a locator to a `Connection` and
-//! binds a `Listener` that accepts connections. The driver holds a
-//! `[]const Netlayer` (the transport set) and dispatches on the locator's
-//! transport symbol at runtime through `resolve` — so adding a transport is
-//! putting one more netlayer in the slice, not editing the driver or the core.
+//! OCapN addresses a peer by a locator — a value with three parts: a `transport`
+//! symbol that selects how to reach it (`"tcp"`, `"iroh"`, etc.), a `designator`
+//! that names the specific peer (a `host:port` string for TCP, a hex-encoded
+//! Ed25519 key for keyed-TCP and iroh), and optional `hints` for transport-specific
+//! metadata like direct socket addresses. A netlayer is the thing that turns that
+//! locator into bytes on a wire: it dials a locator to a `Connection` and binds
+//! a `Listener` that accepts connections. The driver holds a `[]const Netlayer`
+//! (the transport set) and dispatches on the locator's transport symbol at
+//! runtime through `resolve` — so adding a transport is putting one more netlayer
+//! in the slice, not editing the driver or the core.
 //!
 //! The contract is "produce a `Connection` over a stream," nothing more. Every
 //! transport funnels through the same `Connection` (a `*std.Io.Reader` /
@@ -43,7 +46,9 @@ pub const Connection = connection.Connection;
 
 /// Caller-owned read/write buffers handed to a dial/accept. `read` sizes the
 /// steady per-connection memory, not the largest admissible frame (a larger
-/// frame spills, bounded by the session's `max_frame_bytes`).
+/// frame assembles across multiple reads in the connection's bounded overflow
+/// buffer, the `Spill` in `frame_stream.zig`, bounded by the session's
+/// `max_frame_bytes`).
 pub const Buffers = struct {
     read: []u8,
     write: []u8,
@@ -127,7 +132,7 @@ pub const ListenConfig = struct {
 /// it. `key` means the designator is the peer's Ed25519 public key in canonical
 /// lowercase hex (`foundation.crypto.PeerKey.toDesignator`), dial addresses
 /// ride the `hint_direct_addresses` hint, and the signed designator derives
-/// from the identity key, never the socket — which is what lets a partner
+/// from the identity key, never the socket. That is what lets a partner
 /// re-dial the same designator across a process restart and lets the dial-side
 /// pin (`engine.Peer.expectPartnerKey`) verify the session key against the
 /// designator it dialed.
@@ -151,6 +156,20 @@ pub fn directAddrHint(hints: model.Hints) ?[]const u8 {
         }
     }
     return null;
+}
+
+/// Write a listener's designator into the caller's `out` under the netlayer
+/// contract that a designator never truncates: an `out` too small for the whole
+/// designator yields the empty defect slice, never a partial address a partner
+/// could not dial. Returns the written prefix of `out`. Every resident whose
+/// designator is a stored byte run (a key hex, an inproc name) fills its
+/// `localDesignator` arm through here so the no-truncation rule lives in one
+/// place; a resident that writes its designator straight into `out` honors the
+/// same rule inline.
+pub fn writeDesignator(out: []u8, designator: []const u8) []const u8 {
+    if (out.len < designator.len) return out[0..0];
+    @memcpy(out[0..designator.len], designator);
+    return out[0..designator.len];
 }
 
 /// A dial could not produce a connection. The transport's private errors are

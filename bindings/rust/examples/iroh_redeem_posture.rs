@@ -82,7 +82,7 @@ async fn run() -> Result<(), Fail> {
 		pancake_rust_dogfood::TRANSPORT_IROH,
 		&exporter_id,
 		"",
-	)?);
+	)?)?;
 	gifter_host.publish_giftable("introducer", move || {
 		let greeter = greeter_ref.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {

@@ -17,6 +17,7 @@
 // / `--allow-run` degrades to the next rung instead of failing.
 
 import { ffi, injected_adapter_key } from "./runtime.ts";
+import { archiveListingViolation } from "./archive_hygiene.ts";
 
 // The host built-ins the cascade rides. Static imports (not top-level await)
 // so this module ships no top-level await — a browser bundle flattens every
@@ -357,43 +358,43 @@ function curlDownload(
 	return spawnSync("curl", args, { stdio: "ignore" }).status === 0;
 }
 
-function tarTvName(line: string): string {
-	const withoutLink = line.split(" -> ")[0] ?? line;
-	const parts = withoutLink.trim().split(/\s+/);
-	if (parts.length >= 8) return parts.slice(7).join(" ");
-	return parts[parts.length - 1] ?? "";
-}
-
 /** List members, reject traversal/links under extract_prefix, then extract.
  * Refuse/link and extract failures hard-fail; tar list failure returns false
- * (tooling soft-fail at the caller). */
-function safeExtractPrefix(
+ * (tooling soft-fail at the caller).
+ *
+ * Exported so the C-ABI extract matrix can run this exact path — the listing
+ * and the extract, with the environment this function builds — against
+ * hostile archives. Counting the environment's spelling in the source cannot
+ * show that the environment reaching both subprocesses is the one intended. */
+export function safeExtractPrefix(
 	tarballPath: string,
 	stage: string,
 	prefix: string,
 ): boolean {
-	const listing = spawnSync("tar", ["-tvzf", tarballPath], {
+	// A minimal environment for both tar calls below. Spreading `process.env`
+	// enumerates every variable, which Deno refuses under a scoped
+	// `--allow-env`, and this module promises to degrade rather than throw.
+	// `LC_ALL` is what the shared validator's two accepted layouts are
+	// defined in.
+	//
+	// `TAR_OPTIONS` is neutralized by name rather than by omission. Node
+	// replaces the environment when `env` is given, but Deno's compatibility
+	// layer merges it with the parent's, so a hostile `TAR_OPTIONS` survived
+	// this object and hid members from the listing that the extract would
+	// still have written. An empty value overrides it either way.
+	const tarEnv = { LC_ALL: "C", PATH: envVar("PATH") ?? "", TAR_OPTIONS: "" };
+	const listing = spawnSync("tar", ["--numeric-owner", "-tvzf", tarballPath], {
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],
+		env: tarEnv,
 	});
 	if (listing.status !== 0 || listing.stdout === null) return false;
-	const prefixSlash = `${prefix}/`;
-	for (const line of listing.stdout.split("\n")) {
-		if (line.length === 0) continue;
-		const kind = line[0];
-		const name = tarTvName(line);
-		if (name !== prefix && !name.startsWith(prefixSlash)) continue;
-		if (name.startsWith("/") || name.split("/").includes("..")) {
-			hardFail(`refusing unsafe tar member: ${name}`);
-		}
-		if (kind === "l" || kind === "h") {
-			hardFail(`refusing link tar member: ${name}`);
-		}
-	}
+	const violation = archiveListingViolation(listing.stdout, prefix);
+	if (violation !== null) hardFail(violation);
 	const untar = spawnSync(
 		"tar",
 		["-xzf", tarballPath, "-C", stage, "--no-same-owner", prefix],
-		{ stdio: "ignore" },
+		{ stdio: "ignore", env: tarEnv },
 	);
 	if (untar.status !== 0) {
 		hardFail("tar extract failed");

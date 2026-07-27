@@ -116,7 +116,7 @@ fn runInit(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     // the legacy ~/.config path even when one still exists for load.
     if (ctx.identity_path.len == 0) try ctx.resolveMintIdentityPath();
     ctx.ensureStateLock() catch |err| {
-        return @import("../operability/state_lock.zig").refuseBusy(ctx.io, err);
+        return @import("../operability/state_lock.zig").refuseLockFailure(ctx.io, err, ctx.identity_path);
     };
     const secret = identity_mod.mint(ctx.io, ctx.identity_path) catch |err| switch (err) {
         error.PathAlreadyExists => {
@@ -150,7 +150,7 @@ fn runIdentity(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
     _ = parsed;
     if (ctx.identity_path.len == 0) try ctx.resolveIdentityPath();
     ctx.ensureStateLock() catch |err| {
-        return @import("../operability/state_lock.zig").refuseBusy(ctx.io, err);
+        return @import("../operability/state_lock.zig").refuseLockFailure(ctx.io, err, ctx.identity_path);
     };
     const secret = identity_mod.load(ctx.io, ctx.identity_path) catch |err| {
         return identity_mod.mapLoadError(err);

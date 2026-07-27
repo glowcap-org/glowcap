@@ -45,7 +45,7 @@ const bench_args = [_]model.Argument{
 
 const target_import: u64 = 5;
 
-/// The enforced ceilings under `--gate` (ReleaseFast). docs/ladder.md rung 2
+/// The enforced ceilings under `--gate` (ReleaseFast). docs/ladder.md step 2
 /// owns these numbers. Both are tripwires, not precision instruments: the
 /// send ceiling sits roughly an order of magnitude over the measured figure
 /// so only a structural regression crosses it, and the growth ceiling is
@@ -80,7 +80,7 @@ fn runGate(io: std.Io, allocator: std.mem.Allocator) !void {
     if (min_send_ns > gate_outbound_send_ceiling_ns) {
         failed = true;
         std.debug.print(
-            "perf_gate FAIL outbound_send min_ns={d:.1} ceiling_ns={d:.1} — docs/ladder.md rung 2\n",
+            "perf_gate FAIL outbound_send min_ns={d:.1} ceiling_ns={d:.1} — docs/ladder.md step 2\n",
             .{ min_send_ns, gate_outbound_send_ceiling_ns },
         );
     } else {
@@ -92,7 +92,7 @@ fn runGate(io: std.Io, allocator: std.mem.Allocator) !void {
     if (growth > gate_storm_growth_ceiling) {
         failed = true;
         std.debug.print(
-            "perf_gate FAIL gc_storm_growth q{d}_ns_per={d:.1} q{d}_ns_per={d:.1} growth={d:.2} ceiling={d:.1} — docs/ladder.md rung 2\n",
+            "perf_gate FAIL gc_storm_growth q{d}_ns_per={d:.1} q{d}_ns_per={d:.1} growth={d:.2} ceiling={d:.1} — docs/ladder.md step 2\n",
             .{ gate_storm_small_q, small.ns_per_answer, gate_storm_big_q, big.ns_per_answer, growth, gate_storm_growth_ceiling },
         );
     } else {

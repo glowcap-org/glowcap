@@ -12,12 +12,13 @@ import threading
 import ctypes
 
 from pancake import (
-    Session,
     Context,
     FetchFailed,
+    Forward,
     Keyword,
     Host,
     PancakeError,
+    RedeemedReply,
     Ref,
     Set,
     Symbol,
@@ -130,6 +131,9 @@ def main() -> int:
 
     asyncio.run(_mid_turn_driving_verb_breaks_the_answer())
     print("python zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer")
+
+    asyncio.run(_send_redeeming_surfaces_the_direct_exporter())
+    print("python zig-smoke OK: send_redeeming surfaces the redeemed exporter session, and a reply capability hosted on it routes")
     return 0
 
 
@@ -545,6 +549,12 @@ async def _gc_releases_dropped_import() -> None:
                 break
             await asyncio.sleep(0.01)
         assert saw_gc.is_set(), "the wire never carried op:gc-export for the dropped import"
+        # The finalizer parked the release and hopped to the loop; observing
+        # op:gc-export means it ran, so no parked release is left behind (parity
+        # with the TypeScript, Rust, and Racket dogfoods, which assert the same).
+        assert (
+            session._host.pending_release_count() == 0
+        ), "the finalizer's parked release drained after the turn"
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
@@ -930,6 +940,97 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
+
+
+async def _send_redeeming_surfaces_the_direct_exporter() -> None:
+    """A three-party handoff with pancake as all three parties, over loopback:
+    the exporter (Bob) publishes a host-wide giftable inbox, the broker holds it
+    and introduces members to it, and the recipient (Carol) asks for an
+    introduction with ``send_redeeming``.
+
+    The reply's ``via`` is the *direct* Carol-to-Bob connection the binding
+    dialed to redeem the give, not the broker connection Carol sent on. That is
+    the one place a reply capability is valid, because a near export names a
+    position on one specific connection's peer: Carol spawns her reply inbox on
+    ``via``, and Bob answers by calling it back, so the message and its answer
+    both travel the direct connection while the broker stays out of the path. A
+    second introduction resolves the same ``via`` with no fresh dial, which is
+    what makes the attribution deterministic rather than a which-dial-ran
+    guess."""
+    delivered: list = []
+    acked: list = []
+
+    bob = await listen("127.0.0.1", 0)
+    broker = await listen("127.0.0.1", 0)
+    accepting: list = []
+    try:
+        def dm(verb, args):
+            if verb == "dm":
+                delivered.append(args[0])
+                # Answer by calling back the capability the sender spawned. It
+                # is a live export only on the connection the redeemed token
+                # routes to, so this call reaching Carol is the proof that
+                # `via` named that connection.
+                return Forward(args[1], "note", [f"bob got {args[0]}"])
+            return None
+
+        bob.host.publish_giftable("dm", dm)
+
+        async def accept_all(server) -> None:
+            async for session in server:
+                session.serve()
+
+        accepting.append(asyncio.ensure_future(accept_all(bob)))
+        accepting.append(asyncio.ensure_future(accept_all(broker)))
+
+        # The broker dials Bob under its own identity and fetches his giftable
+        # inbox; returning that ref to a *different* connection is what trips
+        # the transparent gifter.
+        broker_to_bob = await connect(tcp_locator("127.0.0.1", bob.port), host=broker.host)
+        broker_to_bob.serve()
+        bob_dm = await broker_to_bob.fetch("dm")
+        broker.host.publish_giftable(
+            "introducer",
+            lambda verb, args: bob_dm if verb == "introduce" else "no capability here",
+        )
+
+        carol = await connect(tcp_locator("127.0.0.1", broker.port))
+        carol.serve()
+        introducer = await carol.fetch("introducer")
+
+        settled = await carol.send_redeeming(introducer, "introduce", [])
+        assert isinstance(settled, RedeemedReply), settled
+        reply, via = settled
+        assert isinstance(reply, Ref), f"introduce returned a capability, got {reply!r}"
+        assert via is not None, "the redeemed reply surfaces its direct exporter session"
+        assert via is not carol, "`via` is the direct exporter connection, not the broker one"
+        assert via.host is carol.host, "the redeem shares Carol's Host"
+
+        # The reply inbox is hosted where the reply lives, and the DM goes out
+        # on that same connection: Bob's answer is his call back into it.
+        inbox = via.spawn(lambda verb, args: acked.append(args[0]))
+        note = await via.send(reply, "dm", ["hello bob", inbox])
+        assert delivered == ["hello bob"], f"the DM reached Bob directly, got {delivered!r}"
+        assert acked == ["bob got hello bob"], f"Bob called the reply inbox back, got {acked!r}"
+        assert note is None, f"the forwarded answer settles from the inbox, got {note!r}"
+
+        # Deterministic re-redeem: the second introduction routes to the
+        # exporter already dialed, so `via` is that same live session.
+        again = await carol.send_redeeming(introducer, "introduce", [])
+        assert again.via is via, "a re-redeem resolves the same exporter session, no second dial"
+
+        # A reply that is no capability at all has no exporter to name.
+        plain = await carol.send_redeeming(introducer, "ping", [])
+        assert plain.reply == "no capability here", plain.reply
+        assert plain.via is None, "a non-capability reply names no exporter session"
+
+        await carol.close()
+        await broker_to_bob.close()
+    finally:
+        for task in accepting:
+            task.cancel()
+        broker.close()
+        bob.close()
 
 
 if __name__ == "__main__":

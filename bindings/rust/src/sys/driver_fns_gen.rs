@@ -41,7 +41,7 @@ extern "C" {
 		local_turn_budget: c_uint,
 		out_host: *mut *mut PancakeHost,
 	) -> c_int;
-	pub fn pancake_host_release(host: *mut PancakeHost);
+	pub fn pancake_host_release(host: *mut PancakeHost) -> c_int;
 	pub fn pancake_host_designator_from_seed(
 		seed: *const c_uchar,
 		seed_len: usize,
@@ -106,8 +106,8 @@ extern "C" {
 		accepted_local_addr_len: usize,
 		out_plan: *mut PancakeAcceptPlan,
 	) -> c_int;
-	pub fn pancake_host_session_release(session: *mut PancakeHostSession);
-	pub fn pancake_host_session_session_open(session: *mut PancakeHostSession) -> c_int;
+	pub fn pancake_host_session_release(session: *mut PancakeHostSession) -> c_int;
+	pub fn pancake_host_session_is_open(session: *mut PancakeHostSession) -> c_int;
 	pub fn pancake_host_session_feed_bytes(
 		session: *mut PancakeHostSession,
 		bytes: *const c_uchar,

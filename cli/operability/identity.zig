@@ -3,6 +3,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 const exit_codes = @import("../exit_codes.zig");
 const log = @import("log.zig");
+const path_io = @import("path_io.zig");
 const xdg = @import("xdg.zig");
 
 const crypto = pancake.foundation.crypto;
@@ -20,19 +21,10 @@ pub fn mintIdentityPath(buf: []u8, environ: *const std.process.Environ.Map, post
     return xdg.mintIdentityPath(buf, environ, posture);
 }
 
-pub fn ensureParentDir(io: Io, path: []const u8) !void {
-    if (std.fs.path.dirname(path)) |dir| {
-        Io.Dir.cwd().createDirPath(io, dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => return e,
-        };
-    }
-}
-
 pub fn mint(io: Io, path: []const u8) !crypto.SecretKey {
     var seed: [seed_bytes]u8 = undefined;
     io.randomSecure(&seed) catch return error.EntropyFailed;
-    try ensureParentDir(io, path);
+    try path_io.ensureParentDir(io, path);
     const file = try Io.Dir.cwd().createFile(io, path, .{ .exclusive = true });
     defer file.close(io);
     try file.writeStreamingAll(io, &seed);
@@ -70,4 +62,20 @@ pub fn mapLoadError(err: anyerror) u8 {
         error.IdentityMissing, error.IdentityCorrupt, error.EntropyFailed => exit_codes.identity,
         else => exit_codes.internal,
     };
+}
+
+/// Refuse a failed load-or-mint, saying which file and why.
+///
+/// The missing and corrupt cases have already printed something useful by the
+/// time they get here. Everything else is a filesystem refusal, usually a state
+/// directory nobody can write, and it used to reach the caller as a bare code
+/// with no message at all. Worse, callers that reached for the dial mapper
+/// reported it as a *dial* failure, which sends the reader looking at the
+/// network for a permissions problem.
+pub fn refuseSecret(io: Io, err: anyerror, path: []const u8) u8 {
+    switch (err) {
+        error.IdentityMissing, error.IdentityCorrupt, error.EntropyFailed => {},
+        else => log.err(io, "cannot load or create the identity at {s}: {s}", .{ path, @errorName(err) }),
+    }
+    return mapLoadError(err);
 }

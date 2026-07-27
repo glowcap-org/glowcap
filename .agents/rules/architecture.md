@@ -47,7 +47,7 @@ Adapters may use `std.Io`, transports, callbacks, and host scheduling. They do
 not add CapTP semantics that the core lacks.
 
 Vocabulary: CapTP is transport-agnostic. A netlayer is a locator transport
-symbol (`tcp`, `keyed-tcp`, `inproc`, `iroh`). Socket and stream code live in
+symbol (`tcp`, `keyed-tcp`, `inproc`, `iroh`, `webrtc`). Socket and stream code live in
 transport residents; `keyed-tcp` is its own symbol and reuses `tcp` sockets —
 not a second CapTP stack. CapTP never names a transport.
 
@@ -102,7 +102,7 @@ not a second CapTP stack. CapTP never names a transport.
   `src/ocapn/` groups the protocol core. It ships as a set of composable
   archives that share types by _layout_, not symbols — `libpancake_ocapn`,
   `libpancake_net`, and one per transport
-  (`libpancake_net_transport_{tcp,inproc,iroh}`) — each exporting only its own
+  (`libpancake_net_transport_{tcp,inproc,iroh,webrtc}`), each exporting only its own
   `pancake_<family>_*` family (the ADR-0055 companion split, generalized to
   every transport by ADR-0059):
   - `c_abi/shared` (module `c_abi_shared`): the shared C-ABI vocabulary leaf,
@@ -148,8 +148,8 @@ not a second CapTP stack. CapTP never names a transport.
     `zig build wasm-driver`; sits outside the layer DAG (`.graph = false`).
   - `c_abi/net_transport` is the grouping directory for the transport archives:
     it holds no source of its own, only one subdirectory per transport,
-    mirroring the `libpancake_net_transport_{tcp,inproc,iroh}` archive family.
-    Each child below is its own `.graph = false` layer.
+    mirroring the `libpancake_net_transport_{tcp,inproc,iroh,webrtc}` archive
+    family. Each child below is its own `.graph = false` layer.
     - `c_abi/net_transport/tcp` (module `c_abi_net_transport_tcp`): the TCP
       transport archive (`libpancake_net_transport_tcp`). It imports `net`,
       `driver`, and `c_abi_shared`, exports only its `pancake_tcp_*` family plus
@@ -169,14 +169,26 @@ not a second CapTP stack. CapTP never names a transport.
       `arch-check` still claims the directory for file coverage and the I/O
       bans. Header reflected from `src/c_abi/net_transport/iroh`, prose in
       `tools/gen/header/iroh.zig`.
+    - `c_abi/net_transport/webrtc` (module `c_abi_net_transport_webrtc`): the
+      WebRTC transport's public C ABI (`libpancake_net_transport_webrtc`,
+      ADR-0089), exports only the `pancake_webrtc_*` family plus its own
+      `pancake_webrtc_last_error`. Like iroh it sits outside the layer DAG
+      (`.graph = false`) because it links the Rust sidecar and imports the
+      injected `webrtc` resident; `webrtcAbiModule` mints it. Unlike the other
+      transport archives it imports `c_abi_shared` alone, not `net`, because its
+      surface is the sidecar peer (create, signal, `pancake_webrtc_peer_read` /
+      `_write`), not a netlayer over a stream. Header reflected from
+      `src/c_abi/net_transport/webrtc`, prose in `tools/gen/header/webrtc.zig`.
   - The transport archives sit outside the layer DAG too (`.graph = false`); the
-    `archive_table` in `build.zig` declares the archive set and its dependency
-    edges (`net_transport_{tcp,inproc,iroh}` → `net` → `ocapn`).
+    `archive_table` in `build.zig` declares the archive set, and the
+    `layer_table` its dependency edges: each transport layer imports
+    `c_abi_shared`, and `tcp`, `inproc`, and `iroh` also import `net` (`webrtc`,
+    the sidecar-peer surface, imports `c_abi_shared` alone).
 - `oracle`: canonical CapTP scenario drivers, the observable-trace reference
-  of truth that the Zig oracle tests (`test/oracle`) compare against. It is a
-  public surface so a C consumer can produce the same canonical trace, but no
-  binding consumes it today: the bindings prove the C ABI by dogfood, not by
-  oracle traces. Not part of the runtime path. (The top-level `conformance/`
+  of truth that the Zig oracle tests (`test/oracle`) compare against. It is
+  its own module off the public `pancake` namespace: the tests import it
+  directly, and no binding consumes it — the bindings prove the C ABI by
+  dogfood, not by oracle traces. Not part of the runtime path. (The top-level `conformance/`
   tree is unrelated: it holds the external authority — the OCapN suite, the live
   Goblins peer — not this in-tree layer.)
 

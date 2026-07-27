@@ -12,6 +12,7 @@ const model = @import("model");
 const codec = @import("codec");
 const crypto = @import("foundation").crypto;
 const session_mod = @import("session");
+const handoff_names = @import("handoff_names.zig");
 
 /// A recognized inbound bootstrap-fetch.
 pub const FetchRequest = struct {
@@ -91,10 +92,13 @@ pub const GiftRegistry = struct {
     /// `max_deposited_gifts` bounds it directly: a process-lifetime registry that
     /// has served many completed handoffs keeps accepting new deposits.
     gifts: std.StringHashMapUnmanaged(GiftEntry) = .empty,
-    /// Highest accepted `handoff_count` per receiving session id — the monotonic
-    /// replay guard. Vat-scoped on purpose: a receiving session's counter is
-    /// per gifter/recipient pair regardless of which direct session carries the
-    /// withdraw.
+    /// Highest accepted `handoff_count` per recipient, the monotonic replay
+    /// guard. Vat-scoped on purpose: a recipient's counter is the same counter
+    /// regardless of which direct session carries the withdraw. Keyed by the
+    /// side name the exporter *derives* from the gifter-signed give, never by a
+    /// name the withdrawing peer supplies, because this table is shared across
+    /// every session on the host and a peer-chosen key would reach rows that are
+    /// not its own.
     handoff_counts: std.StringHashMapUnmanaged(u64) = .empty,
     /// Next `handoff_count` this node will emit when it withdraws from a given
     /// receiving session id — the recipient-side mirror of `handoff_counts`.
@@ -331,9 +335,29 @@ pub const GiftRegistry = struct {
 
     /// The withdrawal authority check: gift existence (a consumed gift's row is
     /// gone, so it reads as unknown), recipient match when the deposit named a
-    /// recipient, and monotonic handoff-count replay rejection. Validate before
+    /// recipient, the receive naming the parties it actually came from, and
+    /// monotonic handoff-count replay rejection. Validate before
     /// `applyWithdraw`; the two stay split so a refusal never mutates state.
-    pub fn validateWithdraw(self: *const GiftRegistry, receive: model.HandoffReceive) session_mod.Error!void {
+    ///
+    /// `expected` is derived by the caller from the give's recipient key, never
+    /// read from the receive. It is a parameter rather than something this
+    /// function digs out for itself so a caller cannot reach the replay guard
+    /// without having derived it.
+    pub fn validateWithdraw(
+        self: *const GiftRegistry,
+        receive: model.HandoffReceive,
+        expected: ?handoff_names.ExpectedReceiver,
+    ) session_mod.Error!void {
+        if (expected) |names| {
+            if (!std.mem.eql(u8, receive.receiving_side, &names.side)) {
+                return session_mod.Error.InvalidHandoffSession;
+            }
+            if (names.session) |name| {
+                if (!std.mem.eql(u8, receive.receiving_session, &name)) {
+                    return session_mod.Error.InvalidHandoffSession;
+                }
+            }
+        }
         const gift = self.gifts.get(receive.signed_give.gift_id) orelse return session_mod.Error.InvalidGift;
         // Only a provenance-only deposit binds a recipient at deposit time; a
         // capability-bearing deposit named none, so it admits any recipient the
@@ -346,9 +370,28 @@ pub const GiftRegistry = struct {
             },
             .verbatim_cap, .named_cap => {},
         }
-        if (self.handoff_counts.get(receive.receiving_session)) |last| {
+        if (self.handoff_counts.get(counterKey(receive, &expected))) |last| {
             if (receive.handoff_count <= last) return session_mod.Error.HandoffReplay;
         }
+    }
+
+    /// What the replay counter is keyed by.
+    ///
+    /// The derived side when this session has one: the registry is shared by
+    /// every session on the host, so a peer-chosen key would let one peer reach
+    /// another pair's counter, and a derived name also fixes the key at 32
+    /// bytes where a wire-supplied one is bounded only by the frame cap while
+    /// `max_seen_handoff_counts` counts rows rather than bytes. An unkeyed
+    /// session has nothing to derive from, and no signed handoff can be
+    /// addressed to one, so the receive's own name stands in there.
+    /// Taken by pointer, not by value: the returned slice borrows the derived
+    /// name in place, and a by-value parameter's copy dies at the return.
+    fn counterKey(
+        receive: model.HandoffReceive,
+        expected: *const ?handoff_names.ExpectedReceiver,
+    ) []const u8 {
+        if (expected.*) |*names| return &names.side;
+        return receive.receiving_session;
     }
 
     /// Record the handoff count and remove the consumed gift row. Returns the
@@ -360,10 +403,13 @@ pub const GiftRegistry = struct {
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
         receive: model.HandoffReceive,
+        expected: ?handoff_names.ExpectedReceiver,
     ) !?model.Reference {
         // Record the count first (the only fallible step); removing the gift
-        // afterwards cannot fail, so the apply stays atomic.
-        try self.recordHandoffCount(allocator, limits, receive.receiving_session, receive.handoff_count);
+        // afterwards cannot fail, so the apply stays atomic. Keyed by the same
+        // derived side `validateWithdraw` read, or the guard would check one row
+        // and the write would land in another.
+        try self.recordHandoffCount(allocator, limits, counterKey(receive, &expected), receive.handoff_count);
         // Remove the whole row the moment the gift is consumed: no spent marker
         // accrues, so a process-lifetime registry pins neither a capability nor a
         // row per handoff it ever served, and the live count cannot be driven
@@ -467,7 +513,19 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
     return null;
 }
 
-fn answerForDeliver(deliver: model.view.Deliver, session: *const session_mod.Session) ?model.AnswerPosition {
+/// The inbound answer a deliver settles. It is the deliver's wire answer
+/// position, or, for a V1.0 resolver-only deliver that carried no wire answer,
+/// the virtual answer the engine installed for the resolver import (ADR-0065).
+/// The resolve-me-desc may arrive `.far` (inbound from the wire) or `.near` (a
+/// synthesized pipelined-drain event that round-tripped through encode/decode
+/// and flipped the perspective). `position` accepts both, since near and far
+/// name one integer space. This is the one owner of that mapping. The actor
+/// layer reaches it through `Peer.answerForDeliver` and never re-decodes the
+/// resolver descriptor. It is generic over the deliver representation: the
+/// borrowed `model.view.Deliver` (inbound wire) and the owned `model.Deliver`
+/// (a queued pipelined call) both carry `.answer` and a `.resolve_me_desc` with
+/// `.position()`.
+pub fn answerForDeliver(deliver: anytype, session: *const session_mod.Session) ?model.AnswerPosition {
     return deliver.answer orelse blk: {
         if (deliver.resolve_me_desc) |rmd| {
             if (rmd.position()) |import_position| {
@@ -560,7 +618,31 @@ pub fn resolveForWithdraw(
         } } };
     }
 
-    registry.validateWithdraw(receive) catch |err| {
+    // Derive the receiver identity this withdraw is checked against from *this*
+    // session's keys. The receive names the recipient-to-exporter session, and
+    // that is the session the withdraw arrived on, so its two ends are the
+    // partner key our handshake established and our own. The give's recipient
+    // key is a different key: it is the one the receive is signed with, held by
+    // the recipient on its connection to the gifter.
+    //
+    // A session with no partner key is one no signed handoff can be addressed
+    // to, so there is nothing to derive and nothing to check. That is the
+    // in-process substrate the test harnesses drive.
+    const expected: ?handoff_names.ExpectedReceiver = derived: {
+        const partner_key = session.partnerSessionKey() orelse break :derived null;
+        const names = if (session.localSessionKey()) |our_key|
+            handoff_names.ExpectedReceiver.derive(partner_key, our_key)
+        else
+            handoff_names.ExpectedReceiver.fromPartner(partner_key);
+        break :derived names catch {
+            return .{ .settled = .{ .resolve = .{
+                .answer = request.answer,
+                .resolution = .{ .@"break" = .{ .message = "handoff session names a malformed key" } },
+            } } };
+        };
+    };
+
+    registry.validateWithdraw(receive, expected) catch |err| {
         return .{ .settled = .{ .resolve = .{
             .answer = request.answer,
             .resolution = .{ .@"break" = .{ .message = withdrawRefusalReason(err) } },
@@ -597,7 +679,7 @@ pub fn resolveForWithdraw(
                     .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
                 } } };
             };
-            _ = try registry.applyWithdraw(allocator, session.limits, receive);
+            _ = try registry.applyWithdraw(allocator, session.limits, receive, expected);
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
                 .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
@@ -606,7 +688,7 @@ pub fn resolveForWithdraw(
         // A verbatim gifted cap: `applyWithdraw` moves it out of the row after
         // the handoff count is recorded (fallible only before the move).
         .verbatim_cap => {
-            const gifted = try registry.applyWithdraw(allocator, session.limits, receive) orelse unreachable;
+            const gifted = try registry.applyWithdraw(allocator, session.limits, receive, expected) orelse unreachable;
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
                 .resolution = .{ .fulfill = .{ .reference = gifted } },
@@ -641,6 +723,7 @@ fn withdrawRefusalReason(err: session_mod.Error) []const u8 {
     return switch (err) {
         session_mod.Error.HandoffReplay => "handoff-receive replayed or out-of-order handoff-count",
         session_mod.Error.InvalidGift => "gift is unknown or consumed, or names a different recipient",
+        session_mod.Error.InvalidHandoffSession => "handoff-receive names the wrong receiving session or side",
         else => "invalid handoff withdraw",
     };
 }

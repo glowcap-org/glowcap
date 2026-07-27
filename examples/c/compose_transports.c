@@ -18,64 +18,55 @@
 #include <stdio.h>
 
 int main(void) {
+    /* Single-exit cleanup: every failure branch jumps to one teardown that
+       releases whatever was actually acquired. The alternative — re-typing a
+       longer release ladder in each branch — is where C leaks come from. */
+    int rc = 1;
     PancakeContext *ctx = NULL;
+    PancakePeer *peer = NULL;
+    PancakeTcpNetlayer *tcp = NULL;
+    PancakeInprocNetlayer *inproc = NULL;
+    PancakeInprocListener *listener = NULL;
+    char err[256];
+
     if (pancake_context_new(&ctx) != PANCAKE_OK) {
         fprintf(stderr, "compose: pancake_context_new failed\n");
-        return 1;
+        goto out;
     }
-
-    PancakePeer *peer = NULL;
     if (pancake_peer_new_in(ctx, &peer) != PANCAKE_OK) {
         fprintf(stderr, "compose: pancake_peer_new_in failed\n");
-        pancake_context_release(ctx);
-        return 1;
+        goto out;
     }
 
-    PancakeTcpNetlayer *tcp = NULL;
+    /* Each transport archive carries its own last-error slot, so the diagnostic
+       is read through the family whose call failed. */
     if (pancake_tcp_netlayer_new_in(ctx, &tcp) != PANCAKE_OK) {
-        fprintf(stderr, "compose: pancake_tcp_netlayer_new_in failed: ");
-        char buf[256];
-        size_t n = pancake_tcp_last_error(buf, sizeof buf);
-        fprintf(stderr, "%.*s\n", (int)n, buf);
-        pancake_peer_release(peer);
-        pancake_context_release(ctx);
-        return 1;
+        size_t n = pancake_tcp_last_error(err, sizeof err);
+        fprintf(stderr, "compose: pancake_tcp_netlayer_new_in failed: %.*s\n", (int)n, err);
+        goto out;
     }
-
-    PancakeInprocNetlayer *inproc = NULL;
     if (pancake_inproc_netlayer_new_in(ctx, &inproc) != PANCAKE_OK) {
-        fprintf(stderr, "compose: pancake_inproc_netlayer_new_in failed: ");
-        char buf[256];
-        size_t n = pancake_inproc_last_error(buf, sizeof buf);
-        fprintf(stderr, "%.*s\n", (int)n, buf);
-        pancake_tcp_netlayer_release(tcp);
-        pancake_peer_release(peer);
-        pancake_context_release(ctx);
-        return 1;
+        size_t n = pancake_inproc_last_error(err, sizeof err);
+        fprintf(stderr, "compose: pancake_inproc_netlayer_new_in failed: %.*s\n", (int)n, err);
+        goto out;
     }
 
-    PancakeInprocListener *listener = NULL;
     const char designator[] = "compose-proof";
-    int rc = pancake_inproc_listen(inproc, (const uint8_t *)designator,
-                                   sizeof designator - 1, &listener);
-    if (rc != PANCAKE_OK) {
-        fprintf(stderr, "compose: pancake_inproc_listen failed: ");
-        char buf[256];
-        size_t n = pancake_inproc_last_error(buf, sizeof buf);
-        fprintf(stderr, "%.*s\n", (int)n, buf);
-        pancake_inproc_netlayer_release(inproc);
-        pancake_tcp_netlayer_release(tcp);
-        pancake_peer_release(peer);
-        pancake_context_release(ctx);
-        return 1;
+    if (pancake_inproc_listen(inproc, (const uint8_t *)designator,
+                              sizeof designator - 1, &listener) != PANCAKE_OK) {
+        size_t n = pancake_inproc_last_error(err, sizeof err);
+        fprintf(stderr, "compose: pancake_inproc_listen failed: %.*s\n", (int)n, err);
+        goto out;
     }
-
-    pancake_inproc_listener_release(listener);
-    pancake_inproc_netlayer_release(inproc);
-    pancake_tcp_netlayer_release(tcp);
-    pancake_peer_release(peer);
-    pancake_context_release(ctx);
 
     printf("compose: ocapn + tcp + inproc archives composed and resolved\n");
-    return 0;
+    rc = 0;
+
+out:
+    if (listener) pancake_inproc_listener_release(listener);
+    if (inproc) pancake_inproc_netlayer_release(inproc);
+    if (tcp) pancake_tcp_netlayer_release(tcp);
+    if (peer) pancake_peer_release(peer);
+    if (ctx) pancake_context_release(ctx);
+    return rc;
 }

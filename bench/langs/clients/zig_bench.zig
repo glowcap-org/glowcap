@@ -254,7 +254,7 @@ fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
-    const local_designator = server.localDesignator(&addr_buf);
+    const local_designator = try server.localDesignator(&addr_buf);
 
     var group: std.Io.Group = .init;
     defer group.cancel(io);

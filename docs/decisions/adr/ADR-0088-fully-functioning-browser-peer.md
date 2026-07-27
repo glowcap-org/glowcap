@@ -86,11 +86,11 @@ synchronous call a behavior fires inside — the inbound feed — with the arriv
 
 ```ts
 host.publishGiftable("dm", (verb, args) => {
-  const [from, text, reply] = args;          // `reply` is a Ref the caller passed
-  const session = currentSession();          // the connection this call arrived on
-  if (session && reply instanceof Ref) {
-    session.send(reply, "dm", ["me", `re: ${text}`]);  // answer over that connection
-  }
+	const [from, text, reply] = args; // `reply` is a Ref the caller passed
+	const session = currentSession(); // the connection this call arrived on
+	if (session && reply instanceof Ref) {
+		session.send(reply, "dm", ["me", `re: ${text}`]); // answer over that connection
+	}
 });
 ```
 
@@ -265,7 +265,10 @@ it is what `currentSession()` enables.
   arriving-session ambient in `bindings/ts/stack/trampoline.ts` and
   `bindings/ts/stack/pump.ts`; proof `apps/rooms/dm_reply_demo.ts`.
 - Redeemed-session surfacing: `Session.sendRedeeming` resolving `via` through
-  `Host.exporterFor` (`bindings/ts/stack/session.ts`, `bindings/ts/stack/host.ts`)
+  `Host.exporterFor` (`bindings/ts/stack/session.ts`, `bindings/ts/stack/host.ts`),
+  and the same verb in every other binding: `send_redeeming` in
+  `bindings/rust/src/session.rs` and `bindings/python/pancake/_session.py`,
+  `session-send-redeeming` in `bindings/racket/private/session.rkt`
   over the `pancake_host_reference_exporter` query, which the core answers with
   `Node.exporterPeerFor` / `Host.exporterSessionFor` from its routing table
   (`src/ocapn/engine/node.zig`, `src/driver/core/host.zig`,

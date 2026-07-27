@@ -37,6 +37,23 @@ const steady_bytes: usize = 4096;
 const oversized_scratch_bytes: usize = 32 * 1024;
 const burst_sends: usize = 600;
 
+/// A persistent actor whose every turn installs a fresh state box, so a burst
+/// of turns leaves a burst of retired boxes waiting for the next outermost
+/// turn to release them.
+const BecomeBurstActor = struct {
+    pub const snapshot_persistent = true;
+    turns: usize = 0,
+
+    pub fn handle(self: *const BecomeBurstActor, turn: *Turn, msg: Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "step")) {
+            try turn.become(BecomeBurstActor, .{ .turns = self.turns + 1 });
+            return .{ .void = {} };
+        }
+        if (std.mem.eql(u8, msg.verb, "turns")) return .{ .integer = @intCast(self.turns) };
+        return error.NoSuchMethod;
+    }
+};
+
 const BurstActor = struct {
     turns: usize = 0,
 
@@ -88,4 +105,30 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
     // one small turn and assert the oversized episode's capacity is gone.
     _ = try vat.near(actor, .{ .verb = "noop" });
     try std.testing.expect(vat.turn_arena.queryCapacity() <= steady_bytes);
+}
+
+test "a burst of becomes releases its retired-box capacity back under the steady bound" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const actor = try vat.spawn(BecomeBurstActor, .{});
+
+    // Each queued turn installs a become, and every outgoing box is held until
+    // the next outermost turn rather than freed at the install, because a reply
+    // from an earlier frame can still borrow it. So one drive episode parks one
+    // box per turn.
+    for (0..burst_sends) |_| {
+        try vat.tell(actor, .{ .verb = "step", .args = &.{} });
+    }
+    try vat.drive();
+    try std.testing.expectEqual(
+        @as(i64, @intCast(burst_sends)),
+        (try vat.near(actor, .{ .verb = "turns" })).integer,
+    );
+
+    // The `near` above was an outermost turn, so the burst has drained and its
+    // capacity above the bound is returned. The testing allocator is the other
+    // half of the verdict: a retired box that never released would leak here.
+    const retired_bytes = vat.retired_boxes.capacity * @sizeOf(*anyopaque);
+    try std.testing.expect(retired_bytes <= steady_bytes);
 }

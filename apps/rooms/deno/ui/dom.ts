@@ -29,6 +29,7 @@ export const roomSigil = el("roomSigil");
 export const roomMeta = el("roomMeta");
 export const provenance = el("provenance");
 export const provenanceText = el("provenanceText");
+export const provenanceLock = el("provenanceLock");
 export const membersToggle = el<HTMLButtonElement>("membersToggle");
 export const themeToggle = el<HTMLButtonElement>("themeToggle");
 export const notifyToggle = el<HTMLButtonElement>("notifyToggle");
@@ -47,5 +48,8 @@ export const backBtn = el<HTMLButtonElement>("backBtn");
 export const sheetScrim = el("sheetScrim");
 // The mobile layout is a list-then-conversation stack; these gate the phone-only
 // navigation (back button, roster sheet) without affecting the desktop split.
+// Must match the `@media (max-width: 820px)` block in page.css: that rule turns
+// the grid into the list/conversation stack, and this decides whether the code
+// drives the phone-only navigation. They are two files that have to agree.
 export const mobileMQ = matchMedia("(max-width: 820px)");
 export const isMobile = () => mobileMQ.matches;

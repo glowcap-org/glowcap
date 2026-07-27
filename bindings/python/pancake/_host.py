@@ -22,16 +22,26 @@ import asyncio
 import ctypes
 import secrets
 from collections import deque
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from . import _constants as _abi
 from ._action import _park_actions, _run_action
-from ._codec import _codec_id
+from ._codec import _codec_id, _ref_to_c
 from ._errors import PancakeError, _check_host
+
+if TYPE_CHECKING:
+    from ._context import Context
+    from ._session import Session
 from ._ffi_driver import _host
 from ._ffi_ocapn import _byte_buf
-from ._trampoline import _BehaviorEntry, _inside_turn, _register_behavior, _TRAMPOLINE
-from ._value import Behavior
+from ._trampoline import (
+    _BehaviorEntry,
+    _inside_turn,
+    _register_behavior,
+    _TRAMPOLINE,
+    _unregister_behavior,
+)
+from ._value import Behavior, Ref
 
 _ERR_CLOSED = _abi.ERR_CLOSED
 
@@ -43,22 +53,38 @@ _HOST_FRAME_CAP = _abi.DEFAULT_FRAME_CAP
 _MAX_UNOBSERVED_OUTCOMES = 1024
 
 
+# A vow row's initial state: registered, not yet awaited and not yet settled.
+_MINTED = object()
+
+
+# Releases the C tier refused inside a behavior callback park here
+# (pancake_host_session_release / pancake_host_release are refused mid-turn);
+# the next drain — the head of any kick, or a feed's unwind — runs them once
+# the enclosing feed unwinds, so a mid-turn close never leaks its C handle.
+# Module-level, not per-host: a Host finalized inside a turn parks its own
+# release, and a list on the object being finalized would never drain (the
+# Rust binding parks on a thread-local for the same reason).
+_parked_releases: "list[Callable[[], None]]" = []
+
+
 class _VowRow:
     """A host vow's row: registered the instant the vow is minted (the mint IS
     the registration), settled by the drain's SETTLE/FAIL arms. An outcome that
-    lands before anyone awaits is stored, so a late observation settles from
-    the recorded state instead of hanging — and no exception is materialized
-    into a future until a waiter exists, so an unobserved broken answer never
-    warns "exception was never retrieved"."""
+    lands before anyone awaits is held for a late observation instead of
+    hanging, and no exception is materialized into a future until a waiter
+    exists, so an unobserved broken answer never warns "exception was never
+    retrieved"."""
 
-    __slots__ = ("conn", "state", "waiter")
+    __slots__ = ("conn", "state")
 
     def __init__(self, conn):
         # The session the vow was minted on, for closed-vs-broken
         # classification; None for a vow whose home is not a single session.
         self.conn = conn
-        self.state: "Optional[tuple[bool, object]]" = None  # (ok, payload)
-        self.waiter: "Optional[asyncio.Future]" = None
+        # Exactly one of three shapes, so "settled with a live waiter" cannot
+        # exist: _MINTED (registered), an asyncio.Future (a parked waiter), or
+        # an (ok, payload) tuple (a settled outcome).
+        self.state = _MINTED
 
 
 class Host:
@@ -94,7 +120,7 @@ class Host:
                 sptr, 32,
                 _HOST_FRAME_CAP, 1, _codec_id(codec), local_turn_budget, ctypes.byref(out),
             ))
-        self._raw = out
+        self._raw: ctypes.c_void_p | None = out
         # A node in a caller-supplied context must not outlive it: hold the
         # context so it cannot be collected (and its allocator released) first.
         self._context = context
@@ -110,12 +136,11 @@ class Host:
         # Fire-and-forget drain tasks, retained because the event loop holds
         # tasks only weakly: an unreferenced drain could be collected mid-flight.
         self._kick_tasks: "set[asyncio.Task]" = set()
-        # Releases the C tier refused inside a behavior callback park here
-        # (pancake_host_session_release / pancake_host_release are refused
-        # mid-turn); the drain runs them once the enclosing feed unwinds, so a
-        # mid-turn close never leaks its C handle. Mirrors the Rust binding's
-        # parked-release list.
-        self._parked_releases: "list[Callable[[], None]]" = []
+        # Trampoline ctx ids of this host's giftables. The registry is
+        # process-global, not host-scoped, so nothing drops these when the
+        # host dies — release() frees them, or one row leaks per giftable per
+        # Host generation.
+        self._giftables: "list[int]" = []
         # The iroh reachability posture this host uses to redeem a *hint-less*
         # handoff give — one whose exporter location names the exporter by node
         # id alone. Starts at the generated ABI default (Discovery, n0 relays +
@@ -128,7 +153,10 @@ class Host:
     @property
     def raw(self) -> ctypes.c_void_p:
         """The raw PancakeHost handle. Binding-internal: :class:`Session`
-        mints and drives sessions against it."""
+        mints and drives sessions against it. Raises once the host is
+        released, rather than handing out the null the field then holds."""
+        if self._raw is None:
+            raise PancakeError(_ERR_CLOSED, "the host has been released")
         return self._raw
 
     def release(self) -> None:
@@ -142,6 +170,13 @@ class Host:
         of leaking the handle. Idempotent."""
         if self._raw:
             raw, self._raw = self._raw, None
+            # Free this host's giftable behaviors from the process-global
+            # trampoline registry; nothing else drops them, so skipping this
+            # leaks a row per giftable for the process's life across every
+            # Host generation.
+            for ctx in self._giftables:
+                _unregister_behavior(ctx)
+            self._giftables.clear()
             if _inside_turn():
                 self.park_release(lambda: _host.pancake_host_release(raw))
             else:
@@ -203,10 +238,17 @@ class Host:
         ctx = _register_behavior(_BehaviorEntry(run=behavior, session=None, resolve_local=None))
         data = name.encode()
         buf, ptr = _byte_buf(data)
-        _check_host(_host.pancake_host_publish(
-            self._raw, ptr, len(data),
-            _TRAMPOLINE, ctypes.c_void_p(ctx), None,
-        ))
+        try:
+            _check_host(_host.pancake_host_publish(
+                self._raw, ptr, len(data),
+                _TRAMPOLINE, ctypes.c_void_p(ctx), None,
+            ))
+        except BaseException:
+            # free = NULL: the C tier never owns the row, so a refused publish
+            # must drop it here or the registry pins the behavior forever.
+            _unregister_behavior(ctx)
+            raise
+        self._giftables.append(ctx)
         self.schedule_kick()
 
     # ── Session registry ────────────────────────────────────────────────────
@@ -219,6 +261,28 @@ class Host:
     def unregister_session(self, ptr: int) -> None:
         """Stop tracking a released session. Binding-internal."""
         self._sessions.pop(ptr, None)
+
+    def exporter_for(self, ref: Ref) -> "Optional[Session]":
+        """The direct exporter :class:`Session` a redeemed-handoff reply ``ref``
+        routes to, or ``None`` when it names no live redeemed route -- an
+        ordinary far reply, or an exporter connection already gone.
+
+        The answer is deterministic (ADR-0088): the reply's own token carries
+        which connection it lives on, so :meth:`Session.send_redeeming` resolves
+        the exact exporter session it should host its back-channel on. There is
+        no capture window and no dependence on which dial finished first, so it
+        is right with several redeems in flight, and it finds an exporter a
+        prior redeem already dialed -- a cache hit that opens no new connection.
+        Binding-internal: :meth:`Session.send_redeeming` calls it."""
+        c_ref = _ref_to_c(ref._wire())
+        out = ctypes.c_void_p()
+        _check_host(_host.pancake_host_reference_exporter(
+            self.raw, ctypes.byref(c_ref), ctypes.byref(out),
+        ))
+        # The handle is host-owned and lives with the exporter session, so the
+        # registry lookup is the whole answer: a pointer with no live row is a
+        # session this binding no longer holds, which reads as no route.
+        return self._sessions.get(out.value) if out.value else None
 
     def close_exporters(self) -> None:
         """Close every exporter connection this host dialed for redeems.
@@ -247,8 +311,10 @@ class Host:
             future.set_exception(PancakeError(
                 _ERR_CLOSED, "the vow's outcome is gone (unobserved past the cap)"))
             return future
-        if row.state is None:
-            row.waiter = future
+        if not isinstance(row.state, tuple):
+            # Minted or re-awaited: park (or replace) the waiter. Replacing a
+            # prior future matches the previous overwrite.
+            row.state = future
             return future
         del self._vows[vow]
         ok, payload = row.state
@@ -265,21 +331,25 @@ class Host:
         row = self._vows.get(vow)
         if row is None:
             return  # an outcome nobody registered for
-        if row.waiter is not None:
+        if isinstance(row.state, asyncio.Future):
+            waiter = row.state
             del self._vows[vow]
-            if not row.waiter.done():
+            if not waiter.done():
                 if ok:
-                    row.waiter.set_result(payload)
+                    waiter.set_result(payload)
                 else:
-                    row.waiter.set_exception(payload)
+                    waiter.set_exception(payload)
             return
+        # Minted, or an already-settled row re-settled: record for a late
+        # observation.
         row.state = (ok, payload)
         self._unobserved.append(vow)
         while len(self._unobserved) > _MAX_UNOBSERVED_OUTCOMES:
             oldest = self._unobserved.popleft()
             stale = self._vows.get(oldest)
-            # Only evict a row still parked unobserved; an observed one is gone.
-            if stale is not None and stale.state is not None and stale.waiter is None:
+            # Only evict a settled row still parked unobserved; an observed one
+            # is gone.
+            if stale is not None and isinstance(stale.state, tuple):
                 del self._vows[oldest]
 
     def vow_session_closing(self, vow: int) -> bool:
@@ -298,8 +368,10 @@ class Host:
     def park_release(self, release: "Callable[[], None]") -> None:
         """Park a C release the host refused inside a behavior callback; the
         next drain — the head of :meth:`kick_actions`, or the feed's unwind —
-        runs it where it is legal. Binding-internal."""
-        self._parked_releases.append(release)
+        runs it where it is legal. The parked list is module-level (see
+        ``_parked_releases``), so a Host finalized mid-turn still gets its
+        release run. Binding-internal."""
+        _parked_releases.append(release)
 
     def drain_parked_releases(self) -> None:
         """Run every parked release, always outside a callback frame where the
@@ -307,13 +379,13 @@ class Host:
         right after a feed returns. Binding-internal."""
         if _inside_turn():
             return
-        while self._parked_releases:
-            self._parked_releases.pop()()
+        while _parked_releases:
+            _parked_releases.pop()()
 
     def pending_release_count(self) -> int:
-        """How many releases are parked on this host — test observability for
-        the mid-turn close park. Binding-internal."""
-        return len(self._parked_releases)
+        """How many releases are parked — test observability for the mid-turn
+        close park. Binding-internal."""
+        return len(_parked_releases)
 
     def schedule_kick(self) -> None:
         """Kick the action drain from a synchronous verb: schedule it as its

@@ -8,10 +8,10 @@
 //! One layer down from chapter 01, the `actors.Vat` is what runs that
 //! exchange: `send` queues the `op:deliver` with a fresh answer, `serve`
 //! dispatches the inbound deliver and resolves it, and `on` fires the listener
-//! when the resolution arrives. The Goblins V1.0 resolver-callback translation
+//! when the resolution arrives. The OCapN V1.0 resolver-callback translation
 //! (no wire `op:resolve`) is invisible; chapter 05 shows the raw `Peer`-level
 //! deliver/resolve underneath all of it. Sessions open via
-//! `pairing.pairedGoblins` (authenticated `"1.0"` / Syrup).
+//! `pairing.pairedV1_0Syrup` (authenticated `"1.0"` / Syrup).
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -26,10 +26,10 @@ const Greeter = struct {
 
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "hello")) return error.NoSuchMethod;
-        const name = switch (msg.args[0]) {
-            .string => |s| s,
-            else => return error.BadArgument,
-        };
+        // A partner chooses the arity, so read the argument through the
+        // accessor: a `hello` with no argument breaks its own answer instead of
+        // indexing past the slice.
+        const name = try msg.argString(0);
         return .{ .string = try std.fmt.allocPrint(turn.arena, "{s}, {s}!", .{ self.greeting, name }) };
     }
 };
@@ -67,7 +67,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;

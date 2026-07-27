@@ -28,12 +28,13 @@ interface Signal {
 	candidate?: RTCIceCandidateInit;
 }
 
+// Declared as globals rather than on `Window`, because this module reaches them
+// through `globalThis`: in a page the two are the same object, but only a `var`
+// in the global scope is visible on `globalThis`'s type.
 declare global {
-	interface Window {
-		harnessSignal: (line: string) => void;
-		applySignal: (line: string) => Promise<void>;
-		__verdict: Promise<{ ok: boolean; reason?: string }>;
-	}
+	var harnessSignal: (line: string) => void;
+	var applySignal: (line: string) => Promise<void>;
+	var __verdict: Promise<{ ok: boolean; reason?: string }>;
 }
 
 const status = (s: string): void => {
@@ -42,7 +43,7 @@ const status = (s: string): void => {
 };
 
 let resolveVerdict!: (v: { ok: boolean; reason?: string }) => void;
-window.__verdict = new Promise((res) => (resolveVerdict = res));
+globalThis.__verdict = new Promise((res) => (resolveVerdict = res));
 
 let resolveIdentity!: (designator: string) => void;
 const identity = new Promise<string>((res) => (resolveIdentity = res));
@@ -52,7 +53,7 @@ const identity = new Promise<string>((res) => (resolveIdentity = res));
 // wired queues here rather than being lost, and `main` drains it.
 const buffered: string[] = [];
 let deliver: (line: string) => void = (line) => buffered.push(line);
-window.applySignal = (line: string): Promise<void> => {
+globalThis.applySignal = (line: string): Promise<void> => {
 	deliver(line);
 	return Promise.resolve();
 };
@@ -80,11 +81,11 @@ async function main(): Promise<void> {
 	for (const line of buffered.splice(0)) deliver(line);
 
 	peer.onLocalCandidate((candidate) =>
-		window.harnessSignal(JSON.stringify({ type: "candidate", candidate }))
+		globalThis.harnessSignal(JSON.stringify({ type: "candidate", candidate }))
 	);
 
 	const offer = await peer.createOffer();
-	window.harnessSignal(JSON.stringify({ type: "offer", sdp: offer }));
+	globalThis.harnessSignal(JSON.stringify({ type: "offer", sdp: offer }));
 	status("offer sent");
 
 	const designator = await identity;

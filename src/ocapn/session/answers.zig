@@ -54,7 +54,7 @@ pub const ListenerEntry = struct {
 ///
 /// The fan-out bound (`max_listeners_per_target`, ADR-0025) is the length of
 /// this whole list: it caps how many listeners one *listened-on promise*
-/// accumulates — `op:listen`'s `target`, the answer or import — which is the
+/// accumulates — `op:listen`'s `target`, the answer or import, which is the
 /// quantity a flooding partner grows. It is deliberately not a per-
 /// `ListenerEntry.listener` (per notify-destination) count: that would let a
 /// partner evade the bound by naming a fresh destination each time. The check

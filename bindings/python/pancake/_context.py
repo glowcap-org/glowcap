@@ -8,7 +8,7 @@ Re-exported from the :mod:`pancake` package; import from there.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable
 
 import ctypes
 

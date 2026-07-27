@@ -49,6 +49,12 @@ const ClientDef = struct {
     kind: Kind,
 };
 
+/// A roster entry that will not run, with the reason the report prints.
+const Skip = struct {
+    def: ClientDef,
+    why: Availability,
+};
+
 // Roster order is report order; it also fixes the language-palette assignment
 // (see paletteColor), so the Goblins reference stays visually apart.
 const roster = [_]ClientDef{
@@ -150,20 +156,21 @@ pub fn main(init: std.process.Init) !void {
     };
 
     var present: std.ArrayList(ClientDef) = .empty;
-    var skipped: std.ArrayList(ClientDef) = .empty;
+    var skipped: std.ArrayList(Skip) = .empty;
     for (roster) |def| {
         if (client_filter) |want| {
             if (!std.mem.eql(u8, want, def.name)) continue;
         }
-        if (try available(&ctx, def.kind)) {
+        const availability = try available(&ctx, def.kind);
+        if (availability == .ready) {
             try present.append(arena, def);
         } else {
-            try skipped.append(arena, def);
+            try skipped.append(arena, .{ .def = def, .why = availability });
         }
     }
 
-    for (skipped.items) |def|
-        try out(io, "bench-langs: skipping {s} (runtime or client script absent)\n", .{def.name});
+    for (skipped.items) |s|
+        try out(io, "bench-langs: skipping {s} ({s})\n", .{ s.def.name, s.why.reason() });
 
     try precompileRacket(&ctx, present.items);
 
@@ -182,15 +189,50 @@ fn fail(message: []const u8) error{Usage} {
 }
 
 // ── Roster availability ──────────────────────────────────────────────────────
-fn available(ctx: *Ctx, kind: Kind) !bool {
-    return switch (kind) {
-        .native => exists(ctx.io, ctx.zig_client),
-        .rust => (try onPath(ctx.io, ctx.arena, ctx.environ, "cargo")) != null and try buildRust(ctx),
-        .deno => (try onPath(ctx.io, ctx.arena, ctx.environ, "deno")) != null and exists(ctx.io, client_dir ++ "/deno_bench.ts"),
-        .python => (try onPath(ctx.io, ctx.arena, ctx.environ, "python3")) != null and exists(ctx.io, client_dir ++ "/python_bench.py"),
-        .racket => ctx.racket_path != null and exists(ctx.io, client_dir ++ "/racket_bench.rkt"),
-        .goblins => ctx.racket_path != null and try goblinsPresent(ctx) and exists(ctx.io, client_dir ++ "/goblins_bench.rkt"),
-    };
+/// Why a client is not in the run. A missing runtime is an expected, benign
+/// skip; a client that will not build is a defect in this repository, and the
+/// two must never print the same sentence — a build failure reported as an
+/// absent runtime hides a stale client behind a routine-looking line.
+const Availability = union(enum) {
+    ready,
+    runtime_absent,
+    client_absent,
+    build_failed,
+
+    fn reason(self: Availability) []const u8 {
+        return switch (self) {
+            .ready => "",
+            .runtime_absent => "runtime not on PATH",
+            .client_absent => "client script missing",
+            .build_failed => "client failed to build (see the compiler output above)",
+        };
+    }
+};
+
+fn available(ctx: *Ctx, kind: Kind) !Availability {
+    switch (kind) {
+        .native => return if (exists(ctx.io, ctx.zig_client)) .ready else .client_absent,
+        .rust => {
+            if ((try onPath(ctx.io, ctx.arena, ctx.environ, "cargo")) == null) return .runtime_absent;
+            return if (try buildRust(ctx)) .ready else .build_failed;
+        },
+        .deno => {
+            if ((try onPath(ctx.io, ctx.arena, ctx.environ, "deno")) == null) return .runtime_absent;
+            return if (exists(ctx.io, client_dir ++ "/deno_bench.ts")) .ready else .client_absent;
+        },
+        .python => {
+            if ((try onPath(ctx.io, ctx.arena, ctx.environ, "python3")) == null) return .runtime_absent;
+            return if (exists(ctx.io, client_dir ++ "/python_bench.py")) .ready else .client_absent;
+        },
+        .racket => {
+            if (ctx.racket_path == null) return .runtime_absent;
+            return if (exists(ctx.io, client_dir ++ "/racket_bench.rkt")) .ready else .client_absent;
+        },
+        .goblins => {
+            if (ctx.racket_path == null or !(try goblinsPresent(ctx))) return .runtime_absent;
+            return if (exists(ctx.io, client_dir ++ "/goblins_bench.rkt")) .ready else .client_absent;
+        },
+    }
 }
 
 fn exists(io: Io, path: []const u8) bool {
@@ -567,7 +609,7 @@ const RULE = "#e7d4b7";
 const GOBLINS_COLOR = "#257f88";
 const lang_colors = [_][]const u8{ "#c76f18", "#4f8a5b", "#9c4f96", "#3f6fa3", "#b8762a", "#737373" };
 
-fn report(ctx: *Ctx, rows: []const Row, skipped: []const ClientDef) !void {
+fn report(ctx: *Ctx, rows: []const Row, skipped: []const Skip) !void {
     const mode_str: []const u8 = if (ctx.smoke) "smoke" else "full";
 
     // Terminal summary.
@@ -588,7 +630,9 @@ fn report(ctx: *Ctx, rows: []const Row, skipped: []const ClientDef) !void {
     if (skipped.len != 0) {
         var s: std.ArrayList(u8) = .empty;
         defer s.deinit(ctx.gpa);
-        for (skipped) |def| try s.print(ctx.gpa, "{s}\n", .{def.name});
+        // The reason rides with the name: a missing runtime and a client that
+        // will not build are both "skipped" here, and only one of them is fine.
+        for (skipped) |sk| try s.print(ctx.gpa, "{s}\t{s}\n", .{ sk.def.name, sk.why.reason() });
         try writeNamed(ctx, try std.fmt.allocPrint(ctx.arena, "langs-compare-{d}-skipped.txt", .{stamp}), s.items);
     }
 

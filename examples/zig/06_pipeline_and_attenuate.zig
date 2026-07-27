@@ -89,7 +89,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.pairedGoblins(allocator);
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
     const desk_peer = &pair.p1;
     const listener_peer = &pair.p2;

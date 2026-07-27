@@ -29,22 +29,14 @@ const cw = @import("c_abi_net_transport_webrtc");
 
 pub const step_name = "gen-binding-python-ffi";
 
-pub const Output = struct {
-    path: []const u8,
-    generate: *const fn (std.mem.Allocator) anyerror![]u8,
-};
+const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/python/pancake/_sigs_gen.py", .generate = generate },
 };
 
 /// `module.PancakeIrohConfig` → `PancakeIrohConfig`.
-fn baseName(comptime T: type) []const u8 {
-    @setEvalBranchQuota(1_000_000);
-    const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
-    return if (dot) |i| name[i + 1 ..] else name;
-}
+const baseName = @import("reflect").baseName;
 
 /// `PancakeDialPlan` → `_DialPlan`, the hand mirrors' naming rule.
 fn mirrorName(comptime T: type) []const u8 {

@@ -19,7 +19,7 @@ That starts a Deno coordinator and runs one agent per available language against
 it: Deno and the always-built Zig agent, plus Python, Racket, and Rust when
 their runtimes are on PATH. The coordinator and the agent are different
 languages on the wire, so the capability passing, attenuation, and revocation
-are real, not in-process tricks. Each agent prints `ok` for every property and
+cross a real wire. Each agent prints `ok` for every property and
 exits non-zero if any fails.
 
 By default the demo binds an ephemeral port; pin it with
@@ -56,10 +56,10 @@ or a name to look up in a registry. The reference _is_ the authority.
 
 ```typescript
 function readOnly(tool) {
-  return (verb, args) => {
-    if (verb === "read") return tool(verb, args);
-    throw new Error("attenuated: only read is permitted");
-  };
+	return (verb, args) => {
+		if (verb === "read") return tool(verb, args);
+		throw new Error("attenuated: only read is permitted");
+	};
 }
 ```
 
@@ -71,16 +71,16 @@ cannot express a write.
 
 ```typescript
 function revocable(tool) {
-  let live = true;
-  return {
-    behavior: (verb, args) => {
-      if (!live) throw new Error("revoked");
-      return tool(verb, args);
-    },
-    revoke: () => {
-      live = false;
-    },
-  };
+	let live = true;
+	return {
+		behavior: (verb, args) => {
+			if (!live) throw new Error("revoked");
+			return tool(verb, args);
+		},
+		revoke: () => {
+			live = false;
+		},
+	};
 }
 ```
 

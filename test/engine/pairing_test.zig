@@ -119,7 +119,7 @@ test "sendKeyedStartSession rejects a version outside the peer profile" {
 
 test "v1.0 resolve round-trips as a resolver-callback deliver across paired peers" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.pairedGoblins(allocator);
+    var pair = try pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
@@ -734,7 +734,7 @@ test "the handshake records each partner's session key for later signature check
 
 test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins interop), not only desc:error" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.pairedGoblins(allocator);
+    var pair = try pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     // p1 calls the partner bootstrap, allocating answer 42 and a resolver export.
@@ -787,7 +787,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
 
 test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shape Goblins unmarshals" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.pairedGoblins(allocator);
+    var pair = try pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
     // p1 calls the partner bootstrap with an answer, minting a resolver export.

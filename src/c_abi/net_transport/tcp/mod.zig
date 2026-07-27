@@ -63,6 +63,14 @@ const PancakeContext = c.PancakeContext;
 const PancakeFrame = c.PancakeFrame;
 const PancakeManagedFrame = c.PancakeManagedFrame;
 const PancakeReference = c.PancakeReference;
+
+/// Whether `tref` is an eventual-send target: a near or far *object* reference.
+/// A promise/sturdy/broken reference, or a promise-kind near/far, is not — the
+/// one callability gate `session_call` and `session_send` both apply.
+fn isCallableObjectRef(tref: *const PancakeReference) bool {
+    return (tref.kind == c.PANCAKE_REF_NEAR or tref.kind == c.PANCAKE_REF_FAR) and
+        tref.sub_kind == c.PANCAKE_REF_SUB_OBJECT;
+}
 const PancakeArgument = c.PancakeArgument;
 
 /// The settled outcome of a blocking `pancake_tcp_session_call` or `_fetch`,
@@ -95,6 +103,11 @@ const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
 const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
 const PANCAKE_ERR_UNSUPPORTED_VALUE = c.PANCAKE_ERR_UNSUPPORTED_VALUE;
 const PANCAKE_ERR_BROKEN = c.PANCAKE_ERR_BROKEN;
+const PANCAKE_ERR_TIMEOUT = c.PANCAKE_ERR_TIMEOUT;
+
+/// The annotated symbol inventory (crossing semantics per export) the
+/// binding FFI-table generators reflect from — see `symbols.zig`.
+pub const symbols = @import("symbols.zig");
 
 /// Copy the calling thread's last TCP-transport error message into `out_buf`,
 /// the tcp sibling of `pancake_last_error`. `libpancake_net_transport_tcp`
@@ -104,10 +117,6 @@ const PANCAKE_ERR_BROKEN = c.PANCAKE_ERR_BROKEN;
 /// `cap - 1` bytes and always NUL-terminates when `cap > 0`; `out_buf == NULL`
 /// or `cap == 0` queries the length. Returns the full message length, or 0 when
 /// none is set.
-/// The annotated symbol inventory (crossing semantics per export) the
-/// binding FFI-table generators reflect from — see `symbols.zig`.
-pub const symbols = @import("symbols.zig");
-
 pub export fn pancake_tcp_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return c.lastErrorRead(out_buf, cap);
 }
@@ -321,9 +330,18 @@ pub export fn pancake_tcp_listener_release(listener: ?*PancakeTcpListener) void 
 // owns a `driver.Session` (peer, both buffers, the bound vat) and offers the
 // same blocking `fetch`/`call` the native-Zig `Session` does, marshalling the
 // shared `PancakeReference`/`PancakeArgument` vocabulary into the `PancakeSettled`
-// outcome this archive declares (the only producer, so it is not shared). It is
-// this transport archive's own entry, not a driver default; inproc/iroh can grow
-// the same shape later.
+// outcome this archive declares (the only producer, so it is not shared).
+//
+// This is deliberately not a second spelling of `pancake_host_session_*` (the
+// byte-fed, multi-session host tier the four bindings drive). The two are
+// different tiers on purpose: the host surface pumps many sessions and leaves
+// the loop to the embedder, while this owns one blocking session end to end for
+// a caller that wants a single request/reply client without running a pump. tcp
+// is the reference blocking transport for that shape (ADR-0062's
+// explicit-ownership choice); `inproc` and `iroh` stay frame-only rather than
+// each carry a redundant copy of it, because no consumer needs a blocking
+// session over them. A caller that wants one links this archive; everyone else
+// drives `pancake_host_session_*`.
 
 /// Owns the `driver.Session` and the resident the dial ran over. Heap-pinned:
 /// `driver.connect` borrows the resident's netlayer for the dial, and the
@@ -350,6 +368,12 @@ const TcpPromiseBox = struct {
 /// `max_frame_bytes`. Blocking; `host` is borrowed. The C twin of
 /// `driver.connect(&.{tcp}, …, .ephemeral, …)`. Release with
 /// `pancake_tcp_session_release`.
+///
+/// `handshake_timeout_ms` bounds the wait for the partner's hello and
+/// `settle_timeout_ms` bounds every later blocking call on the session. Zero
+/// means wait forever, which against a silent partner is a hang, so a caller
+/// that dials the network passes finite budgets. The parameters exist so that
+/// choice is made at the call site rather than inherited.
 pub export fn pancake_tcp_session_connect(
     netlayer: ?*PancakeTcpNetlayer,
     host: ?[*]const u8,
@@ -357,6 +381,8 @@ pub export fn pancake_tcp_session_connect(
     port: u16,
     codec: u32,
     max_frame_bytes: usize,
+    handshake_timeout_ms: u32,
+    settle_timeout_ms: u32,
     out_session: ?*?*PancakeTcpSession,
 ) i32 {
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
@@ -364,6 +390,14 @@ pub export fn pancake_tcp_session_connect(
     const host_ptr = host orelse return PANCAKE_ERR_NULL_POINTER;
     const codec_id = codecFromC(codec) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
     if (max_frame_bytes == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    // The Zig budgets are signed milliseconds; C takes them unsigned because a
+    // negative deadline has no meaning. A value past the signed range is a
+    // caller error rather than something to silently wrap.
+    const ms_cap: u32 = std.math.maxInt(i32);
+    if (handshake_timeout_ms > ms_cap or settle_timeout_ms > ms_cap) {
+        setLastError("session_connect: timeout exceeds {d} ms", .{ms_cap});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
 
     const address = net.tcp.parseHostPort(host_ptr[0..host_len], port) catch |err| {
         setLastError("session_connect: invalid address: {s}", .{@errorName(err)});
@@ -380,6 +414,8 @@ pub export fn pancake_tcp_session_connect(
     payload.conn = driver.connect(nl.allocator, &netlayers, locator, .ephemeral, .{
         .frame_cap = max_frame_bytes,
         .codec = codec_id,
+        .handshake_timeout_ms = @intCast(handshake_timeout_ms),
+        .settle_timeout_ms = @intCast(settle_timeout_ms),
     }) catch |err| {
         setLastError("session_connect: {s}", .{@errorName(err)});
         nl.allocator.destroy(payload);
@@ -439,8 +475,7 @@ pub export fn pancake_tcp_session_call(
     // splitting between INVALID_ARGUMENT (promise) and UNSUPPORTED_VALUE
     // (sturdy/broken via referenceFromC) or silently coercing a promise ref to
     // an object turn. Matches this function's documented contract.
-    const callable = (tref.kind == c.PANCAKE_REF_NEAR or tref.kind == c.PANCAKE_REF_FAR) and
-        tref.sub_kind == c.PANCAKE_REF_SUB_OBJECT;
+    const callable = isCallableObjectRef(tref);
     if (!callable) {
         setLastError("session_call: target is not a callable object reference", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -533,8 +568,7 @@ pub export fn pancake_tcp_session_send(
     // targets a near/far object reference only, so every uncallable kind returns
     // one consistent INVALID_ARGUMENT rather than splitting across marshalling
     // and `sendReference`.
-    const callable = (tref.kind == c.PANCAKE_REF_NEAR or tref.kind == c.PANCAKE_REF_FAR) and
-        tref.sub_kind == c.PANCAKE_REF_SUB_OBJECT;
+    const callable = isCallableObjectRef(tref);
     if (!callable) {
         setLastError("session_send: target is not a callable object reference", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -655,6 +689,7 @@ fn sessionConnectErrToCode(err: anyerror) i32 {
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,
         error.UnknownTransport, error.InvalidAddress => PANCAKE_ERR_INVALID_ARGUMENT,
         error.ConnectionLost, error.ConnectionClosed => PANCAKE_ERR_IO,
+        error.HandshakeTimedOut, error.WaitTimedOut => PANCAKE_ERR_TIMEOUT,
         else => PANCAKE_ERR_SESSION,
     };
 }
@@ -666,6 +701,7 @@ fn sessionFetchErrToCode(err: anyerror) i32 {
         error.FetchNotACapability => PANCAKE_ERR_UNSUPPORTED_VALUE,
         error.ConnectionClosed => PANCAKE_ERR_CLOSED,
         error.ConnectionLost, error.TruncatedFrame => PANCAKE_ERR_IO,
+        error.WaitTimedOut => PANCAKE_ERR_TIMEOUT,
         else => PANCAKE_ERR_SESSION,
     };
 }
@@ -676,6 +712,7 @@ fn sessionCallErrToCode(err: anyerror) i32 {
         error.UncallableTarget => PANCAKE_ERR_INVALID_ARGUMENT,
         error.ConnectionClosed => PANCAKE_ERR_CLOSED,
         error.ConnectionLost, error.TruncatedFrame => PANCAKE_ERR_IO,
+        error.WaitTimedOut => PANCAKE_ERR_TIMEOUT,
         else => PANCAKE_ERR_SESSION,
     };
 }

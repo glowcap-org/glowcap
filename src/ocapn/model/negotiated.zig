@@ -30,7 +30,8 @@ pub const CodecId = enum(u16) {
 };
 
 /// CapTP version spoken on a session. Two jobs, one axis:
-/// - `v1_0` / `"1.0"` — frozen released interop (Goblins / cross-platform).
+/// - `v1_0` / `"1.0"` — pancake's current Goblins 0.18.0 and pinned-suite
+///   interop floor. The wire token does not claim the draft is released.
 /// - `next` / `"pancake-next"` — pancake-forward private track for pancake-to-pancake.
 pub const CaptpVersion = enum {
     v1_0,

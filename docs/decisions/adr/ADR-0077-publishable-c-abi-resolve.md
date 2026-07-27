@@ -62,7 +62,13 @@ package-local metadata.
    - Require `SHA256SUMS` and verify the exact tarball entry before extract
      (never install unverified bytes; do not rely on `--ignore-missing`).
    - Extract only the `lib/` prefix; reject path traversal, absolute paths, and
-     symlinks/hardlinks (zip-slip class).
+     every member that is not a regular file or a directory (the zip-slip
+     class, and symlinks and hardlinks with it). Ports that read `tar -tv`
+     output run it under `LC_ALL=C`, accept only the GNU and BSD column
+     layouts, and refuse a listing they cannot parse rather than guess where
+     the member name starts. The name they check is the whole parsed name: a
+     member whose name contains tar's own `" -> "` link separator must not be
+     checked as a prefix of itself.
    - Cap transfer size (`max_tarball_bytes` in the contract).
    - Prefer absolute `dlopen`/`LoadLibrary` paths; refuse bare DLL names on
      Windows (search-order plant risk). Python, TypeScript, and Racket all
@@ -104,8 +110,10 @@ package-local metadata.
   `gh release create`. Hygiene and security refusals (non-HTTPS without a typed
   escape, checksum miss, zip-slip / link members) always fail closed;
   `PANCAKE_STRICT` only hardens soft network/tooling failures.
-  `zig build c-abi-extract-check` (part of `check`) hermetically refuses
-  zip-slip/symlink fixtures across the resolve ports. Flipping
+  `zig build c-abi-extract-check` (part of `check`) runs each port's own
+  validator against hostile fixtures in tree: zip-slip, symlink, an owner
+  field shaped like a date to move a naive parser's column guess, and a
+  regular file whose name contains tar's `" -> "` separator. Flipping
   `releases_published` to true is the public commit for that
   surface only; see the flip checklist in `bindings/README.md`.
 - Vendoring platform wheels/cdylibs inside each package remains a future

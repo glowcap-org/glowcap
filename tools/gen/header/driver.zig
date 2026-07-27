@@ -17,7 +17,10 @@
 const std = @import("std");
 const header_emit = @import("header_emit.zig");
 
-pub const header_path = "include/pancake_driver.h";
+const Output = @import("output").Output;
+pub const outputs = [_]Output{
+    .{ .path = "include/pancake_driver.h", .generate = generate },
+};
 pub const step_name = "gen-header-driver";
 
 // Every prototype the header emits, in order. The comptime guard below holds
@@ -38,7 +41,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_reference_exporter",
     "pancake_host_plan_accept",
     "pancake_host_session_release",
-    "pancake_host_session_session_open",
+    "pancake_host_session_is_open",
     "pancake_host_session_feed",
     "pancake_host_session_feed_bytes",
     "pancake_host_session_take_outbound",
@@ -91,6 +94,7 @@ const Spec = struct {
         .{ .name = "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS", .doc = "Discovery-posture dial attempt budget (ADR-0082). Keep lockstep with driver.discovery_max_attempts." },
         .{ .name = "PANCAKE_DIAL_SHAPE_HOST_PORT", .doc = "PancakeDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp)." },
         .{ .name = "PANCAKE_DIAL_SHAPE_PEER_ID", .doc = "PancakeDialPlan.shape: peer-id open (node-id designator + addresses + reach; today from the iroh locator scheme)." },
+        .{ .name = "PANCAKE_DIAL_SHAPE_SIGNALING", .doc = "PancakeDialPlan.shape: signaling-mediated open (webrtc); no dialable address, the channel comes up through offer/answer/ICE (ADR-0089 phase 4)." },
         .{ .name = "PANCAKE_DIAL_REACH_DIRECT", .doc = "PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture." },
         .{ .name = "PANCAKE_DIAL_REACH_CONFIGURED", .doc = "PancakeDialPlan.reach_kind (peer-id shape): the node's own configured redeem posture." },
         .{ .name = "PANCAKE_DIAL_REACH_EXPLICIT", .doc = "PancakeDialPlan.reach_kind (peer-id shape): the caller posture carried in reach_value." },
@@ -127,6 +131,7 @@ comptime {
     // Hold the dial/accept planning #defines emitted below against the source.
     std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_HOST_PORT == 0);
     std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_PEER_ID == 1);
+    std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_SIGNALING == 2);
     std.debug.assert(Spec.c.PANCAKE_DIAL_REACH_DIRECT == 0);
     std.debug.assert(Spec.c.PANCAKE_DIAL_REACH_CONFIGURED == 1);
     std.debug.assert(Spec.c.PANCAKE_DIAL_REACH_EXPLICIT == 2);
@@ -136,7 +141,7 @@ comptime {
 }
 
 /// Build the full header text. Caller owns the returned bytes.
-pub fn generate(gpa: std.mem.Allocator) ![]u8 {
+fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: Buf = .empty;
     errdefer b.deinit(gpa);
 
@@ -174,6 +179,15 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\decision — routing, three-party redeem, gift origination — and the embedder
         \\moves bytes: feed inbound frames with pancake_host_session_feed, write what
         \\pancake_host_session_take_outbound drains, and honor the action queue.
+        \\examples/c/host_embedder_pump.c is a complete embedder built from exactly
+        \\these calls, and the host section of docs/consuming-from-c.md is the
+        \\guided route; read one before wiring the action queue below.
+        \\
+        \\A vow is this tier's name for the eventual result of a send: the same
+        \\thing pancake_ocapn.h calls a promise and the CapTP wire calls an answer.
+        \\A session_send / session_fetch returns a vow; you pipeline more sends
+        \\against it (vow_send / vow_get / …) before it settles, and its outcome
+        \\arrives later as a SETTLE or FAIL action naming that vow's ticket.
         \\
         \\THE ONE LOOP RULE. After any top-level pancake_host_* call returns OK,
         \\drain pancake_host_next_action until PANCAKE_ERR_WOULD_BLOCK, honoring each
@@ -194,7 +208,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\a deliver — fires on the thread executing the enclosing pancake_host_*
         \\call. Inside it the enqueueing verbs are legal — session_send/session_tell,
         \\vow_send/vow_index/vow_untag/vow_get, the turn verbs (with the callback's own turn),
-        \\gc_release, session_set_exporter_location, session_session_open, the error
+        \\gc_release, session_set_exporter_location, session_is_open, the error
         \\readers — and their effects encode and pump when the enclosing call
         \\unwinds. The host-driving verbs (feed, feed_bytes, take_outbound,
         \\next_action, dialed/dial_failed/provide_gift_id, open_*, publish/spawn,
@@ -307,6 +321,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try b.appendSlice(gpa, "\n");
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_HOST_PORT");
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_PEER_ID");
+    try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_SIGNALING");
     try emitConst(&b, gpa, "PANCAKE_DIAL_REACH_DIRECT");
     try emitConst(&b, gpa, "PANCAKE_DIAL_REACH_CONFIGURED");
     try emitConst(&b, gpa, "PANCAKE_DIAL_REACH_EXPLICIT");
@@ -367,7 +382,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_plan_accept", &.{ "transport", "transport_len", "server_designator", "server_designator_len", "accepted_local_addr", "accepted_local_addr_len", "out_plan" }, "Resolve what an accepted session signs, without a socket. transport is the\naccepted transport; server_designator is the listener's own signing designator\n(its key for a key transport, unused for an address transport);\naccepted_local_addr is what the accept reported (NULL/0 when unavailable). On\nPANCAKE_OK *out_plan is filled with views borrowing the caller's input, except\nthe address-transport empty-address fallback (the static unreachable-client\nplaceholder). Feed the result to pancake_host_session_open_accepted.");
     try b.appendSlice(gpa, "\n");
     try emitFn(&b, gpa, "pancake_host_session_release", &.{"session"}, "Release one session: its still-parked far vows break (their FAIL\ncompletions queue inside this call), the node retires it — stranded\nwithdraws fail closed, so SIBLING sessions' vows may break here too — and\nthe shell is freed. NULL is a no-op; refused (last error set, the session\nkept) from inside a callback.");
-    try emitFn(&b, gpa, "pancake_host_session_session_open", &.{"session"}, "Nonzero once the keyed handshake has completed and the session is open.");
+    try emitFn(&b, gpa, "pancake_host_session_is_open", &.{"session"}, "Nonzero once the keyed handshake has completed and the session is open.");
 
     try emitFn(&b, gpa, "pancake_host_session_feed", &.{ "session", "frame_in" }, "Feed one inbound frame you read from your own transport (borrowed for the\ncall): behavior callbacks fire and vow completions queue inside, then the\nnode actions the dispatch queued pump and every touched session's\noutbound encodes. A\nfailure classifies through the shared taxonomy (PANCAKE_ERR_CODEC / _SESSION\n/ _INTERNAL); after any failure still drain take_outbound — the peer\nprojected a typed op:abort for the partner — then read\npancake_host_session_last_abort for the typed cause.");
     try emitFn(&b, gpa, "pancake_host_session_feed_bytes", &.{ "session", "bytes", "len" }, "Feed a byte-stream chunk you read from your own transport (borrowed for the\ncall). The library owns framing and the tail: the session's codec delimits\neach complete frame at the front of bytes — both codecs, both frame shapes\n— and dispatches it exactly as pancake_host_session_feed, while a partial\nframe straddling two reads stays buffered in the session, so on success\nevery byte was consumed and you just read and feed. Dispatch also pauses at\nthe frame that completes the keyed handshake: frames coalesced behind the\nhello wait in the session's tail while you act on the fresh session\n(publish, fetch), and your next call — an empty chunk (len 0, bytes may be\nNULL) works — feeds them. A frame exceeding the session's frame cap is\nrefused PANCAKE_ERR_FRAME_TOO_LARGE; any other failure classifies as\npancake_host_session_feed's do. After any failure the session is closing:\ndrain take_outbound (a typed op:abort is queued for the partner) and\nrelease the session.");

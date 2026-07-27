@@ -367,6 +367,12 @@ fn sessionOpenPred(peer: *engine.Peer) bool {
 /// assembles once in the connection's bounded spill (ADR-0041); an outbound
 /// frame larger than `write_buf` streams straight through. The one-call
 /// `connect` derives buffers and the session limit from a single `frame_cap`.
+///
+/// `handshake_timeout_ms` is the caller's policy, and it is a parameter rather
+/// than a default because the keyed handshake completes before this returns:
+/// setting the field on the value it hands back is too late to bound it. `0`
+/// is unbounded, so a partner that finishes connect and then goes silent parks
+/// this call forever.
 pub fn connectTcp(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -374,6 +380,7 @@ pub fn connectTcp(
     address: std.Io.net.IpAddress,
     read_buf: []u8,
     write_buf: []u8,
+    handshake_timeout_ms: i32,
 ) !BlockingSession {
     // Same spine as `connectVia`: netlayer dial + Identity.ephemeral hello.
     // The Resident only needs to outlive the dial call; the connection owns
@@ -389,7 +396,7 @@ pub fn connectTcp(
         .ephemeral,
         read_buf,
         write_buf,
-        0,
+        handshake_timeout_ms,
     );
 }
 
@@ -400,16 +407,24 @@ pub fn connectTcp(
 /// address — the address a partner can actually dial. A host that must reuse the
 /// session identity (a three-party handoff recipient) builds the vat with
 /// `BlockingSession.over` and calls `startKeyedSessionWithSecret` itself.
+///
+/// `handshake_timeout_ms` is the caller's policy, and it matters more here than
+/// on the dialing side: the accepting peer does not choose who connects to it,
+/// so `0` — unbounded — means a stranger who completes the TCP connect and then
+/// says nothing parks this accept for as long as it likes. That is the
+/// slowloris ADR-0081 bounds. Like `connectTcp`, it is a parameter rather than
+/// a field because the handshake completes before this returns.
 pub fn acceptTcp(
     allocator: std.mem.Allocator,
     peer: *engine.Peer,
     listener: *net.tcp.Listener,
     read_buf: []u8,
     write_buf: []u8,
+    handshake_timeout_ms: i32,
 ) !BlockingSession {
     // Same spine as `acceptVia`: contract listener + AcceptIdentity.ephemeral.
     // The typed tcp.Listener is borrowed for the call; the caller still owns it.
-    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, 0);
+    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, handshake_timeout_ms);
 }
 
 /// Dial a locator through the netlayer contract, signing the keyed handshake
@@ -468,6 +483,12 @@ pub fn connectVia(
 /// `Error.UnknownTransport`. `identity` is the same signing seam `connectVia`
 /// takes. The parsed locator is freed before returning, because `connectVia`
 /// copies what the session retains during the handshake.
+///
+/// `handshake_timeout_ms` is the caller's policy, for the same reason its
+/// siblings take one: the keyed handshake completes before this returns, so
+/// setting the field on the value it hands back is too late to bound it. `0` is
+/// unbounded, and a partner that finishes connect and then goes silent parks
+/// this call forever.
 pub fn connectUri(
     allocator: std.mem.Allocator,
     netlayers: []const net.netlayer.Netlayer,
@@ -476,10 +497,11 @@ pub fn connectUri(
     identity: Identity,
     read_buf: []u8,
     write_buf: []u8,
+    handshake_timeout_ms: i32,
 ) !BlockingSession {
     const locator = try model.uri.parsePeer(allocator, uri_str);
     defer model.freePeerLocator(allocator, locator);
-    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf, 0);
+    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf, handshake_timeout_ms);
 }
 
 /// Accept one partner through a contract `net.netlayer.Listener`, bind a vat, and

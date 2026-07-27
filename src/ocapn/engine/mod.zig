@@ -28,6 +28,7 @@ pub const events = @import("events.zig");
 pub const fetch = @import("fetch.zig");
 pub const handoff_gifter = @import("handoff_gifter.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
+pub const handoff_names = @import("handoff_names.zig");
 /// Lowering node-local foreign-import tokens to their wire reference at the
 /// outbound chokepoint (ADR-0069). A node hands the application synthetic far
 /// tokens; the peer swaps each back to its wire reference in `send`, so a token
@@ -202,8 +203,11 @@ fn Queue(comptime T: type) type {
         }
 
         /// Remove and return the most-recently pushed element, for `errdefer`
-        /// undo of an append whose follow-up failed. Null when empty.
+        /// undo of an append whose follow-up failed. Null when empty, which
+        /// asks `isEmpty` so a drained-but-unreclaimed backing can never hand
+        /// back an element the cursor already moved out.
         pub fn popBack(self: *Self) ?T {
+            if (self.isEmpty()) return null;
             return self.items.pop();
         }
 
@@ -215,7 +219,7 @@ fn Queue(comptime T: type) type {
         /// or shrink the queue between the push this borrows and the read
         /// through it.
         pub fn backPtr(self: *Self) ?*T {
-            if (self.items.items.len == 0) return null;
+            if (self.isEmpty()) return null;
             return &self.items.items[self.items.items.len - 1];
         }
 
@@ -358,7 +362,7 @@ pub const Peer = struct {
     /// Negotiated knobs for `initNegotiatingWith`. Version, codec, and feature
     /// set are independent axes; both peers of a pair must carry the same
     /// negotiated values so neither exercises a version, codec, or capability the
-    /// other did not advertise. Defaults match the Goblins interop target:
+    /// other did not advertise. Defaults match the v1.0 / Syrup interop floor:
     /// authenticated OCapN v1.0 over Syrup.
     pub const NegotiatingOptions = struct {
         captp_version: model.CaptpVersion = model.CaptpVersion.v1_0,
@@ -373,8 +377,8 @@ pub const Peer = struct {
         verify_partner_handshake: bool = true,
     };
 
-    /// A peer that begins in the `negotiating` state on the default Goblins
-    /// interop target (`v1_0` + Syrup), awaiting the `op:start-session`
+    /// A peer that begins in the `negotiating` state on the v1.0 / Syrup
+    /// interop floor, awaiting the `op:start-session`
     /// handshake. Use `initNegotiatingWith` when Pancake-to-Pancake negotiation
     /// selected a different profile or codec.
     pub fn initNegotiating(allocator: std.mem.Allocator) Peer {
@@ -615,8 +619,8 @@ pub const Peer = struct {
     /// `withdraw-gift` to the exporter's bootstrap object under `answer`. The
     /// exporter session must be open — its partner key names the receive's
     /// session — or this fails with `error.NoExporterKey`. This is the one
-    /// definition of the withdraw deliver shape; `Node.sendWithdraw` and the C
-    /// ABI both drive it. `give_bytes` is borrowed for the call.
+    /// definition of the withdraw deliver shape; the `Node` redeem path and the
+    /// C ABI both drive it. `give_bytes` is borrowed for the call.
     pub fn sendWithdrawGift(
         self: *Peer,
         secret: foundation.crypto.SecretKey,
@@ -786,6 +790,16 @@ pub const Peer = struct {
         return self.session_state.answerForResolverImport(resolver_import);
     }
 
+    /// The inbound answer a deliver settles: its wire answer, or the virtual
+    /// answer the engine installed for a V1.0 resolver-only deliver (ADR-0065).
+    /// This is the single seam the actor layer routes through, so a resolver-only
+    /// deliver's reply reaches the partner without `actors` decoding the CapTP
+    /// resolver descriptor. It is generic over the borrowed `model.view.Deliver`
+    /// and the owned `model.Deliver` (see `bootstrap.answerForDeliver`).
+    pub fn answerForDeliver(self: *const Peer, deliver: anytype) ?model.AnswerPosition {
+        return bootstrap.answerForDeliver(deliver, &self.session_state);
+    }
+
     /// Clear the in-flight enliven marker for `swissnum` once its enliven
     /// settles (ADR-0012). A no-op when none is outstanding. The embedder that
     /// began an enliven calls this on the settling resolution.
@@ -922,6 +936,21 @@ pub const Peer = struct {
         return .idle;
     }
 
+    /// Encode a wire `message` for the session's codec and CapTP profile and push
+    /// the frame onto the outbound queue. The one encode-then-queue seam every
+    /// outbound path shares; the frame is freed on a push failure and owned by the
+    /// queue on success.
+    pub fn pushEncoded(self: *Peer, message: model.Message) !void {
+        var frame = try codec.dispatch.encodeMessageForProfile(
+            self.session_state.codec,
+            self.allocator,
+            self.session_state.captp_version,
+            message,
+        );
+        errdefer frame.deinit();
+        try self.outbound.push(self.allocator, frame);
+    }
+
     /// Encode `op:abort` onto outbound. When `disposition` is `.close`, CapTP
     /// closes only after a successful queue push so the partner can still take
     /// the frame. Handshake refusals pass `.keep_negotiating`. Fatal projected
@@ -932,14 +961,7 @@ pub const Peer = struct {
         abort: model.AbortReason,
         disposition: abort_projection.AbortDisposition,
     ) !void {
-        var frame = try codec.dispatch.encodeMessageForProfile(
-            self.session_state.codec,
-            self.allocator,
-            self.session_state.captp_version,
-            .{ .abort = abort },
-        );
-        errdefer frame.deinit();
-        try self.outbound.push(self.allocator, frame);
+        try self.pushEncoded(.{ .abort = abort });
         if (disposition == .close) self.session_state.close();
     }
 
@@ -1122,7 +1144,7 @@ pub const Peer = struct {
 /// 500k-connection destination treats that cost as a budget: a field added here
 /// is a withdrawal from it. One kilobyte is the committed ceiling, so half a
 /// million idle sessions stay under 0.5 GiB of inline state and the heap-warmed
-/// footprint stays the number the ladder's rung 2 quotes. The runtime half of the
+/// footprint stays the number the ladder's step 2 quotes. The runtime half of the
 /// budget — the heap a warmed session grows — is held by
 /// `test/engine/footprint_budget_test.zig`. Crossing this ceiling is not a build
 /// failure to route around; it is a design event that raises the budget here, in
@@ -1130,7 +1152,7 @@ pub const Peer = struct {
 pub const peer_session_struct_budget_bytes = 1024;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
-        "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md rung 2). " ++
+        "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md step 2). " ++
             "A larger session struct is a withdrawal from the 500k footprint budget — raise the budget deliberately, do not route around it.",
         .{ @sizeOf(Peer), peer_session_struct_budget_bytes },
     ));

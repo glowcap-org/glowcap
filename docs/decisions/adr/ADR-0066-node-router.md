@@ -1,6 +1,6 @@
 ---
 id: ADR-0066
-status: accepted
+status: superseded
 date: 2026-06-19
 tags: [driver, handoff, three-party, node, c-abi, bindings]
 decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted (ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as pancake_node_* in the sans-io `libpancake_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `pancake_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine`) the duplicated protocol tables sink into the node: leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`-to-command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."

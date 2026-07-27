@@ -4,11 +4,23 @@
 //! (ADR-0084). Progressive `ocapn` commands, REPL, curated MCP, and `app rooms-peer`
 //! share one command tree for parse, scoped help, and shell completion.
 const std = @import("std");
+const vaxis = @import("vaxis");
 const Ctx = @import("ctx.zig").Ctx;
 const exit_codes = @import("exit_codes.zig");
 const log = @import("operability/log.zig");
 const cmd = @import("cmd/mod.zig");
 const tree = @import("cmd/tree.zig");
+
+/// Restore the terminal before dying. The REPL puts the tty in raw mode with the
+/// alternate screen and mouse reporting on, and `defer` does not run on a panic —
+/// so without this a crash leaves the user's shell unusable. vaxis ships the
+/// handler; installing it is our job.
+pub const panic = std.debug.FullPanic(vaxisPanic);
+
+fn vaxisPanic(msg: []const u8, ret_addr: ?usize) noreturn {
+    vaxis.recover();
+    std.debug.defaultPanic(msg, ret_addr);
+}
 
 pub fn main(init: std.process.Init) !void {
     const code = run(init) catch |err| switch (err) {

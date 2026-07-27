@@ -34,7 +34,7 @@ from pancake import Ref, connect, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-handoff", 22114, max_port=65534)
-RACKET = "/usr/local/bin/racket"
+RACKET = "racket"
 HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt"
 
 

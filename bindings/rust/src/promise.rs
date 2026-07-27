@@ -34,7 +34,7 @@ pub(crate) async fn fetch_like(
 	label: &str,
 	mint: unsafe extern "C" fn(*mut ffi::PancakeHostSession, *const u8, usize, *mut u64) -> i32,
 	track: bool,
-	track_import: impl FnOnce(Reference) -> Ref,
+	track_import: impl FnOnce(crate::LiveRef) -> Ref,
 ) -> Result<Ref> {
 	shared.guard_open()?;
 	shared.drain_gc();
@@ -42,11 +42,15 @@ pub(crate) async fn fetch_like(
 	check_host(unsafe { mint(shared.ptr.get(), swiss.as_ptr(), swiss.len(), &mut vow) })?;
 	let value = await_minted(shared, vow).await?;
 	match value {
-		Argument::Reference(reference @ Reference::Near { .. }) => Ok(Ref::bare(reference)),
-		Argument::Reference(reference @ Reference::Far { .. }) if track => {
-			Ok(track_import(reference))
+		Argument::Reference(Reference::Near { id, promise }) => {
+			Ok(Ref::bare(crate::LiveRef::Near { id, promise }))
 		}
-		Argument::Reference(reference @ Reference::Far { .. }) => Ok(Ref::bare(reference)),
+		Argument::Reference(Reference::Far { id, promise }) if track => {
+			Ok(track_import(crate::LiveRef::Far { id, promise }))
+		}
+		Argument::Reference(Reference::Far { id, promise }) => {
+			Ok(Ref::bare(crate::LiveRef::Far { id, promise }))
+		}
 		_ => Err(Error::broken(format!(
 			"{label:?} did not resolve to a capability"
 		))),

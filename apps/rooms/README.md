@@ -1,6 +1,6 @@
 # rooms: a capability-secure chat, in five languages at once
 
-This is a small, real application built on pancake actors. A server hosts a _directory_ of chat
+This is a small application built on pancake actors. A server hosts a _directory_ of chat
 rooms; people open a new room or enter an existing one, post lines, and see each other's in real
 time. What makes it worth reading is _how_ the chat works, and that one room holds members written
 in Zig, Rust, Python, Racket, and Deno at once, none aware of the others' languages.
@@ -347,4 +347,4 @@ live on another server.
 Nor does the server yet attenuate (a read-only room handle) or persist history. Attenuation and
 revocation are shown end-to-end in the sibling [`tools`](../tools/) showcase, on the same capability
 model: a read-only view is an actor that forwards only the safe verbs, and a revocable handle is a
-forwarder you can sever. Wiring them into a room is a few lines and a good next exercise.
+forwarder you can sever.

@@ -74,6 +74,14 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
 /// committed — the import retain and the forward entry — so no half-installed
 /// resolver row survives.
 pub fn installInboundResolver(self: *Session, answer: model.AnswerPosition, resolver_import: model.ImportPosition) !void {
+    // The position comes off the wire, and this path installs the import row
+    // itself rather than looking one up, so the ordinary reference checks never
+    // see it. The range above `REDEEMED_TOKEN_BASE` is the node's, reserved for
+    // the ids it hands the application for redeemed capabilities and documented
+    // as disjoint from any partner's import. Refuse it here, or a partner's
+    // `resolve_me_desc` can name an id into that range and break the one
+    // property the range exists to provide.
+    if (resolver_import.int() >= session.REDEEMED_TOKEN_BASE) return session.Error.InvalidReference;
     try self.registerImport(resolver_import);
     // The `BiMap` put is all-or-none across both directions, so a failure needs
     // only the import retain rolled back (the one piece the map cannot own). The

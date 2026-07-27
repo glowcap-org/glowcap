@@ -143,9 +143,9 @@ sequenceDiagram
     participant X as Exporter
     participant G as Gifter
     R->>X: withdraw-gift (gift-id 7), arrives first
-    Note over X: gift-id 7 not yet deposited; verification must wait
+    Note over X: gift-id 7 not yet deposited, verification must wait
     Note over X: withdrawal parked unverified
     G->>X: deposit-gift (gift-id 7, gifted-ref)
-    Note over X: deposit lands; parked withdrawal validated whole
+    Note over X: deposit lands, parked withdrawal validated whole
     X->>R: op:resolve (resolve:fulfill gifted-ref)
 ```

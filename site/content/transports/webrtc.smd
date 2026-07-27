@@ -1,5 +1,6 @@
 ---
 .title = "WebRTC: peer-to-peer for the browser",
+.description = "WebRTC carries a session between two peers that cannot open a socket to each other — two browsers, or two hosts behind NATs — over an encrypted DataChannel.",
 .date = @date("2026-07-22T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -7,21 +8,22 @@
 ---
 
 WebRTC is pancake's transport for two peers that cannot open a socket to each
-other: two browser tabs, or two hosts each behind a NAT. A session's bytes ride a
+other: two browsers, or two hosts each behind a NAT. A session's bytes ride a
 [WebRTC](https://www.w3.org/TR/webrtc/) DataChannel, encrypted with DTLS, and the
 channel opens directly between the two peers with no server on the byte path.
-Everything above the wire stays the same OCapN pancake speaks over TCP. What
-changes is how the channel comes up: a WebRTC peer has no address to dial, so the
-two ends arrange the connection through a capability they can both already reach.
+Everything above the wire stays the same OCapN, the object-capability network
+protocol pancake speaks over TCP. What changes is how the channel comes up: a
+WebRTC peer has no address to dial, so the two ends arrange the connection through
+a capability they can both already reach.
 
 ## The channel comes up by signaling
 
 To open a DataChannel, the two peers first trade three things: an SDP offer, an
 SDP answer, and a handful of ICE candidates (the network paths each side can be
 reached on). pancake carries that exchange over an ordinary OCapN capability. A
-room both peers have joined, a relay one of them is registered with, or any
-object both can send to, hosts the signaling. The object moves opaque strings; it
-parses no SDP and holds no session.
+room both peers have joined, or any object both can send to, hosts the
+signaling. The object moves opaque strings; it parses no SDP and holds no
+session.
 
 [The two peers trade an offer, an answer, and ICE candidates through a signaling capability, then open a direct DataChannel and run the keyed session over it with the signaling host out of the byte path.]($image.siteAsset('diagram-webrtc-signaling.svg'))
 
@@ -33,24 +35,34 @@ the session, and the DTLS channel and the keyed handshake both run above it.
 over a keyed CapTP session, and `zig build webrtc-interop` proves the whole thing
 between two native peers on a real DataChannel.
 
+This is also why a bare `webrtc` locator does not dial. pancake's dial
+classifier recognizes the transport and validates its designator (the peer
+name inside the locator, here a public key), but with
+no signaling reference there is nowhere to send an offer. A WebRTC peer is
+reached through a signaling exchange the application arranges, or by redeeming
+a handoff give that carries one, which the handoff section below covers.
+
 ## One key, pinned by the handshake
 
 Like keyed TCP and iroh, a WebRTC peer is named by its Ed25519 public key in
-canonical hex, not by an address. The signaling exchange brings the channel up,
-and then the keyed handshake pins the session to that designator: whoever answers
-must prove the key the peer was introduced under, so a signaling host that tried
-to substitute its own peer is refused before the session opens. The DTLS
+canonical hex, not by an address. Signaling brings the channel up, and then the
+keyed handshake pins the session to that designator. Whoever answers has to
+prove the key the peer was introduced under, so a signaling host that swapped in
+a peer of its own is refused before the session ever opens. The DTLS
 fingerprint is trusted to introduce, never to impersonate, because it cannot
 complete the keyed handshake for a key it does not hold.
 
-## A separate artifact, by design
+## You only link this if you use it
 
-WebRTC's stack is Rust, so it rides a sidecar staticlib pancake keeps in its own
-compiled artifact, `libpancake_net_transport_webrtc`
-([ADR-0089](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
-The base archives stay pure Zig and dependency-free; a program links WebRTC only
-when it wants it. `zig build webrtc-abi` builds that companion archive and its
-header (it needs `cargo`).
+Same deal as [iroh]($link.page('transports/iroh')): the stack is Rust, so it
+ships as its own sidecar staticlib, `libpancake_net_transport_webrtc`
+([ADR-0089](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)),
+and the base archives stay pure Zig. `zig build webrtc-abi` builds it; needs
+`cargo`. Worth knowing before you commit: a native WebRTC session runs on the
+blocking pump, with no completion-loop tier for DataChannels, so the
+many-connections scale path stays iroh's. And the proofs on this page exist
+but do not run on every push;
+[What you can depend on]($link.page('stability')) has the tier.
 
 ## The browser arm
 
@@ -67,25 +79,30 @@ channel. Two end states are proven in a real headless Chromium:
 
 ## STUN, TURN, and staying direct
 
-ICE gathers three kinds of candidate, and the posture mirrors iroh's: nothing
-infrastructural is on by default, and a relay is a fallback, never the steady
-path. On loopback and on a LAN, two peers pair on their own host candidates with
-no STUN and no TURN, which is why the in-tree checks need no signaling
-infrastructure. A deployment that must cross NAT configures a STUN server to
-observe its public address, exactly the way an iroh deployment opts into
-discovery. A TURN relay carries bytes only when ICE finds no direct path at all,
-and even then it sits under the DTLS channel, so it sees timing and volume but
-never the keyed session.
+ICE is how the two ends find a network path, and the posture mirrors iroh's:
+nothing infrastructural is on by default, and a relay is a fallback, never the
+steady path. On loopback and on a LAN, two peers pair on their own host
+candidates with no STUN and no TURN, which is why the in-tree checks stand up
+no ICE infrastructure. A browser deployment that must cross NAT hands
+`@pancake/webrtc` a STUN server in its ICE server list, the way an iroh
+deployment opts into discovery. The native sidecar gathers host candidates
+only, so a native peer today pairs on loopback or a LAN. A TURN relay, where a
+deployment configures one, carries bytes only when ICE finds no direct path at
+all, and even then it sits under the DTLS channel, so it sees timing and volume
+but never the keyed session.
 
 ## Three-party handoff over WebRTC
 
-The same CapTP introduction as on TCP
-([Concepts]($link.page('concepts'))): a gifter signs a give that names the
-exporter by its WebRTC designator, and the recipient redeems it by bringing up a
-DataChannel through the exporter's signaling inbox, running the keyed handshake,
-and presenting the `withdraw-gift` the exporter's engine verifies. A gifted
-capability is reached over a channel that never had an address. Proof:
-`zig build webrtc-handoff`, WebRTC's answer to `iroh-mesh`.
+A three-party handoff is this: peer A, already talking to B, hands B a working
+reference to a third peer C that B has never contacted, and B ends up talking to C
+directly. pancake does it the same way on WebRTC as on TCP
+([Concepts]($link.page('concepts')) covers the general shape). A signs a *give*
+naming C by its WebRTC designator. B redeems it by opening a DataChannel to C
+through C's signaling inbox, running the keyed handshake, and presenting a
+`withdraw-gift` that C's engine verifies before handing the capability over.
+The result is a gifted capability reached over a channel that never had an
+address.
+`zig build webrtc-handoff` proves it, WebRTC's answer to `iroh-mesh`.
 
 ## See it run
 
@@ -101,7 +118,6 @@ zig build webrtc-handoff            # a webrtc give redeemed by signaling-then-h
 zig build webrtc-abi                # build libpancake_net_transport_webrtc and its header
 ```
 
-The [Transports]($link.page('transports')) page sets WebRTC beside the socket and
-iroh residents, [iroh]($link.page('transports/iroh')) is its encrypted-QUIC
-sibling, and [Concepts]($link.page('concepts')) explains locators, designators,
-and handoffs in general.
+If you got here wondering whether you actually want
+[iroh]($link.page('transports/iroh')) instead: for native peers you probably
+do. The rest of the lineup is on [Transports]($link.page('transports')).

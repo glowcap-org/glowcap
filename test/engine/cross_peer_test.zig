@@ -17,11 +17,24 @@ const recipient_key = repeated(32, 0x42);
 const gifter_session = repeated(32, 0xcc);
 const gifter_side = repeated(32, 0x11);
 const receiving_session = repeated(32, 0xdd);
-const receiving_side = repeated(32, 0x22);
+/// The recipient's side name is not free bytes: the exporter derives it from the
+/// give's recipient key and refuses a receive that names anything else, so the
+/// fixture derives it the same way rather than picking a constant.
+const receiving_side = blk: {
+    @setEvalBranchQuota(100_000);
+    break :blk engine.handoff_recipient.sideName(recipient_key[0..]) catch unreachable;
+};
 const give_signature = repeated(64, 0xaa);
 const receive_signature = repeated(64, 0xbb);
 const gift_id_a = repeated(32, 0x01);
 const gift_id_b = repeated(32, 0x02);
+
+/// The side name the exporter derives from a give's recipient key. A receive
+/// must name exactly this, so a fixture holding its own recipient key derives it
+/// the same way instead of inventing bytes.
+fn sideOf(key: crypto.PeerKey) [32]u8 {
+    return engine.handoff_recipient.sideName(key.asBytes()) catch unreachable;
+}
 
 fn giveWith(gift_id: []const u8) model.HandoffGive {
     return .{
@@ -114,6 +127,8 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x52));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -123,7 +138,7 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     // The receive embeds the signed give and is signed by the recipient.
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -170,6 +185,8 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x72));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -178,7 +195,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
 
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -243,6 +260,8 @@ test "withdraw of a verbatim gifted cap reclaims the moved reference through the
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x74));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -251,7 +270,7 @@ test "withdraw of a verbatim gifted cap reclaims the moved reference through the
 
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -304,6 +323,8 @@ test "a withdraw of a node-local swiss gift re-resolves against the withdrawing 
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x74));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -312,7 +333,7 @@ test "a withdraw of a node-local swiss gift re-resolves against the withdrawing 
 
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -373,6 +394,8 @@ test "a swiss gift withdrawn where the object is unpublished breaks" {
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x76));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -381,7 +404,7 @@ test "a swiss gift withdrawn where the object is unpublished breaks" {
 
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -430,6 +453,8 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x62));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -438,7 +463,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
 
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -556,6 +581,8 @@ test "third-party handoff rejects a give signed by a key other than the recorded
     const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x52));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // The receive has to name the side the exporter derives from the give.
+    const recipient_side = sideOf(recipient_pub);
 
     // The give is signed by the forger, not the gifter the exporter records.
     var give_signed: []u8 = undefined;
@@ -565,7 +592,7 @@ test "third-party handoff rejects a give signed by a key other than the recorded
 
     var receive: model.HandoffReceive = .{
         .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -710,14 +737,24 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
     var gx = try pairing.pairedWithKeys(allocator, gifter_seed, exporter_seed);
     defer gx.deinit();
 
+    // A receive names the session it travels over, and this one is validated
+    // against `gx.p2`'s session, whose other end is the gifter. The exporter
+    // derives both names from that session's two keys and holds the receive to
+    // them, so the fixture names the same pair. What the recipient key still
+    // decides is the signature: the receive below is signed with it, and the
+    // exporter verifies against the key the give carries.
+    const withdrawing_side = sideOf(gifter_pub);
+    const exporter_side = sideOf(crypto.SecretKey.fromSeed(exporter_seed).publicKey());
+    const receiving_session_name = engine.handoff_recipient.sessionName(withdrawing_side, exporter_side);
+
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
     const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
     defer allocator.free(give_signed);
 
     var receive: model.HandoffReceive = .{
-        .receiving_session = receiving_session[0..],
-        .receiving_side = receiving_side[0..],
+        .receiving_session = &receiving_session_name,
+        .receiving_side = &withdrawing_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",

@@ -163,19 +163,112 @@
                        "-A" ua
                        "-o" (path->string dest) url))))
 
-(define (tar-tv-name line)
-  (define without-link (car (string-split line " -> ")))
-  (define parts (string-split without-link))
-  (cond
-    [(>= (length parts) 8) (string-join (list-tail parts 7) " ")]
-    [(pair? parts) (car (reverse parts))]
-    [else ""]))
+;; The whole line is parsed, including any " -> target" tail. Stripping that
+;; tail first would truncate a regular file whose own name contains " -> ",
+;; and the traversal check would then run on a prefix of the name tar actually
+;; extracts. Link entries need no strip: they are refused for their kind,
+;; whatever their name parses to.
+(define (tar-tv-member line)
+  (define parts (string-split line))
+  (define digits? (lambda (value) (regexp-match? #px"^[0-9]+$" value)))
+  ;; The owner columns must be numeric. The listing is taken with
+  ;; `--numeric-owner`, and this refuses one that is not — because a tar that
+  ;; ignores the flag, or an owner name containing a space, turns one field into
+  ;; several and shifts every later column. That shift moves where the member
+  ;; name begins, so the name reconstructs wrong, misses the prefix test, and
+  ;; the member is skipped before its kind is ever checked.
+  (define numeric-owner?
+    (lambda (value) (regexp-match? #px"^[0-9]+/[0-9]+$" value)))
+  (define clock-or-year?
+    (lambda (value)
+      (regexp-match? #px"^([0-9]{2}:[0-9]{2}(:[0-9]{2})?|[0-9]{4})$" value)))
+  (define start
+    (cond
+      ;; GNU tar: mode owner/group size YYYY-MM-DD HH:MM name...
+      [(and (>= (length parts) 6)
+            (numeric-owner? (list-ref parts 1))
+            (digits? (list-ref parts 2))
+            (regexp-match? #px"^[0-9]{4}-[0-9]{2}-[0-9]{2}$" (list-ref parts 3))
+            (clock-or-year? (list-ref parts 4)))
+       5]
+      ;; BSD tar: mode links owner group size Mon DD HH:MM name...
+      [(and (>= (length parts) 9)
+            (digits? (list-ref parts 1))
+            (digits? (list-ref parts 2))
+            (digits? (list-ref parts 3))
+            (digits? (list-ref parts 4))
+            (member (list-ref parts 5) '("Jan" "Feb" "Mar" "Apr" "May" "Jun"
+                                         "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"))
+            (digits? (list-ref parts 6))
+            (clock-or-year? (list-ref parts 7)))
+       8]
+      [else #f]))
+  (and start
+       (< start (length parts))
+       (cons (string-ref line 0) (string-join (list-tail parts start) " "))))
+
+(define (tar-listing-violation listing extract-prefix)
+  (define prefix-slash (string-append extract-prefix "/"))
+  (let loop ([lines (string-split listing "\n")])
+    (cond
+      [(null? lines) #f]
+      [(zero? (string-length (car lines))) (loop (cdr lines))]
+      [else
+       ;; Named `entry`, not `member`: shadowing `member` here would break the
+       ;; traversal check below, which applies the list procedure.
+       (define entry (tar-tv-member (car lines)))
+       (cond
+         [(not entry)
+          (format (string-append "unrecognized tar listing format "
+                                 "(need GNU or BSD tar; got: ~a)\n"
+                                 "  install GNU tar, or set PANCAKE_LIB_DIR "
+                                 "to a directory you extracted yourself")
+                  (car lines))]
+         [else
+          (define kind (car entry))
+          ;; `tar -czf x .` stores every member as `./lib/…`. Without this the
+          ;; prefix test below matches nothing and the whole archive passes
+          ;; unexamined, which is not the same as passing.
+          (define raw-name (cdr entry))
+          (define stripped
+            (if (string-prefix? raw-name "./") (substring raw-name 2) raw-name))
+          ;; A link's printed name carries its target, and tar spells the two kinds
+          ;; differently: a symlink as `lib -> /etc`, a hard link as `lib link to real`.
+          ;; Strip whichever tail belongs to this kind, and only for that kind, so a link
+          ;; *named* the prefix is still recognized as being under it. Without this the
+          ;; reconstructed name matches neither `lib` nor `lib/...`, the member is skipped
+          ;; before the kind test, and a link named exactly `lib` is extracted as the
+          ;; library directory. A regular file whose own name contains either separator
+          ;; must keep its whole name, which is why the strip is conditioned on the kind.
+          (define name
+            (let ([separator (cond [(char=? kind #\l) " -> "]
+                                   [(char=? kind #\h) " link to "]
+                                   [else #f])])
+              (if separator
+                  (car (string-split stripped separator #:trim? #f))
+                  stripped)))
+          (cond
+            [(and (not (equal? name extract-prefix))
+                  (not (string-prefix? name prefix-slash)))
+             (loop (cdr lines))]
+            [(not (or (char=? kind #\-) (char=? kind #\d)))
+             (format "refusing non-file tar member: ~a" name)]
+            [(or (string-prefix? name "/")
+                 (member ".." (string-split name "/")))
+             (format "refusing unsafe tar member: ~a" name)]
+            [else (loop (cdr lines))])])])))
 
 ;; List members, reject traversal/links under extract_prefix, then extract.
 ;; Refuse/link hard-fail; tar list failure soft-fails (tooling).
 (define (safe-extract-prefix! tar tarball-path stage extract-prefix)
+  ;; One environment for both tar calls: `TAR_OPTIONS` could otherwise add
+  ;; flags to an extract the listing was never validated against.
+  (define env (environment-variables-copy (current-environment-variables)))
+  (environment-variables-set! env #"LC_ALL" #"C")
+  (environment-variables-set! env #"TAR_OPTIONS" #f)
   (define-values (sp stdout stdin stderr)
-    (subprocess #f #f 'stdout tar "-tvzf" (path->string tarball-path)))
+    (parameterize ([current-environment-variables env])
+      (subprocess #f #f 'stdout tar "--numeric-owner" "-tvzf" (path->string tarball-path))))
   (define listing (port->string stdout))
   (close-input-port stdout)
   (close-output-port stdin)
@@ -185,31 +278,16 @@
      (soft-fail! "tar list failed")
      #f]
     [else
-     (define prefix-slash (string-append extract-prefix "/"))
-     (define ok?
-       (let loop ([lines (string-split listing "\n")])
-         (cond
-           [(null? lines) #t]
-           [(zero? (string-length (car lines))) (loop (cdr lines))]
-           [else
-            (define line (car lines))
-            (define kind (string-ref line 0))
-            (define name (tar-tv-name line))
-            (cond
-              [(and (not (equal? name extract-prefix))
-                    (not (string-prefix? name prefix-slash)))
-               (loop (cdr lines))]
-              [(or (string-prefix? name "/")
-                   (member ".." (string-split name "/")))
-               (hard-fail! (format "refusing unsafe tar member: ~a" name))]
-              [(or (char=? kind #\l) (char=? kind #\h))
-               (hard-fail! (format "refusing link tar member: ~a" name))]
-              [else (loop (cdr lines))])])))
-     (and ok?
-          (or (system* tar "-xzf" (path->string tarball-path)
-                       "-C" (path->string stage)
-                       "--no-same-owner" extract-prefix)
-              (hard-fail! "tar extract failed")))]))
+     (define violation (tar-listing-violation listing extract-prefix))
+     (when violation (hard-fail! violation))
+     (or (parameterize ([current-environment-variables env])
+           (system* tar "-xzf" (path->string tarball-path)
+                    "-C" (path->string stage)
+                    "--no-same-owner" extract-prefix))
+         (hard-fail! "tar extract failed"))]))
+
+(module* archive-hygiene-test-support #f
+  (provide tar-listing-violation))
 
 (define (sha256-hex path)
   (define sha (or (find-executable-path "sha256sum")

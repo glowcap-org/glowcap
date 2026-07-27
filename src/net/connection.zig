@@ -14,11 +14,26 @@
 //! (foundation, model, codec, session, engine) stay synchronous and I/O-free;
 //! the layers above `net` — `driver` and `c_abi` — also do host I/O and
 //! disclose it in their own headers.
-//! The connection doesn't wrap a socket of its own; it just drives
-//! the plain `std.Io.Reader` and `std.Io.Writer` a stream already gives you, so
-//! any stream that speaks those — the TCP socket, an in-memory pipe, a TLS
-//! wrapper — drives it unchanged. The actual socket lives behind `tcp.zig`, and the framing core
-//! (`pumpOver`) only ever sees a type-erased reader and writer, which is how we
+//!
+//! ## Connection vs FrameStream
+//!
+//! A `Connection` owns the `Spill` and a `TransportHandle` for its close-and-free
+//! lifecycle, and carries the pump verbs (`pump`, `flush`, `runUntil`). Use
+//! `Connection` when you have a peer and want blocking pump-over-wire.
+//!
+//! A `FrameStream` (`frame_stream.zig`) is the frame-boundary primitive without a
+//! peer: the host owns the peer lifecycle and only needs raw frame delimiters.
+//! The C ABI and binding byte-fed paths drive a `FrameStream` instead. The two
+//! paths share the frame delimiters in `frame_stream.zig` and nothing else:
+//! `pumpOver` below is the peer-driven pump, reached only through
+//! `Connection.pump`, while `FrameStream.readFrame` and `writeFrame` read and
+//! write one frame with no peer in sight.
+//!
+//! The connection borrows a type-erased `*std.Io.Reader` and `*std.Io.Writer` — it
+//! does not own the stream object. It owns only the close capability (the
+//! `TransportHandle`), so a transport that produces a connection pins its concrete
+//! reader and writer at a stable address for the connection's life. The framing
+//! core (`pumpOver`) only ever sees the type-erased interfaces, which is how we
 //! test it with `Reader.fixed` and `Writer.fixed` and no socket at all.
 
 const std = @import("std");
@@ -50,6 +65,9 @@ pub const Progress = union(enum) {
 /// `ConnectionLost` / `TruncatedFrame` are the genuine transport faults;
 /// the concrete `ReadFailed` / `WriteFailed` cause is preserved on the
 /// `Stream.Reader` / `Stream.Writer` for a caller (or the C boundary) to surface.
+/// To distinguish a transport fault from a protocol abort at runtime: `PumpError`
+/// variants catch the category, and `Peer.lastAbort` gives the typed abort reason
+/// (domain, kind, diagnostic) when the variant is `ProtocolAbort`.
 pub const PumpError = error{
     /// An underlying read or write failed (concrete cause on the stream).
     ConnectionLost,
@@ -74,7 +92,7 @@ pub const PumpError = error{
 /// pinned to keep the reader/writer alive), and expose its pollable socket
 /// descriptor when it has one. A userspace transport with no fd returns null
 /// from `socketHandle` and multiplexes in its own loop.
-pub const TransportHandle = struct {
+const TransportHandle = struct {
     ctx: *anyopaque,
     close_fn: *const fn (ctx: *anyopaque) void,
     socket_handle_fn: *const fn (ctx: *anyopaque) ?std.Io.net.Socket.Handle,
@@ -189,8 +207,9 @@ pub const Connection = struct {
     /// `Progress` (`.closed` if the stream ended first).
     ///
     /// `timeout_ms` is the per-read deadline, the bounded-read hook on an
-    /// untrusted partner (ADR-0081): 0 leaves each read blocking, the ordinary
-    /// cooperative case. A positive value flushes queued outbound first (the
+    /// untrusted partner (ADR-0081). A timeout of 0 means each read blocks
+    /// indefinitely — the caller accepts the risk of an unbounded block against
+    /// a silent partner. A positive value flushes queued outbound first (the
     /// partner cannot answer a request still queued on our side, so waiting
     /// before flushing would deadlock), then waits up to `timeout_ms` for the
     /// read to make progress, returning `error.Timeout` on a poll timeout

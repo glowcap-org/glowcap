@@ -1,7 +1,8 @@
 # CapTP CLI
 
-Call a capability from your shell. Script CapTP with JSON. Drop pancake into an
-agent via MCP. Same library as the Zig package, not a second protocol stack.
+Call a capability from your shell, script CapTP with JSON, or drop pancake
+into an agent via MCP. The binary holds the same library as the Zig package,
+not a second protocol stack.
 
 Flags, CapTP verbs, exit codes, environment, and wait budgets live in the
 binary: `pancake help` (and `help ocapn`, `-h` on any command).
@@ -34,7 +35,7 @@ same binary through the build graph.
 ## Round-trip in two terminals
 
 Same demo greeter as the README / Zig examples: a tiny actor that lives only
-in the CLI adapter (`cli/ocapn/mod.zig`), not in `libpancake_*`. Verb `greet`
+in the CLI adapter (`cli/ocapn/builtins.zig`), not in `libpancake_*`. Verb `greet`
 formats `Hello, <arg>`; `cowsay`, `pancakesay`, and `goblinsay` return speech
 balloons (cow, faced pancake stack, or a friendly goblin doodle) for the same
 string arg.
@@ -123,7 +124,7 @@ pancake --json ocapn probe "$LOC"
 | `pancake griddle …` | Simulator / timeline family (**placeholder**) |
 
 ```sh
-pancake griddle status   # brand locked; runtime not implemented
+pancake griddle status   # name reserved; runtime not implemented
 pancake griddle help
 ```
 
@@ -147,7 +148,8 @@ pancake repl                 # sessionless lab, then dial inside
 # or: pancake repl "$LOC"    # dial first (same as ocapn dial --repl)
 ```
 
-Inside the lab (workbench by default. CapTP verbs, rail, transcript):
+Inside the lab (the workbench view by default, with CapTP verbs, the instrument
+rail, and the transcript):
 
 ```text
 help                         # everyday verbs
@@ -187,15 +189,22 @@ pancake mcp --tools default
 # catalogs: default | full | readonly; discover tools via MCP tools/list
 ```
 
-This repo wires CapTP MCP into Cursor and Claude via the root [`pancake`](../pancake)
-shim (`./pancake mcp --tools default`; see `.cursor/mcp.json` and `.mcp.json`;
-requires `zig build` first). Stdio framing is newline-delimited JSON-RPC.
-Tool results match argv `--json` (including `{"ok":false,"error":…}` on
-failure; `isError` mirrors exit). Default state is
-`.local/pancake-mcp-state` (cwd-relative) so it does not share a human
-argv/REPL identity. Host/listen stays argv-only. Discover tools with `tools/list`. Portable stub
-when `pancake` is on `PATH` (no shim: set `PANCAKE_STATE` explicitly):
-[`docs/examples/pancake-mcp.json`](examples/pancake-mcp.json).
+This repository wires CapTP MCP into Cursor and Claude through the root
+[`pancake`](../pancake) shim, which runs `./pancake mcp --tools default` (see
+`.cursor/mcp.json` and `.mcp.json`; run `zig build` first). Stdio framing is
+newline-delimited JSON-RPC, and tool results match argv `--json`, including
+`{"ok":false,"error":…}` on failure, with `isError` mirroring the exit code.
+MCP state defaults to `.local/pancake-mcp-state`, relative to the working
+directory, so an agent never shares a human argv/REPL identity. Hosting stays
+argv-only: `listen` parks on accept, so it is never an MCP tool.
+
+The tool schemas are projected from the CapTP registry, one front-applicable
+flag and positional at a time (`--repl` stays argv-only). `call`, `tell`, and
+`fetch` expose named fields (`locator`, `name`, `verb`, `args`); a legacy
+positional `args` array still works. After `zig build`, reload the MCP server
+in the host so the tools pick up the new binary. For hosts where `pancake` is
+already on `PATH`, a portable stub (no shim; set `PANCAKE_STATE` explicitly)
+lives at [`docs/examples/pancake-mcp.json`](examples/pancake-mcp.json).
 
 ## Sit in a room
 
@@ -204,19 +213,17 @@ registers a giftable `dm` inbox so `reply --dm PEER` delivers via directory
 introduction (same path as `demo-rooms-dm-iroh`). Deploy and locator details:
 [`apps/rooms/README.md`](../apps/rooms/README.md).
 
-## Shell completion
+## Shell completion and scripting
 
 ```sh
 eval "$(pancake completion bash)"   # or zsh | fish
 ```
 
-Identity: `PANCAKE_STATE`, `PANCAKE_IDENTITY`, or `--identity`. Prefer `--json`
-when scripting. Session summary: `ocapn info` (front, path, partner
-`abort_kind`/`abort` when retained). MCP tool schemas project front-applicable
-flags and positionals from the CapTP registry (`--repl` stays argv-only).
-`call` / `tell` / `fetch` expose named fields (`locator`, `name`, `verb`,
-`args`); a legacy positional `args` array still works. After `zig build`, reload
-the MCP server in the host so tools pick up the new binary.
+A script picks its identity with `PANCAKE_STATE`, `PANCAKE_IDENTITY`, or
+`--identity`, and should pass `--json` on every verb. `ocapn info` prints the
+session summary: the front, the state path, and the partner's `abort_kind` and
+`abort` reason when one was retained.
 
-Boundary: [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md).
-Edges: [`shipped.md`](shipped.md), [`boundaries.md`](boundaries.md).
+[ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md) records the
+product boundary; [`shipped.md`](shipped.md) and
+[`boundaries.md`](boundaries.md) list what ships and what stays open.

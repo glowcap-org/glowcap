@@ -24,7 +24,7 @@
 // deadlock. This is the browser twin of `zig build rooms-web-relay-peer`
 // (Deno).
 
-import { chromium } from "npm:playwright@1.61.1";
+import { chromium } from "playwright";
 
 const WEB = new URL("./web.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;

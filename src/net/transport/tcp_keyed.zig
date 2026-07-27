@@ -133,10 +133,8 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
 /// across rebinds, which is the point. The bound socket address is `localHint`.
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    if (out.len < crypto.PeerKey.designator_len) return out[0..0];
     const hex = box.public_key.toDesignator();
-    @memcpy(out[0..hex.len], hex[0..]);
-    return out[0..hex.len];
+    return netlayer.writeDesignator(out, hex[0..]);
 }
 
 /// The bound `host:port` (with the kernel-chosen port when bound to port 0):

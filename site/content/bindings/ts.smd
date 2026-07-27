@@ -1,26 +1,39 @@
 ---
 .title = "TypeScript",
+.description = "The TypeScript binding: one source across Deno, Bun, and Node, giving the Session and Server API over the pancake C ABI.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-One TypeScript source for Deno and Bun: `@pancake/stack`
+One TypeScript source, three runtimes. `@pancake/stack`
 ([`mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts))
-plus optional `@pancake/iroh`. `Session` / `Server` over `libpancake_driver`;
-`connect` loads iroh lazily. Build archives with `zig build` (iroh tabs need
-`zig build iroh-abi`), set `PANCAKE_LIB_DIR`, run with
-`deno run --allow-ffi --allow-read` (add `--allow-net` / `--allow-env` as
-needed). Binding check: `deno-dogfood` / `bun-dogfood`. Install details:
+gives Deno and Bun the `Session` / `Server` API over the pancake C ABI, plus the
+optional `@pancake/iroh` transport that `connect` loads lazily when it sees an
+iroh locator.
+
+The same source also compiles to WebAssembly as `@pancake/web`, so the same
+`Session` runs in the browser, dialing rather than listening.
+[In the browser]($link.page('bindings/browser')) covers how a page reaches its
+peers.
+
+Build the archives with `zig build`, and add `zig build iroh-abi` for the iroh
+snippet.
+Set `PANCAKE_LIB_DIR`, then run with `deno run --allow-ffi --allow-read`, adding
+`--allow-net` and `--allow-env` as needed. One thing the snippets do not show:
+`@pancake/stack` is a workspace member of the checkout, not a published
+package, so run from `bindings/ts` or point an import map at
+`bindings/ts/stack/mod.ts`. Install details:
 [Bindings]($link.page('bindings')).
 
 ## The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, send,
-handle the reply) reads like this in TypeScript. Start `serve` yourself (Rust
-auto-serves on `connect`); `fetch` / `send` also start the inbound loop on
-demand.
+handle the reply) reads like this in TypeScript. The inbound loop delivers the
+partner's replies and dispatches its calls to the actors you publish. `fetch`
+and `send` start it on demand, so a pure caller never calls `serve`; the example
+holds `serve`'s promise anyway, to observe a clean or faulty shutdown.
 
 > []($block.attrs('code-tabs'))
 > **tcp**
@@ -66,8 +79,9 @@ demand.
 > session.close();
 > ```
 
-The iroh tab is a bare node id plus posture; fetch/send match the tcp tab.
-Dial-by-id and discovery: [iroh]($link.page('transports/iroh')).
+The iroh snippet differs only in the locator: a bare node id plus the
+`Reachability.Discovery` posture you passed to `connect`. `fetch` and `send` are
+unchanged. For dial-by-id and discovery, see [iroh]($link.page('transports/iroh')).
 
 The `serve` promise resolves when the session closes cleanly and rejects on a
 transport or protocol error. When the loop ends, every `send` still awaiting a
@@ -106,20 +120,27 @@ fetchable by name, and `serve` dispatches the partner's calls to it.
 > }
 > ```
 
-Over iroh there is no host and port to bind: `listenIroh` takes the posture,
-and the server tells you its own locator through `server.uri`.
+Over iroh there is no host and port to bind. `listenIroh` takes that same
+reachability posture, and the server reports its own locator through `server.uri`.
 
 ## Async
 
-Native `Promise`s and `using` for session cleanup. Start the inbound loop with
-`session.serve()` (unlike Rust, where `connect` already serves). CapTP
-pipelining: [Concepts]($link.page('concepts')).
+Sessions return native promises, and a session is disposable: `using session =
+await connect(...)` closes it when the block ends, in place of an explicit
+`session.close()`. For how one call can pipeline on another before it resolves,
+see [Concepts]($link.page('concepts')).
 
 ## Actors
 
-`(verb, args) => AppValue` on `session.spawn` / `session.publish`.
-`Host.publishGiftable` is host-wide for three-party gifts. A throw becomes the
-caller's broken promise.
+An actor is a callback, `(verb, args) => AppValue`, that you register with
+`session.spawn` or `session.publish`; it returns any value you can send, and the
+partner receives that as the reply. A throw becomes the caller's broken promise.
+To hand one actor across an introduction so a third peer can reach it directly,
+publish it on a `Host` with `publishGiftable`. You hold a `Host` as `server.host`
+from `listen`, or mint one with `new Host()`. The `Host` is the multi-session
+product in [modules]($link.page('modules')), and
+[Concepts]($link.page('concepts')) explains the three-party handoff a giftable
+rides on.
 
 ## Binding check and example
 
@@ -129,7 +150,6 @@ zig build bun-dogfood     # the same source, on Bun
 ```
 
 The full surface lives in the
-[TypeScript binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/README.md),
-and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/deno/lib/room_client.ts)
-builds a small capability-secure room on this surface.
+[TypeScript binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/README.md).
+The same source runs under Deno and Bun, and its wasm build is
+[In the browser]($link.page('bindings/browser')).

@@ -9,6 +9,10 @@
 //! is supplied by a `Backend`, such as io_uring on Linux or kqueue on macOS/BSD.
 //! Adding a backend does not change this loop.
 //!
+//! The TCP backends bind `127.0.0.1` only, and nothing here takes a bind
+//! address. A loop that accepts from off-host is not implemented; the
+//! high-fan-out numbers this loop is measured against are loopback numbers.
+//!
 //! The loop is direction-neutral by design. OCapN is symmetric: a vat can accept
 //! and dial. The type is therefore named for what it is, an event loop over
 //! connections, rather than for one role. It accepts inbound connections and can
@@ -27,7 +31,7 @@
 //! `frame_cap`), and a recv completion carries a borrowed view of the pool
 //! buffer the backend selected for it. The loop consumes the bytes — whole
 //! frames apply zero-copy straight from the completion view; a partial frame
-//! tail absorbs into the connection's bounded spill (ADR-0041) — and then hands
+//! tail absorbs into the connection's bounded spill (ADR-0041), then hands
 //! the buffer back with `recycleRecv`, exactly once per completion that carried
 //! one. An idle connection therefore costs no read-buffer memory at all, and a
 //! recv that finds the pool momentarily empty parks buffer-starved until a
@@ -71,6 +75,11 @@
 //!     including the listen handle: cancel a pending accept (yield one accept
 //!     completion with `result < 0` when one was armed) and close the fd so
 //!     `Loop.closeAndDrain` cannot hang on an idle acceptor.
+//!   * A `submit*` that returns an error must have minted **no** completion for
+//!     that `user_data`. The loop counts an op only after a successful submit,
+//!     so a completion for a refused submit lands on a seat the loop believes is
+//!     idle and drives the in-flight count below the truth. That frees a
+//!     connection's outbound buffer while the backend is still reading from it.
 //!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;` — unblock an armed
 //!     recv (TCP: `SHUT_RDWR`) so `closeAndDrain` does not wait on a quiet
 //!     peer. Required on every Backend; a userspace backend's body may be a
@@ -152,7 +161,22 @@ fn validateLocator(comptime Locator: type, comptime ConnectTarget: type) void {
     if (!@hasDecl(Locator, "resolve")) {
         @compileError("completion Locator missing `resolve` — OCapN locator → ConnectTarget");
     }
-    _ = ConnectTarget;
+    // And that it resolves to *this* backend's target. Taking the type and
+    // discarding it checked the half that never goes wrong: a `resolve` that
+    // returns some other backend's target is the mismatch worth catching, and
+    // it is exactly what a comptime parameter can see.
+    const info = @typeInfo(@TypeOf(Locator.resolve));
+    if (info != .@"fn") @compileError("completion Locator.resolve must be a function");
+    const returns = info.@"fn".return_type orelse
+        @compileError("completion Locator.resolve must have a concrete return type");
+    const payload = switch (@typeInfo(returns)) {
+        .error_union => |eu| eu.payload,
+        else => returns,
+    };
+    if (payload != ConnectTarget) {
+        @compileError("completion Locator.resolve must return " ++ @typeName(ConnectTarget) ++
+            ", found " ++ @typeName(payload));
+    }
 }
 
 /// One finished operation reported by a backend: the `user_data` the submit
@@ -177,20 +201,72 @@ pub const Completion = struct {
     recv_no_buffer: bool = false,
 };
 
-/// Drain up to `out.len` ready completions from `ready` into `out`, sliding any
-/// remainder to the front for the next call, and return the count moved. The one
-/// remainder-slide both readiness backends' poll paths share (the kqueue backend
-/// and the iroh completion `Backend`), so the copy-forward and shrink bookkeeping
-/// lives in one place instead of a hand-copied block in each.
-pub fn drainReady(ready: *std.ArrayList(Completion), out: []Completion) usize {
-    const n = @min(ready.items.len, out.len);
-    if (n == 0) return 0;
-    @memcpy(out[0..n], ready.items[0..n]);
-    const rest = ready.items.len - n;
-    std.mem.copyForwards(Completion, ready.items[0..rest], ready.items[n..]);
-    ready.shrinkRetainingCapacity(rest);
-    return n;
-}
+/// The queue of ready completions a readiness backend fills and the loop drains,
+/// shared by the kqueue backend and the iroh completion `Backend`.
+///
+/// A read cursor, not a slide. The loop drains a fixed batch per poll, so a
+/// burst of `M` completions is handed over in `M / batch` calls, and sliding the
+/// remainder forward each time moves `M²/batch` entries in total. A mass close
+/// at the 500k destination queues on the order of a million completions in one
+/// sweep, which is where that arithmetic stops being academic. Advancing a
+/// cursor instead is `O(M)` over the whole burst, and the storage is reused
+/// because the cursor and the list reset together the moment the queue empties.
+pub const ReadyQueue = struct {
+    items: std.ArrayList(Completion) = .empty,
+    /// How far into `items` the drains have read. The prefix behind it is dead
+    /// storage, reclaimed when the queue empties or when the dead prefix
+    /// outgrows the live remainder, so neither the cursor nor the list grows
+    /// with uptime.
+    head: usize = 0,
+
+    pub fn deinit(self: *ReadyQueue, allocator: std.mem.Allocator) void {
+        self.items.deinit(allocator);
+        self.head = 0;
+    }
+
+    /// How many completions are still waiting to be drained.
+    pub fn len(self: *const ReadyQueue) usize {
+        return self.items.items.len - self.head;
+    }
+
+    pub fn append(self: *ReadyQueue, allocator: std.mem.Allocator, c: Completion) !void {
+        try self.items.append(allocator, c);
+    }
+
+    pub fn ensureUnusedCapacity(self: *ReadyQueue, allocator: std.mem.Allocator, n: usize) !void {
+        try self.items.ensureUnusedCapacity(allocator, n);
+    }
+
+    pub fn appendAssumeCapacity(self: *ReadyQueue, c: Completion) void {
+        self.items.appendAssumeCapacity(c);
+    }
+
+    /// Move up to `out.len` completions out, and return how many moved.
+    pub fn drain(self: *ReadyQueue, out: []Completion) usize {
+        const n = @min(self.len(), out.len);
+        if (n == 0) return 0;
+        @memcpy(out[0..n], self.items.items[self.head..][0..n]);
+        self.head += n;
+        const rest = self.items.items.len - self.head;
+        if (rest == 0) {
+            self.items.clearRetainingCapacity();
+            self.head = 0;
+        } else if (self.head >= rest) {
+            // The cursor bounds the copying, not the storage. A queue that
+            // never empties in a single drain never reclaims the prefix behind
+            // the cursor, and a backend whose reads complete synchronously
+            // keeps one permanently — so the list would grow for as long as the
+            // loop runs. Compacting once the dead prefix outgrows the live
+            // remainder halves it each time, which keeps the whole burst at
+            // `O(M)` moved entries while bounding the storage by the backlog
+            // instead of by uptime.
+            std.mem.copyForwards(Completion, self.items.items[0..rest], self.items.items[self.head..]);
+            self.items.shrinkRetainingCapacity(rest);
+            self.head = 0;
+        }
+        return n;
+    }
+};
 
 /// Builds and configures the `Peer` for one accepted connection. The callback
 /// chooses the handshake policy, publishes the shared application's bootstrap
@@ -223,6 +299,21 @@ pub const Serve = *const fn (conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *
 /// close. Receives the shared `ctx` and the per-connection context to free.
 pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void;
 
+/// Why a connection is tearing down (ADR-0082). Surfaced on `OnClose` so an
+/// embedder can separate ordinary peer loss from the two reclaims the loop
+/// performs on its own initiative.
+pub const CloseReason = enum {
+    /// Partner EOF, read error, keepalive, `closeSlot`, refused dial, …
+    ordinary,
+    /// Stayed `.parked` past `Options.park_kill_ms`.
+    park_kill,
+    /// The partner did not read this connection's terminal bytes within
+    /// `Options.drain_kill_ms`. Distinct from `park_kill` because it says
+    /// nothing about how fast a *healthy* partner reads, because the close
+    /// had already been requested when the wait began.
+    drain_kill,
+};
+
 /// Close notification, fired once per connection at teardown, before
 /// `free_conn_ctx` releases the per-connection context. Receives the shared
 /// `ctx`, the per-connection context (null when the connection failed before
@@ -231,26 +322,34 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// dial). This is the loop's only failure surface for a dialed connection,
 /// `dial` returns before the connect completes, so a refused dial is
 /// observable nowhere else.
-/// Why a connection is tearing down (ADR-0082). Surfaced on `OnClose` so an
-/// embedder can tell ordinary peer loss from park-duration reclaim.
-pub const CloseReason = enum {
-    /// Partner EOF, read error, keepalive, `closeSlot`, refused dial, …
-    ordinary,
-    /// Stayed `.parked` past `Options.park_kill_ms`.
-    park_kill,
-};
-
+///
 /// `slot` is the connection's loop index: refused dials tear down before
 /// `make_conn_ctx` runs (`conn_ctx` is null), so an embedder correlating an
 /// in-flight dial to a ticket needs the slot — `conn_ctx` alone cannot name
-/// it (ADR-0076 loop-side dial executor).
-/// `reason` is `.park_kill` only when `park_kill_ms` reclaimed the seat.
+/// it (ADR-0076 loop-side dial executor). `reason` names which of the loop's
+/// reclaims fired, or `.ordinary` for everything else.
 pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: CloseReason) void;
+
+/// When a waiting connection is due to be reaped, and what the wait was for.
+/// Named rather than anonymous: two instantiations of `Loop` would otherwise
+/// each mint their own incompatible struct for the same two fields, which the
+/// tests that compare across instantiations cannot work with. Module-private,
+/// like the function that returns it; `Loop.white_box` is how a test reaches
+/// both.
+const Deadline = struct { due: i64, reason: CloseReason };
+
+/// Why a read seat parked (ADR-0082). The two are operationally different and
+/// an embedder watching lag needs to tell them apart: `.sink` is this
+/// connection's own partner failing to drain, `.fan_in` is this connection
+/// being throttled for somebody else's.
+pub const ParkReason = enum { sink, fan_in };
 
 /// Optional park notification (ADR-0082): fired when a connection's read seat
 /// first enters `.parked`. `slot` and `conn_ctx` match `OnClose` so an embedder
-/// can correlate lag to an open connection without scraping private Loop state.
-pub const OnPark = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque) void;
+/// can correlate lag to an open connection without scraping private Loop state,
+/// and `reason` says which of the two parks it is — the branch that decides is
+/// the branch that reports, so the two cannot disagree.
+pub const OnPark = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: ParkReason) void;
 
 /// The listen backlog both platform backends pass to `listen(2)`: pending,
 /// not-yet-accepted connections the kernel queues before refusing new ones.
@@ -268,6 +367,14 @@ pub const Options = struct {
     /// frame larger than one pool buffer accumulates in the connection's bounded
     /// spill while in flight, so per-connection memory does not scale with it.
     frame_cap: usize = 1 << 16,
+    /// How many connections this loop can hold at once. Slots are allocated
+    /// once at `init` and recycled, never per connection, so this is a
+    /// commitment rather than a ceiling: the loop reserves
+    /// `max_conns * (@sizeOf(engine.Peer) + conn_slot_overhead_bytes)` bytes up
+    /// front, and a dial or accept past it is refused rather than queued. At the
+    /// 500k destination that reservation is the loop's own footprint, separate
+    /// from the outbound queues each live connection grows (`docs/ladder.md`
+    /// step 2).
     max_conns: usize = 1024,
     /// Backend completion-queue depth hint.
     queue_entries: u16 = 256,
@@ -326,7 +433,7 @@ pub const Options = struct {
     /// with a read error, and `on_close` fires under `run`. Without it, and
     /// without application-level heartbeats, such a slot is reclaimed only at
     /// `closeAndDrain`. The detection deadline is deliberately the caller's — a
-    /// liveness policy lives above pancake — which is why this stays opt-in
+    /// liveness policy lives above pancake, which is why this stays opt-in
     /// rather than a silent default. See `tcp_keepalive.Keepalive`.
     keepalive: ?tcp_keepalive.Keepalive = null,
     /// Fan-in source throttle (ADR-0082): when any live connection is parked
@@ -338,7 +445,25 @@ pub const Options = struct {
     /// Park-duration kill (ADR-0082 / NATS write_deadline analogue): if a
     /// connection stays `.parked` longer than this many milliseconds, the loop
     /// closes it. `null` (default) never kills on park age alone.
+    ///
+    /// With `fan_in_throttle` on, `null` is more than a missing reclaim: a
+    /// sink the partner never drains parks every other connection's read, and
+    /// with no deadline anywhere the poll has nothing to wake for. Pair the
+    /// two, or leave the throttle off.
     park_kill_ms: ?u64 = null,
+    /// How long a connection whose close has been requested (`closeSlot`,
+    /// state `.draining`) may wait for the partner to read its terminal bytes
+    /// before the loop stops waiting and closes it.
+    ///
+    /// This is teardown, not policy, so unlike `park_kill_ms` it has a finite
+    /// default. That option decides how patient the loop is with a *healthy*
+    /// slow reader. Even an embedder that wants no such policy must not leak a
+    /// slot to a partner that never reads an abort. `null` waits forever,
+    /// pinning the slot, its fd, its peer, and its queues until the loop ends.
+    /// With `fan_in_throttle` it pins more than that: a stuck connection's
+    /// unread queue keeps counting toward the fan-in mark, so every other
+    /// connection's read stays parked too.
+    drain_kill_ms: ?u64 = 5_000,
 };
 
 /// When `Loop.run` returns. Production servers and dialers run `.forever`;
@@ -367,9 +492,15 @@ fn slotOf(ud: u64) usize {
 /// pool's memory is not set by `frame_cap`.
 const loop_read_buf_bytes: usize = 16 * 1024;
 
-/// Outbound queue capacity a drained `front` retains (ADR-0042). Shared with the
-/// iroh loop in one home so the ladder's per-connection footprint budget cannot
-/// split between them.
+/// How long the loop may sleep while it still owes the backend a close it
+/// could not admit. Short, because those closes are what retire the ops some
+/// connections are waiting on, and the failure that caused them is transient.
+const close_retry_ms: i32 = 50;
+
+/// Outbound queue capacity a drained `front` retains (ADR-0042). The iroh
+/// sidecar keeps the same bound for its own per-connection buffer, in Rust
+/// (`NB_STEADY_BYTES`), so the ladder's footprint budget cannot split between
+/// them; `meta-check` holds the two numbers together.
 const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
 /// Per-connection slot bookkeeping ceiling (ADR-0045): the most a `Conn` may
@@ -379,11 +510,25 @@ const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// ceiling; this guards the wrapper the loop allocates `max_conns` of, which
 /// nothing capped before. Isolating the overhead keeps a `Peer` change within
 /// its own ceiling from tripping this, while a new `Conn` field always does.
-/// The number lives here and in docs/ladder.md rung 2 together; raise it only
-/// by weighing the bytes, never to route around the gate. The measured overhead
-/// is 112 bytes on every backend (`Backend.Fd` is `i32` for tcp, kqueue, uring,
-/// and iroh alike, so `Conn` carries no backend-dependent width); the ceiling
-/// keeps one word of headroom over that for cross-target padding stability.
+/// The number lives here and in docs/ladder.md step 2 together; move it only by
+/// weighing the bytes, never to route around the gate.
+///
+/// The assertion below is an equality, not a ceiling, and that is deliberate.
+/// As a ceiling it said only "128 or less", so the overhead grew to exactly 128
+/// while both this comment and the ladder went on claiming a measured 112 with
+/// a word of headroom — a stale figure no build could catch, in the two places
+/// an agent goes to find out whether a new field is affordable. An equality
+/// makes the constant the measurement: any change to `Conn` fails the build and
+/// is answered by moving the number here and in the ladder together, which is
+/// the process this comment already described and nothing enforced. It holds
+/// across backends because `Backend.Fd` is `i32` for tcp, kqueue, uring, and
+/// iroh alike, so `Conn` carries no backend-dependent width.
+///
+/// It exists to stop a field being *added* unnoticed, not to invite shaving
+/// bytes off it. For scale: 128 bytes is 64 MB at 500k connections, against the
+/// roughly 16 GiB of steady outbound queue the same connections carry
+/// (`docs/ladder.md` step 2). Three unavoidable slice headers make up 72 of the
+/// 128, so the whole available saving is noise against the queues.
 const conn_slot_overhead_bytes: usize = 128;
 
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
@@ -416,10 +561,12 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
 
         const Conn = struct {
             /// The slot lifecycle: `.free` slots sit on the free list, `.open`
-            /// slots carry a live (or still-connecting) connection, `.closing`
-            /// slots have their close queued and wait for in-flight ops to
-            /// retire before `teardown` reclaims them.
-            state: enum { free, open, closing } = .free,
+            /// slots carry a live (or still-connecting) connection,
+            /// `.draining` slots accept only send completions until their
+            /// already-projected terminal bytes flush, and `.closing` slots
+            /// have their close queued and wait for in-flight ops to retire
+            /// before `teardown` reclaims them.
+            state: enum { free, open, draining, closing } = .free,
             /// The read seat — exactly one recv is armed per open connection,
             /// or the seat is explicitly idle/parked: `.idle` between a recv
             /// completion and its verdict, `.armed` while a recv is submitted,
@@ -427,15 +574,47 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             /// high-water mark; `onSend`'s drain resumes it), `.starved` when
             /// the shared pool was empty (ADR-0054; a recycle resumes it).
             read: enum { idle, armed, parked, starved } = .idle,
-            /// Wall-clock ms when this connection entered `.parked`, or 0 when
-            /// not parked. Used by `Options.park_kill_ms` (ADR-0082).
-            parked_at_ms: i64 = 0,
+            /// Monotonic ms (since boot, not wall-clock) when this connection
+            /// started waiting on the partner, or 0 when it is not waiting
+            /// (or is a fan-in victim, which the reaper deliberately exempts).
+            /// Only differences are meaningful.
+            ///
+            /// Which wait this is, and therefore which deadline bounds it,
+            /// comes from the connection's state, not from a second meaning
+            /// packed into this number. `waiting_is_drain` records which one
+            /// the stamp was taken for, so a connection that was already
+            /// waiting when its state changed starts the new clock instead of
+            /// inheriting the old one's elapsed time. `.open` with a parked read
+            /// is a slow reader, bounded by `Options.park_kill_ms`; a
+            /// `.draining` connection is waiting for its terminal bytes to be
+            /// read, bounded by `Options.drain_kill_ms`. Condemnation
+            /// restamps it, which is correct: the slow-reader question is moot
+            /// once the session is already being torn down, and the drain
+            /// bound is the shorter of the two.
+            waiting_since_ms: i64 = 0,
+            /// Whether `waiting_since_ms` was taken for the terminal-flush wait
+            /// rather than the slow-reader park. Meaningless when unstamped.
+            waiting_is_drain: bool = false,
+            /// Set when `closeConn` could not queue a close and shut the fd
+            /// down instead: the last retiring op releases the handle, because
+            /// no close completion is coming to do it.
+            owns_fd_close: bool = false,
+            /// Whether this connection's queue is over the high-water mark.
+            /// Edge-triggered so `over_mark_count` stays exact.
+            over_mark: bool = false,
+            /// Bumped every time this slot is reclaimed, so slot reuse is
+            /// observable — the state alone cannot show it, because a
+            /// replacement occupant is `.open` too. No production path compares
+            /// it today; it is what `test/net/fuzz_test.zig` checks slot
+            /// identity against, and it costs nothing, because the four bytes
+            /// land in alignment padding `Conn` already carries.
+            generation: u32 = 0,
             /// True once the connection completed its connect or accept; false
             /// for a dialed connection that failed before opening. Reported to
             /// `Options.on_close` at teardown.
             opened: bool = false,
-            /// Why this connection is closing; set before `closeConn` for
-            /// park-kill so `on_close` can name the reclaim (ADR-0082).
+            /// Why this connection is closing; set before `closeConn` for a
+            /// loop-initiated reclaim so `on_close` can name it (ADR-0082).
             close_reason: CloseReason = .ordinary,
             fd: Fd = undefined,
             peer: engine.Peer = undefined,
@@ -467,23 +646,37 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             /// to the serve hook for every event and freed at teardown. Opaque to
             /// this layer. Typically this is the connection's `actors.Vat`.
             app_ctx: ?*anyopaque = null,
-            /// Intrusive link for the one list this slot is on: the free list
-            /// while `state == .free`, or the buffer-starved list while
-            /// `read == .starved`. The two are disjoint — a free slot is never
-            /// open, so never starved — so one link serves both, holding the
-            /// next slot index or `conns.len` as the end sentinel. `unlinkStarved`
-            /// clears the starved link before `closeConn`, and `teardown` resets
-            /// the slot before `pushFreeSlot` relinks it, so a starved successor
-            /// never rides into the free list.
-            next_link: usize = 0,
+            /// Intrusive links for the one list this slot is on, holding slot
+            /// indices, or `conns.len` as the end sentinel.
+            ///
+            /// Three lists share this pair: free while `state == .free`,
+            /// buffer-starved while `read == .starved`, and backpressure-parked
+            /// while `read == .parked`. At most one applies. A free slot's seat
+            /// is `.idle`, because the slot reset leaves it there, and
+            /// `.starved` and `.parked` are two values of one enum. Every
+            /// departure unlinks before the state changes, so no successor rides
+            /// from one list into another. This is the invariant the whole
+            /// scheme rests on; the heads below and the link helpers point back
+            /// here rather than restating it.
+            ///
+            /// Two `u32`s rather than one `usize`, which costs the same eight
+            /// bytes and buys `O(1)` removal. Removing by value from a singly
+            /// linked list walks it, and the list this matters for is the parked
+            /// one: it is longest in exactly the regime it exists for, a fan-in
+            /// throttle holding every connection behind one slow reader. Every
+            /// `closeConn` walking it makes `closeAndDrain` quadratic — the
+            /// shape `teardown` deliberately refuses two hundred lines below.
+            /// `max_conns` is checked against `maxInt(u32)` at construction.
+            next_link: u32 = 0,
+            prev_link: u32 = 0,
         };
 
         comptime {
             // The 500k-connection budget is gated at the unit the loop
             // multiplies (ADR-0045). A field added to `Conn` is a withdrawal;
             // trip this and weigh the bytes, then raise the number here and in
-            // docs/ladder.md rung 2 together — never route around the gate.
-            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) <= conn_slot_overhead_bytes);
+            // docs/ladder.md step 2 together — never route around the gate.
+            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) == conn_slot_overhead_bytes);
         }
 
         allocator: std.mem.Allocator,
@@ -510,7 +703,24 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         fan_in_throttle: bool,
         /// Park-duration kill (ADR-0082); see `Options.park_kill_ms`.
         park_kill_ms: ?u64,
+        /// Terminal-flush bound; see `Options.drain_kill_ms`.
+        drain_kill_ms: ?u64,
+        /// Whether an accept is outstanding. `run` and `runUntil` both begin by
+        /// arming one, and both are callable more than once — a driver that
+        /// waits on one vow per `runUntil` calls it repeatedly. Without this
+        /// each call mints another accept, and since every accept completion
+        /// re-arms exactly once, the extras never go away.
+        accept_armed: bool = false,
         closed_count: usize = 0,
+        /// How many slots are not `.free`. `adoptSlot` and `teardown` are the
+        /// only two sites that move a slot across that line, so this has the
+        /// same one-writer-per-event shape as the counters below it.
+        ///
+        /// A count rather than a walk because `closeAndDrain` asks once per
+        /// poll. At the 500k destination a walk there touches every slot's
+        /// cache line on every one of the thousands of polls a full drain
+        /// takes, which is a shutdown that reads as a hang.
+        live_count: usize = 0,
         /// True while `deinit` tears the loop down: cross-connection entries
         /// (`armOutbound`, `closeSlot`) no-op then, because a submit during
         /// teardown would mint an op whose completion never arrives and trip
@@ -521,6 +731,42 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// adopt, and the listen handle is closed so poll cannot hang on an
         /// idle accept.
         shutting_down: bool = false,
+        /// The nearest deadline the loop knows of, or null when it must look.
+        ///
+        /// Only ever early, never late: a cleared stamp leaves its entry
+        /// behind, so the loop may wake with nothing to do, and
+        /// `reapDeadlines` recomputes after a wake that closes nothing. A
+        /// late entry would miss a reap, which is why nothing may raise it.
+        earliest_due_ms: ?i64 = null,
+        /// How many connections sit over the outbound high-water mark. The
+        /// fan-in throttle asks this once per armed read, so it is a count
+        /// rather than a table walk. Maintained solely by `refreshOverMark`.
+        over_mark_count: usize = 0,
+        /// Closes whose `submitClose` failed and must be retried. Zero on
+        /// every healthy loop, so the retry sweep never runs.
+        pending_close_submits: usize = 0,
+        /// The slot whose `make_conn_ctx` is running, if any. Teardown of that
+        /// slot is deferred until the hook returns: the context being built
+        /// borrows the slot's peer, and reclaiming it underneath would free
+        /// the peer before the context that owns a session over it is even
+        /// handed back.
+        adopting_slot: ?usize = null,
+        /// Whether a teardown arrived for `adopting_slot` while its hook ran.
+        /// One slot adopts at a time on this single-threaded loop, so this
+        /// belongs here rather than costing every connection a byte.
+        adopting_teardown_deferred: bool = false,
+        /// How many connections currently carry a deadline stamp. Zero on a
+        /// healthy loop. Both deadline sweeps are `O(max_conns)`, so running
+        /// them per poll batch would put the per-connection cost this loop
+        /// refuses onto its quietest path. Maintained solely by `setWaiting`.
+        waiting_count: usize = 0,
+        /// Set when a connection left while fan-in throttling was on, so the
+        /// sources it may have been throttling get one re-evaluation at the
+        /// end of the poll batch. A flag rather than a call at the departure
+        /// point: the resume arms reads, so performing it inside a teardown
+        /// re-enters the loop, and doing it per departure makes a mass close
+        /// quadratic.
+        fan_in_dirty: bool = false,
         /// Debug-only owning thread: latched when `run` begins, asserted on
         /// every `armOutbound`/`closeSlot` (and other public entries). Zero-
         /// sized in release. The loop is single-threaded by contract.
@@ -534,6 +780,12 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// `Conn.next_link` while a slot is starved; `conns.len` when no
         /// connection is starved.
         starved_head: usize,
+        /// Head of the intrusive backpressure-parked list (see `Conn.next_link`);
+        /// `conns.len` when nothing is parked. It makes the fan-in release
+        /// proportional to the connections actually parked rather than to
+        /// `max_conns`, which at the 500k target is half a million cold slot
+        /// reads per departure to re-arm, usually, nothing.
+        parked_head: usize,
 
         /// Build a loop over a backend the caller already constructed. Use this
         /// when the backend needs state `Backend.init` cannot take (an iroh
@@ -555,11 +807,24 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             errdefer if (listen_fd) |fd| backend_mut.closeFd(fd);
             const bound_port: ?u16 = if (listen_fd) |fd| try Backend.boundPort(fd) else null;
 
+            // A fan-in throttle with no park deadline is a wedge, not a
+            // policy: a sink the partner never drains parks every other
+            // connection's read, and with no deadline anywhere the poll has
+            // nothing left to wake for. Refused here rather than described,
+            // because the one caller that pairs them correctly had to carry
+            // five lines of comment explaining why.
+            if (options.fan_in_throttle and
+                (options.park_kill_ms == null or options.drain_kill_ms == null))
+            {
+                return error.FanInThrottleNeedsParkDeadline;
+            }
+            // The intrusive links are `u32`; see `Conn.next_link`.
+            std.debug.assert(options.max_conns < std.math.maxInt(u32));
             const conns = try allocator.alloc(Conn, options.max_conns);
             errdefer allocator.free(conns);
             for (conns, 0..) |*c, i| {
                 c.* = .{};
-                c.next_link = i + 1;
+                c.next_link = @intCast(i + 1);
             }
 
             return .{
@@ -580,8 +845,10 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 .keepalive = options.keepalive,
                 .fan_in_throttle = options.fan_in_throttle,
                 .park_kill_ms = options.park_kill_ms,
+                .drain_kill_ms = options.drain_kill_ms,
                 .free_head = 0,
                 .starved_head = conns.len,
+                .parked_head = conns.len,
             };
         }
 
@@ -611,14 +878,91 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             for (self.conns, 0..) |*c, slot| if (c.state != .free) {
                 std.debug.assert(c.ops_in_flight == 0);
                 // A closing connection's fd rides its already-queued close op;
-                // an open one has no close queued anywhere, so it must be
-                // closed here or it leaks (teardown never closes fds).
-                if (c.state == .open) self.backend.closeFd(c.fd);
-                self.teardown(slot);
+                // open/draining ones have no close queued anywhere, so they
+                // must be closed here or they leak (teardown never closes fds).
+                if (c.state == .open or c.state == .draining) self.backend.closeFd(c.fd);
+                // Every other route into `teardown` unlinks first, and the
+                // slot reset below clears `next_link`, so skipping it here
+                // would leave a predecessor pointing into the free list.
+                self.unlinkStarved(slot);
+                self.unlinkParked(slot);
+                // Not counted: `deinit` is the loop ending, not connections
+                // being served to completion.
+                _ = self.teardown(slot);
             };
+            // Both counts are edge-triggered against slots that no longer
+            // exist, so a missed release here is a silent drift that only
+            // shows up as a table walk that never stops finding work.
+            std.debug.assert(self.waiting_count == 0);
+            std.debug.assert(self.over_mark_count == 0);
+            std.debug.assert(self.live_count == 0);
             self.allocator.free(self.conns);
             if (self.listen_fd) |fd| self.backend.closeFd(fd);
             self.backend.deinit();
+        }
+
+        /// One turn of the loop: settle deferred work, wait, dispatch, sweep.
+        ///
+        /// The three drivers (`run`, `runUntil`, `closeAndDrain`) differ only
+        /// in when they stop and whether the caller has a deadline of its own,
+        /// so the body lives here once. Three copies means a fix can land in one
+        /// and not the others, and what goes missing that way is a sweep no
+        /// driver announces it is skipping.
+        ///
+        /// The order is load-bearing. Deferred work is drained *before* the
+        /// wait is sized, because draining it can create the deadline the wait
+        /// must not sleep through. `caller_deadline_ms` is the driver's own
+        /// bound, or null for "wait as long as the connections allow".
+        fn pollOnce(self: *Self, caller_deadline_ms: ?i32) !void {
+            // Per-poll batch cap, deliberately independent of
+            // `Options.queue_entries`: a deeper completion queue drains across
+            // more polls, while the fixed stack batch keeps this
+            // allocation-free.
+            const poll_batch = 256;
+            var completions: [poll_batch]Completion = undefined;
+
+            self.drainFanInDirty();
+            // Owed closes are this loop's own work, not the backend's, so they
+            // run before the wait rather than after it. On a backend whose
+            // `shutdownFd` cannot cancel — iroh's is a documented no-op — the
+            // ops these closes retire are the only reason some connections
+            // ever complete, and sleeping first can mean sleeping on them.
+            self.retryPendingCloses();
+
+            // Wake for whichever comes first: the caller's own deadline or the
+            // nearest connection deadline the reaper below enforces.
+            var timeout: i32 = if (self.nextDeadlineMs()) |conn_due|
+                (if (caller_deadline_ms) |caller| @min(caller, conn_due) else conn_due)
+            else
+                (caller_deadline_ms orelse -1);
+            // Still owed one: the backend could not admit it, which is an
+            // allocation failure and therefore transient. Bound the wait so
+            // the retry above comes round again, instead of parking on a
+            // completion that cannot arrive until it does.
+            if (self.pending_close_submits != 0) {
+                timeout = if (timeout < 0) close_retry_ms else @min(timeout, close_retry_ms);
+            }
+
+            const n = try self.backend.poll(&completions, timeout);
+            // A backend that reports more than it was given would have the
+            // sweeps below read past the batch. The contract says "up to
+            // `out.len`"; this is where that is consumed, so this is where it
+            // is checked.
+            std.debug.assert(n <= completions.len);
+            // Held, not propagated yet. The three sweeps below repair what the
+            // batch left behind — a connection parked buffer-starved after its
+            // recycle already ran, a deadline that came due — and a dispatch
+            // failure is loop-global, so for some of those connections this is
+            // the last turn there is.
+            const dispatched = self.dispatchBatch(completions[0..n]);
+            // Every pool buffer this batch carried has been recycled, so re-arm
+            // whatever parked buffer-starved during the batch. A starved
+            // completion can be dispatched after the recycle that should have
+            // resumed it; this sweep closes that ordering gap.
+            self.resumeStarved(.all);
+            self.reapDeadlines();
+            self.drainFanInDirty();
+            try dispatched;
         }
 
         /// Run the loop until `stop` says to return: `.forever` for a
@@ -629,25 +973,11 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// backend poll failure or a listener accept re-arm failure.
         pub fn run(self: *Self, stop: Stop) !void {
             self.latchOwner();
-            if (self.listen_fd) |fd| try self.backend.submitAccept(userData(.accept, 0), fd);
-            // Per-poll batch cap, deliberately independent of
-            // `Options.queue_entries`: a deeper completion queue drains across
-            // more polls, while the fixed stack batch keeps `run` allocation-free.
-            const poll_batch = 256;
-            var completions: [poll_batch]Completion = undefined;
+            try self.ensureAccepting();
             while (switch (stop) {
                 .forever => true,
                 .after_closed => |n| self.closed_count < n,
-            }) {
-                const n = try self.backend.poll(&completions, -1);
-                for (completions[0..n]) |c| try self.dispatch(c);
-                // Every pool buffer this batch carried has been recycled, so
-                // re-arm whatever parked buffer-starved during the batch. A
-                // starved completion can be dispatched after the recycle that
-                // should have resumed it; this sweep closes that ordering gap.
-                self.resumeStarved(.all);
-                self.reapParkKills();
-            }
+            }) try self.pollOnce(null);
         }
 
         /// Drive the loop until `done` is true. Same poll/dispatch body as
@@ -669,21 +999,16 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// before `deinit`.
         pub fn runUntil(self: *Self, done: *const std.atomic.Value(bool), deadline_ms: i32) !void {
             self.latchOwner();
-            if (self.listen_fd) |fd| try self.backend.submitAccept(userData(.accept, 0), fd);
-            const poll_batch = 256;
-            var completions: [poll_batch]Completion = undefined;
+            try self.ensureAccepting();
             const deadline_start: ?i64 = if (deadline_ms > 0) clock.nowMonotonicMs() else null;
             while (!done.load(.acquire)) {
-                const poll_timeout: i32 = if (deadline_ms > 0) blk: {
-                    const elapsed = clock.nowMonotonicMs() - deadline_start.?;
+                const caller_timeout: ?i32 = if (deadline_start) |start| blk: {
+                    const elapsed = clock.nowMonotonicMs() - start;
                     const remaining = deadline_ms - @as(i32, @intCast(elapsed));
                     if (remaining <= 0) return error.Timeout;
                     break :blk remaining;
-                } else -1;
-                const n = try self.backend.poll(&completions, poll_timeout);
-                for (completions[0..n]) |c| try self.dispatch(c);
-                self.resumeStarved(.all);
-                self.reapParkKills();
+                } else null;
+                try self.pollOnce(caller_timeout);
             }
             // closeAndDrain is separate: callers that need honest deinit invoke
             // it after runUntil (same thread), once CapTP work is done.
@@ -697,7 +1022,13 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// slots live.
         pub fn closeAndDrain(self: *Self) !void {
             self.latchOwner();
-            if (self.shutting_down) return;
+            // The close sweep below is idempotent — it touches only `.open` and
+            // `.draining` slots — so a drain that failed part-way can be
+            // retried. Returning early on the second call instead left the
+            // caller no way to finish, and `deinit` then asserts on the ops
+            // still in flight, or in a release build frees an outbound buffer
+            // the backend is still writing from.
+            const first = !self.shutting_down;
             self.shutting_down = true;
             // Do not set tearing_down yet: closeConn must still submitClose.
             // freeConnCtx skips drainActions while shutting_down.
@@ -706,33 +1037,50 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // drain poll cannot block forever on an idle acceptor. Null the
             // field before submit so `deinit` does not double-close; Backends
             // must yield an accept completion (result < 0) when one was armed.
-            if (self.listen_fd) |fd| {
-                self.listen_fd = null;
-                self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
+            if (first) {
+                if (self.listen_fd) |fd| {
+                    self.listen_fd = null;
+                    self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
+                }
+                // The accept seat retires with the listener.
+                self.accept_armed = false;
             }
 
             for (self.conns, 0..) |*c, slot| {
                 // Hard close: skip the abort flush. Shutdown first so an armed
                 // recv on a quiet peer completes immediately; otherwise the
                 // drain can wait until the peer drops.
-                if (c.state == .open) {
+                if (c.state == .open or c.state == .draining) {
                     self.backend.shutdownFd(c.fd);
                     self.closeConn(slot, c);
                 }
             }
 
-            const poll_batch = 256;
-            var completions: [poll_batch]Completion = undefined;
-            while (self.anyBusy()) {
-                const n = try self.backend.poll(&completions, -1);
-                for (completions[0..n]) |c| try self.dispatch(c);
-                self.resumeStarved(.all);
-            }
+            // The two sweeps `pollOnce` adds are provable no-ops here:
+            // `drainFanInDirty` returns on `shutting_down`, and every stamp is
+            // cleared by `closeConn`, so the reaper finds nothing.
+            while (self.anyBusy()) try self.pollOnce(null);
+        }
+
+        /// Dispatch every completion in a batch, then surface the first
+        /// error.
+        ///
+        /// `try` inside the loop would abandon the completions behind the
+        /// failing one. Each of those is the only chance to retire its op and,
+        /// for a recv, to recycle its pooled buffer: dropping them leaves
+        /// `ops_in_flight` above zero, so `closeAndDrain` waits on work that
+        /// can never complete and `deinit` trips its in-flight assertion. The
+        /// batch is consumed exactly once, whatever any one completion does.
+        fn dispatchBatch(self: *Self, batch: []const Completion) !void {
+            var first_err: ?anyerror = null;
+            for (batch) |c| self.dispatch(c) catch |err| {
+                if (first_err == null) first_err = err;
+            };
+            if (first_err) |err| return err;
         }
 
         fn anyBusy(self: *const Self) bool {
-            for (self.conns) |c| if (c.state != .free) return true;
-            return false;
+            return self.live_count != 0;
         }
 
         /// Resolve OCapN locator parts through the Locator, then admit the dial.
@@ -770,8 +1118,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // startDial submitted the connect: the slot must own the fd and the
             // in-flight op before any further failure can run, or a completion
             // would land with nowhere to go.
-            const c = &self.conns[slot];
-            c.* = .{ .state = .open, .fd = fd, .peer = peer };
+            const c = self.adoptSlot(slot, fd, peer, false);
             c.ops_in_flight += 1;
             return slot;
         }
@@ -806,15 +1153,21 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             }
         }
 
-        fn armAccept(self: *Self) !void {
-            // Only reachable from an accept completion, which only a listening
-            // loop ever receives.
-            try self.backend.submitAccept(userData(.accept, 0), self.listen_fd.?);
+        /// Keep exactly one accept outstanding. Idempotent, because `run` and
+        /// `runUntil` both open by calling it and both are callable more than
+        /// once; a second accept would never retire, since a completion re-arms
+        /// exactly one.
+        fn ensureAccepting(self: *Self) !void {
+            if (self.accept_armed) return;
+            const fd = self.listen_fd orelse return;
+            try self.backend.submitAccept(userData(.accept, 0), fd);
+            self.accept_armed = true;
         }
 
         fn onAccept(self: *Self, res: i32) !void {
             // Shutdown closed the listener (or cancelled its accept): drop any
             // racing accept and never re-arm.
+            self.accept_armed = false;
             if (self.shutting_down or self.listen_fd == null) {
                 if (res >= 0) self.backend.closeFd(@intCast(res));
                 return;
@@ -823,7 +1176,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // re-arm runs first deliberately; if it fails (loop-global, kills
             // `run`), the accepted fd must still be closed, not leaked.
             errdefer if (res >= 0) self.backend.closeFd(@intCast(res));
-            try self.armAccept();
+            try self.ensureAccepting();
             if (res < 0) return; // transient accept failure: the re-arm recovers
 
             const fd: Fd = @intCast(res);
@@ -831,15 +1184,13 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
                 return;
             };
-            const c = &self.conns[slot];
-
             const peer = self.make_peer(self.make_ctx, self.allocator) catch {
                 self.pushFreeSlot(slot);
                 self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
                 return;
             };
-            c.* = .{ .state = .open, .opened = true, .fd = fd, .peer = peer };
-            self.finishConnected(slot, c);
+            const adopted = self.adoptSlot(slot, fd, peer, true);
+            self.finishConnected(slot, adopted);
         }
 
         fn onConnect(self: *Self, slot: usize, res: i32) void {
@@ -860,6 +1211,23 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             self.finishConnected(slot, c);
         }
 
+        /// Take a free slot for a new connection.
+        ///
+        /// The one place a `Conn` is initialized. A whole-struct assignment is
+        /// how the slot's other state gets cleared, and it would clear the
+        /// slot's *identity* too: `generation` is reset by the very assignment
+        /// that makes the slot a different connection, which is when a holder of
+        /// a stale reference most needs it to have advanced. It is carried
+        /// across by hand here, so nowhere else has to remember.
+        fn adoptSlot(self: *Self, slot: usize, fd: Fd, peer: engine.Peer, opened: bool) *Conn {
+            const c = &self.conns[slot];
+            const generation = c.generation;
+            c.* = .{ .state = .open, .opened = opened, .fd = fd, .peer = peer };
+            self.live_count += 1;
+            c.generation = generation;
+            return c;
+        }
+
         fn finishConnected(self: *Self, slot: usize, c: *Conn) void {
             // No per-connection read buffer is allocated: reads borrow from the
             // backend's shared pool, completion by completion (ADR-0054).
@@ -874,16 +1242,53 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // peer now that it sits at its final, stable address. A failure here
             // closes the connection cleanly rather than serving it context-less.
             if (self.make_conn_ctx) |make| {
-                c.app_ctx = make(self.make_ctx, &c.peer, slot) catch {
-                    self.closeConn(slot, c);
+                // Staged, not published straight into the slot. The hook may
+                // condemn this connection (a bridge drains host actions here),
+                // and a close that cannot queue tears the slot down inline —
+                // so by the time `make` returns, `c` can already be free and
+                // on the free list. Writing a live context into a free slot
+                // leaks it, because the next accept overwrites the field.
+                // The slot cannot be reclaimed while this runs, so `c` still
+                // names this connection when the hook returns. It may have
+                // been condemned, and the teardown it deferred runs below.
+                self.adopting_slot = slot;
+                const ctx = make(self.make_ctx, &c.peer, slot) catch {
+                    self.adopting_slot = null;
+                    if (self.adopting_teardown_deferred) {
+                        self.adopting_teardown_deferred = false;
+                        if (self.teardown(slot)) self.closed_count += 1;
+                    } else {
+                        self.closeConn(slot, c);
+                    }
                     return;
                 };
+                self.adopting_slot = null;
+                if (self.adopting_teardown_deferred or c.state != .open) {
+                    // Condemned while it was being built. Release the context
+                    // first: it owns a session over this peer, and the
+                    // teardown below deinits that peer.
+                    if (ctx) |owned| {
+                        if (self.free_conn_ctx) |free| free(self.make_ctx, owned);
+                    }
+                    if (self.adopting_teardown_deferred) {
+                        self.adopting_teardown_deferred = false;
+                        if (self.teardown(slot)) self.closed_count += 1;
+                    }
+                    return;
+                }
+                c.app_ctx = ctx;
             }
+            // The hook drains host actions, so a `close` for the peer it just
+            // adopted can condemn this connection before it ever serves a
+            // turn. Driving or arming past that would put new bytes on the
+            // wire behind its abort, which `.draining` exists to forbid.
+            if (c.state != .open) return;
 
             self.driveOut(slot, c) catch {
                 self.failConn(slot, c);
                 return;
             };
+            if (c.state != .open) return;
             self.armOrPark(slot, c) catch self.closeConn(slot, c);
         }
 
@@ -913,11 +1318,27 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// action needs. No-op on a free, closing, or tearing-down slot; the
         /// teardown itself rides the ordinary close path, so in-flight ops
         /// retire before the slot is reclaimed.
+        ///
+        /// The first call starts the flush and waits for the partner to read
+        /// it; a second call on the same slot says the caller will not wait, and
+        /// hard-closes, dropping whatever has not reached the wire. Waiting
+        /// is otherwise bounded by `Options.drain_kill_ms`.
         pub fn closeSlot(self: *Self, slot: usize) void {
             self.assertOwner();
-            if (self.tearing_down) return;
-            const c = self.liveConn(slot) orelse return;
-            self.failConn(slot, c);
+            if (self.tearing_down or slot >= self.conns.len) return;
+            const c = &self.conns[slot];
+            switch (c.state) {
+                .open => self.failConn(slot, c),
+                // Close already requested, and waiting on the partner to read its
+                // abort. A second request means the caller will not wait:
+                // shut the fd down so an armed recv completes at once, then
+                // close, the same escalation `closeAndDrain` performs.
+                .draining => {
+                    self.backend.shutdownFd(c.fd);
+                    self.closeConn(slot, c);
+                },
+                .free, .closing => {},
+            }
         }
 
         /// Latch the owning thread at `run` entry. Setup (`init`, `dial`,
@@ -940,9 +1361,14 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         }
 
         /// The connection at `slot`, when a completion landing there is still
-        /// addressed to a live connection. Null drops the stale cases: a slot
-        /// index from a torn-down (possibly already reused) connection, and a
-        /// closing connection whose remaining completions only retire ops.
+        /// addressed to a connection that may take new work. Null drops the
+        /// rest: a slot index from a torn-down (possibly already reused)
+        /// connection, a `.draining` one whose terminal bytes are the last
+        /// that may go out, and a `.closing` one whose remaining completions
+        /// only retire ops. The two terminal states admit exactly one thing
+        /// each — a send completion, and (in `.draining`) the retirement of
+        /// an already-armed recv — so those two callers test state inline
+        /// rather than through this helper.
         fn liveConn(self: *Self, slot: usize) ?*Conn {
             if (slot >= self.conns.len) return null;
             const c = &self.conns[slot];
@@ -983,6 +1409,8 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             if (pendingOut(c) > self.outbound_high_water) {
                 // A genuine sink park: this connection is not draining its own
                 // outbound, so it is the slow reader the reaper targets.
+                // Which kind of park this is comes from the queue depth
+                // `refreshWaiting` reads, not from a flag passed alongside.
                 self.markParked(slot, c, .sink);
                 return;
             }
@@ -995,43 +1423,240 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             try self.armRecv(slot, c);
         }
 
-        const ParkReason = enum { sink, fan_in };
-
+        /// Park the read seat, and tell the embedder once per park.
+        ///
+        /// `reason` is reported, not consulted: which deadline this park
+        /// answers to still comes from the connection's own queue depth in
+        /// `refreshWaiting`, so the hook cannot disagree with the reaper.
         fn markParked(self: *Self, slot: usize, c: *Conn, reason: ParkReason) void {
-            if (c.read != .parked) {
-                // Only a sink park arms the slow-reader reaper. A fan-in park is
-                // a throttled victim, not a slow reader, so it stays exempt
-                // (`parked_at_ms == 0`, which `reapParkKills` skips) — reaping it
-                // would kill a fast source for its neighbour's slowness. A victim
-                // that later becomes a real sink is re-stamped `.sink` when fan-in
-                // pressure clears and its read re-arms, so it ages then.
-                c.parked_at_ms =
-                    if (reason == .sink and self.park_kill_ms != null) clock.nowMonotonicMs() else 0;
-                if (self.on_park) |hook| hook(self.make_ctx, slot, c.app_ctx);
-            }
+            // A seat arriving `.starved` is already on another list, and
+            // linking it would put one slot on two (see `Conn.next_link`).
+            // Every caller vacates the seat first.
+            std.debug.assert(c.read == .idle or c.read == .parked);
+            const was_parked = c.read == .parked;
+            // State first, hook last. The hook receives `slot` so it may call
+            // back in — `closeSlot` is public — and anything it does must land
+            // on a seat that already reads `.parked`, not be overwritten after.
             c.read = .parked;
-        }
-
-        /// True when any open connection is over its outbound high-water mark
-        /// (a true ADR-0042 sink park, not a fan-in source park).
-        fn anySinkParked(self: *Self) bool {
-            for (self.conns) |*c| {
-                if (c.state == .open and pendingOut(c) > self.outbound_high_water) return true;
+            if (!was_parked) self.linkOnto(&self.parked_head, slot);
+            self.refreshWaiting(c);
+            if (!was_parked) {
+                if (self.on_park) |hook| hook(self.make_ctx, slot, c.app_ctx, reason);
             }
-            return false;
         }
 
-        /// Close connections that have stayed `.parked` past `park_kill_ms`.
-        fn reapParkKills(self: *Self) void {
-            const limit = self.park_kill_ms orelse return;
+        /// True when any connection that can still write is over its outbound
+        /// high-water mark (a true ADR-0042 sink park, not a fan-in source
+        /// park). A `.draining` connection counts: its queued bytes are just
+        /// as unread, and releasing the sources it throttles while they are
+        /// still in the kernel's hands is what the fan-in mark exists to
+        /// prevent.
+        fn anySinkParked(self: *const Self) bool {
+            return self.over_mark_count > 0;
+        }
+
+        /// Returns when this connection's wait runs out, and what the loop
+        /// would call the resulting close. Null when it is not waiting on the
+        /// partner.
+        ///
+        /// The one place that decides. `nextDeadlineMs` sizes the poll wait
+        /// from this and `reapDeadlines` acts on it, so the two cannot
+        /// disagree about which connections have deadlines. If they could,
+        /// a connection the wait counted but the reap skipped would make
+        /// `poll` return instantly forever: a busy-spin, not a leak, and the
+        /// hardest failure here to see in a test.
+        fn pendingDeadline(self: *const Self, c: *const Conn) ?Deadline {
+            const limit, const reason: CloseReason = switch (c.state) {
+                .open => .{ self.park_kill_ms orelse return null, .park_kill },
+                .draining => .{ self.drain_kill_ms orelse return null, .drain_kill },
+                .free, .closing => return null,
+            };
+            if (c.waiting_since_ms == 0) return null;
+            return .{ .due = c.waiting_since_ms + @as(i64, @intCast(limit)), .reason = reason };
+        }
+
+        /// The one writer of `Conn.waiting_since_ms`, so `waiting_count` cannot
+        /// drift from the number of stamped connections. Pass `0` for "not
+        /// waiting".
+        fn setWaiting(self: *Self, c: *Conn, stamp: i64) void {
+            if ((c.waiting_since_ms == 0) != (stamp == 0)) {
+                if (stamp == 0) self.waiting_count -= 1 else self.waiting_count += 1;
+            }
+            c.waiting_since_ms = stamp;
+            // Folding a new deadline in is one comparison. A cleared one is
+            // left in the cache on purpose: a stale entry can only make the
+            // loop wake early, which costs a poll, while dropping one late
+            // would miss a reap. `reapDeadlines` recomputes after any wake
+            // that closes nothing.
+            if (stamp != 0) {
+                if (self.earliest_due_ms) |cached| {
+                    const limit = self.limitFor(c) orelse return;
+                    const due = stamp + limit;
+                    if (due < cached) self.earliest_due_ms = due;
+                }
+            }
+        }
+
+        /// The deadline this connection's state answers to, or null when its
+        /// state has none configured.
+        fn limitFor(self: *const Self, c: *const Conn) ?i64 {
+            return switch (c.state) {
+                .open => if (self.park_kill_ms) |ms| @intCast(ms) else null,
+                .draining => if (self.drain_kill_ms) |ms| @intCast(ms) else null,
+                .free, .closing => null,
+            };
+        }
+
+        /// Recount this connection's contribution to `over_mark_count`.
+        ///
+        /// Edge-triggered, one owner, one comparison. Asking the question by
+        /// walking every slot would put the `O(max_conns)` shape the deadline
+        /// cache exists to avoid onto a path that runs once per armed read; the
+        /// queue depth already funnels through this refresh, so the count can
+        /// be maintained here instead.
+        fn refreshOverMark(self: *Self, c: *Conn) void {
+            const over = switch (c.state) {
+                .open, .draining => pendingOut(c) > self.outbound_high_water,
+                .free, .closing => false,
+            };
+            if (over == c.over_mark) return;
+            c.over_mark = over;
+            if (over) {
+                self.over_mark_count += 1;
+                return;
+            }
+            self.over_mark_count -= 1;
+            // The last sink just came back under the mark, and the sources it
+            // was throttling have no other resume trigger. Recorded here
+            // because this is the one place that knows the *transition*. Asking
+            // from the send paths instead means asking on every completed
+            // write, and the answer is no in the healthy steady state, so each
+            // reply would pay a walk to re-arm nothing. Recorded rather than
+            // performed, for the reasons `drainFanInDirty` gives.
+            if (self.fan_in_throttle and self.over_mark_count == 0) self.fan_in_dirty = true;
+        }
+
+        /// Recompute whether this connection is waiting on a deadline, and
+        /// stamp or clear to match.
+        ///
+        /// Eligibility is owned by mutation, not read back from live state at
+        /// reap time: every input — the read seat, the queue depth, the
+        /// connection state — calls here when it changes. That is what lets
+        /// the nearest-deadline cache be trusted, and it is what gives a
+        /// fan-in victim its full grace: a connection that was somebody else's
+        /// victim is stamped when it becomes a slow reader in its own right,
+        /// not when it first parked.
+        fn refreshWaiting(self: *Self, c: *Conn) void {
+            self.refreshOverMark(c);
+            const eligible = switch (c.state) {
+                // Over the mark is the condition, not the seat. What throttles
+                // every other connection is `over_mark_count`, and that is set
+                // from the queue depth alone — `armOutbound` and `onSend`'s
+                // drive both push a connection past the mark while its own recv
+                // is still armed. Requiring `.parked` here meant such a
+                // connection throttled the whole loop and carried no deadline,
+                // so `waiting_count` stayed zero, the poll waited forever, and
+                // nothing could arrive to end it. `refreshOverMark` ran one
+                // line above, so this is fresh.
+                .open => c.over_mark and self.park_kill_ms != null,
+                .draining => self.drain_kill_ms != null,
+                .free, .closing => false,
+            };
+            const is_drain = c.state == .draining;
+            if (!eligible) {
+                if (c.waiting_since_ms != 0) self.setWaiting(c, 0);
+                return;
+            }
+            // Already waiting on the same question: leave the clock running.
+            if (c.waiting_since_ms != 0 and c.waiting_is_drain == is_drain) return;
+            // Either not waiting, or waiting on a different question than the
+            // stamp was taken for. A park stamp carried into `.draining` would
+            // be measured against `drain_kill_ms`, cutting the terminal flush
+            // short by however long the connection had already been parked.
+            self.setWaiting(c, 0);
+            self.setWaiting(c, clock.nowMonotonicMs());
+            c.waiting_is_drain = is_drain;
+        }
+
+        /// Close connections whose wait on the partner has run out: a read
+        /// parked under backpressure past `park_kill_ms`, and a terminal flush
+        /// the partner is not draining past `drain_kill_ms`. Without the second
+        /// arm a `.draining` slot is pinned for as long as the partner declines
+        /// to read its abort, holding an fd, a `Peer`, and its queues.
+        fn reapDeadlines(self: *Self) void {
+            const due = self.earliestDue() orelse return;
             const now = clock.nowMonotonicMs();
+            if (now < due) return;
+            // Something was due, or the cache was stale-early. Either way the
+            // next nearest has to be found again — and this walk is already
+            // visiting every slot and already computing each deadline, so it
+            // finds it here. Leaving the cache null costs a second full walk on
+            // the next poll, over the slots this one just read.
+            self.earliest_due_ms = null;
+            var next_earliest: ?i64 = null;
             for (self.conns, 0..) |*c, slot| {
-                if (c.state != .open or c.read != .parked) continue;
-                if (c.parked_at_ms == 0) continue;
-                if (now - c.parked_at_ms < @as(i64, @intCast(limit))) continue;
-                c.close_reason = .park_kill;
+                const deadline = self.pendingDeadline(c) orelse continue;
+                if (now < deadline.due) {
+                    if (next_earliest == null or deadline.due < next_earliest.?) next_earliest = deadline.due;
+                    continue;
+                }
+                c.close_reason = deadline.reason;
+                // Shut a draining fd down so an armed recv completes at once
+                // rather than waiting on the partner that already will not
+                // read.
+                if (c.state == .draining) self.backend.shutdownFd(c.fd);
                 self.closeConn(slot, c);
             }
+            // Safe to install, though not for the reason the "only ever lowers"
+            // rule would give: that rule is disabled here, because the cache
+            // was set null above and `setWaiting`'s fold is a no-op on a null
+            // one. It is safe because no hook can run during this walk. A
+            // reaped connection is over the mark or draining, which means a
+            // send was submitted, which means an op is in flight — so
+            // `closeConn`'s inline-teardown arm is unreachable from here and
+            // `on_close` and `free_conn_ctx` never fire. A future change that
+            // lets one fire has to revisit this line.
+            self.earliest_due_ms = next_earliest;
+        }
+
+        /// Milliseconds until the nearest connection deadline, or null when
+        /// none is pending.
+        ///
+        /// `poll` blocks until a completion arrives, so a deadline that is
+        /// only checked *after* the poll cannot fire on a quiet loop: the
+        /// connection whose deadline expired is, by definition, the one not
+        /// producing completions. Every deadline the loop enforces has to be
+        /// visible to the wait itself.
+        fn nextDeadlineMs(self: *Self) ?i32 {
+            const due = self.earliestDue() orelse return null;
+            const remaining = due - clock.nowMonotonicMs();
+            return if (remaining <= 0) 0 else @intCast(@min(remaining, std.math.maxInt(i32)));
+        }
+
+        /// The nearest deadline, from the cache when it holds one.
+        ///
+        /// Zero waiters costs nothing, and one waiter costs a comparison
+        /// rather than a walk of every slot. That difference is the whole
+        /// point at the 500k destination, where a table walk before each poll
+        /// and again after each batch is a million cold slot reads bought by
+        /// one stalled partner.
+        fn earliestDue(self: *Self) ?i64 {
+            if (self.waiting_count == 0) {
+                self.earliest_due_ms = null;
+                return null;
+            }
+            if (self.earliest_due_ms) |due| return due;
+            var earliest: ?i64 = null;
+            for (self.conns) |*c| {
+                const deadline = self.pendingDeadline(c) orelse continue;
+                if (earliest == null or deadline.due < earliest.?) earliest = deadline.due;
+            }
+            // A stamped connection that yields no deadline would send this
+            // walk over every slot on each poll — the cost this cache exists
+            // to avoid, and silent, because nothing observable changes.
+            std.debug.assert(earliest != null);
+            self.earliest_due_ms = earliest;
+            return earliest;
         }
 
         /// Consume one recv completion's bytes while its pool buffer is still
@@ -1042,7 +1667,18 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// events, outbound drive, the next read arm — runs in
         /// `onRecvFinish`, after the recycle.
         fn onRecvConsume(self: *Self, slot: usize, comp: Completion) RecvVerdict {
-            const c = self.liveConn(slot) orelse return .done;
+            if (slot >= self.conns.len) return .done;
+            const c = &self.conns[slot];
+            if (c.state == .draining) {
+                // A terminal failure may race an already-armed recv (for
+                // example closeSlot on a quiet bridge sibling). Retire that
+                // borrow without applying bytes or admitting more work: the
+                // abort already queued before `.draining` is final.
+                std.debug.assert(c.read == .armed);
+                c.read = .idle;
+                return .done;
+            }
+            if (c.state != .open) return .done;
             // This completion retires the one armed recv: the read seat is
             // idle until the verdict re-arms or parks it.
             std.debug.assert(c.read == .armed);
@@ -1080,9 +1716,12 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         fn onRecvFinish(self: *Self, slot: usize, verdict: RecvVerdict) void {
             // The .close and .fail arms skip the `liveConn` guard on purpose:
             // a non-.done verdict was minted under it in `onRecvConsume`, and
-            // the recycle between consume and finish cannot close this slot
-            // (this connection completed a recv, so it is not on the starved
-            // list the recycle resumes).
+            // this slot cannot have been *reclaimed* in between — its recv op
+            // stays counted across this call, so no teardown can reach it. Its
+            // state can still have changed: the recycle resumes a starved
+            // connection, that can park one, and `on_park` is a public hook
+            // free to close anything. `closeConn` and `failConn` both guard on
+            // state, which is what covers that.
             switch (verdict) {
                 .done => return,
                 .close => {
@@ -1117,15 +1756,46 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                         return;
                     };
                 }
+                // A hook may condemn its own connection (a bridge `close`
+                // action for the session it is serving). That is terminal:
+                // the abort is already queued, so serving further events
+                // would mint replies behind it, and the drive and read-arm
+                // below no longer apply. Unpolled events die with the peer.
+                if (c.state != .open) return;
             }
 
             self.driveOut(slot, c) catch {
                 self.failConn(slot, c);
                 return;
             };
-            if (c.state == .closing) return;
+            if (c.state != .open) return;
 
             self.armOrPark(slot, c) catch self.closeConn(slot, c);
+        }
+
+        /// Push a slot onto the list at `head`. The caller guarantees it is on
+        /// no list right now (see `Conn.next_link`); pushing a listed slot
+        /// builds a cycle.
+        fn linkOnto(self: *Self, head: *usize, slot: usize) void {
+            const c = &self.conns[slot];
+            c.prev_link = @intCast(self.conns.len);
+            c.next_link = @intCast(head.*);
+            if (head.* < self.conns.len) self.conns[head.*].prev_link = @intCast(slot);
+            head.* = slot;
+        }
+
+        /// Splice a slot out of the list at `head`. `O(1)`, which is the reason
+        /// the links are a pair: removal by value from a singly linked list
+        /// walks it, and this runs on the close path, where a walk per departure
+        /// makes a mass close quadratic.
+        fn unlinkFrom(self: *Self, head: *usize, slot: usize) void {
+            const c = &self.conns[slot];
+            if (c.next_link < self.conns.len) self.conns[c.next_link].prev_link = c.prev_link;
+            if (c.prev_link < self.conns.len) {
+                self.conns[c.prev_link].next_link = c.next_link;
+            } else {
+                head.* = c.next_link;
+            }
         }
 
         /// Park a connection whose recv found the shared pool empty. Distinct
@@ -1138,35 +1808,25 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // would build a cycle.
             std.debug.assert(c.read == .idle);
             c.read = .starved;
-            c.next_link = self.starved_head;
-            self.starved_head = slot;
+            self.linkOnto(&self.starved_head, slot);
+        }
+
+        /// Take a connection off the parked list, leaving the seat `.idle`.
+        /// A seat that is not parked is not listed, so this is a no-op there.
+        fn unlinkParked(self: *Self, slot: usize) void {
+            const c = &self.conns[slot];
+            if (c.read != .parked) return;
+            c.read = .idle;
+            self.unlinkFrom(&self.parked_head, slot);
         }
 
         /// Remove a connection from the starved list (on close) so teardown's
-        /// slot reset cannot break the chain. O(starved count), on the close
-        /// path only.
+        /// slot reset cannot break the chain.
         fn unlinkStarved(self: *Self, slot: usize) void {
             const c = &self.conns[slot];
             if (c.read != .starved) return;
             c.read = .idle;
-            if (self.starved_head == slot) {
-                self.starved_head = c.next_link;
-                return;
-            }
-            var i = self.starved_head;
-            while (i < self.conns.len) {
-                const node = &self.conns[i];
-                if (node.next_link == slot) {
-                    node.next_link = c.next_link;
-                    return;
-                }
-                i = node.next_link;
-            }
-            // The read seat was `.starved`, so the slot must be in the list,
-            // `parkStarved` links and marks together. Falling off the end means
-            // the chain is corrupt; keep that loud instead of letting a later
-            // `parkStarved` build a cycle on the broken link.
-            unreachable;
+            self.unlinkFrom(&self.starved_head, slot);
         }
 
         /// Hand a recv completion's pool buffer back to the backend — the loop
@@ -1192,22 +1852,17 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             while (self.starved_head < self.conns.len) {
                 const slot = self.starved_head;
                 const c = &self.conns[slot];
-                self.starved_head = c.next_link;
+                self.unlinkFrom(&self.starved_head, slot);
                 c.read = .idle;
                 if (c.state != .open) continue;
-                if (pendingOut(c) > self.outbound_high_water) {
-                    self.markParked(slot, c, .sink);
-                    continue;
-                }
-                if (self.fan_in_throttle and self.anySinkParked()) {
-                    self.markParked(slot, c, .fan_in);
-                    continue;
-                }
-                self.armRecv(slot, c) catch {
+                // One owner for the arm-or-park decision (ADR-0042). Restating
+                // its branches here is how the two drift.
+                self.armOrPark(slot, c) catch {
                     self.closeConn(slot, c);
                     continue;
                 };
-                if (scope == .one) return;
+                // Only an actual arm consumed the buffer that freed.
+                if (scope == .one and c.read == .armed) return;
             }
         }
 
@@ -1225,7 +1880,10 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// `front`'s storage, and an append there could realloc it out from
         /// under the kernel. With no write in flight, a drained front swaps
         /// with the back and the queued bytes become the next frozen submit.
+        /// Queue depth is an eligibility input, so every path that changes it
+        /// ends here and refreshes. Cross-connection arms land here too.
         fn flushOutbound(self: *Self, slot: usize, c: *Conn) !void {
+            defer self.refreshWaiting(c);
             try frame_stream.queueOutboundBytes(&c.peer, self.allocator, &c.back);
             if (c.write_in_flight) return;
             if (pendingFront(c) == 0 and c.back.items.len > 0) {
@@ -1242,9 +1900,22 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// connection. Every error is swallowed; one bad partner never tears
         /// down the loop.
         fn failConn(self: *Self, slot: usize, c: *Conn) void {
+            if (c.state != .open) return;
+            // Terminal failure is a lifecycle, not an outbound-queue flag.
+            // From here only already-projected bytes and their send
+            // completions may run; an armed recv is retired without applying.
+            c.state = .draining;
+            // The flush below waits on the partner, so it is bounded: a
+            // partner that never reads the abort must not pin this slot. This
+            // is a different wait from the slow-reader park it may replace, so
+            // the refresh restarts the clock rather than inheriting it.
+            self.refreshWaiting(c);
             while ((c.peer.step() catch .idle) != .idle) {}
-            self.flushOutbound(slot, c) catch {};
-            self.closeConn(slot, c);
+            self.flushOutbound(slot, c) catch {
+                self.closeConn(slot, c);
+                return;
+            };
+            if (!c.write_in_flight and pendingOut(c) == 0) self.closeConn(slot, c);
         }
 
         fn submitSend(self: *Self, slot: usize, c: *Conn) !void {
@@ -1255,8 +1926,39 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             c.ops_in_flight += 1;
         }
 
+        /// The partner caught up: resume a read parked at the high-water mark,
+        /// and release the fan-in sources that mark was holding.
+        ///
+        /// Both send paths need this. A partial write can take `pendingOut`
+        /// under the mark just as a full drain can, and dropping the deadline
+        /// there without re-arming the read left the connection with no
+        /// wakeup at all: no armed recv, no deadline, and its victims still
+        /// asleep. If the remainder then stalled, nothing would ever run again
+        /// on that connection.
+        fn resumeIfDrained(self: *Self, slot: usize, c: *Conn) void {
+            // Unconditional: a `.draining` connection's queue moves too, and
+            // its `over_mark` contribution keeps fan-in victims parked until
+            // it is given back. Only the re-arm below is `.open`-only.
+            self.refreshWaiting(c);
+            if (c.state == .open and c.read == .parked and
+                pendingOut(c) <= self.outbound_high_water)
+            {
+                if (!(self.fan_in_throttle and self.anySinkParked())) {
+                    // No refresh here: the call above already evaluated
+                    // eligibility with the enclosing condition's `pendingOut`
+                    // under the mark, so the stamp is clear and the over-mark
+                    // recount has run. Leaving `.parked` for `.idle` cannot
+                    // make an ineligible connection eligible.
+                    self.unlinkParked(slot);
+                    self.armRecv(slot, c) catch self.closeConn(slot, c);
+                }
+            }
+        }
+
         fn onSend(self: *Self, slot: usize, res: i32) void {
-            const c = self.liveConn(slot) orelse return;
+            if (slot >= self.conns.len) return;
+            const c = &self.conns[slot];
+            if (c.state != .open and c.state != .draining) return;
             if (res <= 0) {
                 self.closeConn(slot, c);
                 return;
@@ -1265,8 +1967,15 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             if (c.front_off < c.front.items.len) {
                 // Partial write: send the remainder. `front` is untouched
                 // since the original submit (appends went to `back`), so the
-                // resubmitted slice is still backed by live storage.
-                self.submitSend(slot, c) catch self.closeConn(slot, c);
+                // resubmitted slice is still backed by live storage. The
+                // advance lowered `pendingOut` and may have taken it under the
+                // mark, so this is a drain like any other: the read resumes
+                // and the victims wake, not merely the deadline clearing.
+                self.submitSend(slot, c) catch {
+                    self.closeConn(slot, c);
+                    return;
+                };
+                self.resumeIfDrained(slot, c);
                 return;
             }
             // Drained. Burst capacity frees on drain (the spill's posture,
@@ -1276,11 +1985,32 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             frame_stream.reclaimBurst(&c.front, self.allocator, steady_outbound_bytes);
             // A drained connection never pins burst capacity: this is the
             // 500k-footprint invariant a slow-drain episode must not break. The
-            // live-socket measurement is rung 5 work (docs/ladder.md); this pins
+            // live-socket measurement is step 5 work (docs/ladder.md); this pins
             // the bound loudly in every safe build, on every drain.
             std.debug.assert(c.front.capacity <= steady_outbound_bytes);
             c.front_off = 0;
             c.write_in_flight = false;
+            if (c.state == .draining) {
+                // Bytes queued behind the completed frozen front were already
+                // present when failConn entered `.draining`; send them without
+                // stepping the peer or admitting any new application work.
+                if (c.back.items.len > 0) {
+                    // `reclaimBurst` above emptied the front in both its
+                    // arms. Swapping a non-empty front into `back` would
+                    // resend bytes the partner already has, forever.
+                    std.debug.assert(c.front.items.len == 0);
+                    std.mem.swap(std.ArrayList(u8), &c.front, &c.back);
+                    self.submitSend(slot, c) catch self.closeConn(slot, c);
+                    // The swap can take this connection under the mark. It is
+                    // terminal, so its own read stays down, but the refresh is
+                    // what releases the sources it was throttling: they must
+                    // not wait on a send that may never complete.
+                    self.refreshWaiting(c);
+                } else {
+                    self.closeConn(slot, c);
+                }
+                return;
+            }
             // Bytes queued on `back` while this write was in flight — and any
             // reply this drive encodes — swap into the emptied front and go
             // out now (`flushOutbound`).
@@ -1288,58 +2018,143 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 self.failConn(slot, c);
                 return;
             };
-            // The partner caught up: a read parked at the high-water mark
-            // resumes, unless this drive refilled the queue past it — or
-            // fan-in still has another sink parked (ADR-0082).
-            if (c.read == .parked and pendingOut(c) <= self.outbound_high_water) {
-                if (!(self.fan_in_throttle and self.anySinkParked())) {
-                    c.read = .idle;
-                    c.parked_at_ms = 0;
-                    self.armRecv(slot, c) catch self.closeConn(slot, c);
-                }
-            }
-            // Fan-in sources parked only because a sink was over high-water must
-            // resume when the last true sink drains — onSend only sees the
-            // draining slot, so walk the rest (ADR-0082).
-            if (self.fan_in_throttle and !self.anySinkParked()) {
-                self.resumeFanInSources();
-            }
+            self.resumeIfDrained(slot, c);
+        }
+
+        /// Re-evaluate fan-in throttling once for a poll batch in which one or
+        /// more connections departed. Called from the loop body, never from a
+        /// teardown, so the resume below cannot re-enter teardown, and a batch
+        /// that closed many connections pays one table sweep rather than one
+        /// per connection.
+        fn drainFanInDirty(self: *Self) void {
+            if (!self.fan_in_dirty) return;
+            self.fan_in_dirty = false;
+            // `closeAndDrain` is sweeping slots closed; arming a fresh recv
+            // behind its sweep is the hazard `Bridge.freeConnCtx` refuses too.
+            if (self.tearing_down or self.shutting_down) return;
+            if (self.anySinkParked()) return;
+            self.resumeFanInSources();
         }
 
         /// Re-arm connections parked solely by `fan_in_throttle` once no true
-        /// ADR-0042 sink remains over the high-water mark. Skip seats that are
-        /// still sink-parked (`pendingOut` over the mark) or not `.parked`.
+        /// ADR-0042 sink remains over the high-water mark. A seat that is still
+        /// sink-parked (`pendingOut` over the mark) or no longer open is left
+        /// alone, on the list, untouched.
+        ///
+        /// The walk follows the live list and splices in place. Detaching the
+        /// list first would keep re-parks from being chased, but it opens a
+        /// window: for the length of the walk a slot reads `.parked` while
+        /// unreachable from `parked_head`, which is exactly the state
+        /// `unlinkParked` treats as a corrupt chain, and a hook re-entering the
+        /// loop meanwhile would hit it — `free_conn_ctx` drains host actions,
+        /// and one of them can close a sibling. In place there is no window,
+        /// and a re-park pushes onto the head the walk has already passed, so
+        /// it still terminates.
         fn resumeFanInSources(self: *Self) void {
-            for (self.conns, 0..) |*other, other_slot| {
-                if (other.state != .open or other.read != .parked) continue;
-                if (pendingOut(other) > self.outbound_high_water) continue;
-                other.read = .idle;
-                other.parked_at_ms = 0;
-                self.armOrPark(other_slot, other) catch self.closeConn(other_slot, other);
+            var next = self.parked_head;
+            while (next < self.conns.len) {
+                const slot = next;
+                const c = &self.conns[slot];
+                // It left the list under us — a hook re-entered through the
+                // previous iteration's close and reached this slot. Its link
+                // word is no longer a parked-list link: `teardown` hands it to
+                // the free list, and a re-adopting `dial` zeroes it, which
+                // walks into slot 0 and, if slot 0 is an ordinary open
+                // connection whose own link is still zero, never leaves. So do
+                // not read it. The departure already asked for a re-sweep; ask
+                // again for the rest of this list and let the batch's drain run
+                // it.
+                if (c.read != .parked) {
+                    self.fan_in_dirty = true;
+                    return;
+                }
+                next = c.next_link;
+                if (c.state != .open or pendingOut(c) > self.outbound_high_water) continue;
+                self.unlinkParked(slot);
+                self.refreshWaiting(c);
+                self.armOrPark(slot, c) catch self.closeConn(slot, c);
             }
         }
 
         fn closeConn(self: *Self, slot: usize, c: *Conn) void {
-            if (c.state == .closing) return;
+            // A free slot has an undefined `fd`, so closing one would hand the
+            // backend garbage. Reaching here with one is currently impossible
+            // (a recv's op stays counted across `onRecvFinish`, so no nested
+            // teardown can reclaim the slot under it), but that argument spans
+            // three functions and should not be the only thing standing
+            // between this and a bad close.
+            if (c.state == .free or c.state == .closing) return;
             self.unlinkStarved(slot);
+            self.unlinkParked(slot);
+            // A closing connection waits on nothing: its deadline, if any, has
+            // already done its work. Dropping the stamp here keeps
+            // `waiting_count` at zero on a healthy loop rather than pinned by
+            // slots that are merely retiring their ops.
+            self.setWaiting(c, 0);
             c.state = .closing;
+            // A closing connection throttles nobody, and the slot reset at
+            // teardown would otherwise drop its contribution silently.
+            self.refreshOverMark(c);
             self.backend.submitClose(userData(.close, slot), c.fd) catch {
-                // Could not even queue the close. Close the fd directly so it is
-                // not leaked: the normal path closes it via the queued op, so
-                // `teardown` never closes, this failure branch is the only place
-                // the fd would otherwise outlive the connection, and the two are
-                // mutually exclusive, so there is no double close. If no other op
-                // is outstanding, reclaim now; otherwise the last in-flight op's
-                // completion reclaims it (teardown must still wait for the kernel
-                // to be done with the buffers).
-                self.backend.closeFd(c.fd);
+                // Could not even queue the close, so this branch owns the fd:
+                // the normal path closes it through the queued op, and
+                // `teardown` never closes, so the two are mutually exclusive
+                // and there is no double close.
+                //
+                // Shut it down first. `submitClose` is contracted to complete
+                // whatever is pending on the fd; `closeFd` is only "release a
+                // handle" and neither backend synthesizes completions for it.
+                // Closing straight away would leave an armed recv and an
+                // in-flight send counted forever: `closeAndDrain` would wait
+                // on work that can never arrive, and `deinit` would trip its
+                // assertion. A shutdown makes those complete, and the fd is
+                // released once they have.
+                self.backend.shutdownFd(c.fd);
                 if (c.ops_in_flight == 0) {
-                    self.teardown(slot);
-                    self.closed_count += 1;
+                    self.backend.closeFd(c.fd);
+                    if (self.teardown(slot)) self.closed_count += 1;
+                    return;
                 }
+                // Ops are still counted, and this branch cannot assume they
+                // will retire on their own: `shutdownFd` unblocks an OS recv,
+                // but a userspace backend is allowed to make it a no-op and
+                // iroh does, so the only thing that retires those ops there is
+                // the `submitClose` that just failed. Failing means the
+                // backend could not allocate completion capacity, which is
+                // transient, so the retry rides the poll batch.
+                c.owns_fd_close = true;
+                self.pending_close_submits += 1;
                 return;
             };
             c.ops_in_flight += 1;
+        }
+
+        /// Retry closes the backend could not admit.
+        ///
+        /// A table walk, and the one left on a repeated path: while any close
+        /// is owed the poll bounds its wait at `close_retry_ms`, so this runs
+        /// about twenty times a second over every slot. The regime is a backend
+        /// that cannot allocate completion capacity, which is transient and
+        /// rare, and the alternative is a fourth intrusive list for a state
+        /// that is empty on every healthy loop. Named rather than removed.
+        ///
+        /// `submitClose` is the only thing that retires a connection's pending
+        /// ops on a backend whose `shutdownFd` cannot cancel them, so a failed
+        /// submit is not a state the loop may sit in. The failure is an
+        /// allocation one, so the next batch usually takes it.
+        fn retryPendingCloses(self: *Self) void {
+            if (self.pending_close_submits == 0) return;
+            for (self.conns, 0..) |*c, slot| {
+                // `owns_fd_close` is set at exactly one site, the failed
+                // submit below, so it doubles as the marker for a close this
+                // loop still owes. Clearing it hands the fd back to the close
+                // op that just landed.
+                if (!c.owns_fd_close) continue;
+                self.backend.submitClose(userData(.close, slot), c.fd) catch continue;
+                c.owns_fd_close = false;
+                c.ops_in_flight += 1;
+                self.pending_close_submits -= 1;
+            }
         }
 
         /// Account one completed per-connection op. On a closing connection the
@@ -1353,15 +2168,40 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             if (slot >= self.conns.len) return;
             const c = &self.conns[slot];
             if (c.state == .free) return;
-            if (c.ops_in_flight > 0) c.ops_in_flight -= 1;
+            // Not a tolerant decrement: a completion for a live slot always
+            // corresponds to an op this loop counted, and both directions of
+            // drift are serious. Under-counting strands the slot; over-counting
+            // tears it down while the kernel still reads `front`.
+            std.debug.assert(c.ops_in_flight > 0);
+            c.ops_in_flight -= 1;
             if (c.state == .closing and c.ops_in_flight == 0) {
-                self.teardown(slot);
-                self.closed_count += 1;
+                if (c.owns_fd_close) self.backend.closeFd(c.fd);
+                if (self.teardown(slot)) self.closed_count += 1;
             }
         }
 
-        fn teardown(self: *Self, slot: usize) void {
+        /// Reclaim a slot, reporting whether it actually happened.
+        ///
+        /// The return value is what keeps `closed_count` to one writer per
+        /// reclaim. A teardown that arrives while the slot is being adopted is
+        /// deferred, not performed, and `finishConnected` performs it later —
+        /// so a caller that counts unconditionally counts the same connection
+        /// twice, once where it asked and once where it happened. That is not
+        /// bookkeeping: `closed_count` is what `run(.{ .after_closed = n })`
+        /// stops on, so an over-count returns the loop with connections still
+        /// open. The counters beside this one (`waiting_count`,
+        /// `over_mark_count`) each have exactly one writer; this gives
+        /// `closed_count` the same.
+        fn teardown(self: *Self, slot: usize) bool {
             const c = &self.conns[slot];
+            if (self.adopting_slot) |adopting| {
+                if (adopting == slot) {
+                    // `finishConnected` reclaims it once the hook returns and
+                    // its context has been released.
+                    self.adopting_teardown_deferred = true;
+                    return false;
+                }
+            }
             // Notify the application first, while the per-connection context
             // is still alive: this fires once per connection, and `opened`
             // tells a dialer whether the connection ever completed its
@@ -1372,23 +2212,81 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             if (c.app_ctx) |app_ctx| {
                 if (self.free_conn_ctx) |free| free(self.make_ctx, app_ctx);
             }
+            const generation = c.generation;
+            if (c.owns_fd_close) self.pending_close_submits -= 1;
             c.peer.deinit();
             c.spill.deinit(self.allocator);
             c.front.deinit(self.allocator);
             c.back.deinit(self.allocator);
+            self.setWaiting(c, 0);
+            // Unconditional, not a recompute: `deinit` tears down slots that
+            // are still `.open`, where a recompute would agree they are over
+            // the mark and leave the count pointing at a slot about to be
+            // wiped.
+            if (c.over_mark) {
+                c.over_mark = false;
+                self.over_mark_count -= 1;
+            }
             c.* = .{};
+            self.live_count -= 1;
+            // The slot is somebody else's now; anyone holding a `*Conn` from
+            // before this point can tell by comparing.
+            c.generation = generation +% 1;
             self.pushFreeSlot(slot);
+
+            // The connection that just left may have been the last sink over
+            // the high-water mark, and the fan-in sources it throttled have no
+            // other resume trigger: every terminal path returns before
+            // `onSend`'s tail runs (ADR-0082). Without a resume, a closing
+            // sink strands its victims parked for the loop's lifetime — they
+            // are exempt from the park reaper precisely because they are
+            // victims, not slow readers.
+            //
+            // Recorded, not performed. Resuming here would re-enter the loop
+            // from inside a teardown: `resumeFanInSources` arms reads, an arm
+            // failure closes, and a close whose submit fails tears down again,
+            // one stack frame per slot. It would also make a mass close
+            // quadratic, since every teardown would sweep the whole table.
+            // The loop body drains this once per poll batch instead.
+            if (self.fan_in_throttle) self.fan_in_dirty = true;
+            return true;
         }
+
+        /// The deadline accounting, reachable from `test/net` and nowhere else.
+        ///
+        /// `refreshWaiting` mutates `waiting_count`, `over_mark_count`, and the
+        /// nearest-deadline cache. Plain `pub` would put that on the public
+        /// surface of a public type, where an embedder calling it would be
+        /// writing the three counters `deinit` asserts on, with no way to know
+        /// it.
+        ///
+        /// The namespace is empty outside a test build, so it is not a naming
+        /// convention asking to be respected — production code cannot reach
+        /// these at all. The tests stay in `test/net`, where the tests rule
+        /// places every test, so the seam comes to them.
+        pub const white_box = if (@import("builtin").is_test) struct {
+            pub fn refreshWaiting(self: *Self, c: *Conn) void {
+                self.refreshWaiting(c);
+            }
+            pub fn pendingDeadline(self: *const Self, c: *const Conn) ?Deadline {
+                return self.pendingDeadline(c);
+            }
+            pub fn nextDeadlineMs(self: *Self) ?i32 {
+                return self.nextDeadlineMs();
+            }
+        } else struct {};
 
         fn freeSlot(self: *Self) ?usize {
             if (self.free_head >= self.conns.len) return null;
             const slot = self.free_head;
+            // Push/pop at the head only, so the free list needs no `prev_link`.
             self.free_head = self.conns[slot].next_link;
             return slot;
         }
 
         fn pushFreeSlot(self: *Self, slot: usize) void {
-            self.conns[slot].next_link = self.free_head;
+            std.debug.assert(self.conns[slot].state == .free);
+            self.conns[slot].next_link = @intCast(self.free_head);
             self.free_head = slot;
         }
     };

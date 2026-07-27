@@ -3,23 +3,79 @@
    teal that plays against it. */
 
 :root {
-  --ink: #3a3027;
-  --ink-soft: #6b5d4d;
-  --paper: #fff3df;
-  --paper-raised: #fff9ee;
-  --accent: #c76f18;
-  --accent-deep: #a4560c;
-  --teal: #257f88;
-  --teal-deep: #1b5f66;
-  --rule: #e7d4b7;
-  --code-bg: #f5e6ce;
-  --shadow: 0 1px 2px rgba(58, 48, 39, 0.06), 0 8px 24px rgba(58, 48, 39, 0.08);
+  --code-bg: light-dark(#f5e6ce, #191309);
+  --shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
+    0 8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
   --sidebar-w: 16rem;
   --content-max: 60rem;
-  /* The teal four-point twinkle from the pancake art, lifted out as a reusable
-     flourish. Same concave-diamond star the mascot is dusted with, so the body
-     of the page carries the front door's spark. */
-  --sparkle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 0.6 Q8.9 6.5 15.4 8 Q8.9 9.5 8 15.4 Q7.1 9.5 0.6 8 Q7.1 6.5 8 0.6 Z' fill='%23257f88'/%3E%3C/svg%3E");
+  /* Core palette, type, and mark come from ui/tokens.css, linked first. */
+  /* Text-safe accents. The fill colours above are tuned for backgrounds and
+     rules; these two are the versions that stay legible as small type, and they
+     are what every heading, link, and label uses. Splitting them is what lets
+     the dark theme re-point colour without rewriting a rule. */
+  --accent-text: light-dark(var(--accent-deep), #eda04a);
+  --teal-text: light-dark(var(--teal-deep), #5cc3cd);
+  /* A filled button's two colours. They are a pair, not two independent
+     choices: the fill has to carry legible label text on top of it, and the
+     combination that does that on cream paper is not the one that does it on a
+     dark roast, so both move together with the theme. */
+  --btn-fill: light-dark(var(--accent-deep), var(--accent));
+  --btn-ink: var(--paper);
+  /* The diagrams override these two, so they need a light-theme identity of
+     their own; otherwise every use carries a core colour as a literal fallback
+     and the palette is restated in two more places. */
+  --dia-accent-deep: light-dark(var(--accent-deep), #eda04a);
+  --dia-teal-deep: light-dark(var(--teal-deep), #5cc3cd);
+  /* Syntax colours, as tokens so the dark theme can lift them off the paper
+     palette instead of restating every rule. Each one clears 4.5:1 against
+     `--code-bg`, the bar for text this size: a fenced listing sets at roughly
+     twelve pixels, which is body text and not large text. */
+  --syn-keyword: light-dark(#98499f, #d08ad6);
+  --syn-call: light-dark(var(--teal-deep), #5cc3cd);
+  --syn-string: light-dark(#476225, #a8c86a);
+  --syn-number: light-dark(#985313, #e8a765);
+  --syn-comment: light-dark(#736046, #8d7c60);
+  --syn-punct: light-dark(#726249, #9c8b70);
+}
+
+/* "Syrup": the same warmth taken down to a dark roast, and the palette the
+   rooms app already ships, so the two surfaces read as one product. Only the
+   tokens move; not one rule below is restated for the dark theme.
+
+   `data-theme` is stamped on the root element by the toggle in the header, and
+   the media query catches everyone who never touches it. The attribute wins in
+   both directions so a reader can choose light on a dark desktop. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    /* Dark-only, and they stay two-armed rather than folding into `light-dark()`.
+       Each is undefined in the light theme on purpose: the diagram SVGs name
+       them as `var(--dia-…, #literal)`, and several distinct pale tints share
+       one token, so giving the token a single light value would flatten three
+       different colours into one and change the light artwork. */
+    --dia-card: #33281b;
+    --dia-danger: #e07a5f;
+    --dia-green: #7fbf8c;
+    --dia-muted: #9c8b70;
+    --dia-warm-fill: #2a2016;
+    --dia-warm-rule: #4a3b26;
+    --dia-warm-stroke: #7a663f;
+    --dia-cool-fill: #1d2e2e;
+    --dia-cool-strong: #27403f;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --dia-card: #33281b;
+  --dia-danger: #e07a5f;
+  --dia-green: #7fbf8c;
+  --dia-muted: #9c8b70;
+  --dia-warm-fill: #2a2016;
+  --dia-warm-rule: #4a3b26;
+  --dia-warm-stroke: #7a663f;
+  --dia-cool-fill: #1d2e2e;
+  --dia-cool-strong: #27403f;
 }
 
 * {
@@ -27,8 +83,13 @@
 }
 
 html {
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.65;
+  /* Plex ships its own kerning and ligature tables; ask for them explicitly so
+     pairs like "ff" and "Ty" set the way the type designer drew them. */
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  -webkit-font-smoothing: antialiased;
   color: var(--ink);
   background: var(--paper);
   scroll-behavior: smooth;
@@ -68,7 +129,7 @@ body::before {
 }
 
 a {
-  color: var(--accent-deep);
+  color: var(--accent-text);
   text-decoration: none;
 }
 
@@ -114,6 +175,41 @@ a:focus-visible,
   border-bottom: 1px solid var(--rule);
 }
 
+/* How far through the page you are, drawn along the bottom edge of the header
+   that is already stuck to the top of the screen. Some of these pages are long,
+   and a reader deciding whether to keep going deserves to know how much is
+   left. It reuses the brand gradient rather than introducing a new colour, and
+   it rides the scroll itself: no script, no scroll listener.
+
+   Browsers without scroll-driven animation, and readers who ask for less
+   motion, simply keep the header's plain bottom border. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .site-header::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
+      /* Revealed with a clip rather than scaled: scaling squeezes the whole
+         gradient into whatever is shown, so the leading edge would read teal at
+         every scroll position. Clipping leaves the gradient anchored to the
+         page, so the colour at a given point on the bar means something. */
+      clip-path: inset(0 100% 0 0);
+      animation: read-progress linear both;
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+
+@keyframes read-progress {
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
 .brand {
   display: inline-flex;
   align-items: center;
@@ -136,6 +232,10 @@ a:focus-visible,
 
 .top-nav {
   display: flex;
+  /* Centre, not the flex default of stretch: the links and the theme button are
+     very different heights, and stretching makes each link a full-height box
+     whose text then sits at the top, riding above the button beside it. */
+  align-items: center;
   gap: 1.1rem;
   font-size: 0.95rem;
   flex-wrap: wrap;
@@ -143,6 +243,65 @@ a:focus-visible,
 
 .top-nav a {
   color: var(--ink-soft);
+}
+
+/* The theme switch. It shows the theme you would move to, not the one you are
+   in, so the icon reads as an action. Which icon that is comes straight from
+   the same conditions that pick the palette, so the button cannot fall out of
+   step with the page even before its script runs. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--accent-text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.theme-toggle svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+.theme-toggle .icon-sun {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-toggle .icon-sun {
+  display: block;
+}
+
+:root[data-theme="dark"] .theme-toggle .icon-moon {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .icon-sun {
+    display: block;
+  }
+
+  :root:not([data-theme="light"]) .theme-toggle .icon-moon {
+    display: none;
+  }
 }
 
 /* ── Shell: sidebar + content ────────────────────────────────────────────── */
@@ -163,6 +322,82 @@ a:focus-visible,
   max-height: calc(100vh - 5rem);
   overflow-y: auto;
   padding: 1.6rem 0;
+}
+
+/* "On this page". Built from the page's own headings by the base template, and
+   only shown when there is a third column to spare and enough headings to be
+   worth one. The reading column stays where it was; this fills the room that
+   was already sitting empty beside it on a wide screen. */
+.toc {
+  display: none;
+}
+
+@media (min-width: 84rem) {
+  body.has-toc .shell {
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 13rem;
+    max-width: 92rem;
+  }
+
+  body.has-toc .toc {
+    display: block;
+    align-self: start;
+    position: sticky;
+    top: 4.2rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+    padding: 2.2rem 0 2rem;
+    padding-left: 1rem;
+  }
+}
+
+.toc-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  /* The rail the whole list hangs from. The section you are in lights up its
+     own segment of it, so position is shown by the rail itself rather than by a
+     marker floating beside the text. */
+  border-left: 1px solid var(--rule);
+}
+
+.toc-links a {
+  position: relative;
+  padding: 0.26rem 0.5rem 0.26rem 0.85rem;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.toc-links a:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  text-decoration: none;
+}
+
+.toc-links .toc-sub {
+  padding-left: 1.6rem;
+  font-size: 0.8rem;
+}
+
+/* The section you are in. Its segment of the rail turns teal: a real 2px
+   element with square ends, not an inset shadow, which would bend around the
+   corner radius and read as a bevel rather than a bar.
+
+   Colour alone marks it. Bolding the active entry changes its text metrics, so
+   a two-line heading re-wraps the moment you scroll into it and the list jumps
+   under the cursor. */
+.toc-links a.is-current {
+  color: var(--teal-text);
+}
+
+.toc-links a.is-current::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--teal);
 }
 
 .nav {
@@ -190,7 +425,6 @@ a:focus-visible,
   padding: 0.32rem 0.7rem;
   border-radius: 7px;
   color: var(--ink);
-  border-left: 2px solid transparent;
 }
 
 .nav-link:hover,
@@ -214,16 +448,38 @@ a:focus-visible,
   padding-bottom: 0.26rem;
 }
 
-.is-current {
+/* The page you are on. Colour and a tinted ground carry it, plus a rail on the
+   leading edge drawn as a positioned element so it takes no space in the flow.
+
+   Nothing here changes the text's metrics. Going bold on the active item, or
+   indenting it to make room for a marker, re-wraps that one item and nudges the
+   whole list, so the nav twitches every time you move between pages. The state
+   has to be visible without the layout moving at all. */
+.nav .is-current {
   background: color-mix(in srgb, var(--teal) 14%, transparent);
-  border-left-color: var(--teal);
-  font-weight: 600;
-  color: var(--teal-deep);
+  color: var(--teal-text);
+  position: relative;
+}
+
+.nav .is-current::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 3px;
+  height: 1.15em;
+  border-radius: 0 3px 3px 0;
+  background: var(--teal);
 }
 
 .nav-sub a.is-current {
   background: color-mix(in srgb, var(--teal) 12%, transparent);
-  color: var(--teal-deep);
+  color: var(--teal-text);
+}
+
+.nav-sub a.is-current::before {
+  height: 0.95em;
 }
 
 /* ── Content / prose ─────────────────────────────────────────────────────── */
@@ -235,6 +491,22 @@ a:focus-visible,
 
 .prose {
   max-width: var(--content-max);
+}
+
+/* The end of the page, marked the way a book marks the end of a chapter: one
+   small ornament, centred, with room around it. It is the project's own stack,
+   used once and quietly, rather than a glyph repeated down the margin. */
+#content::after {
+  content: "";
+  display: block;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 3.5rem auto 0.5rem;
+  color: var(--ink-soft);
+  opacity: 0.45;
+  background: currentColor;
+  -webkit-mask: var(--mark-stack) center / contain no-repeat;
+  mask: var(--mark-stack) center / contain no-repeat;
 }
 
 .prose > :first-child {
@@ -251,33 +523,39 @@ h1, h2, h3, h4 {
   text-wrap: balance;
 }
 
+/* Display sizes take a slightly lighter weight and tighter tracking than the
+   browser default. Plex's bold is emphatic at 700, which is right for a word
+   inside a sentence and too much for a line of 40px type; 600 with the spacing
+   pulled in holds the same authority without shouting. */
 h1 {
-  color: var(--teal-deep);
+  color: var(--teal-text);
   font-size: clamp(2rem, 5vw, 2.9rem);
+  font-weight: 600;
   margin: 0 0 0.6rem;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.022em;
 }
 
 h2 {
-  color: var(--accent-deep);
+  color: var(--accent-text);
   font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
   margin: 2.2rem 0 0.8rem;
 }
 
-/* Section flourish: each h2 opens with the pancake's teal twinkle, so the body
-   reads as a series of marked sections rather than a flat wall of headings. */
-.prose h2::before {
-  content: "";
-  display: inline-block;
-  width: 0.72em;
-  height: 0.72em;
-  margin-right: 0.5em;
-  vertical-align: -0.04em;
-  background: var(--sparkle) center / contain no-repeat;
+/* Sections are separated by a rule, not by a glyph in front of the heading. A
+   hairline across the column is how a printed page marks a new section: it
+   reads at a glance while scrolling, costs no colour, and leaves the heading
+   itself to be read as words. */
+.prose h2 {
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rule);
 }
 
 h3 {
   font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.006em;
   margin: 1.8rem 0 0.5rem;
 }
 
@@ -314,6 +592,41 @@ p, li {
   background: var(--paper-raised);
   border: 1px solid var(--rule);
   border-radius: 12px;
+}
+
+/* While the swap below is in flight, the images it is about to replace are
+   hidden: they are painted in the light literals baked into each file, and on a
+   dark page that is a flash of cream artwork per diagram. Only the script that
+   performs the swap sets this class, and it removes it when every fetch has
+   settled or after three seconds, whichever comes first. */
+:root.inlining-diagrams .prose figure img[src$=".svg"] {
+  visibility: hidden;
+}
+
+/* A diagram that the page can actually reach into. The script in the base
+   template swaps each hand-drawn SVG from an `img` (which renders in its own
+   document, deaf to this stylesheet) into a shadow root, where the artwork
+   reads the tokens above and follows the theme, including the header's toggle.
+   The shadow root is what makes this safe at scale: a page can carry a dozen
+   diagrams whose internal stylesheets all use names like `.arc1`, and none of
+   them collide with each other or leak into the page.
+
+   Without JavaScript the `img` simply stays, drawn in the light palette its
+   literals name. */
+.prose .diagram {
+  display: block;
+  width: 100%;
+}
+
+/* Both kinds of drawing, the swapped-in diagrams and the inline walkthrough,
+   want the lighter end of the amber and teal ramps for their strokes and
+   labels. `--dia-*` carries a light identity of its own in `:root`, so this
+   needs no literal fallback; in the light theme it resolves to the core value
+   and nothing shifts. */
+.prose .diagram,
+.prose .capwalk {
+  --accent-deep: var(--dia-accent-deep);
+  --teal-deep: var(--dia-teal-deep);
 }
 
 .prose figure img {
@@ -356,7 +669,7 @@ p, li {
 }
 
 code {
-  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   background: var(--code-bg);
   padding: 0.1em 0.34em;
@@ -373,6 +686,82 @@ pre {
   overflow-x: auto;
   border: 1px solid var(--rule);
   box-shadow: var(--shadow);
+  /* The TypeScript examples are tab-indented, matching deno fmt; render the
+     tab four columns wide like every editor here, not the browser's eight. */
+  tab-size: 4;
+}
+
+/* Copy-to-clipboard. The button is built by the script in the base template, so
+   a reader without JavaScript simply gets the code block as it always was. It
+   stays faint until the block is hovered or the button itself is focused, so a
+   page of listings is not a page of buttons; it never fades out on touch, where
+   there is no hover to reveal it. */
+.code-block {
+  position: relative;
+}
+
+.copy-btn {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--paper-raised) 85%, transparent);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 0.32rem 0.6rem;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.code-block .copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  opacity: 0;
+}
+
+.code-block:hover .copy-btn,
+.code-block .copy-btn:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .code-block .copy-btn {
+    opacity: 1;
+  }
+}
+
+/* Inside a tabbed block the button joins the tab strip and copies whichever tab
+   is showing. It matches the tabs' box exactly so the row is level, but it is
+   drawn as a quiet action rather than a chip: given the same border and fill as
+   the tabs it reads as a third tab, which is the one thing it must not do. */
+.code-tabs .tab-bar .copy-btn {
+  margin-left: auto;
+  align-self: stretch;
+  margin-bottom: 0;
+  background: transparent;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.code-tabs .tab-bar .copy-btn:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.copy-btn:hover {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.copy-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.copy-btn.is-done {
+  color: var(--teal-text);
+  border-color: var(--teal);
 }
 
 pre code {
@@ -401,37 +790,37 @@ pre code .keyword_return,
 pre code .keyword_operator,
 pre code .keyword_import,
 pre code .function_builtin {
-  color: #98499f;
+  color: var(--syn-keyword);
 }
 
 pre code .function_call,
 pre code .function {
-  color: var(--teal-deep);
+  color: var(--syn-call);
 }
 
 pre code .string {
-  color: #5d7f33;
+  color: var(--syn-string);
 }
 
 pre code .number,
 pre code .boolean,
 pre code .constant_builtin {
-  color: #b5651d;
+  color: var(--syn-number);
 }
 
 pre code .string_escape {
-  color: #b5651d;
+  color: var(--syn-number);
 }
 
 pre code .comment {
-  color: #9a8567;
+  color: var(--syn-comment);
   font-style: italic;
 }
 
 pre code .operator,
 pre code .punctuation_delimiter,
 pre code .punctuation_bracket {
-  color: #8a7862;
+  color: var(--syn-punct);
 }
 
 /* Jargon callouts. A short aside that defines a term from the object-capability
@@ -441,10 +830,10 @@ pre code .punctuation_bracket {
    callout's label. */
 blockquote {
   margin: 1.5rem 0;
-  padding: 0.85rem 1.1rem 0.85rem 1.2rem;
-  border-left: 3px solid var(--teal);
+  padding: 0.85rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--teal) 30%, var(--paper));
   background: color-mix(in srgb, var(--teal) 7%, transparent);
-  border-radius: 0 9px 9px 0;
+  border-radius: 9px;
   color: var(--ink);
 }
 
@@ -464,24 +853,38 @@ blockquote {
    the page's twinkle, so a jargon aside is recognizable at a glance. A blockquote
    that does not open with a bold term simply gets no twinkle. */
 .prose blockquote > p:first-child > strong:first-child {
-  color: var(--teal-deep);
+  color: var(--teal-text);
 }
 
-.prose blockquote > p:first-child > strong:first-child::before {
-  content: "";
-  display: inline-block;
-  width: 0.72em;
-  height: 0.72em;
-  margin-right: 0.45em;
-  vertical-align: -0.04em;
-  background: var(--sparkle) center / contain no-repeat;
-}
-
+/* A table wider than its column scrolls inside itself. Without this the page
+   body scrolls sideways on a narrow screen, which moves the prose out from
+   under the reader along with the table. The markdown emits a bare `<table>`
+   with nothing to wrap, so the table is its own scroll container: `display:
+   block` is what makes `overflow-x` apply, and the inner `display: table` below
+   puts the grid layout back inside it. */
 table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
   border-collapse: collapse;
   width: 100%;
   font-size: 0.94em;
   margin: 1.2rem 0;
+  /* Figures of equal width, so a column of measurements lines up digit under
+     digit instead of drifting. The benchmark tables are full of them. */
+  font-variant-numeric: tabular-nums;
+}
+/* Restore the grid inside the scrolling block. Without these the rows stack and
+   the columns stop lining up, which is the usual cost of the wrapper-free
+   scroll above. */
+table > thead,
+table > tbody {
+  display: table;
+  width: 100%;
+}
+table > thead > tr,
+table > tbody > tr {
+  display: table-row;
 }
 
 th, td {
@@ -503,7 +906,7 @@ th, td {
 }
 
 th {
-  color: var(--teal-deep);
+  color: var(--teal-text);
   font-weight: 700;
 }
 
@@ -533,7 +936,7 @@ hr {
   flex: none;
   width: clamp(96px, 17vw, 150px);
   height: auto;
-  filter: drop-shadow(0 6px 16px rgba(58, 48, 39, 0.16));
+  filter: drop-shadow(0 6px 16px color-mix(in srgb, var(--ink) 16%, transparent));
 }
 
 .hero-copy {
@@ -546,12 +949,13 @@ hr {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent-deep);
+  color: var(--accent-text);
 }
 
 .hero h1 {
   margin: 0 0 0.5rem;
   font-size: clamp(2.4rem, 6vw, 3.4rem);
+  letter-spacing: -0.03em;
 }
 
 .hero-tagline {
@@ -570,17 +974,84 @@ hr {
   margin: 0.5rem 0 0;
   font-size: 0.95rem;
   font-style: italic;
-  color: var(--accent-deep);
+  color: var(--accent-text);
 }
 
-.hero-kicker::after {
-  content: "";
-  display: inline-block;
-  width: 0.8em;
-  height: 0.8em;
-  margin-left: 0.4em;
-  vertical-align: -0.08em;
-  background: var(--sparkle) center / contain no-repeat;
+/* The two doors out of the hero. A reader arrives either ready to build or
+   wanting to know why any of this matters, and those are different pages, so
+   the front door names both instead of leaving the choice to a wall of cards
+   further down. The filled one is the one most readers want. */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1.15rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1.05rem;
+  border-radius: 9px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.btn:hover {
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  background: var(--btn-fill);
+  color: var(--btn-ink);
+  box-shadow: var(--shadow);
+}
+
+.btn-primary:hover {
+  background: var(--accent);
+}
+
+.btn-secondary {
+  background: var(--paper-raised);
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* The arrow rides along on hover. It is a small thing, but it makes the button
+   feel like a door rather than a label. */
+.btn .btn-arrow {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.btn:hover .btn-arrow {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btn .btn-arrow,
+  .card {
+    transition: none;
+  }
+
+  .btn:hover {
+    transform: none;
+  }
+
+  .btn:hover .btn-arrow {
+    transform: none;
+  }
 }
 
 @media (max-width: 38rem) {
@@ -588,6 +1059,10 @@ hr {
     flex-direction: column;
     align-items: center;
     text-align: center;
+  }
+
+  .hero-actions {
+    justify-content: center;
   }
 }
 
@@ -615,21 +1090,91 @@ hr {
   transition: transform 0.12s ease, border-color 0.12s ease;
 }
 
+.card {
+  position: relative;
+  overflow: hidden;
+}
+
+/* A hairline in the brand gradient sits along the bottom edge of every card and
+   wipes across on hover. It is the one moving part of an otherwise still grid,
+   and it points along the reading direction, toward the link the card is. */
+.card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.22s ease;
+}
+
 .card:hover {
   text-decoration: none;
   transform: translateY(-2px);
   border-color: var(--accent);
 }
 
-.card h3 {
+.card:hover::after,
+.card:focus-visible::after {
+  transform: scaleX(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card::after {
+    transition: none;
+  }
+}
+
+/* A card's title is an `h2`: on the landing page these are the top-level
+   sections under the page title, and jumping straight to `h3` leaves a hole in
+   the outline that a screen reader announces as a missing level. Size is set
+   here rather than inherited from the document `h2`, because rank is structure
+   and size is presentation. */
+.card h2 {
   margin: 0 0 0.3rem;
-  color: var(--accent-deep);
+  font-size: 1.08rem;
+  letter-spacing: -0.004em;
+  color: var(--accent-text);
 }
 
 .card p {
   margin: 0;
   font-size: 0.94rem;
   color: var(--ink-soft);
+}
+
+/* The lead card takes the full width of the grid's first row and states the
+   one thing a first-time reader most needs to hear. Everything after it is a
+   peer; this one is the recommendation. */
+.card-lead {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--teal) 10%, var(--paper-raised)),
+    var(--paper-raised) 60%
+  );
+  border-color: color-mix(in srgb, var(--teal) 35%, var(--rule));
+}
+
+.card-lead .card-lead-mark {
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
+  color: var(--teal);
+  background: currentColor;
+  -webkit-mask: var(--mark-stack) center / contain no-repeat;
+  mask: var(--mark-stack) center / contain no-repeat;
+}
+
+.card-lead h2 {
+  color: var(--teal-text);
+  font-size: 1.15rem;
 }
 
 /* The module stack: one connected panel of layers resting on layers, the way
@@ -648,7 +1193,6 @@ hr {
 .layer {
   padding: 0.7rem 1rem;
   border-bottom: 1px solid var(--rule);
-  border-left: 4px solid transparent;
   background: var(--paper-raised);
 }
 
@@ -657,24 +1201,21 @@ hr {
 }
 
 .layer strong {
-  color: var(--teal-deep);
+  color: var(--teal-text);
 }
 
 .layer.is-core {
   background: color-mix(in srgb, var(--teal) 8%, var(--paper-raised));
-  border-left-color: var(--teal);
 }
 
 .layer.is-adapter {
   background: color-mix(in srgb, var(--accent) 8%, var(--paper-raised));
-  border-left-color: var(--accent);
 }
 
 /* The local actor layer: sync and sans-io like the core, but resting on it
    rather than inside it, so it gets its own neutral band. */
 .layer.is-local {
   background: color-mix(in srgb, var(--ink-soft) 7%, var(--paper-raised));
-  border-left-color: var(--ink-soft);
 }
 
 .layer small {
@@ -697,12 +1238,12 @@ hr {
 }
 
 .tag-core {
-  color: var(--teal-deep);
+  color: var(--teal-text);
   background: color-mix(in srgb, var(--teal) 18%, transparent);
 }
 
 .tag-adapter {
-  color: var(--accent-deep);
+  color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
@@ -723,16 +1264,74 @@ hr {
   color: var(--ink-soft);
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+/* The foot of every page. A reader who has finished a page is at a decision
+   point, so this offers the three directions the site actually goes rather than
+   a single line of legal text. */
+.footer-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  gap: 1.5rem 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.footer-brand {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.footer-brand img {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+.footer-brand p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+
+.footer-cols nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.footer-cols h2 {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.footer-cols a {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.footer-cols a:hover {
+  color: var(--accent-text);
+}
+
+.footer-legal {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 52rem) {
+  .footer-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer-brand {
+    grid-column: 1 / -1;
+  }
 }
 
 /* ── Narrow screens: the sidebar folds to a horizontal strip on top ──────── */
@@ -807,8 +1406,8 @@ hr {
   margin-bottom: -1px;
 }
 
-.code-tabs .tab-bar button[aria-selected="true"] {
-  color: var(--teal-deep);
+.code-tabs .tab-bar button[aria-pressed="true"] {
+  color: var(--teal-text);
   /* Same fill as the panel, with the seam erased where they meet, so the
      selected tab opens straight into the code block. */
   background: var(--code-bg);

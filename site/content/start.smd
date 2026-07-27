@@ -1,5 +1,6 @@
 ---
 .title = "Start building",
+.description = "Write the calling half of a pancake conversation line by line, then pick the surface that matches your language: Zig, C, Rust, TypeScript, Python, or Racket.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -34,8 +35,9 @@ round-trip:
 > const std = @import("std");
 > const pancake = @import("pancake");
 >
-> // tcp: the peer is a place, a cleartext `host:port`. The slice names the
-> // transports this client can reach; `tcp.at` spells the designator as a locator.
+> // tcp: the peer is a place. Its name, a cleartext `host:port`, is called the
+> // "designator", and `tcp.at` wraps that name as a dialable locator. The slice
+> // names the transports this client can reach.
 > var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 > const partner = pancake.net.tcp.at(designator);
 >
@@ -44,7 +46,10 @@ round-trip:
 >     &.{tcp_resident.netlayer()},
 >     partner,
 >     .ephemeral,
->     .{},
+>     // Both budgets default to 0, which means "wait forever". A silent or
+>     // unreachable peer would park this program with no way out, so a
+>     // client always passes finite ones.
+>     .{ .handshake_timeout_ms = 10_000, .settle_timeout_ms = 10_000 },
 > );
 > defer session.deinit();
 >
@@ -58,8 +63,8 @@ round-trip:
 > switch (settled) {
 >     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
->     // The third outcome: an introduction to a capability on another peer,
->     // which a `driver.Bridge` + Host redeems for you. This greeter never sends one.
+>     // The third outcome: an introduction to a capability on another peer.
+>     // A Host presents it there and hands you the live result. This greeter never sends one.
 >     .give => {},
 > }
 > ```
@@ -96,8 +101,8 @@ round-trip:
 > switch (settled) {
 >     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
->     // The third outcome: an introduction to a capability on another peer,
->     // which a `driver.Bridge` + Host redeems for you. This greeter never sends one.
+>     // The third outcome: an introduction to a capability on another peer.
+>     // A Host presents it there and hands you the live result. This greeter never sends one.
 >     .give => {},
 > }
 > ```
@@ -106,30 +111,51 @@ What the snippet does not spell out:
 
 - A **netlayer** is pancake's word for a transport
   ([Transports]($link.page('transports'))).
+- A **locator** is the dialable `ocapn://` address, and the **designator** is
+  the peer's name inside it: a `host:port` for `tcp`, a public key for a keyed
+  transport ([Concepts]($link.page('concepts')) defines both).
+- **`io`** is your `std.Io` instance. The checked example constructs it with
+  `var threaded = std.Io.Threaded.init(allocator, .{});` and then
+  `const io = threaded.io();`.
+- **`designator`** in the snippet is just the address string, for example
+  `const designator = "127.0.0.1:9099";`.
+- **`.ephemeral`** is the session identity, a throwaway keypair minted for this
+  connection. A stable identity would go here instead; the
+  [CLI]($link.page('cli'))'s `init` mints and stores one, and the keyed
+  transports on [Transports]($link.page('transports')) are where a stable key
+  earns its keep.
 - The **arena** owns reply allocations; drop it to free them.
 - The third settle arm, **`give`**, is an introduction a Host + `driver.Bridge`
-  redeems — [Concepts]($link.page('concepts')). This greeter never sends one.
-- Tcp uses `connect`; iroh uses `connectUriOwned` on the same `Session` path.
+  redeems ([Concepts]($link.page('concepts')) explains it). This greeter never
+  sends one.
+- The tcp snippet dials with `connect`; the iroh snippet uses `connectUriOwned` on the
+  same `Session` path.
 
-The tcp tab is carried verbatim by
-[`readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig);
-`zig build examples` runs it and `zig build meta-check` holds this page to those
-lines. The iroh tab follows the
+The tcp snippet is the checked contract:
+[`readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig)
+carries it verbatim, `zig build examples` runs it, and `zig build meta-check`
+holds this page to those lines. The iroh snippet is illustrative. It follows the
 [rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/zig/client.zig):
-reachability posture, bare node id, same fetch / call / switch. The id still
-arrives out of band. Discovery turns a name you were given into a route; it
-does not browse for peers. Dial-by-id: [iroh]($link.page('transports/iroh')).
-The iroh tab is illustrative of that shape; the tcp fence is the checked
-contract.
+the same reachability posture, a bare node id, and the same fetch, call, and
+switch. The id still arrives out of band. Discovery turns a name you were given
+into a route; it does not browse for peers. The
+[iroh]($link.page('transports/iroh')) page covers dial-by-id in full.
 
 Both halves together:
 [`01_connect_and_serve.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig).
+
+Want a live partner to dial while you write this? `zig build` puts the
+[CapTP CLI]($link.page('cli')) on your path, and
+`pancake ocapn listen --publish greeter` prints a locator serving the same
+greeter this client fetches.
 
 ## From C, or any FFI host
 
 The same library is a plain C ABI in two shapes. To dial, fetch, and call in one
 thread, use the owning session (`pancake_tcp_session_connect` through
-`pancake_tcp_session_release`). When your program already owns the event loop,
+`pancake_tcp_session_release`). Connect takes the same two budgets the Zig
+snippet above passes, and for the same reason: zero means wait forever, so a
+client that dials the network gives them finite values. When your program already owns the event loop,
 drive the sans-io peer instead: `pancake_peer_recv_stream` in,
 `pancake_peer_next_event` and `pancake_peer_take_outbound` out. Either way the
 surface is opaque handles, fixed-width return codes, `ptr + len` views, and
@@ -149,9 +175,14 @@ shape they share, then jump to your language:
 [Python]($link.page('bindings/python')), or
 [Racket]($link.page('bindings/racket')).
 
+Writing for the browser instead of a server? The TypeScript binding also
+compiles to WebAssembly as `@pancake/web`; the page always dials rather than
+listens. Start at [In the browser]($link.page('bindings/browser')).
+
 ## Then go deeper
 
 New to capabilities, locators, pipelining, or three-party handoff? Read
 [Concepts]($link.page('concepts')) first. Those are the hard ideas, once.
-Layer names (`Session` vs `Host` vs `Peer`): [modules]($link.page('modules')).
-More surfaces: [Surfaces]($link.page('surfaces')).
+When the layer names blur (`Session`, `Host`, `Peer`),
+[modules]($link.page('modules')) sorts them out, and
+[Surfaces]($link.page('surfaces')) lists every way to hold the library.

@@ -84,8 +84,10 @@ public surface unchanged, so `(require "pancake.rkt")` is one import for a
 consumer. It also carries the `seam` submodule that re-provides the
 binding-internal transport seam.
 
-Two vat boundaries are consumer-visible and deliberate, pinned by the smoke
-and the `bench-goblins` app parity. There is no cross-actor turn
+The vat keeps Goblins's verbs, but the substrate is pancake: this is not a
+Goblins compatibility layer, and an existing Goblins program will not run on
+it unchanged. Two consumer-visible vat boundaries are pinned by the smoke and
+the `bench-goblins` app parity. There is no cross-actor turn
 transactionality: an outer turn erroring after an inner `$`'s `bcom` leaves
 the inner swap installed, where Goblins would roll it back. And time-travel
 is accept-side (server) only today: `accept` takes `#:time-travel?`;

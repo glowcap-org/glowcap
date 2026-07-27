@@ -46,7 +46,7 @@ pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
 /// materialization (`decodeOwned`) happens only when the caller asks.
 pub const AnswerOverride = union(enum) {
     none,
-    /// Goblins V1.0 resolver-callback deliver surfaced as a semantic
+    /// OCapN V1.0 resolver-callback deliver surfaced as a semantic
     /// resolve (`Event.tag == .resolve`).
     resolver_callback: model.AnswerPosition,
     /// Resolver-only deliver carrying its virtual inbound answer

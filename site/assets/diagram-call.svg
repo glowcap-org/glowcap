@@ -6,48 +6,143 @@
   role="img"
   aria-label="You deliver a call to a partner and immediately hold a promise; when the partner resolves the call, the promise settles to its result."
 >
-  <defs>
-    <marker
-      id="call-teal"
-      viewBox="0 0 10 10"
-      refX="7.5"
-      refY="5"
-      markerWidth="7"
-      markerHeight="7"
-      orient="auto-start-reverse"
-    >
-      <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
-    </marker>
-    <marker
-      id="call-amber"
-      viewBox="0 0 10 10"
-      refX="7.5"
-      refY="5"
-      markerWidth="7"
-      markerHeight="7"
-      orient="auto-start-reverse"
-    >
-      <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
-    </marker>
-  </defs>
-  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .head { font-size: 15px; font-weight: 700; }
     .label { font-size: 13.5px; }
-    .muted { fill: #6b5d4d; }</style>
+    .muted { fill: var(--ink-soft, #6b5d4d); }
 
-  <line x1="140" y1="68" x2="140" y2="292" stroke="#e7d4b7" stroke-width="2">
+    /* Motion: one 10s loop. The deliver draws rightward and the promise chip
+       appears while the call is still in flight; the resolve marches back and
+       settles it. Base styles are the finished static diagram. */
+    .dot { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) {
+      .dot { visibility: visible; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .dot { visibility: hidden !important; }
+    }
+
+    .deliver {
+      stroke-dasharray: 440;
+      stroke-dashoffset: 0;
+      animation: call-deliver 10s ease-in-out infinite;
+    }
+    @keyframes call-deliver {
+      0%, 5% { stroke-dashoffset: 440; opacity: 0; }
+      6% { opacity: 1; }
+      20% { stroke-dashoffset: 0; }
+      92% { opacity: 1; }
+      97%, 100% { stroke-dashoffset: 0; opacity: 0; }
+    }
+    .head-deliver { animation: call-head-deliver 10s ease-out infinite; }
+    @keyframes call-head-deliver {
+      0%, 20% { opacity: 0; }
+      23% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .dot-deliver {
+      offset-path: path("M140 108 L 579 108");
+      animation: call-dot-deliver 10s ease-in-out infinite;
+    }
+    @keyframes call-dot-deliver {
+      0%, 5% { offset-distance: 0%; opacity: 0; }
+      7% { opacity: 1; }
+      18% { opacity: 1; }
+      20%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .lab-deliver { animation: call-lab-deliver 10s ease-in-out infinite; }
+    @keyframes call-lab-deliver {
+      0%, 5% { opacity: 0.25; }
+      9% { opacity: 1; }
+      90% { opacity: 1; }
+      96%, 100% { opacity: 0.25; }
+    }
+    /* The promise pops in while the deliver bead is still travelling: holding
+       it never waits on the partner. Once the resolve settles, it dims. */
+    .chip-promise { animation: call-chip-promise 10s ease-out infinite; }
+    @keyframes call-chip-promise {
+      0%, 8% { opacity: 0; transform: translate(0, 8px); }
+      13% { opacity: 1; transform: translate(0, 0); }
+      58% { opacity: 1; }
+      64% { opacity: 0.55; }
+      93% { opacity: 0.55; }
+      98%, 100% { opacity: 0; }
+    }
+    .box-partner { animation: call-box-partner 10s ease-in-out infinite; }
+    @keyframes call-box-partner {
+      0%, 20% { stroke-width: 1; }
+      23% { stroke-width: 2.8; }
+      27%, 100% { stroke-width: 1; }
+    }
+    .resolve {
+      animation:
+        call-resolve 10s ease-in-out infinite,
+        call-march 0.8s linear infinite;
+    }
+    @keyframes call-resolve {
+      0%, 38% { opacity: 0; }
+      42% { opacity: 1; }
+      92% { opacity: 1; }
+      97%, 100% { opacity: 0; }
+    }
+    @keyframes call-march {
+      from { stroke-dashoffset: 10; }
+      to { stroke-dashoffset: 0; }
+    }
+    .head-resolve { animation: call-head-resolve 10s ease-out infinite; }
+    @keyframes call-head-resolve {
+      0%, 58% { opacity: 0; }
+      61% { opacity: 1; }
+      92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+    .dot-resolve {
+      offset-path: path("M580 228 L 141 228");
+      animation: call-dot-resolve 10s ease-in-out infinite;
+    }
+    @keyframes call-dot-resolve {
+      0%, 40% { offset-distance: 0%; opacity: 0; }
+      42% { opacity: 1; }
+      56% { opacity: 1; }
+      58%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .lab-resolve { animation: call-lab-resolve 10s ease-in-out infinite; }
+    @keyframes call-lab-resolve {
+      0%, 38% { opacity: 0.25; }
+      42% { opacity: 1; }
+      90% { opacity: 1; }
+      96%, 100% { opacity: 0.25; }
+    }
+    .box-you { animation: call-box-you 10s ease-in-out infinite; }
+    @keyframes call-box-you {
+      0%, 58% { stroke-width: 1; }
+      61% { stroke-width: 2.8; }
+      65%, 100% { stroke-width: 1; }
+    }
+    .chip-settled { animation: call-chip-settled 10s ease-out infinite; }
+    @keyframes call-chip-settled {
+      0%, 58% { opacity: 0; transform: translate(0, 8px); }
+      64% { opacity: 1; transform: translate(0, 0); }
+      93% { opacity: 1; }
+      98%, 100% { opacity: 0; }
+    }</style>
+
+  <line x1="140" y1="68" x2="140" y2="292" stroke="var(--rule, #e7d4b7)" stroke-width="2">
   </line>
-  <line x1="580" y1="68" x2="580" y2="292" stroke="#e7d4b7" stroke-width="2">
+  <line x1="580" y1="68" x2="580" y2="292" stroke="var(--rule, #e7d4b7)" stroke-width="2">
   </line>
 
   <rect
+    class="box-you"
     x="60"
     y="24"
     width="160"
     height="44"
     rx="11"
-    fill="#fff9ee"
-    stroke="#c76f18"
+    fill="var(--paper-raised, #fff9ee)"
+    stroke="var(--accent, #c76f18)"
   >
   </rect>
   <text
@@ -55,16 +150,17 @@
     y="52"
     text-anchor="middle"
     class="head"
-    fill="#a4560c"
+    fill="var(--accent-deep, #a4560c)"
   >You</text>
   <rect
+    class="box-partner"
     x="500"
     y="24"
     width="160"
     height="44"
     rx="11"
-    fill="#f1f7f6"
-    stroke="#257f88"
+    fill="var(--dia-cool-fill, #f1f7f6)"
+    stroke="var(--teal, #257f88)"
   >
   </rect>
   <text
@@ -72,76 +168,88 @@
     y="52"
     text-anchor="middle"
     class="head"
-    fill="#1b5f66"
+    fill="var(--teal-deep, #1b5f66)"
   >Partner</text>
 
   <path
-    d="M140 108 L 576 108"
+    class="deliver"
+    d="M140 108 L 579 108"
     fill="none"
-    stroke="#1b5f66"
+    stroke="var(--teal-deep, #1b5f66)"
     stroke-width="2"
-    marker-end="url(#call-teal)"
   >
   </path>
+  <g class="head-deliver" transform="translate(579 108)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--teal-deep, #1b5f66)"></path>
+  </g>
+  <circle class="dot dot-deliver" r="5" fill="var(--teal, #257f88)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"></circle>
   <text
     x="362"
     y="100"
     text-anchor="middle"
-    class="label"
-    fill="#1b5f66"
+    class="label lab-deliver"
+    fill="var(--teal-deep, #1b5f66)"
   >deliver: greet("world")</text>
 
-  <rect
-    x="60"
-    y="140"
-    width="160"
-    height="36"
-    rx="10"
-    fill="#ffffff"
-    stroke="#c76f18"
-    stroke-dasharray="5 4"
-  >
-  </rect>
-  <text
-    x="140"
-    y="163"
-    text-anchor="middle"
-    class="label"
-    fill="#a4560c"
-  >a promise, right away</text>
+  <g class="chip-promise">
+    <rect
+      x="40"
+      y="140"
+      width="200"
+      height="36"
+      rx="10"
+      fill="var(--dia-card, #ffffff)"
+      stroke="var(--accent, #c76f18)"
+      stroke-dasharray="5 4"
+    >
+    </rect>
+    <text
+      x="140"
+      y="163"
+      text-anchor="middle"
+      class="label"
+      fill="var(--accent-deep, #a4560c)"
+    >a promise, right away</text>
+  </g>
 
   <path
-    d="M576 228 L 140 228"
+    class="resolve"
+    d="M580 228 L 141 228"
     fill="none"
-    stroke="#a4560c"
+    stroke="var(--accent-deep, #a4560c)"
     stroke-width="2"
     stroke-dasharray="6 4"
-    marker-end="url(#call-amber)"
   >
   </path>
+  <g class="head-resolve" transform="translate(141 228) rotate(180)">
+    <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent-deep, #a4560c)"></path>
+  </g>
+  <circle class="dot dot-resolve" r="5" fill="var(--accent, #c76f18)" stroke="var(--paper-raised, #fff9ee)" stroke-width="2"></circle>
   <text
     x="362"
     y="220"
     text-anchor="middle"
-    class="label"
-    fill="#a4560c"
+    class="label lab-resolve"
+    fill="var(--accent-deep, #a4560c)"
   >resolve: "Hello, world"</text>
 
-  <rect
-    x="60"
-    y="256"
-    width="160"
-    height="36"
-    rx="10"
-    fill="#eef6f1"
-    stroke="#257f88"
-  >
-  </rect>
-  <text
-    x="140"
-    y="279"
-    text-anchor="middle"
-    class="label"
-    fill="#1b5f66"
-  >settled: "Hello, world"</text>
+  <g class="chip-settled">
+    <rect
+      x="40"
+      y="256"
+      width="200"
+      height="36"
+      rx="10"
+      fill="var(--dia-cool-fill, #eef6f1)"
+      stroke="var(--teal, #257f88)"
+    >
+    </rect>
+    <text
+      x="140"
+      y="279"
+      text-anchor="middle"
+      class="label"
+      fill="var(--teal-deep, #1b5f66)"
+    >settled: "Hello, world"</text>
+  </g>
 </svg>

@@ -60,3 +60,16 @@ a high-water. A relay in another runtime must gate the browser-bound leg the sam
 `websockets`' awaited `send`, Rust `SinkExt::poll_ready`); ADR-0086 makes that gate a non-optional
 contract clause, and the cross-runtime matrix asserts it directly: `zig build bindings-relay` stalls
 a reader through each runtime's relay and fails if the far sender is not backpressured.
+
+## Scaling
+
+The relay holds no CapTP session state, so one more relayed connection costs only runtime and socket
+overhead, not pancake buffers. `zig build relay-scaling` (`scaling_bench.ts`) measures that cost the
+way `bench-peer-scaling` measures the core's: it stands up the real reference relay, opens thousands
+of live relayed connections through it, and divides the resident-memory delta by the count. The
+figure is about 80 KiB per connection, so a host serves tens of thousands of connections per
+gigabyte of RAM, and with both the RAM (tens of gigabytes) and a raised file-descriptor limit to
+match (each connection is two descriptors), hundreds of thousands. The run also proves the relay
+holds thousands of connections at once and fails if a change gives each connection a fat buffer. A
+lower per-connection cost would take a native completion-loop relay rather than a JavaScript one,
+the same way the core reaches ~2 KiB per session; that is a separate build.

@@ -42,7 +42,8 @@ pub const SturdyRef = struct { peer: PeerLocator, swissnum: []const u8 };
 reusing the same `PeerLocator` that `op:start-session` and the handoff
 descriptors carry. Equality is structural:
 [`src/ocapn/model/equality.zig`](../../../src/ocapn/model/equality.zig)
-`referencesEqual` compares the `.sturdy` arm field-wise. `peerLocatorsEqual`
+`referencesStructurallyEqual` compares the `.sturdy` arm field-wise.
+`peerLocatorsEqual`
 over `(transport, designator, hints)` and byte-equality on `swissnum`. Because
 it is structural on the codec-neutral value tree, two sturdyrefs naming the same
 target compare equal regardless of which codec or Syrup profile carried them
@@ -100,7 +101,7 @@ a miss costs one extra round-trip, never correctness: so it is bounded by
 `SessionLimits.max_sturdyref_cache_entries` and evicts the oldest entry on
 overflow rather than erroring.
 
-### Cross-session distributed equality
+### Session-local reuse and Host enrollment
 
 This builds on the sturdyref dedup cache above. Host CapTP enrollment posture
 (not a CapTP `FeatureSet` bit): after a partner's CapTP identity is known
@@ -118,11 +119,12 @@ order (both ends keep the session the higher-keyed peer opened) rather than
 local arrival order. Crossed-hellos window (ADR-0068): an accept beside an
 in-flight dial remains admitted until inbound start-session;
 `tiebreakInbound` condemns exactly one side so the pair collapses to one.
-Same-session structural `Reference` equality (`referencesEqual`) remains the
-distributed-equality evidence for OCapN Pass Invariant Equality on
-`(import_id, kind)`. The sturdyref dedup cache above supplies the
-sturdyref-vs-handoff collapse onto one import row. No wire field carries
-equality.
+`referencesStructurallyEqual` compares `(import_id, kind)` only within one
+session. The sturdyref dedup cache reuses that row for repeated enlivenment on
+the same session. Neither mechanism identifies a target that returns through an
+arbitrary network path, and the existing sturdyref scenario does not execute a
+handoff. Full OCapN Pass Invariant Equality for targets therefore remains
+unproved. No wire field carries equality.
 
 ## Scope (what this does not decide)
 
@@ -139,9 +141,9 @@ equality.
 
 ## Alternatives Considered
 
-- **Opaque-bytes sturdyref with lazy parse.** Rejected: two sturdyrefs that
-  should compare equal under Pass Invariant Equality would compare unequal once
-  each codec chose its own byte layout, breaking codec-neutral semantics.
+- **Opaque-bytes sturdyref with lazy parse.** Rejected: two structurally equal
+  sturdyrefs would compare unequal once each codec chose its own byte layout,
+  breaking codec-neutral semantics.
 - **A `Value`-level sturdyref arm.** Rejected: a sturdyref is authority-bearing
   (it enlivens to a live reference) so it belongs on `Reference`, alongside
   near/far/promise.
@@ -152,7 +154,7 @@ equality.
 ## Consequences
 
 - The model carries `SturdyRef { peer, swissnum }` as `Reference.sturdy`;
-  `referencesEqual` compares it structurally.
+  `referencesStructurallyEqual` compares it structurally.
 - The session refuses a sturdyref on a non-negotiated session
   (`Error.FeatureNotNegotiated`) and owns the dedup cache and in-flight markers.
 - `src/ocapn/engine/sturdyref.zig` exposes the precondition / prepare / settle
@@ -166,7 +168,7 @@ A future signed sturdyref grows additively as a wrapped Syrup record on the
 `v1_0` profile, mirroring the handoff signature-envelope pattern; the `next`
 profile refuses the extended form via the feature flag. The unsigned
 `(peer, swissnum)` shape and its structural equality are the substrate the
-Cross-session distributed equality section above binds its dedup sidecar to.
+session-local dedup sidecar uses.
 
 ## Notes
 

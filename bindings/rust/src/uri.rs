@@ -58,6 +58,12 @@ fn parse_with(uri: &str, sturdyref: bool) -> Result<Locator> {
 	result
 }
 
+/// # Safety
+///
+/// `loc` must be a live locator handle from a successful `pancake_uri_parse_*`
+/// call, not yet released. Every view read from it is copied into owned
+/// `String`s before this returns, so the caller may release the handle
+/// immediately afterwards.
 unsafe fn read_locator(loc: *mut sys::PancakeLocator) -> Result<Locator> {
 	let transport = read_field(sys::pancake_locator_transport, loc)?;
 	let designator = read_field(sys::pancake_locator_designator, loc)?;
@@ -84,6 +90,12 @@ unsafe fn read_locator(loc: *mut sys::PancakeLocator) -> Result<Locator> {
 	})
 }
 
+/// # Safety
+///
+/// `loc` must be a live, unreleased locator handle, and `accessor` one of the
+/// `pancake_locator_*` view accessors for it: on success it fills a pointer and
+/// length borrowing `loc`'s storage (copied into an owned `String` here, inside
+/// the borrow's validity).
 unsafe fn read_field(
 	accessor: unsafe extern "C" fn(
 		*mut sys::PancakeLocator,
@@ -98,6 +110,11 @@ unsafe fn read_field(
 	Ok(view_to_string(ptr, len))
 }
 
+/// # Safety
+///
+/// Unless `len == 0` or `ptr` is null (both yield an empty string), `ptr` must
+/// point to `len` initialized bytes that stay valid for the duration of this
+/// call.
 unsafe fn view_to_string(ptr: *const c_uchar, len: usize) -> String {
 	if len == 0 || ptr.is_null() {
 		return String::new();

@@ -53,13 +53,13 @@ pub const PANCAKE_VERSION_MAJOR: u32 = 0;
 pub const PANCAKE_VERSION_MINOR: u32 = 1;
 pub const PANCAKE_VERSION_PATCH: u32 = 0;
 
-/// Report the ABI version the linked library implements. Any out-pointer may be
-/// null to skip that component. Lets a consumer detect header/library skew by
-/// comparing against the `PANCAKE_VERSION_*` macros it compiled against.
 /// The annotated symbol inventory (crossing semantics per export) the
 /// binding FFI-table generators reflect from — see `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
+/// Report the ABI version the linked library implements. Any out-pointer may be
+/// null to skip that component. Lets a consumer detect header/library skew by
+/// comparing against the `PANCAKE_VERSION_*` macros it compiled against.
 pub export fn pancake_abi_version(out_major: ?*u32, out_minor: ?*u32, out_patch: ?*u32) void {
     if (out_major) |p| p.* = PANCAKE_VERSION_MAJOR;
     if (out_minor) |p| p.* = PANCAKE_VERSION_MINOR;
@@ -82,6 +82,7 @@ pub const PANCAKE_ERR_UNSUPPORTED_VALUE = abi.PANCAKE_ERR_UNSUPPORTED_VALUE;
 pub const PANCAKE_ERR_BROKEN = abi.PANCAKE_ERR_BROKEN;
 pub const PANCAKE_ERR_NOT_FOUND = abi.PANCAKE_ERR_NOT_FOUND;
 pub const PANCAKE_ERR_BUFFER_TOO_SMALL = abi.PANCAKE_ERR_BUFFER_TOO_SMALL;
+pub const PANCAKE_ERR_TIMEOUT = abi.PANCAKE_ERR_TIMEOUT;
 
 pub const PANCAKE_CODEC_SYRUP = abi.PANCAKE_CODEC_SYRUP;
 pub const PANCAKE_CODEC_CAPNP = abi.PANCAKE_CODEC_CAPNP;

@@ -110,7 +110,7 @@ test "rooms-peer outbox.offset persists and missing means zero not EOF" {
     // Missing offset must not invent EOF, or undrained lines vanish on restart.
     try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
     try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
-    cli.rooms_peer_harness.saveOutboxOffset(io, dir, 42);
+    try cli.rooms_peer_harness.saveOutboxOffset(io, dir, 42);
     try std.testing.expectEqual(@as(usize, 42), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
     try std.testing.expectEqual(@as(usize, 40), cli.rooms_peer_harness.clampOutboxOffset(42, 40));
 }
@@ -159,11 +159,46 @@ test "rooms-peer outbox backlog reflects undrained bytes after offset persist" {
     const body = "{\"channel\":\"room\",\"text\":\"a\"}\n{\"channel\":\"room\",\"text\":\"b\"}\n";
     try cli.rooms_peer_harness.overwriteFile(io, dir, "outbox.jsonl", body);
     try std.testing.expectEqual(body.len, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
-    cli.rooms_peer_harness.saveOutboxOffset(io, dir, body.len);
+    try cli.rooms_peer_harness.saveOutboxOffset(io, dir, body.len);
     try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
     // Restart posture: load offset then clamp — undrained prefix remains if offset mid-file.
-    cli.rooms_peer_harness.saveOutboxOffset(io, dir, 10);
+    try cli.rooms_peer_harness.saveOutboxOffset(io, dir, 10);
     const loaded = cli.rooms_peer_harness.clampOutboxOffset(cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir), body.len);
     try std.testing.expectEqual(@as(usize, 10), loaded);
     try std.testing.expectEqual(body.len - 10, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+}
+
+test "rooms-peer a failed introduce ages out instead of poisoning the outbox" {
+    // A refusal is the one cached thing no object can invalidate: it names a
+    // peer that was *not* there, so nothing can report itself gone. Held
+    // without a clock, the outbox drain stops at that peer's line and never
+    // advances — silencing every later line behind it, room posts included —
+    // until the room session itself drops, which for a healthy long-lived
+    // session never happens.
+    const gpa = std.testing.allocator;
+    var table: std.StringHashMapUnmanaged(u32) = .{};
+    defer {
+        var it = table.keyIterator();
+        while (it.next()) |k| gpa.free(k.*);
+        table.deinit(gpa);
+    }
+
+    try table.put(gpa, try gpa.dupe(u8, "bob"), 2);
+    try table.put(gpa, try gpa.dupe(u8, "carol"), 0);
+
+    // carol's wait is already over, so she is retried on this wake; bob's is
+    // not, so he still waits. A refusal that expired immediately would be no
+    // cooldown at all.
+    try std.testing.expectEqual(@as(usize, 1), cli.rooms_peer.expireCooldowns(gpa, &table));
+    try std.testing.expect(!table.contains("carol"));
+    try std.testing.expect(table.contains("bob"));
+
+    // And bob's clears on his own schedule rather than never. The keys are
+    // freed with the rows, which the testing allocator checks.
+    var wakes: usize = 0;
+    while (table.count() != 0 and wakes < 8) : (wakes += 1) {
+        _ = cli.rooms_peer.expireCooldowns(gpa, &table);
+    }
+    try std.testing.expectEqual(@as(usize, 0), table.count());
+    try std.testing.expect(wakes > 0);
 }

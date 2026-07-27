@@ -32,7 +32,9 @@
 ;; pancake (the gifter) takes an ephemeral port, the recipient learns it at spawn
 ;; time. --port=N (from `zig build racket-goblins-gift -Dport=N`) moves the pair.
 (define PORT (parse-port "racket-goblins-gift" 22126 65534))
-(define RACKET "/usr/local/bin/racket")
+(define RACKET
+  (or (find-executable-path "racket")
+      (error 'racket-gift-client "racket executable not found on PATH")))
 (define EXPORTER-SCRIPT "conformance/goblins-peer/racket/gift-exporter-host.rkt")
 (define RECIPIENT-SCRIPT "conformance/goblins-peer/racket/gift-recipient.rkt")
 ;; pancake hardcodes the same swiss the exporter host registers, the way the

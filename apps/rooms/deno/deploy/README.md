@@ -13,32 +13,32 @@ light image only runs them. The Rust iroh sidecar is statically linked into
 `libpancake_net_transport_iroh.so`, so the runtime needs no cargo: just Deno and
 two `.so` files.
 
-## Build the shared libraries and the UI bundle first
+## Build what the container mounts
 
-The libraries live in `zig-out/lib/`, which is generated, so build them in the
-dev container before starting the compose service:
-
-```sh
-zig build && zig build iroh-abi
-```
-
-That produces the two objects the iroh rooms UI loads:
-`libpancake_ocapn.so` (the core) and `libpancake_net_transport_iroh.so` (the iroh
-transport with its sidecar linked in). The base image is pinned to the same
-`debian:trixie-slim` digest as the dev image, so the glibc the `.so` were built
-against matches the glibc that loads them.
-
-The browser client is authored as TypeScript modules under `ui/` (entered through
-`ui/main.ts`) and served as JavaScript. In the dev
-container `web.ts` bundles it on the fly, but that first bundle downloads esbuild over
-the network, which the light runtime image deliberately cannot do (no CA
-certificates, no outbound HTTPS). So pre-build the bundle here too, and `web.ts` will
-serve the ready-made `ui/page.js` instead of bundling at run time:
+`docker compose up` mounts this repository and `zig-out/lib` read-only. It
+cannot build anything it is missing, so build it first, in the dev container:
 
 ```sh
-deno bundle --platform browser apps/rooms/deno/ui/main.ts \
-  -o apps/rooms/deno/ui/page.js
+zig build rooms-deploy-prep
 ```
+
+That one step produces everything the container needs: the shared libraries,
+the iroh transport with its Rust sidecar linked in, the wasm Host the browser
+peer loads, and the prebuilt browser bundle at `ui/page.js`.
+
+The bundle matters because the light runtime image deliberately has no network
+and no CA certificates, so `web.ts` cannot download esbuild to bundle for
+itself. With `ui/page.js` present it serves that instead. The step bundles with
+the same browser configuration `web.ts` uses, which stubs the non-browser FFI
+adapters; bundling without it yields a different artifact.
+
+If the iroh transport is missing, the room server cannot listen, never announces
+its locator, and the supervisor respawns it in a loop. That is what the loop
+means.
+
+The base image is pinned to the same `debian:trixie-slim` digest as the dev
+image, so the glibc the libraries were built against matches the glibc that
+loads them.
 
 `ui/page.js` is generated and gitignored, and it rides in on the same read-only
 source mount as the rest of the UI.

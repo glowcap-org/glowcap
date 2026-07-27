@@ -76,9 +76,9 @@ def _register_behavior(entry: _BehaviorEntry) -> int:
 
 def _unregister_behavior(ctx_id: int) -> None:
     """Drop a hosted object's registry entry once the host can never deliver to
-    it again — a closing connection sweeps its own hosted ids so the registry
-    does not pin dead behaviors. Host-wide giftables (``conn is None``) are
-    never unregistered here; they die with their host. Idempotent."""
+    it again — a closing connection sweeps its own hosted ids, and a released
+    host sweeps its giftable ids (``Host.release``), so the registry does not
+    pin dead behaviors. Idempotent."""
     _registry.pop(ctx_id, None)  # tolerant: a close may sweep an id twice
 
 
@@ -347,15 +347,21 @@ def _spawn_hosted(session, behavior) -> Ref:
     # local Forward composition finds it.
     session.guard_open()
     ctx = _register_actor(session, behavior)
-    turn = _current_turn_for(session)
-    if turn is not None:
-        position = _turn_spawn(turn, ctx)
-    else:
-        out = ctypes.c_uint64()
-        _check_host(_host.pancake_host_session_spawn(
-            session.raw, _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
-        ))
-        position = out.value
+    try:
+        turn = _current_turn_for(session)
+        if turn is not None:
+            position = _turn_spawn(turn, ctx)
+        else:
+            out = ctypes.c_uint64()
+            _check_host(_host.pancake_host_session_spawn(
+                session.raw, _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
+            ))
+            position = out.value
+    except BaseException:
+        # free = NULL: the C tier never owns the row, so a refused mint must
+        # drop it here or the registry pins the behavior forever.
+        _unregister_behavior(ctx)
+        raise
     session.hosted[position] = ctx
     return Ref(Near(position))
 
@@ -367,10 +373,16 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
     swiss = name.encode()
     buf, ptr = _byte_buf(swiss)
     out = ctypes.c_uint64()
-    _check_host(_host.pancake_host_session_publish(
-        session.raw, ptr, len(swiss),
-        _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
-    ))
+    try:
+        _check_host(_host.pancake_host_session_publish(
+            session.raw, ptr, len(swiss),
+            _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
+        ))
+    except BaseException:
+        # free = NULL: the C tier never owns the row, so a refused publish
+        # must drop it here or the registry pins the behavior forever.
+        _unregister_behavior(ctx)
+        raise
     position = out.value
     session.hosted[position] = ctx
     return Ref(Near(position))

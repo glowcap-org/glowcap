@@ -128,6 +128,21 @@ pub fn readerFromFrame(bytes: []const u8) Error!Reader {
     return .{ .bytes = bytes, .seg_words = seg_words };
 }
 
+/// Refuse bytes past the length a frame's own header declares.
+///
+/// `readerFromFrame` is deliberately lenient about this: the framing layer
+/// hands it a buffer that may hold several frames back to back and expects it
+/// to read the first. A caller that has already been given one delimited frame
+/// wants the strict rule, and calls this.
+pub fn expectExactFrameLength(bytes: []const u8) Error!void {
+    if (bytes.len < wire.WORD_BYTES) return Error.Truncated;
+    const header = std.mem.readInt(u64, bytes[0..wire.WORD_BYTES], .little);
+    const seg_words: usize = @intCast(header >> 32);
+    const frame_words = std.math.add(usize, seg_words, 1) catch return Error.Truncated;
+    const frame_len = std.math.mul(usize, frame_words, wire.WORD_BYTES) catch return Error.Truncated;
+    if (bytes.len != frame_len) return Error.MalformedFrame;
+}
+
 /// Words a legitimate frame is allowed to (re-)read per segment word before the
 /// per-frame traversal budget refuses it. A well-formed frame is a *tree*: the
 /// segment words partition into node data/pointer sections and list bodies, and
@@ -269,6 +284,11 @@ pub fn followList(reader: Reader, loc: StructLoc, i: u16) Error!ListLoc {
 /// value as a malformed frame instead of reaching `@enumFromInt`'s illegal
 /// behavior (a panic in a safe build, undefined behavior otherwise).
 pub fn enumFromWire(comptime E: type, raw: u64) Error!E {
+    // The discriminant occupies the low sixteen bits and `data0_flag` sits
+    // directly above it, so bit 16 is dropped on purpose. Nothing writes any
+    // bit above that, and silently ignoring them would let two different words
+    // spell the same message.
+    if (raw >> 17 != 0) return Error.MalformedFrame;
     const value: u16 = @truncate(raw);
     inline for (@typeInfo(E).@"enum".fields) |field| {
         if (value == field.value) return @enumFromInt(value);

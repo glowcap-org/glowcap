@@ -305,3 +305,52 @@ test "registry dispatch unknown verb is usage" {
     const code = try cli.registry.dispatch(&c, "no-such-verb", &.{});
     try std.testing.expectEqual(cli.exit_codes.usage, code);
 }
+
+test "a request with no id is a notification and gets no reply" {
+    // JSON-RPC 2.0 section 4.1: a request without an `id` member is a
+    // notification, and a server must not answer one. Rendering the missing
+    // member as the literal `null` erased the difference, so every
+    // notification looked like a request whose id happened to be null, and
+    // those do get answered.
+    const gpa = std.testing.allocator;
+
+    const notification = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"jsonrpc":"2.0","method":"tools/list"}
+    , .{});
+    defer notification.deinit();
+    try std.testing.expect(try cli.mcp.idToJson(gpa, notification.value.object.get("id")) == null);
+
+    // An id that is explicitly null is a request, and still gets a reply.
+    const explicit_null = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"jsonrpc":"2.0","id":null,"method":"tools/list"}
+    , .{});
+    defer explicit_null.deinit();
+    const rendered = try cli.mcp.idToJson(gpa, explicit_null.value.object.get("id"));
+    defer if (rendered) |r| gpa.free(r);
+    try std.testing.expectEqualStrings("null", rendered.?);
+}
+
+test "invalid UTF-8 from a partner does not break the JSON response" {
+    // A partner can send any bytes it likes, and JSON strings must be valid
+    // UTF-8. Copying an invalid byte through produced a response the client
+    // could not parse at all, so one odd byte in a remote reply broke the whole
+    // message rather than the one field carrying it.
+    const gpa = std.testing.allocator;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(gpa);
+
+    // A lone continuation byte, a truncated three-byte sequence, and a valid
+    // multi-byte character that must survive intact.
+    try cli.argv.writeJsonString(&out, gpa, "ok\xffmid\xe2\x82end\xc3\xa9");
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, out.items, .{});
+    defer parsed.deinit();
+    const s = parsed.value.string;
+    try std.testing.expect(std.mem.indexOf(u8, s, "ok") != null);
+    try std.testing.expect(std.mem.indexOf(u8, s, "mid") != null);
+    try std.testing.expect(std.mem.indexOf(u8, s, "end") != null);
+    // The valid character came through untouched.
+    try std.testing.expect(std.mem.indexOf(u8, s, "\xc3\xa9") != null);
+    // The invalid bytes did not.
+    try std.testing.expect(std.mem.indexOfScalar(u8, s, 0xff) == null);
+}

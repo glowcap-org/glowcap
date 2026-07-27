@@ -1,33 +1,68 @@
 ---
-.title = "pancake",
+.title = "Object-capability RPC for OCapN, in Zig",
+.description = "pancake is a Zig implementation of OCapN and CapTP: two programs pass each other object references and call methods across the network, with no ambient authority to fall back on.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "index.shtml",
 .draft = false,
 ---
 
-Two programs pass each other unforgeable references to objects and call methods
-across the network, under the same rule as local code. Hold the reference and
-you can use it; if you do not, there is nothing to forge. That is
-[OCapN](https://github.com/ocapn/ocapn). pancake is a small
+Two programs pass each other references to objects and call methods across the
+network, under the same rule as local code. A peer can call only the references
+it has been handed, and it cannot construct one it was not given, so there is
+no ambient authority to fall back on. That is
+[OCapN](https://github.com/ocapn/ocapn). pancake is a
 [Zig](https://ziglang.org/) library that speaks it.
+
+Most network authorization works the other way around. You prove who you are,
+the service looks up what you are allowed to do, and anything you hand your
+credentials to inherits all of it. With references there is nothing to inherit:
+a program gets the objects you passed it and has no way to name anything else.
+[Why OCapN]($link.page('why')) holds that against the protocols you already
+run.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
-The protocol core is deterministic, synchronous, and does no I/O. Sockets and
-scheduling live in adapters above it. Frame ownership, copies, and wire format
-stay visible at the boundary that owns them.
+```zig
+// Both budgets default to 0, which means "wait forever"; a client always
+// passes finite ones.
+const opts = .{ .handshake_timeout_ms = 10_000, .settle_timeout_ms = 10_000 };
+const session = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, opts);
+const greeter = try session.fetch("greeter"); // a capability, by name
+const settled = try session.call(greeter, .{
+    .verb = "greet",
+    .args = &.{.{ .string = "world" }},
+}, arena.allocator());
+```
+
+That is the conversation: dial, fetch a capability by name, call it. The
+allocators and the transport around it are a few more lines.
+[Start building]($link.page('start')) walks all of them in Zig, then points at
+the same entry in C and each binding.
+
+The protocol core does no I/O of its own. It is a synchronous state machine you
+feed bytes into and drain bytes out of, so sockets, threads, and scheduling stay
+in your program where you can see them.
 
 Peers can meet without an application server brokering them: the
-[iroh transport]($link.page('transports/iroh')) carries CapTP over encrypted QUIC
+[iroh transport]($link.page('transports/iroh')) carries CapTP, the call
+protocol inside OCapN, over encrypted QUIC
 and names each peer by a self-authenticating key. It is an optional artifact: a
-TCP-only program never pays for it.
+TCP-only program never pays for it. Two browsers can meet the same way over a
+direct [WebRTC]($link.page('transports/webrtc')) DataChannel, with no server on
+the byte path once the channel is up. The two are not equally proven: iroh is
+checked on every push and WebRTC is checked only when someone runs it, which
+[What you can depend on]($link.page('stability')) sets out row by row.
 
 Hold the library as a Zig package, a plain C ABI, or a native binding (Rust,
-TypeScript, Python, Racket). An installable [CapTP CLI]($link.page('cli')) sits
-beside those surfaces (`zig build pancake`).
+TypeScript, Python, Racket). The TypeScript binding also compiles to WebAssembly,
+so the same session runs in the browser. A
+[CapTP CLI]($link.page('cli')) sits beside those surfaces: `zig build` puts the
+`pancake` binary in `zig-out/bin`.
 
-This site is the front door. Deep living-state docs live
+This site is the front door. The deeper documents, the ones kept in step with
+today's code, live
 [next to the source](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs).
-New to the ideas? [Concepts]($link.page('concepts')). Ready to dial?
-[Start building]($link.page('start')).
+New to the ideas? [Why OCapN]($link.page('why')) starts from the protocols you
+already run, then [Concepts]($link.page('concepts')) goes a level down. Ready
+to dial? [Start building]($link.page('start')).

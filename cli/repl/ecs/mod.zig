@@ -16,9 +16,8 @@ pub const max_entities: u16 = 256;
 
 pub const LabWorld = struct {
     entities: World(max_entities),
-    kind: components.Store(components.Kind, max_entities) = .{},
+    /// Screen rectangles, read back when the layout resolves a click.
     rect: components.Store(components.Rect, max_entities) = .{},
-    hit: components.Store(components.Hit, max_entities) = .{},
     res: Resources = .{},
     intents: IntentQueue = .{},
 

@@ -88,7 +88,7 @@ pub fn serve(self: *Vat, event: *engine.Event) !bool {
     const body = event.view() catch return false;
     return switch (body) {
         .deliver => |deliver| serveDeliver(self, deliver),
-        .resolve => |resolve| serveResolve(self, event, resolve),
+        .resolve => |resolve| serveResolve(self, resolve),
         else => false,
     };
 }
@@ -98,21 +98,12 @@ pub fn serve(self: *Vat, event: *engine.Event) !bool {
 /// consulting the resolve interceptor on the fulfilled path.
 fn serveDeliver(self: *Vat, deliver: model.view.Deliver) !bool {
     const export_position = deliver.target.exportPosition() orelse return false;
-    // V1.0: when the deliver has no wire answer but carries a
-    // resolve_me_desc, the engine installed a virtual answer for
-    // the resolver. Look it up so the resolve reaches the partner.
-    const answer = deliver.answer orelse if (self.peer) |peer| blk: {
-        if (deliver.resolve_me_desc) |rmd| {
-            // The resolve-me-desc may arrive as `.far` (original
-            // inbound from the wire) or `.near` (a synthesized
-            // pipelined-drain event that round-tripped through
-            // encode+decode, flipping the perspective). `position`
-            // accepts both — near and far name one integer space.
-            const id = rmd.position() orelse break :blk @as(?model.AnswerPosition, null);
-            break :blk peer.answerForResolverImport(model.ImportPosition.from(id));
-        }
-        break :blk @as(?model.AnswerPosition, null);
-    } else null;
+    // V1.0: a resolver-only deliver carries no wire answer but names a resolver
+    // descriptor. The engine maps it to the virtual answer it installed, so the
+    // resolve reaches the partner. The engine owns that mapping, so the vat never
+    // decodes the descriptor. Without a peer (no wire), only an explicit wire
+    // answer exists.
+    const answer = if (self.peer) |peer| peer.answerForDeliver(deliver) else deliver.answer;
     const local_id = self.exports.get(export_position.int()) orelse {
         // The bootstrap position is engine-owned: the peer
         // auto-answers its delivers (`fetch`, gift deposit /
@@ -250,7 +241,7 @@ fn fireBrokenFar(self: *Vat, answer: model.AnswerPosition, listener: Listener, r
 /// carries a signed handoff give (`event` is here for exactly that: the
 /// verbatim envelope span lives only in the event's frame), an owned clone
 /// on the plain fulfilled path, or the break reason.
-fn serveResolve(self: *Vat, event: *engine.Event, resolve: model.view.Resolve) !bool {
+fn serveResolve(self: *Vat, resolve: model.view.Resolve) !bool {
     // Peek the listener rather than remove it: the fulfilled and give
     // arms do fallible allocation before firing, and an error return
     // must leave the entry in the map so teardown
@@ -273,7 +264,6 @@ fn serveResolve(self: *Vat, event: *engine.Event, resolve: model.view.Resolve) !
             if (value == .handoff and value.handoff == .give) {
                 var projected = try engine.handoff_recipient.projectGiveForRedeem(
                     self.allocator,
-                    event.bytes(),
                     value.handoff.give,
                 );
                 defer projected.deinit(self.allocator);

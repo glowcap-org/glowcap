@@ -1,32 +1,35 @@
 ---
 .title = "Examples & demo apps",
+.description = "Watch the protocol run: Zig chapters one layer at a time, C programs over the same ABI, and cross-language apps holding one real OCapN conversation.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Watch the protocol run. Three levels: Zig chapters (one layer at a time), C ABI
-programs, and cross-language apps over real [OCapN](https://github.com/ocapn/ocapn).
-Every example is a build target, so prose cannot drift from the library.
+Watch the protocol run. This page climbs three levels: Zig chapters that take
+one layer at a time, C programs over the same ABI, and cross-language apps
+holding one real [OCapN](https://github.com/ocapn/ocapn) conversation. Every
+example is a build target, so the code here cannot drift from the library.
 
-Hard moves have a chapter: **chapter 02** is three-party handoff (settle as the
-introduced capability); **chapter 06** is promise pipelining plus attenuation.
-Ideas first: [Concepts]($link.page('concepts')).
+The hard moves each get a chapter. Chapter 02 is three-party handoff, where a
+call settles as the introduced capability, and chapter 06 is promise pipelining
+plus attenuation. If the ideas are new, read [Concepts]($link.page('concepts'))
+first.
 
 ## The Zig chapters
 
-They read top-down. Chapter 01 is the surface an application rides; chapter 02
-widens it to the multi-session CapTP `Host` tier; chapters 03–05 then descend one
-layer at a time to the raw engine; chapter 06 returns to the actor layer for
-pipelining and attenuation.
+They read top-down. Chapter 01 is the surface an application rides, and
+chapter 02 widens it to the multi-session CapTP `Host` tier. Chapters 03
+through 05 then descend one layer at a time to the raw engine, and chapter 06
+returns to the actor layer for pipelining and attenuation.
 
 | # | Chapter | What it shows |
 | --- | --- | --- |
 | 01 | [connect & serve](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig) | the application surface over a real TCP socket: listen, accept, publish by name, serve; connect, fetch, call, switch on the outcome |
 | 02 | [introduce and redeem](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/02_introduce_and_redeem.zig) | the capability pattern itself: an introduction settles as the introduced capability (the host redeems the gift inside the call), and the direct call leaves the introducer behind |
 | 03 | [actor far-send](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/03_actor_far_send.zig) | the `Vat` pattern beneath a call: publish an actor, far-send to it, settle the promise |
-| 04 | [look up by name](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/04_look_up_by_name.zig) | the bootstrap fetch by swiss number that sits under fetch-by-name |
+| 04 | [look up by name](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/04_look_up_by_name.zig) | what `fetch("name")` does underneath: asking the session's front-door object (the *bootstrap object*) for a name by its unguessable token (its *swiss number*) |
 | 05 | [call a remote method](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/05_call_a_remote_method.zig) | the raw engine: pair two peers and shuttle deliver and resolve one `step` at a time |
 | 06 | [pipeline and attenuate](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/06_pipeline_and_attenuate.zig) | promise pipelining and attenuation together: dependent calls aimed at an unresolved answer, and a reply that forwards only the allow-listed verbs |
 
@@ -37,8 +40,8 @@ carry the full source and a few lower-level mechanics besides.
 
 ## The C programs
 
-A set of C programs prove the same library from the other side of the C ABI,
-under the same `zig build examples` step as the chapters.
+The C programs prove the same library from the other side of the C ABI, and
+they build and run under the same `zig build examples` step as the chapters.
 
 | Program | What it shows |
 | --- | --- |
@@ -51,9 +54,9 @@ under the same `zig build examples` step as the chapters.
 ## The cross-language apps
 
 Each app is built on the same small surface of application verbs (connect,
-fetch, publish, spawn, send, serve, close) written once per language, so the
-app reads the same in Zig and the four [bindings]($link.page('bindings')):
-Rust, Python, Racket, and TypeScript.
+publish, fetch, send, serve) written once per language, so the app reads the
+same in Zig and the four [bindings]($link.page('bindings')): Rust, Python,
+Racket, and TypeScript.
 
 | App | What it is | Run it |
 | --- | --- | --- |
@@ -63,14 +66,14 @@ Rust, Python, Racket, and TypeScript.
 | [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
 | [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN session on the `tcp` netlayer | `zig build demo-accountability` |
 
-`rooms` is the fullest live picture. `zig build rooms-web` serves
-`http://localhost:8000`. Pick a member and choose _Message_: the room runs a
-three-party handoff, then steps out of the path. The conversation header says so.
-`rooms-web-iroh` puts peer CapTP on [iroh]($link.page('transports/iroh')); the
-browser-to-server WebSocket stays plaintext. Five-language peer hops over iroh:
-`zig build demo-rooms-iroh` (needs `cargo`). App code does not change; the
-address does.
+`rooms` is the fullest live picture. `zig build rooms-web` serves the browser
+UI at `http://localhost:8000`. Pick a member and choose _Message_: the room
+runs a three-party handoff, then steps out of the path, and the conversation
+header says so. `zig build rooms-web-iroh` moves the peer-to-peer legs onto
+[iroh]($link.page('transports/iroh')), while the browser's own leg still rides
+its WebSocket. App code does not change between the two; only the address does.
 
-`rooms` / `tasks` / `tools` need `deno` plus Zig; other languages join when
-present. `accountability` is Zig host + Deno/Python callers (no `-Dattach`).
-Pin ports with `-Dport`. Demos are siblings of `check`, not inside it.
+The `rooms`, `tasks`, and `tools` demos need `deno` beside Zig, and the other
+languages join when their runtimes are present. `accountability` runs a Zig
+host with Deno and Python callers, and it does not take `-Dattach`. `-Dport`
+pins a port. The demos run as siblings of `zig build check`, not inside it.

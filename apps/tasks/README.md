@@ -1,7 +1,6 @@
 # tasks: a capability-secure shared task board, in five languages at once
 
-This is a small, real application built on pancake actors. A task board runs as
-a server; clients connect, add tasks, mark them done, and see changes in real
+A task board runs as a server on pancake actors; clients connect, add tasks, mark them done, and see changes in real
 time. What makes it worth reading is not the board but how it works, and that
 clients written in Zig, Rust, Python, Racket, and Deno all manage the same board
 at once, none of them aware of the others' languages.
@@ -137,5 +136,4 @@ It does not yet attenuate (a read-only board handle that can `list` and `watch`
 but not `add` or `done`) or persist tasks across restarts. Attenuation and
 revocation on this exact capability model are shown end-to-end in the sibling
 [`tools`](../tools/) showcase, where a read-only view is an actor that forwards
-only the safe verbs. Wiring a read-only board handle is a few lines and a good
-next exercise.
+only the safe verbs.

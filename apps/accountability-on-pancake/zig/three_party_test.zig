@@ -112,9 +112,20 @@ fn withdrawGift(
         return RoutingError.SignatureRejected;
     }
 
+    // The exporter checks the receive against names it derives from the two
+    // ends of the session the withdraw arrived on, never from the receive's own
+    // words, and keys the replay counter by that derived side (ADR-0009). These
+    // peers never handshake, so there is nothing to derive here.
     const registry = exporter_peer.giftRegistry();
-    try registry.validateWithdraw(receive);
-    _ = try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.limits(), receive);
+    const expected: ?engine.handoff_names.ExpectedReceiver = derived: {
+        const partner_key = exporter_peer.session_state.partnerSessionKey() orelse break :derived null;
+        if (exporter_peer.session_state.localSessionKey()) |our_key| {
+            break :derived try engine.handoff_names.ExpectedReceiver.derive(partner_key, our_key);
+        }
+        break :derived try engine.handoff_names.ExpectedReceiver.fromPartner(partner_key);
+    };
+    try registry.validateWithdraw(receive, expected);
+    _ = try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.limits(), receive, expected);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpFrame(recipient, exporter_peer);
@@ -208,6 +219,8 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     const recipient_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** 32);
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    // B names the side it really is on the session it withdraws over.
+    const recipient_side = try engine.handoff_recipient.sideName(recipient_pub.asBytes());
 
     const gift_id = [_]u8{0x42} ** 32;
     var give: model.HandoffGive = .{
@@ -232,7 +245,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     // B builds the receive over the signed give and signs it with its own key.
     var receive: model.HandoffReceive = .{
         .receiving_session = &([_]u8{0xdd} ** 32),
-        .receiving_side = &([_]u8{0x22} ** 32),
+        .receiving_side = &recipient_side,
         .handoff_count = 1,
         .signed_give = give,
         .signature = "",
@@ -260,7 +273,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     defer b_id.deinit();
 
     const request = "read-thermostat";
-    const att = affordance.Attestation.sign(b_id.current, request, false);
+    const att = try affordance.Attestation.sign(allocator, b_id.current, &b_id.aid, request, false);
 
     // B sends via its Vat over the B-to-C (recipient_to_exporter) session.
     var b_vat = actors.Vat.initOver(allocator, &recipient_to_exporter);

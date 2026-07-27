@@ -25,7 +25,7 @@ const Counter = struct {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "add")) {
-            self.n += msg.arg(0).integer;
+            self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
         if (std.mem.eql(u8, msg.verb, "increment")) {

@@ -115,7 +115,7 @@ test "a sturdyref argument is codec-equivalent (the sturdy dialect boundary is t
     try expectCodecEquivalent(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(4) },
         .args = &.{
-            .{ .reference = .{ .sturdy = .{
+            .{ .reference = .{ .sturdy = &.{
                 .peer = .{ .transport = "tcp", .designator = "host:9000" },
                 .swissnum = &.{ 0xde, 0xad, 0xbe, 0xef },
             } } },
@@ -131,7 +131,7 @@ test "a sturdyref argument with locator hint entries is codec-equivalent" {
     try expectCodecEquivalent(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(4) },
         .args = &.{
-            .{ .reference = .{ .sturdy = .{
+            .{ .reference = .{ .sturdy = &.{
                 .peer = .{
                     .transport = "tcp",
                     .designator = "host:9000",

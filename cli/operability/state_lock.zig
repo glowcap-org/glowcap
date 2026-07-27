@@ -8,6 +8,7 @@
 const std = @import("std");
 const exit_codes = @import("../exit_codes.zig");
 const log = @import("log.zig");
+const path_io = @import("path_io.zig");
 
 const Io = std.Io;
 
@@ -49,10 +50,7 @@ fn lockPath(buf: []u8, state_dir: []const u8) ![]const u8 {
 /// Non-blocking exclusive acquire on `state_dir/lock`. Prefer
 /// `tryAcquireForIdentity` when the caller holds an identity path.
 pub fn tryAcquire(io: Io, state_dir: []const u8) !Guard {
-    Io.Dir.cwd().createDirPath(io, state_dir) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => return e,
-    };
+    try path_io.ensureDirPath(io, state_dir);
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try lockPath(&path_buf, state_dir);
     return tryAcquirePath(io, path);
@@ -62,12 +60,7 @@ pub fn tryAcquire(io: Io, state_dir: []const u8) !Guard {
 pub fn tryAcquireForIdentity(io: Io, identity_path: []const u8) !Guard {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try lockPathForIdentity(&path_buf, identity_path);
-    if (std.fs.path.dirname(path)) |dir| {
-        Io.Dir.cwd().createDirPath(io, dir) catch |e| switch (e) {
-            error.PathAlreadyExists => {},
-            else => return e,
-        };
-    }
+    try path_io.ensureParentDir(io, path);
     return tryAcquirePath(io, path);
 }
 
@@ -91,9 +84,17 @@ pub fn mapError(err: anyerror) u8 {
     };
 }
 
-pub fn refuseBusy(io: Io, err: anyerror) u8 {
+/// Refuse a failed state-lock acquire, saying what went wrong.
+///
+/// Another pancake holding the lock is the expected case and reads as such.
+/// Anything else is almost always the state directory being unwritable, and
+/// that used to exit silently: `init` is the first command in the quickstart,
+/// so a bare exit code and no output leaves a new user with nothing to go on.
+pub fn refuseLockFailure(io: Io, err: anyerror, identity_path: []const u8) u8 {
     if (err == error.Busy) {
         log.err(io, "identity is locked by another pancake process", .{});
+        return exit_codes.busy;
     }
-    return mapError(err);
+    log.err(io, "cannot lock the state directory for identity {s}: {s}", .{ identity_path, @errorName(err) });
+    return exit_codes.internal;
 }

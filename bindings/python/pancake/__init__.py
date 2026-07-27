@@ -75,6 +75,7 @@ from ._value import (
     Tagged,
 )
 from ._constants import (
+    HANDSHAKE_TIMEOUT_MS,
     HINT_DIRECT_ADDRESSES,
     TRANSPORT_IROH,
     TRANSPORT_KEYED_TCP,
@@ -94,6 +95,7 @@ from ._locator import (
 from ._host import Host
 from ._promise import RemotePromise
 from ._session import (
+    RedeemedReply,
     Session,
 )
 from ._trampoline import Caretaker
@@ -131,6 +133,7 @@ __all__ = [
     "Context",
     # Application surface
     "Session",
+    "RedeemedReply",
     "RemotePromise",
     "Server",
     "KeyedTcpServer",
@@ -139,6 +142,7 @@ __all__ = [
     "connect",
     "listen",
     "listen_keyed_tcp",
+    "HANDSHAKE_TIMEOUT_MS",
     # Locator grammar
     "Locator",
     "parse_locator",

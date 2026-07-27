@@ -1,23 +1,24 @@
 ---
 .title = "Rust",
+.description = "The Rust binding: typed Session, Reference, and Argument over the pancake archives, with Cargo features selecting transports.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Typed `Session` / `Reference` / `Argument` over the pancake archives
+The Rust binding gives you typed `Session`, `Reference`, and `Argument` over the
+pancake archives
 ([`lib.rs`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/src/lib.rs)).
-Cargo features select transports (`tcp` / `inproc` default; `iroh` opt-in).
-Install: [Bindings]($link.page('bindings')).
+Cargo features select transports (`tcp` / `inproc` default; `iroh` opt-in), and
+the [Bindings]($link.page('bindings')) page covers install.
 
 ## The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, send,
 handle the reply) reads like this in Rust. The snippet uses the crate's opt-in
-`async` feature and runs inside a `tokio::task::LocalSet`. Unlike TS/Python,
-`connect` already starts the inbound loop; call `Session::serve` only when you
-want to await shutdown.
+`async` feature and runs inside a `tokio::task::LocalSet`. `connect` starts the
+inbound loop itself, so `serve` is only for awaiting shutdown.
 
 > []($block.attrs('code-tabs'))
 > **tcp**
@@ -61,22 +62,24 @@ want to await shutdown.
 > session.close();
 > ```
 
-Iroh needs the `iroh` Cargo feature and a bare node id; fetch/send match the
-tcp tab. Dial-by-id: [iroh]($link.page('transports/iroh')). CapTP ideas:
-[Concepts]($link.page('concepts')).
+The iroh snippet needs the `iroh` Cargo feature, and its locator is a bare node id
+plus the reachability posture; `fetch` and `send` are unchanged. For dial-by-id,
+see [iroh]($link.page('transports/iroh')), and
+[Concepts]($link.page('concepts')) covers the CapTP ideas.
 
 ## Async
 
-[tokio](https://tokio.rs/) behind an opt-in `async` feature. Handles are
-`!Send`: one task inside a `LocalSet`. Host calls stay synchronous; only socket
-I/O awaits. Hosting the other half: rooms client linked below, or Zig
-[Start]($link.page('start')).
+Async rides [tokio](https://tokio.rs/) behind an opt-in `async` feature. Handles
+are `!Send`, so each lives on one task inside a `LocalSet`. Only the socket
+reads and writes await; the protocol verbs never block. To host the other half,
+`listen` binds a `Server` whose `accept` yields a `Session` per partner.
 
 ## Actors
 
-`session.spawn` / `session.publish` take a `FnMut(&str, &[Argument])` closure.
-A panic settles the answer broken without crossing the C boundary. Pipelining
-and attenuation: [Concepts]($link.page('concepts')).
+`session.spawn` and `session.publish` take a `FnMut(&str, &[Argument])` closure
+returning `Result<Argument, String>`. An `Err` breaks the answer with its words,
+and a panic settles it broken without crossing the C boundary.
+[Concepts]($link.page('concepts')) covers pipelining and attenuation.
 
 ## Binding check and example
 
@@ -88,4 +91,4 @@ The full surface lives in the
 [Rust binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/README.md),
 and the
 [rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/rust/client.rs)
-builds a small capability-secure room on this surface.
+is the biggest real program on this surface.

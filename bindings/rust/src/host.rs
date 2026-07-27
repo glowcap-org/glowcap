@@ -27,7 +27,7 @@ use std::rc::{Rc, Weak};
 use tokio::sync::oneshot;
 
 use crate::dial::Reachability;
-use crate::session_shared::SessionShared;
+use crate::session_shared::{Ref, SessionShared};
 use crate::sys::driver as ffi;
 use crate::trampoline::{
 	ctx_free, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline, ActorCell,
@@ -109,25 +109,42 @@ pub(crate) fn drain_pending_releases() {
 		};
 		match pending {
 			PendingRelease::Session { conn, host } => {
-				unsafe { ffi::pancake_host_session_release(conn) };
+				let _ = unsafe { ffi::pancake_host_session_release(conn) };
 				drop(host);
 			}
-			PendingRelease::Host(host) => unsafe { ffi::pancake_host_release(host) },
+			// The code is discarded here on purpose: this is the deferred
+			// drain, and a refusal at this point has no caller left to tell.
+			// The parking above is what keeps a release out of a callback in
+			// the first place, so a nonzero here would be a bug in that, not a
+			// condition an embedder can act on.
+			PendingRelease::Host(host) => {
+				let _ = unsafe { ffi::pancake_host_release(host) };
+			}
 		}
 	}
 }
 
-// A host vow's row: registered the instant the vow is minted (the mint IS the
-// registration), settled by the drain's SETTLE/FAIL arms. An outcome that
-// lands before anyone awaits is stored, so a late observation settles from the
-// recorded state instead of hanging — and no waiter exists until one is
-// registered, so an unobserved broken answer never strands a channel.
+// A host vow's pending state: exactly three shapes, so the illegal "settled AND
+// a live waiter" combination cannot be represented. Minted the instant the vow
+// is registered (the mint IS the registration); an outcome that lands before
+// anyone awaits is held as `Settled` for a late observation instead of hanging;
+// a waiter lives only in `Awaited`, so an unobserved broken answer never strands
+// a channel.
+enum VowState {
+	/// Registered, not yet awaited and not yet settled.
+	Minted,
+	/// A caller is awaiting; the outcome fires this sender.
+	Awaited(oneshot::Sender<Result<Argument>>),
+	/// The outcome landed before anyone awaited; held for a late observation.
+	Settled(Result<Argument>),
+}
+
+// A host vow's row: its home session plus its pending state.
 struct VowRow {
 	/// Home CapTP session at mint (weak so the vow table cannot pin a session).
 	/// FAIL uses it to classify disconnect breaks as CLOSED.
 	session: Option<Weak<SessionShared>>,
-	state: Option<Result<Argument>>,
-	waiter: Option<oneshot::Sender<Result<Argument>>>,
+	state: VowState,
 }
 
 /// The binding half of one CapTP Host: the raw `PancakeHost`, the CapTP session
@@ -252,6 +269,31 @@ impl HostShared {
 		self.sessions.borrow_mut().remove(&key);
 	}
 
+	/// The direct exporter session a redeemed-handoff capability routes to, or
+	/// `None` when it names no live redeemed route — an ordinary far capability,
+	/// or an exporter connection already gone.
+	///
+	/// The answer is deterministic because it is read out of the capability
+	/// itself: the token carries which exporter connection hosts it, so this
+	/// never watches for a dial to complete. It is therefore right with several
+	/// redeems in flight at once, and it still names the exporter when the
+	/// redeem reused a connection an earlier one already dialed, where no fresh
+	/// dial happened at all. `Session::send_redeeming` calls it on the reply it
+	/// just awaited.
+	pub(crate) fn exporter_for(&self, capability: &Ref) -> Result<Option<Rc<SessionShared>>> {
+		let wire = capability.reference().to_sys()?;
+		let mut out: *mut ffi::PancakeHostSession = core::ptr::null_mut();
+		// The handle comes back host-owned and borrowed: it lives with the
+		// exporter session, and this side never releases it.
+		check_host(unsafe {
+			ffi::pancake_host_reference_exporter(self.raw.get(), &wire, &mut out)
+		})?;
+		if out.is_null() {
+			return Ok(None);
+		}
+		Ok(self.sessions.borrow().get(&(out as usize)).cloned())
+	}
+
 	/// Close every exporter connection this host dialed for redeems;
 	/// `Session::close` sweeps them.
 	pub(crate) fn close_exporters(&self) {
@@ -278,8 +320,7 @@ impl HostShared {
 			vow,
 			VowRow {
 				session: session.map(Rc::downgrade),
-				state: None,
-				waiter: None,
+				state: VowState::Minted,
 			},
 		);
 	}
@@ -315,14 +356,17 @@ impl HostShared {
 					sys::ERR_CLOSED,
 					"the vow's outcome is gone (unobserved past the cap)".to_string(),
 				))),
-				Some(row) => match row.state.take() {
-					Some(outcome) => {
+				Some(row) => match std::mem::replace(&mut row.state, VowState::Minted) {
+					VowState::Settled(outcome) => {
 						vows.remove(&vow);
 						Waiting::Now(outcome)
 					}
-					None => {
+					// Minted, or re-awaited: (re)park a waiter. A prior
+					// `Awaited`'s sender is dropped here, breaking that stale
+					// receiver — the same overwrite the two-field form performed.
+					VowState::Minted | VowState::Awaited(_) => {
 						let (tx, rx) = oneshot::channel();
-						row.waiter = Some(tx);
+						row.state = VowState::Awaited(tx);
 						Waiting::Settled(rx)
 					}
 				},
@@ -354,13 +398,19 @@ impl HostShared {
 			let Some(row) = vows.get_mut(&vow) else {
 				return; // an outcome nobody registered for
 			};
-			if let Some(waiter) = row.waiter.take() {
-				vows.remove(&vow);
-				drop(vows);
-				let _ = waiter.send(outcome);
-				return;
+			match std::mem::replace(&mut row.state, VowState::Minted) {
+				VowState::Awaited(waiter) => {
+					vows.remove(&vow);
+					drop(vows);
+					let _ = waiter.send(outcome);
+					return;
+				}
+				// Minted, or an already-settled row re-settled: hold the
+				// outcome for a late observation.
+				VowState::Minted | VowState::Settled(_) => {
+					row.state = VowState::Settled(outcome);
+				}
 			}
-			row.state = Some(outcome);
 		}
 		let mut unobserved = self.unobserved.borrow_mut();
 		unobserved.push_back(vow);
@@ -370,9 +420,10 @@ impl HostShared {
 			};
 			let mut vows = self.vows.borrow_mut();
 			// Only evict a row still parked unobserved; an observed one is gone.
-			let evict = vows
-				.get(&oldest)
-				.is_some_and(|stale| stale.state.is_some() && stale.waiter.is_none());
+			let evict = matches!(
+				vows.get(&oldest),
+				Some(stale) if matches!(stale.state, VowState::Settled(_))
+			);
 			if evict {
 				vows.remove(&oldest);
 			}

@@ -159,51 +159,19 @@ sha256_of() {
 	fi
 }
 
-# Member name from a `tar -tvzf` line (GNU or BSD), without " -> link target".
-tar_member_name() {
-	printf '%s' "$1" | sed 's/ -> .*//' | awk '{
-		if (NF >= 8) {
-			for (i = 8; i <= NF; i++)
-				printf "%s%s", (i > 8 ? " " : ""), $i
-			print ""
-		} else {
-			print $NF
-		}
-	}'
-}
-
 # Reject traversal and symlinks/hardlinks under extract_prefix (ADR-0077 §5).
 # Hard-fails on unsafe/link members; soft-fails on tar list tooling failure.
 # Runs in the main shell so hard_fail/soft_fail can terminate the script.
 validate_tarball_members() {
 	tarball=$1
 	prefix=$2
-	prefix_slash="${prefix}/"
-
-	listing=$(tar -tvzf "$tarball") || soft_fail "tar list failed"
-
-	# Keep fail helpers in this shell: a pipeline `while` would run in a subshell.
-	while IFS= read -r line || [ -n "$line" ]; do
-		[ -n "$line" ] || continue
-
-		kind=$(printf '%s' "$line" | cut -c1)
-		name=$(tar_member_name "$line")
-
-		case "$name" in
-		"$prefix" | "$prefix_slash"*) ;;
-		*) continue ;;
-		esac
-
-		case "$name" in
-		/* | *..*) hard_fail "refusing unsafe tar member: $name" ;;
-		esac
-
-		case "$kind" in
-		l | h) hard_fail "refusing link tar member: $name" ;;
-		esac
-	done <<EOF
-$listing
-EOF
+	if violation=$(archive_hygiene_check "$tarball" "$prefix"); then
+		return
+	else
+		rc=$?
+	fi
+	[ "$rc" -ne 2 ] || soft_fail "tar list failed"
+	hard_fail "$violation"
 }
 
 acquire_lock() {
@@ -223,6 +191,7 @@ acquire_lock() {
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=${PANCAKE_REPO_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)}
 CONTRACT="$REPO_ROOT/bindings/c-abi-resolve.json"
+. "$SCRIPT_DIR/archive-hygiene.sh"
 
 VERSION=""
 TARGET=""
@@ -356,7 +325,9 @@ mkdir -p "$STAGE"
 
 validate_tarball_members "$TARBALL_PATH" "$EXTRACT_PREFIX"
 
-if ! tar -xzf "$TARBALL_PATH" -C "$STAGE" --no-same-owner "$EXTRACT_PREFIX"; then
+# Same environment the listing was validated under: `TAR_OPTIONS` could
+# otherwise add flags to an extract nothing checked.
+if ! LC_ALL=C TAR_OPTIONS= tar -xzf "$TARBALL_PATH" -C "$STAGE" --no-same-owner "$EXTRACT_PREFIX"; then
 	rm -rf "$STAGE"
 	hard_fail "tar extract failed"
 fi

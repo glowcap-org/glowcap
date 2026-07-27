@@ -37,8 +37,9 @@ fn host(server: *driver.Server) !void {
 
 /// The client half, the README's Quick Start snippet, verbatim.
 fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
-    // tcp: the peer is a place, a cleartext `host:port`. The slice names the
-    // transports this client can reach; `tcp.at` spells the designator as a locator.
+    // tcp: the peer is a place. Its name, a cleartext `host:port`, is called the
+    // "designator", and `tcp.at` wraps that name as a dialable locator. The slice
+    // names the transports this client can reach.
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
     const partner = pancake.net.tcp.at(designator);
 
@@ -47,7 +48,10 @@ fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !voi
         &.{tcp_resident.netlayer()},
         partner,
         .ephemeral,
-        .{},
+        // Both budgets default to 0, which means "wait forever". A silent or
+        // unreachable peer would park this program with no way out, so a
+        // client always passes finite ones.
+        .{ .handshake_timeout_ms = 10_000, .settle_timeout_ms = 10_000 },
     );
     defer session.deinit();
 
@@ -61,8 +65,8 @@ fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !voi
     switch (settled) {
         .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
         .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
-        // The third outcome: an introduction to a capability on another peer,
-        // which a `driver.Bridge` + Host redeems for you. This greeter never sends one.
+        // The third outcome: an introduction to a capability on another peer.
+        // A Host presents it there and hands you the live result. This greeter never sends one.
         .give => {},
     }
 }
@@ -74,11 +78,16 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+        .handshake_timeout_ms = 10_000,
+        .settle_timeout_ms = 10_000,
+    });
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;
-    const designator = server.localDesignator(&addr_buf);
+    // `try`: a bound listener that cannot report a dialable designator is a
+    // defect, and signing an empty one publishes an address nobody can dial.
+    const designator = try server.localDesignator(&addr_buf);
 
     var hosting = try io.concurrent(host, .{&server});
     try client(io, allocator, designator);

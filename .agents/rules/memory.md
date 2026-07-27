@@ -146,10 +146,26 @@ here.
   Two opt-in writes close the share: a mutable actor's `clone` deep-copies a
   _shared_ box once, the first time a turn would mutate it (`ensureUnshared`),
   and a persistent actor's `become` allocates one fresh box per accepted turn
-  and installs it at turn end (releasing the old live ref; a handler error frees
-  the staged box instead). All three are bounded by the application's own actor
-  graph and freed through the single `releaseBox` chokepoint when the last
-  reference — live cell or snapshot — drops. Deleting the box layer forces an
+  and installs it at turn end (a handler error frees the staged box instead).
+  The install swaps the cell's box immediately but does *not* drop the old
+  live ref there: the outgoing box moves to `Vat.retired_boxes` and its
+  reference falls at the next outermost turn, the same boundary that reclaims
+  `moved_replies`. That is the reply's documented lifetime, and it is what a
+  same-frame sever cannot cover. An _earlier_ frame of the same actor may
+  have already handed a caller a reply borrowing that box and returned, so
+  there is no live frame left to copy it. `stageBecome` reserves the retire
+  slots, one per open frame rather than one per stage: every frame open at
+  that moment can hold a staged become and none has installed yet, so they all
+  see the same list length, and the unwind then appends once per frame. What
+  the retire list holds is therefore one outermost turn's become installs, not
+  a quantity the actor graph bounds — a handler that loops over a becoming
+  actor retains one state box per iteration until its turn ends, the same
+  shape the turn arena already has for that handler's own allocations.
+  Capacity above `steady_list_bytes` is returned at the drain, so the steady
+  footprint stays bounded; `test/actors/vat_footprint_budget_test.zig` holds
+  it. The clone and copy-on-write paths are bounded by the application's own
+  actor graph, and every box is freed through the single `releaseBox`
+  chokepoint when the last reference — live cell or snapshot — drops. Deleting the box layer forces an
   eager O(total-mutable-bytes) snapshot copy, the exact gap this design removes.
 - **Persistent map nodes: refcounted HAMT, path-copy update (ADR-0061).**
   `persistent.PersistentMap` allocates O(log n) fresh trie nodes per `put`/
@@ -286,9 +302,17 @@ here.
   set-uniqueness fold
   (`checkInboundSetUniqueness` in the same walk) rides the same arena: borrowed
   set elements are hashed/compared as views (`viewArgumentHash` /
-  `viewArgumentsEqualWithScratch`) with scratch holding only view handles and
+  `viewArgumentsEqualBounded`) with scratch holding only view handles and
   hash rows — no `toOwned` materialization. An Equal pair is refused
-  `DuplicateSetElement`, and the rows die in the same reset. It is the
+  `DuplicateSetElement`, and the rows die in the same reset. Confirming is
+  bounded work, not free work: two sets compare as multisets, so an
+  equal-hashed pair of width N costs on the order of N² element visits, and
+  the commutative set hash lets a partner construct that pair deliberately.
+  Every visit charges a per-message allowance
+  (`SessionLimits.max_compare_visits`) carried on the turn's
+  `IntroducedImports` record — turn state, so it costs the per-session
+  footprint nothing — and exhaustion refuses `CompareBudgetExhausted`
+  (projecting to `resource_exhausted`) instead of grinding. It is the
   codec-neutral backstop for the byte-level ascending-element refusal the
   Syrup decoder gets for free; Cap'n Proto's pointer wire form cannot prove
   set uniqueness without it, and a set-free frame pays nothing. On a Syrup
@@ -556,9 +580,11 @@ here.
   encoders can disagree on; the bytes are the only order both sides reproduce.
 - **Inbound Cap'n Proto set uniqueness: view hash/equal, no `toOwned`.**
   `checkInboundSetUniqueness` folds borrowed set elements with
-  `viewArgumentHash` / `viewArgumentsEqualWithScratch`; small sets stay on
+  `viewArgumentHash` / `viewArgumentsEqualBounded`; small sets stay on
   the stack so the common deliver path never grows `recv_scratch` past its
-  retain limit. Syrup still refuses duplicates at decode.
+  retain limit, and every comparison visit charges the turn's
+  `max_compare_visits` allowance so a wide equal-hashed pair cannot buy
+  unbounded CPU. Syrup still refuses duplicates at decode.
 - **Redeem dial parts: pending row sole owner; ticket-only HostAction.**
   `Node.acceptGive` parses the exporter URI once (`stagePendingDial`:
   identity + transport/designator/hint) and never keeps a verbatim URI copy —
@@ -620,7 +646,7 @@ carries a `comptime` ceiling on `@sizeOf(Peer)` (one kilobyte), and
 `test/engine/footprint_budget_test.zig` holds a warmed session's core state at
 or under 2 KiB per session. If your change trips either gate, the fix is to
 weigh the bytes and raise the budget deliberately — in the constant and in
-`docs/ladder.md` rung 2 together (the ladder owns the numbers) — never to route
+`docs/ladder.md` step 2 together (the ladder owns the numbers) — never to route
 around the check.
 
 The engine's four peer queues each bound their retained backing at
@@ -652,10 +678,22 @@ back under the bound.
 The completion loop wraps each `Peer` in one `Conn` slot — the unit it allocates
 `max_conns` of — so that wrapper carries a ceiling of its own: a `comptime`
 assertion in `src/net/completion/loop.zig` holds `@sizeOf(Conn) -
-@sizeOf(engine.Peer)` at or under `conn_slot_overhead_bytes` (128), isolating the
+@sizeOf(engine.Peer)` at exactly `conn_slot_overhead_bytes` (128) — an equality,
+so a field added to `Conn` fails the build rather than spending headroom nobody
+is watching — isolating the
 wrapper's bookkeeping from the `Peer` the one-kilobyte ceiling already guards.
-The number moves in the constant and in `docs/ladder.md` rung 2 together, like
+The number moves in the constant and in `docs/ladder.md` step 2 together, like
 every other footprint gate.
+
+The byte-fed host tier (ADR-0076) adds the third per-connection static
+allocation: `driver_core.mintShell` wraps each `Peer` in one `HostSession` shell,
+which embeds a `Served` and its `Vat` inline while the `Peer` lives behind a
+pointer. A `comptime` assertion in `src/driver/core/host.zig` holds
+`@sizeOf(HostSession)` at or under `host_session_struct_budget_bytes` (768; the
+shell measures 664), so a field added to the shell, to `Served`, or to the
+embedded `Vat` fails the build instead of silently growing every connection at
+500k. The number moves in the constant and in `docs/ladder.md` step 2 together,
+like the `Peer` and `Conn` ceilings beside it.
 
 ## Allocator Discipline
 

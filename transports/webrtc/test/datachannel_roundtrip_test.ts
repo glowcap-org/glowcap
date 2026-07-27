@@ -28,7 +28,19 @@
 // (`npx playwright install chromium && sudo npx playwright install-deps`). Run
 // directly: `deno run --allow-all transports/webrtc/test/datachannel_roundtrip_test.ts`.
 
-import { chromium } from "npm:playwright@1.61.1";
+import { chromium } from "playwright";
+
+/** The globals the page probe installs on its own `globalThis`.
+ *
+ * This module never runs in the page: `page.evaluate` serializes its callback
+ * and the browser runs it, so Deno's `globalThis` type cannot see them. Naming
+ * the shape here is what keeps the evaluate callbacks typed instead of `any`.
+ * The cast is erased before the callback is serialized. */
+interface ProbeGlobals {
+	applySignal: (line: string) => Promise<void>;
+	startProbe: () => void;
+	__verdict: Promise<{ ok: boolean; reason?: string }>;
+}
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const PROBE = `${ROOT}transports/webrtc/target/release/pancake-webrtc-datachannel-probe`;
@@ -147,7 +159,9 @@ try {
 
 	// Pump the native peer's stdout: route signaling into the browser, record
 	// the terminal lines.
-	let nativeDone: () => void;
+	// Assigned by the executor below, which runs synchronously; the definite
+	// assignment says so, since the compiler cannot see through the closure.
+	let nativeDone!: () => void;
 	const nativeSettled = new Promise<void>((res) => (nativeDone = res));
 	(async () => {
 		const dec = new TextDecoder();
@@ -166,7 +180,10 @@ try {
 					continue;
 				}
 				if (m.type === "answer" || m.type === "candidate") {
-					await page.evaluate((l) => (globalThis as any).applySignal(l), line)
+					await page.evaluate(
+						(l) => (globalThis as unknown as ProbeGlobals).applySignal(l),
+						line,
+					)
 						.catch(() => {});
 				} else if (m.type === "native_recv") {
 					if (m.text === PING) nativeReceived = true;
@@ -176,7 +193,7 @@ try {
 				}
 			}
 		}
-		nativeDone!();
+		nativeDone();
 	})();
 
 	// Browser → native signaling.
@@ -185,10 +202,13 @@ try {
 	});
 
 	await page.goto(`http://127.0.0.1:${pagePort}/`);
-	await page.evaluate(() => (globalThis as any).startProbe());
+	await page.evaluate(() => (globalThis as unknown as ProbeGlobals).startProbe());
 
 	const verdict = await page.evaluate(
-		() => (globalThis as any).__verdict as Promise<{ ok: boolean; reason?: string }>,
+		() =>
+			(globalThis as unknown as ProbeGlobals).__verdict as Promise<
+				{ ok: boolean; reason?: string }
+			>,
 	) as { ok: boolean; reason?: string };
 
 	if (!verdict.ok) {

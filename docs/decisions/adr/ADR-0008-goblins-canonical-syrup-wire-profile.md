@@ -132,8 +132,8 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 
 ## Forward compatibility
 
-The three wire shapes are final. A spec-level change to the abort reason
-reshapes only the `v1_0` projection of `AbortKind`, not the model. The
+These are pancake's current `v1_0` compatibility shapes. An upstream change to
+the abort reason may revise that profile's projection of `AbortKind`, not the model. The
 wire-delta model is per-id additive: a future single-message flush of many ids
 is a batching optimization, not a wire change. New `AbortKind` variants land
 additively; the `"<KindName>: <message>"` prefix convention is the stable

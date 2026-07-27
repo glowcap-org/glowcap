@@ -88,14 +88,6 @@ pub fn run(ctx: *Ctx) !u8 {
     lab.prompt_e = try lab.entities.spawn();
     lab.jump_chip_e = try lab.entities.spawn();
     lab.menu_e = try lab.entities.spawn();
-    lab.kind.set(lab.transcript_e.?, .transcript_viewport);
-    lab.kind.set(lab.prompt_e.?, .prompt);
-    lab.kind.set(lab.jump_chip_e.?, .jump_chip);
-    lab.kind.set(lab.menu_e.?, .menu_row);
-    lab.hit.set(lab.transcript_e.?, .{});
-    lab.hit.set(lab.prompt_e.?, .{});
-    lab.hit.set(lab.jump_chip_e.?, .{ .enabled = false });
-    lab.hit.set(lab.menu_e.?, .{ .enabled = false });
 
     var lab_divert = LabDivert{ .store = &store };
     log.setDivert(.{ .ptr = @ptrCast(&lab_divert), .writeFn = LabDivert.write });
@@ -747,7 +739,7 @@ fn applyIntent(
                 const turn = try exec.handleLine(ctx, trimmed, store, progress, complete_state, captp_q);
                 if (turn.quit) return true;
                 if (turn.enqueue_captp) |cap_line| {
-                    try captp_q.enqueue(ctx, cap_line, store);
+                    try captp_q.enqueue(ctx, cap_line, store, progress);
                 }
                 if (turn.toggle_quiet) {
                     lab.res.mode = if (lab.res.mode == .quiet) .prompt else .quiet;
@@ -967,11 +959,8 @@ fn render(
             if (jump_btn_out.*) |jb| {
                 panes.drawJumpButton(win, jb, over_jump, lab.res.jump_pressed, frame);
                 if (lab.jump_chip_e) |je| {
-                    lab.hit.set(je, .{ .enabled = true });
                     lab.rect.set(je, .{ .x = jb.x, .y = jb.y, .w = jb.w, .h = jb.h });
                 }
-            } else if (lab.jump_chip_e) |je| {
-                lab.hit.set(je, .{ .enabled = false });
             }
             ry += g.transcript_h;
         } else {
@@ -989,12 +978,9 @@ fn render(
             panes.drawMenu(mw, menu_items, menu_sel, frame);
             const menu_content = layout.contentBelowTitle(0, menu_frame_y, repl_w, g.menu_h);
             if (lab.menu_e) |me| {
-                lab.hit.set(me, .{ .enabled = true });
                 lab.rect.set(me, .{ .x = menu_content.x, .y = menu_content.y, .w = menu_content.w, .h = menu_content.h });
             }
             ry += g.menu_h;
-        } else if (lab.menu_e) |me| {
-            lab.hit.set(me, .{ .enabled = false });
         }
         if (g.prompt_h > 0 and lab.res.mode != .transcript) {
             const prompt_focused = lab.res.panel == .prompt;

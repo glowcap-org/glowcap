@@ -224,7 +224,7 @@ async fn run_local(n: usize) -> Result<(), String> {
 		}
 		conn.serve().await;
 	});
-	let dial = connect(&tcp_locator("127.0.0.1", loop_port), None)
+	let dial = connect(&tcp_locator("127.0.0.1", loop_port), None, None)
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 

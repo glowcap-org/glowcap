@@ -62,6 +62,12 @@ pub const Error = error{
     SessionClosed,
     InvalidGift,
     HandoffReplay,
+    /// A `desc:handoff-receive` named a receiving session or side that is not
+    /// the one derived from the give's recipient key and this node's own
+    /// session key. Those names key the replay counter in a registry shared by
+    /// every session on the host, so they are checked against a derivation
+    /// rather than trusted from the wire (ADR-0009).
+    InvalidHandoffSession,
     /// A wire-delta GC message (`op:gc-exports` / `op:gc-answers`) tried to
     /// decrement a refcount below zero or release an id the table never held.
     /// Per ADR-0008 wire-delta reference counting this is a loud protocol
@@ -120,6 +126,13 @@ pub const Error = error{
     /// is bounded so a malicious deeply-nested frame fails loud instead of
     /// overflowing the native stack. Projects to `resource_exhausted`.
     NestingTooDeep,
+    /// One inbound message asked for more equality-comparison work than
+    /// `SessionLimits.max_compare_visits` allows. Comparing two sets is
+    /// comparing two multisets, so a pair of equal-hashed wide sets costs on
+    /// the order of the square of their width, and the commutative set hash
+    /// lets a partner construct that pair. The bound is what keeps a single
+    /// frame from buying unbounded CPU. Projects to `resource_exhausted`.
+    CompareBudgetExhausted,
     /// A set argument carried two Equal elements. A set admits each member
     /// once, so a duplicate is a second wire spelling of one value and is
     /// refused rather than admitted: inbound as the codec-neutral twin of the
@@ -185,7 +198,7 @@ comptime {
     std.debug.assert(REDEEMED_TOKEN_BASE < VIRTUAL_INBOUND_ANSWER_BASE);
 }
 
-/// Goblins V1.0 resolver-callback bookkeeping (ADR-0010). V1.0 has no wire
+/// OCapN V1.0 resolver-callback bookkeeping (ADR-0010). V1.0 has no wire
 /// `op:resolve`; a promise's resolution rides as an `op:deliver` to a
 /// synthesized resolver capability, so the session keeps two position-keyed
 /// maps to translate between a semantic `Resolve` and a wire deliver in both
@@ -250,9 +263,10 @@ pub const AnswerRowView = inspect.AnswerRowView;
 const ensureAnswerPayload = answers.ensureAnswerPayload;
 pub const deinitAnswerCell = answers.deinitAnswerCell;
 
-/// Listen/settle cell shared by export-side unresolved promises (ADR-0007) and
-/// third-party imported promises (ADR-0009): listeners, one stored resolution
-/// for late `op:listen`, and a `row_id` for queued fire carriers. Keying and
+/// Listen/settle cell for third-party imported promises (ADR-0009): listeners,
+/// one stored resolution for late `op:listen`, and a `row_id` for queued fire
+/// carriers. The ADR-0007 answer side keeps its own listeners/resolution in
+/// `AnswerPayload`, so this cell has one embedder (`ImportedPromise`). Keying and
 /// host provenance stay on the wrapper tables; this is only the cell.
 pub const PromiseListenCell = struct {
     listeners: ListenerList = .empty,
@@ -367,6 +381,14 @@ pub const Session = struct {
     /// gifter's `desc:handoff-give` when this is a gifter-to-exporter session
     /// (ADR-0009). Empty until the partner's handshake half arrives with a key.
     partner_session_key: []const u8 = &.{},
+    /// This side's own session public key, learned from the `op:start-session`
+    /// half we sent. Kept as opaque bytes in `key_arena` beside the partner's,
+    /// for the one job that needs to know who *we* are on this session: an
+    /// exporter deriving the session name a `desc:handoff-receive` must carry
+    /// (ADR-0009), so a withdrawal cannot name a session it does not belong to.
+    /// Empty on an unkeyed session, which is also every session on which no
+    /// handoff can be redeemed.
+    local_session_key: []const u8 = &.{},
     /// The partner's location designator from its `op:start-session`. When
     /// `partner_acceptable_location_raw` is set, this is a view into that
     /// buffer; otherwise a designator-only arena dupe (owned-message apply).
@@ -418,7 +440,7 @@ pub const Session = struct {
     /// The steady capacity `recv_scratch` retains across turns, trimming a
     /// burst's peak on reset. Deliberately smaller than the vat and engine
     /// arenas' 4096: the per-connection footprint budget is 2 KiB total
-    /// (`test/engine/footprint_budget_test.zig`, docs/ladder.md rung 2), so this
+    /// (`test/engine/footprint_budget_test.zig`, docs/ladder.md step 2), so this
     /// bound must leave room for the tables beside it.
     /// `test/engine/deliver_set_scratch_budget_test.zig` pins a big-set frame's
     /// scratch back under it after the frame drains.
@@ -477,6 +499,7 @@ pub const Session = struct {
             .handshake_local_sent = false,
             .handshake_remote_received = false,
             .partner_session_key = &.{},
+            .local_session_key = &.{},
             .partner_designator = &.{},
             .partner_acceptable_location_raw = &.{},
             .v1_0_outbound_resolver_link = .empty,
@@ -532,6 +555,7 @@ pub const Session = struct {
     pub const handshakeComplete = handshake.handshakeComplete;
     pub const transitionToOpen = handshake.transitionToOpen;
     pub const partnerSessionKey = handshake.partnerSessionKey;
+    pub const localSessionKey = handshake.localSessionKey;
     pub const partnerDesignator = handshake.partnerDesignator;
     pub const partnerLocatorRaw = handshake.partnerLocatorRaw;
 
@@ -660,7 +684,7 @@ pub const Session = struct {
         // `validate.IntroducedImports`). Turn-scratch in `recv_scratch`,
         // reclaimed by the reset below.
         defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
-        var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator());
+        var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator(), self.limits);
         try self.validateRecv(message, &introduced);
         try self.applyRecv(message, &introduced);
     }
@@ -687,19 +711,38 @@ pub const Session = struct {
         // dupes anything session-lived onto `self.allocator`, so the reset can
         // never dangle a table row.
         defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
-        var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator());
+        var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator(), self.limits);
         switch (body) {
             .deliver, .resolve, .listen, .start_session, .abort => {
                 try self.validateRecvView(body, &introduced);
                 try self.applyRecvView(body, &introduced);
             },
             .gc_export, .gc_answer, .handoff, .get, .index, .untag => {
+                // The feature gate reads the kind alone, so it runs against the
+                // borrowed view first. Otherwise a kind this session never
+                // negotiated could make us materialize its whole payload and
+                // only then be told it was never admissible, which is a copy an
+                // unauthorized partner chose the size of.
+                try refuseUnnegotiatedKind(self, body);
                 // One transient owned copy to feed the shared owned validate /
                 // apply; it dies in the same reset, no per-row free walk.
                 const owned = try body.toOwned(self.recv_scratch.allocator());
                 try self.validateRecv(owned, &introduced);
                 try self.applyRecv(owned, &introduced);
             },
+        }
+    }
+
+    /// Refuse an inbound kind this session's negotiated feature set does not
+    /// admit, reading the kind and nothing else. `validateRecv` makes the same
+    /// refusal on the owned message, which is where every other dispatch path
+    /// reaches it; this runs earlier, on the borrowed view, so the refusal
+    /// lands before the copy rather than after it.
+    fn refuseUnnegotiatedKind(self: *const Session, body: model.view.Body) Error!void {
+        switch (body) {
+            .gc_export, .gc_answer => if (!self.features.wire_delta) return Error.FeatureNotNegotiated,
+            .handoff => if (!self.features.handoff) return Error.FeatureNotNegotiated,
+            else => {},
         }
     }
 
@@ -753,7 +796,7 @@ pub const Session = struct {
         // fulfill payload is walked once in validation and apply consumes the
         // record.
         defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
-        var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator());
+        var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator(), self.limits);
         try validate.validateInboundResolve(self, resolve, &introduced);
         try self.applyRecvView(body, &introduced);
     }

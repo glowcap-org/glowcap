@@ -38,6 +38,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::runtime::Runtime;
+use tokio::sync::Notify;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
@@ -67,6 +68,18 @@ const WOULD_BLOCK: i32 = -2;
 /// length the caller must provide, and nothing is written.
 const BUFFER_TOO_SMALL: i32 = -3;
 
+/// How many unread inbound bytes may pile up before the sidecar stops taking
+/// more off the channel. The far peer can send faster than the resident reads,
+/// and without this the buffer grows for as long as it keeps sending: one
+/// partner could exhaust the process's memory. Matches the iroh sidecar's
+/// bound, and is far above any single admissible frame, so a peer that is being
+/// read at all never reaches it.
+///
+/// The bound is checked before a message is taken, so buffered bytes never
+/// exceed it by more than one message, and the `webrtc` crate caps a message at
+/// 64 KiB. The iroh sidecar accounts for its own overshoot the same way.
+const INBOUND_BUFFER_BOUND: usize = 1 << 20;
+
 /// Inbound bytes buffered from the data channel's `on_message` callback, drained
 /// by a blocking `conn_read`. `closed` latches when the channel closes or the
 /// peer tears down, so a reader parked on the condvar wakes and returns clean
@@ -92,6 +105,9 @@ pub struct PancakeWebrtcPeer {
 	/// the answerer's channel arrives returns `ERR`.
 	dc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
 	inbound: Arc<(Mutex<Inbound>, Condvar)>,
+	/// Signalled whenever `conn_read` frees space in `inbound`, so a message
+	/// handler parked on `INBOUND_BUFFER_BOUND` can take the next message.
+	drained: Arc<Notify>,
 	open: Arc<(Mutex<OpenGate>, Condvar)>,
 	/// Locally gathered ICE candidates, serialized as JSON, awaiting the caller
 	/// to drain and ferry to the far peer.
@@ -130,6 +146,7 @@ fn wire_channel(
 	dc: &Arc<RTCDataChannel>,
 	inbound: Arc<(Mutex<Inbound>, Condvar)>,
 	open: Arc<(Mutex<OpenGate>, Condvar)>,
+	drained: Arc<Notify>,
 ) {
 	let open_for_cb = open.clone();
 	dc.on_open(Box::new(move || {
@@ -142,9 +159,14 @@ fn wire_channel(
 	}));
 
 	let inbound_for_msg = inbound.clone();
+	let drained_for_msg = drained.clone();
 	dc.on_message(Box::new(move |msg: DataChannelMessage| {
 		let inbound = inbound_for_msg.clone();
+		let drained = drained_for_msg.clone();
 		Box::pin(async move {
+			if !await_inbound_room(&inbound, &drained).await {
+				return;
+			}
 			let (lock, cvar) = &*inbound;
 			lock.lock().unwrap().buf.extend(msg.data.iter().copied());
 			cvar.notify_all();
@@ -156,18 +178,51 @@ fn wire_channel(
 	let inbound_for_close = inbound;
 	dc.on_close(Box::new(move || {
 		let inbound = inbound_for_close.clone();
+		let drained = drained.clone();
 		Box::pin(async move {
-			mark_closed(&inbound);
+			mark_closed(&inbound, &drained);
 		})
 	}));
 }
 
+/// Park until the reader has taken enough out of `inbound` to leave room under
+/// `INBOUND_BUFFER_BOUND`. Returns false once the channel has closed, since
+/// nobody is left to drain it and waiting would park this task forever.
+///
+/// The data channel hands its message handler one message at a time, so parking
+/// here stops the sidecar reading the far peer, and SCTP's own flow control
+/// slows the sender down. That is the shape the iroh sidecar uses too: check
+/// for room before the read, rather than buffer whatever arrives.
+async fn await_inbound_room(inbound: &Arc<(Mutex<Inbound>, Condvar)>, drained: &Notify) -> bool {
+	loop {
+		{
+			let (lock, _) = &**inbound;
+			let guard = lock.lock().unwrap();
+			if guard.closed {
+				return false;
+			}
+			if guard.buf.len() < INBOUND_BUFFER_BOUND {
+				return true;
+			}
+		}
+		// `notify_one` leaves a permit behind when nothing is parked yet, so a
+		// reader that drains between the check above and this await still wakes
+		// us.
+		drained.notified().await;
+	}
+}
+
 /// Latch the inbound buffer closed and wake any parked reader. Called on channel
 /// close and on peer teardown.
-fn mark_closed(inbound: &Arc<(Mutex<Inbound>, Condvar)>) {
+fn mark_closed(inbound: &Arc<(Mutex<Inbound>, Condvar)>, drained: &Arc<Notify>) {
 	let (lock, cvar) = &**inbound;
 	lock.lock().unwrap().closed = true;
 	cvar.notify_all();
+	// A message handler parked waiting for room has no reader left to free it.
+	// `notify_waiters` releases one that is parked right now; `notify_one`
+	// leaves a permit for one racing between its check and its await.
+	drained.notify_waiters();
+	drained.notify_one();
 }
 
 /// Create a peer. `is_offerer` chooses the role: an offerer creates the `ocapn`
@@ -204,6 +259,7 @@ pub extern "C" fn pancake_webrtc_sidecar_peer_new(is_offerer: i32) -> *mut Panca
 			Condvar::new(),
 		));
 		let open = Arc::new((Mutex::new(OpenGate { open: false }), Condvar::new()));
+		let drained = Arc::new(Notify::new());
 		let local_candidates: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
 		let dc_slot: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
 
@@ -231,19 +287,41 @@ pub extern "C" fn pancake_webrtc_sidecar_peer_new(is_offerer: i32) -> *mut Panca
 				Ok(dc) => dc,
 				Err(_) => return std::ptr::null_mut(),
 			};
-			wire_channel(&dc, inbound.clone(), open.clone());
+			wire_channel(&dc, inbound.clone(), open.clone(), drained.clone());
 			*dc_slot.lock().unwrap() = Some(dc);
 		} else {
 			let inbound_for_dc = inbound.clone();
 			let open_for_dc = open.clone();
+			let drained_for_dc = drained.clone();
 			let slot_for_dc = dc_slot.clone();
 			pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
 				let inbound = inbound_for_dc.clone();
 				let open = open_for_dc.clone();
+				let drained = drained_for_dc.clone();
 				let slot = slot_for_dc.clone();
 				Box::pin(async move {
-					wire_channel(&dc, inbound, open);
-					*slot.lock().unwrap() = Some(dc);
+					// One channel, labelled `ocapn`, carries the whole session.
+					// A second would interleave its bytes into the same inbound
+					// buffer and take over what `conn_write` sends to, so refuse
+					// it here rather than trust the far peer to open just one.
+					if dc.label() != CHANNEL_LABEL {
+						let _ = dc.close().await;
+						return;
+					}
+					let claimed = {
+						let mut slot = slot.lock().unwrap();
+						if slot.is_some() {
+							false
+						} else {
+							*slot = Some(dc.clone());
+							true
+						}
+					};
+					if !claimed {
+						let _ = dc.close().await;
+						return;
+					}
+					wire_channel(&dc, inbound, open, drained);
 				})
 			}));
 		}
@@ -253,6 +331,7 @@ pub extern "C" fn pancake_webrtc_sidecar_peer_new(is_offerer: i32) -> *mut Panca
 			pc,
 			dc: dc_slot,
 			inbound,
+			drained,
 			open,
 			local_candidates,
 		});
@@ -536,6 +615,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_read(
 			dst[from_front..n].copy_from_slice(&back[..n - from_front]);
 		}
 		guard.buf.drain(..n);
+		drop(guard);
+		peer.drained.notify_one();
 		n as isize
 	}))
 	.unwrap_or(ERR as isize)
@@ -582,8 +663,12 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_write(
 pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_close(peer: *mut PancakeWebrtcPeer) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		if let Some(peer) = peer.as_ref() {
+			// Release a handler parked for room first. Nobody will drain the
+			// buffer now, and closing while a runtime task still holds a
+			// message makes the shutdown depend on the crate's own internals
+			// to not deadlock.
+			mark_closed(&peer.inbound, &peer.drained);
 			let _ = peer.rt.block_on(peer.pc.close());
-			mark_closed(&peer.inbound);
 		}
 	}));
 }
@@ -599,8 +684,79 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_free(peer: *mut PancakeWebr
 	}
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let peer = Box::from_raw(peer);
+		// Same ordering as `conn_close`: free a parked handler before closing.
+		mark_closed(&peer.inbound, &peer.drained);
 		let _ = peer.rt.block_on(peer.pc.close());
-		mark_closed(&peer.inbound);
 		// `peer` drops here: the runtime shuts down as the Box frees.
 	}));
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn full_inbound() -> Arc<(Mutex<Inbound>, Condvar)> {
+		Arc::new((
+			Mutex::new(Inbound {
+				buf: std::iter::repeat(0u8).take(INBOUND_BUFFER_BOUND).collect(),
+				closed: false,
+			}),
+			Condvar::new(),
+		))
+	}
+
+	#[tokio::test]
+	async fn a_full_buffer_makes_the_next_message_wait_for_the_reader() {
+		// Without this the far peer could send for as long as it liked and the
+		// buffer would keep growing, so one partner could exhaust our memory.
+		let inbound = full_inbound();
+		let drained = Arc::new(Notify::new());
+
+		let waiting = tokio::spawn({
+			let inbound = inbound.clone();
+			let drained = drained.clone();
+			async move { await_inbound_room(&inbound, &drained).await }
+		});
+
+		// Still parked: nothing has read yet.
+		tokio::time::sleep(Duration::from_millis(50)).await;
+		assert!(!waiting.is_finished());
+
+		// A read frees space, exactly as `conn_read` does.
+		inbound.0.lock().unwrap().buf.drain(..1024);
+		drained.notify_one();
+		assert!(waiting.await.unwrap());
+	}
+
+	#[tokio::test]
+	async fn closing_releases_a_message_that_was_waiting_for_room() {
+		// Otherwise the handler parks forever on a channel nobody will drain.
+		let inbound = full_inbound();
+		let drained = Arc::new(Notify::new());
+
+		let waiting = tokio::spawn({
+			let inbound = inbound.clone();
+			let drained = drained.clone();
+			async move { await_inbound_room(&inbound, &drained).await }
+		});
+
+		tokio::time::sleep(Duration::from_millis(50)).await;
+		assert!(!waiting.is_finished());
+
+		mark_closed(&inbound, &drained);
+		assert!(!waiting.await.unwrap());
+	}
+
+	#[tokio::test]
+	async fn a_buffer_with_room_does_not_wait() {
+		let inbound = Arc::new((
+			Mutex::new(Inbound {
+				buf: VecDeque::new(),
+				closed: false,
+			}),
+			Condvar::new(),
+		));
+		let drained = Notify::new();
+		assert!(await_inbound_room(&inbound, &drained).await);
+	}
 }

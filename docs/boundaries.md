@@ -30,6 +30,24 @@ framing fit; [shipped](shipped.md) lists what ships. These edges remain open:
 - **Blocking pump is one fiber.** Partners that stream without draining
   belong on the completion loop
   ([ADR-0053](decisions/adr/ADR-0053-blocking-pump-single-fiber.md)).
+- **A bare `webrtc` locator does not dial.** pancake's dial classifier recognizes the
+  transport and validates its key designator, but the resident is not registered
+  as a `Netlayer`: a peer with no signaling reference has nowhere to send its
+  offer. A webrtc peer is reached today by redeeming a handoff give
+  ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
+- **No completion-loop tier for DataChannels.** webrtc sessions run on the
+  blocking pump; there is no `completion.Loop` backend for them, so the scale
+  path is iroh's, not webrtc's.
+- **`inproc` is for tests, not load.** Its pipes block the reading thread and
+  are unbounded by design, so it mocks a partner rather than carrying one
+  ([ADR-0047](decisions/adr/ADR-0047-in-memory-netlayer.md)).
+- **Handshake and settle deadlines default to unbounded.** `SessionOptions`
+  leaves `handshake_timeout_ms` and `settle_timeout_ms` at `0`, which blocks
+  forever against a silent partner. Every dialer can choose otherwise:
+  `pancake_tcp_session_connect` takes both budgets as parameters and reports an
+  elapsed one as `PANCAKE_ERR_TIMEOUT`. The product CLI sets finite budgets
+  ([ADR-0081](decisions/adr/ADR-0081-adapter-resilience-posture.md)); every
+  other caller must choose them deliberately.
 
 ## Sessions above I/O
 
@@ -65,13 +83,22 @@ Session, and handoff fit; [shipped](shipped.md) lists what ships. The edges:
   proxy path (`Node.proxyForeignPromiseFulfill`,
   `test/engine/node_test.zig`; settlement relay
   `Peer.applyRelayedResolution`, `test/engine/relay_resolution_test.zig`).
-- **Open under `check`:** the netlayer edges above (`discovery_no_relay`,
-  two-NAT hole-punch, live-socket 500k RSS) stay open; `iroh-loop` does not
-  claim them.
+- **`check` does not close the netlayer edges above.** `discovery_no_relay`,
+  two-NAT hole punching, and live-socket 500k RSS stay open; `iroh-loop` does
+  not claim them.
+- **Reserved position ceilings.** A partner-introduced import position at or
+  above 2^60, or a partner-named answer position at or above 2^63, is refused
+  (`session/mod.zig` `REDEEMED_TOKEN_BASE` / `VIRTUAL_INBOUND_ANSWER_BASE`).
+  The draft spec asks only that positions be unique, and the peers pancake is
+  proven against count up from zero, so the ceiling is unreachable in
+  practice. It exists so a hostile peer cannot alias the internal ranges
+  pancake mints above those bases. Both refusals, and the V1.0 resolver arm,
+  are pinned with accept-just-below companions in
+  `test/session/session_test.zig`.
 
 ## The passable model and OCapN Null
 
-What the model covers: [shipped](shipped.md). Edges:
+[shipped](shipped.md) lists what the model covers. The edges:
 
 - **No OCapN Null arm.** Goblins has no Null marshalling yet; inventing one
   would not interop. Unknown Syrup records project as `Tagged`.
@@ -86,8 +113,11 @@ What the model covers: [shipped](shipped.md). Edges:
   driver's asker bracket proves only that pancake accepts canonical `op:get` /
   `op:index` frames a Goblins netlayer wrote, not that Goblins observed the
   settlements.
-- **No `op:deliver-only` in released v1.0.** One-way send is no-answer
-  `op:deliver` (`tell`).
+- **No `op:deliver-only`.** One-way send is a no-answer `op:deliver` (`tell`).
+  The pinned draft spec, the upstream suite, and Goblins all express one-way
+  sends that way; none of the three defines an `op:deliver-only`, and a codec
+  test pins that pancake never emits one. No interop bracket sends a `tell` at
+  a live Goblins vat yet.
 
 ## Scalable I/O and Host durability
 
@@ -98,12 +128,12 @@ Bridge and the completion loop work; [shipped](shipped.md) names the proofs
 - **`durable_bootstrap` panics at `Host.init`** (a loud unsupported-posture
   stop, not a typed error) until an embedder store lands (ADR-0082). Default is
   ephemeral: sturdyrefs die with the process.
-- **Named residual:** double-OOM dropping a second `ConnectDone` append
-  (ADR-0081 / ADR-0082).
-- **Two action-queue lifetimes** (node pop vs embedder drain) stay split on
-  purpose, not a deferred merge (`host_pump.zig`).
-- **Binding outbound flush copies** (TS/Python/Racket copy-then-release vs
-  Rust hold-across-write) are a named memory-rule cost.
+- **One residual under double allocation failure:** if the connect worker hits
+  OOM again while queueing its `ConnectDone`, the notice is dropped and that
+  dial never hears its outcome (ADR-0081 / ADR-0082).
+- **Binding outbound flush copies.** TypeScript, Python, and Racket copy a
+  frame's bytes and release the frame before their async write; Rust holds the
+  frame across the write. Those runtimes' FFI lifetimes force the copy.
 - **Zero settle / loop deadlines are unbounded** (`settle_timeout_ms` /
   `Loop.runUntil`); product CLI never leaves them at zero.
 
@@ -113,7 +143,7 @@ The archive resolve cascade is
 [ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)'s contract,
 pinned by [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json).
 Hygiene refusals fail closed. Windows release-pack is not a published leg yet,
-consumers need `PANCAKE_LIB_DIR` or in-tree `zig-out`.
+so consumers need `PANCAKE_LIB_DIR` or in-tree `zig-out`.
 
 ## Codecs
 
@@ -129,24 +159,22 @@ The site Codecs page (`zig build docs-serve`) teaches the tradeoffs;
 [shipped](shipped.md) lists what ships here (opt-in GC, enliven dedup,
 caretaker and attenuate). The edges:
 
+- **No arbitrary-path target canonicalization proof.**
+  `model.referencesStructurallyEqual` compares session-local representation.
+  Repeat sturdyref enlivenment reuses one import row, but no scenario presents
+  the same target through both a direct or sturdy path and a three-party
+  handoff. Full OCapN Pass Invariant Equality for that case is unproved.
 - **GC scope is `fetch` results only** (ADR-0063); near refs, promises,
   sturdyrefs, bootstrap, redeemed handoffs stay out.
 - **Forwarding proxies are binding-layer composition**, not a new wire op
   (ADR-0064). The C ABI stays deliver-and-resolve.
 
-## Host-private modules
-
-`host_pump.zig` is an intentional Host-private size boundary: pump mechanics
-(drain, dirty, action queue helpers) live beside `host.zig`, and only
-`src/driver/core/host.zig` may import it (`zig build meta-check` enforces the
-allowlist). That split is settled product shape, not unfinished ownership.
-
 ## The unbuilt driver
 
 The second framework-shaped driver, `griddle`, a deterministic network
-simulator and fuzzer, is not implemented. The CLI exposes a brand placeholder
-(`pancake griddle status|help`) so the subtree name is locked; the sim runtime
-is not. The [vision](vision.md) names what it will be. Start the runtime only
+simulator and fuzzer, is not implemented. The CLI reserves the name with a
+status placeholder (`pancake griddle status|help`); the sim runtime behind it
+does not exist. The [vision](vision.md) names what it will be. Start the runtime only
 when fuzz or simulation is the cheapest way to prove a net or driver claim that
 the live Goblins and `ocapn-conformance` check steps cannot reach, and never
 inside the sans-io core. Topology visualization (ocapnviz) is not
@@ -160,7 +188,7 @@ with a test or check step in the same change, not as an open-ended pass.
 ## Product CLI edges (ADR-0084)
 
 Recipes: [`docs/cli.md`](cli.md). What ships on the product binary lives there
-and in [shipped](shipped.md). Edges that are still open: no A2A-on-CapTP
+and in [shipped](shipped.md). These edges stay open: no A2A-on-CapTP
 (`app a2a`), no griddle **sim runtime** (`pancake griddle` is a status
 placeholder), no ocapnviz, no `ocapn trace --ws`, no OTEL export, no
 PowerShell completion, no typo suggestions. CapTP `listen` is argv-only

@@ -218,7 +218,14 @@ export function sendFar(
  * extra round trip. */
 export type PromiseState =
 	| { readonly tag: "far"; readonly vow: bigint }
-	| { readonly tag: "local" };
+	| { readonly tag: "local" }
+	// A send that could not be issued at all — a closed session, an argument
+	// that would not lower. It is a state rather than a thrown error because
+	// `send` must return its handle *synchronously*, so pipelining can project
+	// at the answer before it settles (ADR-0050). Throwing instead put a
+	// synchronous failure channel on a promise-returning method, and a caller's
+	// `.catch` could not see it. Rust has carried this arm from the start.
+	| { readonly tag: "failed"; readonly error: PancakeError };
 
 export class RemotePromise extends Promise<AppValue> {
 	readonly #state: PromiseState;
@@ -265,6 +272,17 @@ export class RemotePromise extends Promise<AppValue> {
 		return new RemotePromise({ tag: "local" }, begin);
 	}
 
+	/** A handle for a send that never left: awaiting it rejects with `error`,
+	 * and projecting at it yields another failed handle carrying the same
+	 * reason, so a pipeline built behind a dead anchor fails where it is
+	 * awaited rather than where it was written. */
+	static failed(error: PancakeError): RemotePromise {
+		// The begin thunk is what rejects, and it runs only on observation, so
+		// a handle nobody awaits is not an unhandled rejection. Projection is
+		// answered by `#projectOp` from the state, not by a thunk.
+		return new RemotePromise({ tag: "failed", error }, () => Promise.reject(error));
+	}
+
 	/** Host vow when far; `null` when local (convenience, not the discriminant). */
 	get vow(): bigint | null {
 		return this.#state.tag === "far" ? this.#state.vow : null;
@@ -272,6 +290,9 @@ export class RemotePromise extends Promise<AppValue> {
 
 	/** The host vow for pipelining, or a typed refusal when this is local. */
 	farVow(): bigint {
+		// A failed handle keeps its own reason rather than reporting the
+		// generic local-send refusal, so a caller sees why the send never left.
+		if (this.#state.tag === "failed") throw this.#state.error;
 		if (this.#state.tag !== "far") {
 			throw new PancakeError(
 				INVALID_ARGUMENT,
@@ -282,6 +303,11 @@ export class RemotePromise extends Promise<AppValue> {
 	}
 
 	#projectOp(op: "index" | "untag" | "get", key: string | bigint): RemotePromise {
+		// A pipeline behind a send that never left is itself a send that never
+		// left. Carrying the same reason forward means the whole chain fails
+		// where it is awaited rather than throwing at the link that was
+		// written, which is the difference between one `.catch` and none.
+		if (this.#state.tag === "failed") return RemotePromise.failed(this.#state.error);
 		if (this.#state.tag !== "far" || this.#project === undefined) {
 			throw new PancakeError(
 				INVALID_ARGUMENT,

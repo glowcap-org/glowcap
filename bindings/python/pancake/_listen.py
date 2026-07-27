@@ -44,7 +44,7 @@ class Server:
     ephemeral port (``port=0``) and telling a partner where to connect works
     the same as the other bindings."""
 
-    def __init__(self, server: "asyncio.AbstractServer", queue: "asyncio.Queue", host: Host):
+    def __init__(self, server: "asyncio.Server", queue: "asyncio.Queue", host: Host):
         self._server = server
         self._queue = queue
         self._host = host
@@ -87,7 +87,9 @@ class Server:
             try:
                 return await _accept(reader, writer, self._host)
             except (PancakeError, OSError):
-                # PancakeError: the handshake failed (EOF mid-handshake).
+                # PancakeError: the handshake failed (EOF mid-handshake), or a
+                # partner that connected and said nothing overran
+                # `HANDSHAKE_TIMEOUT_MS` — the silent case nothing else catches.
                 # OSError: the probe reset the socket under the teardown.
                 continue
 
@@ -98,7 +100,7 @@ class KeyedTcpServer:
     session signing key — one seed, not a second minted identity. Build one
     with :func:`listen_keyed_tcp`."""
 
-    def __init__(self, server: "asyncio.AbstractServer", queue: "asyncio.Queue",
+    def __init__(self, server: "asyncio.Server", queue: "asyncio.Queue",
                  host: Host, designator: str):
         self._server = server
         self._queue = queue
@@ -156,6 +158,9 @@ class KeyedTcpServer:
                     transport.close()
                     raise
             except (PancakeError, OSError):
+                # Same isolation as `Server.__anext__`: a failed, reset, or
+                # silent partner (one that overran `HANDSHAKE_TIMEOUT_MS`) is
+                # that connection's failure, never the listener's.
                 continue
 
 

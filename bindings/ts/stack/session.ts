@@ -45,10 +45,45 @@ import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer, readBytes } from "./internal/seam.ts";
 import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED } from "@pancake/abi";
+import { CLOSED, INVALID_ARGUMENT, TIMEOUT } from "@pancake/abi";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
+
+/** How long a partner has to finish the keyed handshake once the byte channel
+ * is open, on both halves: what `connect` allows a dialed partner, and what a
+ * listener allows an accepted one.
+ *
+ * Matches the CLI's own product default. Something finite is the point: this
+ * project's rule for CapTP waits is that an unbounded one is a hang rather than
+ * a slow success, and neither half of a connection is exempt. It bounds the
+ * handshake alone, never opening the channel: a TCP connect keeps the runtime's
+ * own timeout, and an iroh dial-by-id keeps its discovery retry budget
+ * (ADR-0082), both spent before the handshake starts. */
+export const HANDSHAKE_TIMEOUT_MS = 10_000;
+
+/** Race one connection's keyed handshake against `ms`, the bound both halves
+ * of `#establish` reach. A falsy budget is the caller's explicit opt-in to
+ * waiting without one. `Promise.race` keeps a handler on the losing handshake,
+ * so the rejection it raises once the abandoned read unparks is not an
+ * unhandled one. */
+function withHandshakeBound(handshake: Promise<void>, ms: number | null): Promise<void> {
+	if (!ms) return handshake;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const bound = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() =>
+				reject(
+					new PancakeError(
+						TIMEOUT,
+						`the partner did not finish the OCapN handshake within ${ms}ms`,
+					),
+				),
+			ms,
+		);
+	});
+	return Promise.race([handshake, bound]).finally(() => clearTimeout(timer));
+}
 
 /** How bytes move for one connection — the byte-channel seam the byte-fed pump
  * reads and the FLUSH drain writes. The core supplies the TCP wrapper below
@@ -230,19 +265,23 @@ export class Session {
 	/** Nonzero once the keyed handshake has completed and the session is open. */
 	get sessionOpen(): boolean {
 		return !this.#released &&
-			driverS.pancake_host_session_session_open(this.#ptr) === 1;
+			driverS.pancake_host_session_is_open(this.#ptr) === 1;
 	}
 
 	// ── Construction: establish, dial, accept ──────────────────────────────────
 
 	/** Mint the dialing half from already-parsed locator pieces (transport +
 	 * designator). A DIAL action's binding half borrows the pending URI first.
+	 * The handshake is bounded by `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS`
+	 * on every dial the binding performs; `0` or `null` waits unbounded), and
+	 * overrunning it rejects with `PancakeError` carrying `TIMEOUT`.
 	 * Binding-internal. */
 	static establishDialedLocator(
 		host: Host,
 		transportName: string,
 		designator: string,
 		transport: Channel,
+		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 	): Promise<Session> {
 		const t = utf8Encoder.encode(transportName);
 		const d = utf8Encoder.encode(designator);
@@ -260,20 +299,26 @@ export class Session {
 			host,
 			transport,
 		);
-		return conn.#establish();
+		return conn.#establish(handshakeTimeoutMs);
 	}
 
 	/** Mint the accepting half over a connection the caller's own listener
 	 * produced. `serverDesignator` is the listener's signing designator (key for
 	 * keyed-tcp/iroh; unused for tcp); `acceptedLocalAddr` is what accept
 	 * reported. Signing designator/hint come from `pancake_host_plan_accept`
-	 * (ADR-0078) — no binding-side accept policy. Binding-internal. */
+	 * (ADR-0078) — no binding-side accept policy. The handshake is bounded by
+	 * `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` in every accept loop here;
+	 * `0` or `null` waits unbounded, which a caller parking a registration
+	 * rather than running an accept loop wants), and overrunning it rejects
+	 * with `PancakeError` carrying `TIMEOUT`, which an accept loop treats as
+	 * any other bad partner. Binding-internal. */
 	static establishAccepted(
 		host: Host,
 		transportName: string,
 		serverDesignator: string,
 		transport: Channel,
 		acceptedLocalAddr = "",
+		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 	): Promise<Session> {
 		const t = utf8Encoder.encode(transportName);
 		const server = utf8Encoder.encode(serverDesignator);
@@ -319,16 +364,24 @@ export class Session {
 			host,
 			transport,
 		);
-		return conn.#establish();
+		return conn.#establish(handshakeTimeoutMs);
 	}
 
 	// Drive the freshly opened connection's keyed handshake to an open session,
 	// abandoning the connection on any failure (release + transport close) so a
-	// rude partner costs one accept, never the listener. The read/feed loop
-	// lives in `pump.runHandshake`.
-	async #establish(): Promise<Session> {
+	// rude partner costs one dial or one accept, never the caller. The read/feed
+	// loop lives in `pump.runHandshake`.
+	//
+	// The one place both halves bound that handshake. A peer that opens the byte
+	// channel and then says nothing is the case no failure check can catch —
+	// nothing fails, the handshake simply waits — so unbounded it parks the
+	// dialer forever, and on the accepting side every later connection behind
+	// that one client. An elapsed budget takes the same abandon path a failed
+	// handshake does, and closing the transport is what unparks the abandoned
+	// read.
+	async #establish(handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS): Promise<Session> {
 		try {
-			await runHandshake(this.#pump);
+			await withHandshakeBound(runHandshake(this.#pump), handshakeTimeoutMs);
 			return this;
 		} catch (err) {
 			this.closeTransport();
@@ -501,13 +554,17 @@ export class Session {
 	 * the sans-io core tracks no remote locator and never dials. Rejects with
 	 * `VowBroken` when the partner breaks the enliven, and with `FetchFailed`
 	 * when it fulfills with something that is not a capability. */
-	enliven(sturdyref: string): Promise<Ref> {
+	// `async` so a malformed sturdyref rejects rather than throwing: the parse
+	// below is synchronous, and without this a caller's `.catch` handled a
+	// broken partner but not a broken string — while the sibling `fetch` one
+	// method up rejects on everything.
+	async enliven(sturdyref: string): Promise<Ref> {
 		const swiss = utf8Encoder.encode(
 			parseLocator(sturdyref, true).swissnum,
 		);
 		// Unlike `fetch`, the result is not GC-tracked: the host's dedup cache
 		// owns an enlivened capability, outside the finalizer seam (ADR-0063).
-		return fetchLike(
+		return await fetchLike(
 			this.#makeMintAwait(),
 			swiss,
 			sturdyref,
@@ -535,16 +592,31 @@ export class Session {
 		verb: string,
 		args: AppValue[] = [],
 	): RemotePromise {
-		this.#guardOpen();
-		this.#gc.drainGc();
-		return dispatchSend(
-			this.#hosted,
-			this.#makePromiseFactory(),
-			target,
-			verb,
-			args,
-			(t, v, a) => this.send(t, v, a),
-		);
+		// A send that cannot be issued comes back as a failed handle, not a
+		// throw. `send` must return synchronously so a caller can pipeline at
+		// the answer before it settles (ADR-0050), so it cannot be `async` —
+		// but a promise-returning method whose failure arrives synchronously is
+		// a trap: the obvious `session.send(…).catch(…)` never sees it, and a
+		// caller who cleared a dead route in that handler kept using it.
+		try {
+			this.#guardOpen();
+			this.#gc.drainGc();
+			return dispatchSend(
+				this.#hosted,
+				this.#makePromiseFactory(),
+				target,
+				verb,
+				args,
+				(t, v, a) => this.send(t, v, a),
+			);
+		} catch (err) {
+			// Everything, not only typed refusals: the contract is that `send`
+			// reports through the handle, and a channel that is mixed depending
+			// on the error is the trap again in a narrower form.
+			return RemotePromise.failed(
+				err instanceof PancakeError ? err : new PancakeError(INVALID_ARGUMENT, String(err)),
+			);
+		}
 	}
 
 	/** Eventual-send `verb(args)` to `target`, await the reply, and also surface

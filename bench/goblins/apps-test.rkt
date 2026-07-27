@@ -9,9 +9,19 @@
          (prefix-in mint: (file "/workspaces/pancake/bench/goblins/apps/mint.rkt"))
          (prefix-in tb: (file "/workspaces/pancake/bench/goblins/apps/taskboard.rkt")))
 
-;; Local substrate: mint-cap instantiates the constructor and returns its behavior
-;; proc (directly callable); call invokes a behavior proc synchronously.
-(define (local-mint ctor) (ctor 'bcom))
+;; Local substrate. Goblins hands a constructor a `bcom` procedure, and two of
+;; the apps below use it for real: the mint's purse and the taskboard's task both
+;; return `(bcom next-behavior return-value)`, which swaps the actor's behavior
+;; and yields the value. So `local-mint` supplies the same thing rather than a
+;; stand-in, and the reference it returns reads the actor's *current* behavior
+;; through a cell — otherwise a swap would be invisible to the next call.
+(define (local-mint ctor)
+  (define behavior #f)
+  (define (bcom next [ret (void)])
+    (set! behavior next)
+    ret)
+  (set! behavior (ctor bcom))
+  (lambda (method . args) (apply behavior method args)))
 (define (local-call ref method . args) (apply ref method args))
 (define (build app-server-build) (local-mint (app-server-build local-mint)))
 

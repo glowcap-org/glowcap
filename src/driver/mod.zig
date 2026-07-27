@@ -30,9 +30,6 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
-const model = @import("model");
-const engine = @import("engine");
-const actors = @import("actors");
 const driver_core = @import("driver_core");
 
 /// The sans-io driver core layer (`driver_core`), re-exported whole so a

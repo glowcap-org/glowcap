@@ -9,6 +9,7 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const promise_capture = @import("../support/capture.zig");
+const poison = @import("../support/poison.zig");
 
 /// A counter whose `self` *is* its state, `increment`/`add` mutate it in place,
 /// the Zig-native "become".
@@ -23,7 +24,7 @@ const Counter = struct {
             return .{ .void = {} };
         }
         if (std.mem.eql(u8, msg.verb, "add")) {
-            self.n += msg.arg(0).integer;
+            self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
         return error.NoSuchMethod;
@@ -178,7 +179,7 @@ test "a handler error settles the promise as broken" {
 const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *Turn, msg: Message) !model.Argument {
         _ = self;
-        const greeting = try std.fmt.allocPrint(turn.arena, "hello, {s}", .{msg.arg(0).bytes});
+        const greeting = try std.fmt.allocPrint(turn.arena, "hello, {s}", .{try msg.argBytes(0)});
         return .{ .bytes = greeting };
     }
 };
@@ -251,7 +252,7 @@ const HostedState = struct {
         const self: *HostedState = @ptrCast(@alignCast(ctx));
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "add")) {
-            self.n += msg.arg(0).integer;
+            self.n += try msg.argInt(0);
             return .{ .integer = self.n };
         }
         if (std.mem.eql(u8, msg.verb, "bump-sink")) {
@@ -582,7 +583,7 @@ const Forwarder = struct {
     sink: actors.Ref,
 
     pub fn handle(self: *Forwarder, turn: *Turn, msg: Message) !model.Argument {
-        const payload = try std.fmt.allocPrint(turn.arena, "payload-{s}", .{msg.arg(0).bytes});
+        const payload = try std.fmt.allocPrint(turn.arena, "payload-{s}", .{try msg.argBytes(0)});
         _ = try turn.send(self.sink, .{ .verb = "store", .args = &.{.{ .bytes = payload }} });
         return .{ .void = {} };
     }
@@ -598,7 +599,7 @@ const Sink = struct {
     pub fn handle(self: *Sink, turn: *Turn, msg: Message) !model.Argument {
         const filler = try turn.arena.alloc(u8, 256);
         @memset(filler, 'Z');
-        const bytes = msg.arg(0).bytes;
+        const bytes = try msg.argBytes(0);
         @memcpy(self.buf[0..bytes.len], bytes);
         self.len = bytes.len;
         return .{ .void = {} };
@@ -852,7 +853,7 @@ const Ledger = struct {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "label")) return .{ .bytes = self.label };
         if (std.mem.eql(u8, msg.verb, "relabel")) {
-            const fresh = try self.allocator.dupe(u8, msg.arg(0).bytes);
+            const fresh = try self.allocator.dupe(u8, try msg.argBytes(0));
             self.allocator.free(self.label);
             self.label = fresh;
             self.n += 1;
@@ -960,7 +961,7 @@ const AliasingSwapper = struct {
         // transition to the next. The next label's heap moves into the new box;
         // a failed become frees it here rather than leaking.
         const reply = model.Argument{ .bytes = self.label };
-        const next = try self.allocator.dupe(u8, msg.arg(0).bytes);
+        const next = try self.allocator.dupe(u8, try msg.argBytes(0));
         turn.become(AliasingSwapper, .{ .allocator = self.allocator, .label = next }) catch |err| {
             self.allocator.free(next);
             return err;
@@ -1009,7 +1010,7 @@ const BufferHandoff = struct {
     pub fn handle(self: *BufferHandoff, turn: *Turn, msg: Message) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "swap")) {
             const reply = try turn.moveOut(&self.label);
-            self.label = try self.allocator.dupe(u8, msg.arg(0).bytes);
+            self.label = try self.allocator.dupe(u8, try msg.argBytes(0));
             return reply;
         }
         if (std.mem.eql(u8, msg.verb, "swap-then-fail")) {
@@ -1102,7 +1103,7 @@ const MovingSwapper = struct {
         const reply = try turn.moveOut(&self.label);
         try turn.become(MovingSwapper, .{
             .allocator = self.allocator,
-            .label = try self.allocator.dupe(u8, msg.arg(0).bytes),
+            .label = try self.allocator.dupe(u8, try msg.argBytes(0)),
         });
         return reply;
     }
@@ -1150,7 +1151,7 @@ const MisdirectedMover = struct {
         try turn.become(MisdirectedMover, .{
             .allocator = self.allocator,
             .scratch = try self.allocator.dupe(u8, "scratch"),
-            .label = try self.allocator.dupe(u8, msg.arg(0).bytes),
+            .label = try self.allocator.dupe(u8, try msg.argBytes(0)),
         });
         return .{ .bytes = self.label };
     }
@@ -1199,8 +1200,8 @@ const DoubleMover = struct {
         _ = try turn.moveOut(&self.second);
         try turn.become(DoubleMover, .{
             .allocator = self.allocator,
-            .first = try self.allocator.dupe(u8, msg.arg(0).bytes),
-            .second = try self.allocator.dupe(u8, msg.arg(0).bytes),
+            .first = try self.allocator.dupe(u8, try msg.argBytes(0)),
+            .second = try self.allocator.dupe(u8, try msg.argBytes(0)),
         });
         return reply;
     }
@@ -1242,7 +1243,7 @@ const StringSwapper = struct {
         const reply = try turn.moveOutString(&self.label);
         try turn.become(StringSwapper, .{
             .allocator = self.allocator,
-            .label = try self.allocator.dupe(u8, msg.arg(0).bytes),
+            .label = try self.allocator.dupe(u8, try msg.argBytes(0)),
         });
         return reply;
     }
@@ -1287,7 +1288,7 @@ const LabelHolder = struct {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .bytes = self.label };
         if (std.mem.eql(u8, msg.verb, "relabel")) {
-            const fresh = try self.allocator.dupe(u8, msg.arg(0).bytes);
+            const fresh = try self.allocator.dupe(u8, try msg.argBytes(0));
             self.allocator.free(self.label);
             self.label = fresh;
             return .{ .void = {} };
@@ -1680,4 +1681,120 @@ test "a mutable actor's pre-error mutation persists while the promise breaks" {
     // flavor's contract, not this one's. Drift toward rollback here must be a
     // deliberate design change.
     try std.testing.expectEqual(@as(i64, 8), (try vat.near(a, .{ .verb = "get" })).integer);
+}
+
+/// The cross-actor half of the aliased-reply hazard. `AliasedBecomer` above
+/// covers one actor reentering itself, where the reply at risk belongs to the
+/// frame that unwinds. Here the two frames belong to actor B and the reply at
+/// risk belongs to B's *first* frame, which has already returned by the time
+/// B's second frame installs its become and frees the box those bytes borrow.
+/// Severing the returning frame's reply cannot reach it: that frame has closed.
+const Swappable = struct {
+    pub const snapshot_persistent = true;
+    label: [8]u8,
+
+    pub fn handle(self: *const Swappable, turn: *Turn, msg: Message) !model.Argument {
+        _ = turn;
+        if (std.mem.eql(u8, msg.verb, "peek")) return .{ .bytes = &self.label };
+        return error.NoSuchMethod;
+    }
+};
+
+const Swapper = struct {
+    pub const snapshot_persistent = true;
+    label: [8]u8,
+
+    pub fn handle(self: *const Swapper, turn: *Turn, msg: Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "peek")) return .{ .bytes = &self.label };
+        if (std.mem.eql(u8, msg.verb, "swap")) {
+            try turn.become(Swapper, .{ .label = "new-name".* });
+            return .{ .void = {} };
+        }
+        return error.NoSuchMethod;
+    }
+};
+
+const Caller = struct {
+    target: actors.Ref,
+
+    pub fn handle(self: *const Caller, turn: *Turn, msg: Message) !model.Argument {
+        _ = msg;
+        // Hold the first reply across a second call that becomes.
+        const peeked = try turn.near(self.target, .{ .verb = "peek" });
+        _ = try turn.near(self.target, .{ .verb = "swap" });
+        return peeked;
+    }
+};
+
+test "a reply held across a later become on the same actor stays readable" {
+    // Through the poisoning allocator: a freed state box usually still holds
+    // its old bytes, so reading one back would otherwise produce the right
+    // answer for the wrong reason and hide the defect.
+    var wrapper: poison.PoisonOnFree = .{ .inner = std.testing.allocator };
+    var vat = actors.Vat.init(wrapper.allocator());
+    defer vat.deinit();
+
+    const target = try vat.spawn(Swapper, .{ .label = "old-name".* });
+    const caller = try vat.spawn(Caller, .{ .target = target });
+
+    const reply = try vat.near(caller, .{ .verb = "go" });
+    try std.testing.expectEqualStrings("old-name", reply.bytes);
+    try std.testing.expectEqualStrings("new-name", (try vat.near(target, .{ .verb = "peek" })).bytes);
+}
+
+/// A hundred distinct actors, each near-calling the next and each staging a `become`,
+/// so all ten installs land as the stack unwinds. Every stage runs before any
+/// install, so each one sees the same empty retire list: a reservation of one
+/// slot per stage reserves one slot in total, not ten.
+const ChainLink = struct {
+    pub const snapshot_persistent = true;
+    next: ?actors.Ref,
+    n: i64,
+
+    pub fn handle(self: *const ChainLink, turn: *Turn, msg: Message) !model.Argument {
+        if (!std.mem.eql(u8, msg.verb, "go")) return error.NoSuchMethod;
+        // Stage before descending, so every frame in the chain has a become
+        // pending before the first one installs.
+        try turn.become(ChainLink, .{ .next = self.next, .n = self.n + 1 });
+        if (self.next) |next| _ = try turn.near(next, .{ .verb = "go" });
+        return .{ .integer = self.n };
+    }
+};
+
+test "a chain of nested becomes installs every one of them" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    var next: ?actors.Ref = null;
+    var made: usize = 0;
+    while (made < 100) : (made += 1) {
+        next = try vat.spawn(ChainLink, .{ .next = next, .n = 0 });
+    }
+
+    _ = try vat.near(next.?, .{ .verb = "go" });
+    // Every link ran once and became, so a second pass sees n == 1 throughout.
+    try std.testing.expectEqual(@as(i64, 1), (try vat.near(next.?, .{ .verb = "go" })).integer);
+}
+
+test "an actor id is never reissued after a restore" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    var snap = try vat.snapshot();
+    defer snap.deinit();
+
+    // Spawn after the snapshot, then rewind past it. The actor is gone from the
+    // heap, but an id is what the export table maps a wire position to, and that
+    // table is not part of a snapshot: a partner handed this actor's id may
+    // still be holding a capability that names it.
+    const before = try vat.spawn(CloneCounter, .{ .n = 0 });
+    try vat.restore(&snap);
+
+    // So the next spawn must not be handed that id back. If the counter
+    // rewound with the heap, this actor would answer for the one the partner
+    // was granted.
+    const after = try vat.spawn(CloneCounter, .{ .n = 7 });
+    try std.testing.expect(before.local != after.local);
 }

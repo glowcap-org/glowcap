@@ -1,5 +1,6 @@
 ---
 .title = "iroh: encrypted peer-to-peer",
+.description = "iroh is pancake's encrypted transport: session bytes ride QUIC, and a peer is named by a self-authenticating key rather than a host and port.",
 .date = @date("2026-06-17T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -20,8 +21,8 @@ Each endpoint is an Ed25519 keypair, and pancake makes that single key carry thr
 roles at once:
 
 - it is the **iroh node id** the transport authenticates the QUIC channel against;
-- it is the **OCapN locator designator**, the name you dial in an
-  `ocapn://<node-id>.iroh` URI;
+- it is the **designator**, the peer's name inside an OCapN locator, the part
+  you dial in an `ocapn://<node-id>.iroh` URI;
 - it is the **session signing key** that signs the `op:start-session` handshake.
 
 [One keypair fills all three roles, so the peer you dialed is provably the peer that signed the session.]($image.siteAsset('diagram-iroh-key.svg'))
@@ -33,7 +34,7 @@ certificate to trust and no address to spoof, because the address *is* the key.
 
 The identity also outlives the process that minted it. An endpoint bound from the
 same seed comes back with the same node id at a fresh network address. A
-sturdyref (a node id plus a swiss number) therefore still names the same capability
+sturdyref (a node id plus a [swiss number]($link.page('concepts'))) therefore still names the same capability
 after a restart. The interop check step proves that too, by tearing an endpoint down and
 reaching the same published cap through the locator recorded before the restart.
 
@@ -79,18 +80,22 @@ as TCP; the only difference a caller sees is the address.
 
 ## Scale: many connections, one thread
 
-One connection per OS thread is what `iroh-interop` proves. For fan-out, a loop
-host drives every connection from one readiness descriptor
+The interop check drives one connection per OS thread, which is fine for a
+handful of peers. To serve many, a loop host drives every connection from one
+readiness descriptor
 ([ADR-0057](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)):
-`zig build iroh-loop` and `bindings-iroh-loop`. Round-trip cost vs cleartext TCP:
-[Performance]($link.page('performance')). Sidecar heap is separate from the
-checked ~2 KiB sans-io core.
+`zig build iroh-loop` proves it natively, and `bindings-iroh-loop` proves each
+binding's readiness loop. [Performance]($link.page('performance')) measures the
+round-trip cost against cleartext TCP on the same machine. The sidecar keeps its
+own heap, outside the roughly 2 KiB of core session state pancake's footprint
+check holds per connection.
 
 ## Three-party handoff over iroh
 
-Same CapTP introduction as on TCP
-([Concepts]($link.page('concepts'))): the recipient dials the exporter by node id
-on a fresh encrypted session. Proof: `zig build iroh-mesh`.
+A handoff over iroh is the same introduction as over any other session
+([Concepts]($link.page('concepts')) covers the shape): the gifter names the
+exporter by node id, and the recipient redeems by dialing that id on a fresh
+encrypted session. `zig build iroh-mesh` proves it live.
 
 ## See it run
 
@@ -106,7 +111,4 @@ zig build iroh-abi           # build libpancake_net_transport_iroh and its heade
 ```
 
 For a full application over the encrypted channel, the [rooms]($link.page('examples'))
-chat runs across five languages over iroh with `zig build demo-rooms-iroh`. The
-[Transports]($link.page('transports')) page sets iroh beside the TCP and in-process
-residents, and [Concepts]($link.page('concepts')) explains locators, hints, and
-sturdyrefs in general.
+chat runs across five languages over iroh with `zig build demo-rooms-iroh`.

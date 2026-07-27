@@ -52,7 +52,7 @@ pub fn fileContains(
     return std.mem.indexOf(u8, contents, needle) != null;
 }
 
-pub fn parseLeadingInt(s: []const u8) ?i64 {
+fn parseLeadingInt(s: []const u8) ?i64 {
     var i: usize = 0;
     var neg = false;
     if (i < s.len and s[i] == '-') {

@@ -15,6 +15,7 @@
         "src",
         "include",
         "tools",
+        "LICENSE-THIRD-PARTY",
         "LICENSE-APACHE",
         "README.md",
     },

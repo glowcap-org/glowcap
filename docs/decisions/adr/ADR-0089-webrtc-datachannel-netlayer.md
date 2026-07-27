@@ -195,13 +195,11 @@ signaling host and both peers running the browser arm.
 
 **The `webrtc` locator and the dial classifier.** A `webrtc` locator carries the
 designator and a reference to the signaling object, not a dialable address. This
-is why `planDial` (phase 4) does not yet resolve a `webrtc` locator to a
-`host_port` or `peer_id` plan: the plan a `webrtc` locator resolves to is a
-third shape, `signaling`, carrying the designator and the signaling reference,
-and the redeem opens the channel through the exchange above before the keyed
-handshake. Phase 4 adds that `DialPlan.signaling` arm and the classifier route;
-until then a `webrtc` locator is reached only through a redeemed give, never a
-bare `connect`.
+is why `planDial` resolves a `webrtc` locator to neither a `host_port` nor a
+`peer_id` plan, but to a third shape, `signaling`, carrying the designator and
+the signaling reference: the redeem opens the channel through the exchange above
+before the keyed handshake runs. A `webrtc` locator is therefore reached through
+a redeemed give, never a bare `connect`.
 
 ## STUN/TURN posture: direct where possible, relayed only when it cannot be
 

@@ -9,6 +9,7 @@
 // is runtime-neutral. This is the consumer `zig build bindings` runs.
 
 import process from "node:process";
+import { TIMEOUT } from "@pancake/abi";
 import { connectTcp, listenTcp, type NetConn } from "../stack/internal/seam.ts";
 import {
 	abiVersion,
@@ -746,6 +747,36 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	await Promise.race([client(), served]);
 	await served;
 	ok("a rude probe cannot close the listener");
+}
+
+// The dial-side twin of the rude probe: a partner that accepts the connection
+// and then says nothing is the case no failure check catches, because nothing
+// fails. Unbounded, the dialer parks forever; the bound makes it a typed
+// TIMEOUT, and the abandoned handshake closes the socket on the way out.
+{
+	const listener = await listenTcp("127.0.0.1", 0);
+	const accepted: NetConn[] = [];
+	// Accept the socket and say nothing on it, ever.
+	const accepting = listener.accept().then(
+		(conn) => void accepted.push(conn),
+		() => {},
+	);
+
+	let timedOut: PancakeError | null = null;
+	try {
+		await connect(tcpLocator("127.0.0.1", listener.port), undefined, undefined, undefined, 250);
+	} catch (err) {
+		if (err instanceof PancakeError) timedOut = err;
+	}
+	assert(
+		timedOut !== null && timedOut.code === TIMEOUT,
+		`a silent partner must time the dial out, got code ${timedOut?.code ?? "a session"}`,
+	);
+
+	await accepting;
+	for (const conn of accepted) conn.close();
+	listener.close();
+	ok("a silent partner times the dial out rather than parking it");
 }
 
 // The blocking TCP transport is its own composable module

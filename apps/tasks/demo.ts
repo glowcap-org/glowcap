@@ -5,8 +5,8 @@
 // their runtimes are on PATH — into one capability-secure task board over TCP. Each
 // client adds a task, lists tasks, marks its task done, and confirms the
 // change. The orchestrator asserts every participating client exits 0, so
-// `zig build demo-tasks` is an honest proof that one OCapN task board holds clients
-// written in several languages at once.
+// `zig build demo-tasks` proves that one OCapN task board holds clients written
+// in several languages at once.
 //
 // Run by `zig build demo-tasks`, which passes the built Zig client's path as argv[0].
 // `--port=N` (from `-Dport`) pins the server's port instead of an ephemeral one;

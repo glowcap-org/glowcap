@@ -9,23 +9,13 @@ const codec = @import("codec");
 const crypto = @import("foundation").crypto;
 const session_mod = @import("session");
 const bootstrap = @import("bootstrap.zig");
+const handoff_names = @import("handoff_names.zig");
 
-/// Goblins "side name" for a session public key — the OCapN Public Identifier
-/// (`crypto.derivePublicIdentifier`), surfaced as its raw 32 bytes for the
-/// handoff records that carry it. Single-sourced against the foundation
-/// derivation so the side a handoff names can never drift from the side a
-/// handshake derives. The key must be exactly a 32-byte Ed25519 public key — the
-/// only width the protocol uses; any other length is `MalformedKey`.
-pub fn sideName(key: []const u8) error{MalformedKey}![32]u8 {
-    const peer_key = crypto.PeerKey.fromSlice(key) catch return error.MalformedKey;
-    return crypto.derivePublicIdentifier(peer_key).bytes;
-}
-
-/// Goblins "session name" for two side names, the OCapN Session ID
-/// (`crypto.sessionIdFromPeerIds`) computed from sides the caller already holds.
-pub fn sessionName(side_a: [32]u8, side_b: [32]u8) [32]u8 {
-    return crypto.sessionIdFromPeerIds(.fromBytes(side_a), .fromBytes(side_b)).bytes;
-}
+/// The side and session naming both handoff ends derive from session keys. The
+/// exporter checks an inbound receive against the same derivation, so they live
+/// in `handoff_names.zig` and are re-exported here for the recipient's callers.
+pub const sideName = handoff_names.sideName;
+pub const sessionName = handoff_names.sessionName;
 
 /// A signed `desc:handoff-receive` that owns its derived bytes, including the
 /// gifter's give it parsed from `give_bytes` (`give` carries both `raw_signed`,
@@ -195,13 +185,18 @@ pub const ProjectedRedeemGive = struct {
 /// signed give, then project the exporter dial URI.
 pub fn projectGiveForRedeem(
     allocator: std.mem.Allocator,
-    event_bytes: []const u8,
     give: model.view.HandoffGive,
 ) error{OutOfMemory}!ProjectedRedeemGive {
     var result: ProjectedRedeemGive = .{};
     errdefer result.deinit(allocator);
 
-    if (codec.syrup.spanSignedHandoffGive(event_bytes)) |span| {
+    // The Syrup parser already recorded the envelope's exact span while it read
+    // the give, so use that rather than scanning the frame for the label. A scan
+    // finds the *first* occurrence of `desc:sig-envelope`, and those bytes can
+    // appear earlier inside any byte-string argument a partner controls, which
+    // would relay a span disagreeing with the typed view beside it. A non-Syrup
+    // session records no span and reconstructs below.
+    if (give.raw_signed) |span| {
         result.give = .{ .borrowed = span };
     } else {
         result.give = if (reconstructSignedHandoffGive(allocator, give)) |owned|

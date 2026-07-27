@@ -110,16 +110,21 @@ pub export fn pancake_host_session_open_accepted(
 /// withdraws fail closed, so *sibling* sessions' vows may break here
 /// too — and the shell is freed. Null is a no-op; refused (last error set,
 /// the session kept) from inside a callback.
-pub export fn pancake_host_session_release(raw: ?*PancakeHostSession) void {
-    const session = connFrom(raw) orelse return;
+pub export fn pancake_host_session_release(raw: ?*PancakeHostSession) i32 {
+    const session = connFrom(raw) orelse return PANCAKE_OK;
     const inst = instOf(session.host);
+    // A code, not a bare return. `releaseSession` can fail after the shell is
+    // freed — its closing verb still has to finish — and collapsing that into a
+    // thread-local left an embedder no way to know the release did not complete.
     inst.core.releaseSession(session) catch |err| {
         shared.setLastError("host: conn_release: {s}", .{@errorName(err)});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
     };
+    return PANCAKE_OK;
 }
 
 /// Nonzero once the keyed handshake has completed and the session is open.
-pub export fn pancake_host_session_session_open(raw: ?*PancakeHostSession) i32 {
+pub export fn pancake_host_session_is_open(raw: ?*PancakeHostSession) i32 {
     const session = connFrom(raw) orelse return 0;
     return if (session.sessionOpen()) 1 else 0;
 }

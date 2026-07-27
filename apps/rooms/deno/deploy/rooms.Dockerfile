@@ -23,6 +23,6 @@
 # Keep the Deno tag below in sync with .devcontainer/pins.sh (DENO_VERSION).
 
 FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8
-COPY --from=denoland/deno:bin-2.9.1 /deno /usr/local/bin/deno
+COPY --from=denoland/deno:bin-2.9.4 /deno /usr/local/bin/deno
 ENV DENO_DIR=/deno-dir
 ENTRYPOINT ["deno"]
