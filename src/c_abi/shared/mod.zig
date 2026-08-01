@@ -3,12 +3,11 @@
 //! marshalling), the return and codec codes, the allocation policy,
 //! the managed-frame machinery, the stream-shaped connection helpers
 //! (`ConnLifecycle`, `ConnFrameOps`), and the per-thread last-error slot that
-//! `libpancake_ocapn`'s handle families, the tcp/inproc transport families (the
-//! frame boundary and the owning `pancake_tcp_session_*` surface, ADR-0062), and
+//! `libpancake_ocapn`'s handle families, the tcp/inproc transport families, and
 //! the out-of-graph iroh C ABI (`src/c_abi/net_transport/iroh/mod.zig`) all speak.
 //!
 //! This leaf declares **no `export fn`**. The public `pancake_*` entry points
-//! live in the `c_abi/ocapn` families (context, frame, peer, uri) and
+//! live in the `c_abi/ocapn` families (context, frame, uri), the Host, and
 //! the `c_abi/net_transport/{tcp,inproc}` transport families, and the
 //! `pancake_iroh_*` entry points in `c_abi_net_transport_iroh`; all reach this
 //! vocabulary through `@import("c_abi_shared")`. Because importing the leaf pulls the
@@ -55,8 +54,8 @@ pub const PANCAKE_ERR_IO: i32 = -9;
 pub const PANCAKE_ERR_MALFORMED: i32 = -10;
 /// An inbound frame exceeded the endpoint's `max_frame_bytes`.
 pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
-// -12 is retired (the pairwise typed polls' wrong-kind refusal;
-// `pancake_peer_next_event` routes every kind itself). Never reused.
+// -12 is retired (the old raw-peer pairwise typed polls' wrong-kind refusal).
+// Never reused.
 /// A value *sent* across the typed surface uses a variant the C ABI cannot carry:
 /// a `handoff` argument, an OCapN Struct argument (there is no `PANCAKE_ARG_STRUCT`),
 /// or a `sturdy`/`broken` reference target. Those are refused loudly with this
@@ -68,12 +67,9 @@ pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
 /// not refused on this consumer's behalf.
 pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -13;
 /// A promise the partner broke: a `send`/`fetch` the remote side refused with a
-/// reason, not a fault in this peer or the transport. The sans-io peer surface
-/// never *returns* this — a break arrives there as a `PANCAKE_RESOLUTION_BREAK`
-/// resolve event carrying its message. The owning-session transport surfaces do
-/// return it: `pancake_tcp_session_fetch` reports a partner break with this code,
-/// and a binding reuses it when it turns that break into its own error type, so
-/// the reason stays distinct from a real failure.
+/// reason, not a fault in the Host or transport. Bindings reuse it when they
+/// turn that break into their own error type, so the reason stays distinct from
+/// a real failure.
 pub const PANCAKE_ERR_BROKEN: i32 = -14;
 /// A lookup found nothing: the `pancake_locator_hint` key names no hint on the
 /// locator. Distinct from `_INVALID_ARGUMENT` (the request was malformed) — the
@@ -93,9 +89,8 @@ pub const PANCAKE_ERR_TIMEOUT: i32 = -17;
 
 // ── Codec selector ───────────────────────────────────────────────────────────
 
-/// Codec selector: the wire grammar a peer's session speaks
-/// (`pancake_peer_new_negotiated`) and the framing an endpoint delimits
-/// frames with (`pancake_tcp_connect` / `pancake_tcp_accept`). The
+/// Codec selector: the wire grammar a Host session speaks and the framing an
+/// endpoint delimits with (`pancake_tcp_connect` / `pancake_tcp_accept`). The
 /// two must match, the endpoint splits the stream with the same grammar the
 /// session encodes in.
 pub const PANCAKE_CODEC_SYRUP: u32 = 0;
@@ -252,7 +247,7 @@ pub const PancakeAllocator = extern struct {
 pub const PancakeContext = opaque {};
 
 /// The allocator the *simple* C ABI path uses, the constructors that take no
-/// `PancakeContext` (`pancake_peer_new`, `pancake_tcp_netlayer_new`) and
+/// `PancakeContext` (`pancake_tcp_netlayer_new`, for example) and
 /// everything those handles own. `smp_allocator` is a thread-safe
 /// general-purpose allocator: a managed frame per outbound message or event
 /// costs an arena-style bump, not the `mmap`/`munmap` round-trip
@@ -386,28 +381,11 @@ pub fn lastErrorClear() void {
 
 // ── Typed OCapN value vocabulary ─────────────────────────────────────────────
 //
-// The fixed-layout reference/argument structs and their discriminants, plus the
-// model<->C marshalling, live in this leaf so both `libpancake_ocapn`'s peer
-// family and the transport archives' owning sessions
-// (`pancake_tcp_session_*`, ADR-0062) speak them by layout without either
-// pulling the other's exported surface (ADR-0055 / ADR-0059). The ocapn root
+// The fixed-layout reference/argument structs and Host marshalling traversal
+// live in this leaf so every archive and binding shares one layout. The ocapn root
 // (`src/c_abi/ocapn/mod.zig`) re-exports the names so `tools/gen/header/ocapn.zig`'s
 // reflection emits them into `pancake_ocapn.h`; the transport archives include
 // that one header on the C side.
-
-pub const PANCAKE_REF_NEAR: u32 = 0;
-pub const PANCAKE_REF_FAR: u32 = 1;
-pub const PANCAKE_REF_PROMISE: u32 = 2;
-pub const PANCAKE_REF_STURDY: u32 = 3;
-pub const PANCAKE_REF_BROKEN: u32 = 4;
-
-/// `sub_kind` for a near/far reference: whether the position names an object or a
-/// promise (the `desc:import-object` vs `desc:import-promise` distinction). The
-/// SUB names are their own namespace so a `kind` value (`PANCAKE_REF_PROMISE`)
-/// can never be mistaken for a `sub_kind` value or assigned to the wrong field
-/// unnoticed.
-pub const PANCAKE_REF_SUB_OBJECT: u32 = 0;
-pub const PANCAKE_REF_SUB_PROMISE: u32 = 1;
 
 pub const PANCAKE_ARG_INTEGER: u32 = 0;
 pub const PANCAKE_ARG_FLOAT64: u32 = 1;
@@ -431,20 +409,15 @@ pub const PANCAKE_ARG_BIG_INTEGER: u32 = 12;
 
 pub const PANCAKE_RESOLUTION_FULFILL: u32 = 0;
 pub const PANCAKE_RESOLUTION_BREAK: u32 = 1;
-/// The answer fulfilled to a three-party handoff (ADR-0009/ADR-0056): the
+/// The answer fulfilled to a three-party handoff (ADR-0009/ADR-0100): the
 /// resolution carries a `desc:handoff-give` the recipient must redeem against
 /// the named exporter rather than an immediate value. `PancakeResolve.handoff`
 /// carries the verbatim give and the exporter's dialable locator.
 pub const PANCAKE_RESOLUTION_HANDOFF: u32 = 2;
 
-/// A capability reference. `kind` selects the meaning of `id`: a `_NEAR` export
-/// position, a `_FAR` import position, or a `_PROMISE` answer position.
-/// `sub_kind` is the object/promise distinction for near/far. `_STURDY` and
-/// `_BROKEN` carry no payload here (use the resolution's break message for a
-/// broken target).
+/// An opaque capability identity owned by one `PancakeHost`. The integer has no
+/// wire meaning and cannot be combined with a caller-selected session.
 pub const PancakeReference = extern struct {
-    kind: u32,
-    sub_kind: u32,
     id: u64,
 };
 
@@ -469,7 +442,7 @@ pub const PancakeArgument = extern struct {
     items_len: usize,
 };
 
-pub const zero_reference: PancakeReference = .{ .kind = PANCAKE_REF_BROKEN, .sub_kind = 0, .id = 0 };
+pub const zero_reference: PancakeReference = .{ .id = 0 };
 pub const zero_argument: PancakeArgument = .{
     .kind = PANCAKE_ARG_VOID,
     .boolean = 0,
@@ -482,7 +455,12 @@ pub const zero_argument: PancakeArgument = .{
     .items_len = 0,
 };
 
-pub const MarshalError = error{ UnsupportedValue, NullPointer, OutOfMemory };
+/// `InvalidArgument` is this leaf's own refusal of a caller-supplied
+/// discriminant outside its family. It always arrives with a last-error message
+/// naming the offending value, so a mapper above must not stamp the bare error
+/// name over it. The other members are a shape the marshal cannot carry
+/// (`UnsupportedValue`), a missing pointer, and allocation failure.
+pub const MarshalError = error{ UnsupportedValue, InvalidArgument, NullPointer, OutOfMemory };
 
 /// Classify an inbound-dispatch error into a C ABI return code. Derived from the
 /// single error taxonomy (`engine.abort_projection.classify`) so the C codes
@@ -502,6 +480,7 @@ pub fn feedErrorToCode(err: anyerror) i32 {
 pub fn marshalErrorToCode(err: MarshalError) i32 {
     return switch (err) {
         error.UnsupportedValue => PANCAKE_ERR_UNSUPPORTED_VALUE,
+        error.InvalidArgument => PANCAKE_ERR_INVALID_ARGUMENT,
         error.NullPointer => PANCAKE_ERR_NULL_POINTER,
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,
     };
@@ -533,10 +512,8 @@ pub const PancakeLastAbort = extern struct {
     error_name_len: usize,
 };
 
-/// Project an `engine.AbortInfo` into the C `PancakeLastAbort` — the one body
-/// behind `pancake_peer_last_abort` and `pancake_host_session_last_abort`, so the
-/// two archives cannot drift on the projection. Every view written is
-/// process-static.
+/// Project an `engine.AbortInfo` into the C `PancakeLastAbort`. Every view
+/// written is process-static.
 pub fn lastAbortToC(info: engine.AbortInfo) PancakeLastAbort {
     return .{
         .domain = switch (info.domain) {
@@ -560,40 +537,39 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
     return p[0..len];
 }
 
-pub fn referenceFromC(c_ref: PancakeReference) MarshalError!model.Reference {
-    const promise_sub = c_ref.sub_kind == PANCAKE_REF_SUB_PROMISE;
-    return switch (c_ref.kind) {
-        PANCAKE_REF_NEAR => .{ .near = .{ .export_position = model.ExportPosition.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
-        PANCAKE_REF_FAR => .{ .far = .{ .import_position = model.ImportPosition.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
-        PANCAKE_REF_PROMISE => .{ .promise = .{ .answer_position = model.AnswerPosition.from(c_ref.id) } },
-        else => error.UnsupportedValue,
-    };
-}
-
 /// Depth bound on a host-supplied argument tree. A foreign caller could nest
 /// `PancakeArgument` lists/sets/tagged values arbitrarily deep and overflow the
 /// native stack inside `argumentFromC`, exactly as a hostile wire frame could in
 /// the codec. The value mirrors the session's default `max_nesting_depth` (64).
 pub const max_marshal_depth: usize = 64;
 
-pub fn argumentFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize) MarshalError!model.Argument {
-    return argumentFromCImpl(arena, c_arg, depth, false);
-}
-
-/// `argumentFromC` with every leaf byte slice duped into `arena` as it
-/// converts, so the result owns its bytes in ONE tree build. This is the
-/// marshal for a caller that must sever the C storage's lifetime — the actors
-/// bridge copying a behavior's reply clear of the consumer's `out_reply` —
-/// where the borrowing variant would force a second full `cloneArgument` pass
-/// over arrays the first build already allocated.
-pub fn argumentFromCOwned(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize) MarshalError!model.Argument {
-    return argumentFromCImpl(arena, c_arg, depth, true);
+/// One recursive C-value decoder parameterized only by the reference leaf.
+/// The Host supplies opaque-id lift/lower policy without cloning the
+/// pass-by-copy value algebra.
+pub fn argumentFromCWith(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_from_c: anytype,
+    arena: std.mem.Allocator,
+    c_arg: PancakeArgument,
+    depth: usize,
+    comptime own_bytes: bool,
+) (MarshalError || RefError)!model.Argument {
+    return argumentFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg, depth, own_bytes);
 }
 
 /// The one conversion recursion behind both marshal lifetimes; `own_bytes` is
 /// comptime, so each variant compiles to its own straight-line specialization
 /// with no runtime mode.
-fn argumentFromCImpl(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize, comptime own_bytes: bool) MarshalError!model.Argument {
+fn argumentFromCImpl(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_from_c: anytype,
+    arena: std.mem.Allocator,
+    c_arg: PancakeArgument,
+    depth: usize,
+    comptime own_bytes: bool,
+) (MarshalError || RefError)!model.Argument {
     if (depth > max_marshal_depth) return error.UnsupportedValue;
     const next = depth + 1;
     return switch (c_arg.kind) {
@@ -604,12 +580,12 @@ fn argumentFromCImpl(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: us
         PANCAKE_ARG_STRING => .{ .string = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_SYMBOL => .{ .symbol = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_VOID => .{ .void = {} },
-        PANCAKE_ARG_REFERENCE => .{ .reference = try referenceFromC(c_arg.reference) },
-        PANCAKE_ARG_LIST => .{ .list = try argsFromCImpl(arena, c_arg.items, c_arg.items_len, next, own_bytes) },
-        PANCAKE_ARG_SET => .{ .set = try argsFromCImpl(arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        PANCAKE_ARG_REFERENCE => .{ .reference = try ref_from_c(ref_ctx, c_arg.reference) },
+        PANCAKE_ARG_LIST => .{ .list = try argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        PANCAKE_ARG_SET => .{ .set = try argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
         PANCAKE_ARG_TAGGED => .{ .tagged = .{
             .tag = try leafFromC(arena, c_arg, own_bytes),
-            .value = try argsFromCImpl(arena, c_arg.items, c_arg.items_len, next, own_bytes),
+            .value = try argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes),
         } },
         PANCAKE_ARG_KEYWORD => .{ .keyword = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_BIG_INTEGER => blk: {
@@ -633,29 +609,44 @@ fn leafFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, comptime own_byte
     return if (own_bytes) try arena.dupe(u8, borrowed) else borrowed;
 }
 
-pub fn argsFromC(arena: std.mem.Allocator, items: ?[*]const PancakeArgument, len: usize, depth: usize) MarshalError![]const model.Argument {
-    return argsFromCImpl(arena, items, len, depth, false);
+pub fn argsFromCWith(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_from_c: anytype,
+    arena: std.mem.Allocator,
+    items: ?[*]const PancakeArgument,
+    len: usize,
+    depth: usize,
+    comptime own_bytes: bool,
+) (MarshalError || RefError)![]const model.Argument {
+    return argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, items, len, depth, own_bytes);
 }
 
-fn argsFromCImpl(arena: std.mem.Allocator, items: ?[*]const PancakeArgument, len: usize, depth: usize, comptime own_bytes: bool) MarshalError![]const model.Argument {
+fn argsFromCImpl(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_from_c: anytype,
+    arena: std.mem.Allocator,
+    items: ?[*]const PancakeArgument,
+    len: usize,
+    depth: usize,
+    comptime own_bytes: bool,
+) (MarshalError || RefError)![]const model.Argument {
     if (len == 0) return &.{};
     const p = items orelse return error.NullPointer;
     const out = try arena.alloc(model.Argument, len);
-    for (0..len) |i| out[i] = try argumentFromCImpl(arena, p[i], depth, own_bytes);
+    for (0..len) |i| out[i] = try argumentFromCImpl(RefError, ref_ctx, ref_from_c, arena, p[i], depth, own_bytes);
     return out;
 }
 
-pub fn referenceToC(reference: model.Reference) PancakeReference {
-    return switch (reference) {
-        .near => |near| .{ .kind = PANCAKE_REF_NEAR, .sub_kind = if (near.kind == .promise) PANCAKE_REF_SUB_PROMISE else PANCAKE_REF_SUB_OBJECT, .id = near.export_position.int() },
-        .far => |far| .{ .kind = PANCAKE_REF_FAR, .sub_kind = if (far.kind == .promise) PANCAKE_REF_SUB_PROMISE else PANCAKE_REF_SUB_OBJECT, .id = far.import_position.int() },
-        .promise => |promise| .{ .kind = PANCAKE_REF_PROMISE, .sub_kind = 0, .id = promise.answer_position.int() },
-        .sturdy => .{ .kind = PANCAKE_REF_STURDY, .sub_kind = 0, .id = 0 },
-        .broken => .{ .kind = PANCAKE_REF_BROKEN, .sub_kind = 0, .id = 0 },
-    };
-}
-
-pub fn argumentToC(arena: std.mem.Allocator, arg: model.Argument) MarshalError!PancakeArgument {
+/// One recursive model-value encoder parameterized only by the reference leaf.
+pub fn argumentToCWith(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_to_c: anytype,
+    arena: std.mem.Allocator,
+    arg: model.Argument,
+) (MarshalError || RefError)!PancakeArgument {
     var c_arg = zero_argument;
     switch (arg) {
         .integer => |v| {
@@ -688,17 +679,17 @@ pub fn argumentToC(arena: std.mem.Allocator, arg: model.Argument) MarshalError!P
         .void => c_arg.kind = PANCAKE_ARG_VOID,
         .reference => |r| {
             c_arg.kind = PANCAKE_ARG_REFERENCE;
-            c_arg.reference = referenceToC(r);
+            c_arg.reference = try ref_to_c(ref_ctx, r);
         },
         .list => |items| {
             c_arg.kind = PANCAKE_ARG_LIST;
-            const arr = try argsToC(arena, items);
+            const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, items);
             c_arg.items = arr.ptr;
             c_arg.items_len = arr.len;
         },
         .set => |items| {
             c_arg.kind = PANCAKE_ARG_SET;
-            const arr = try argsToC(arena, items);
+            const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, items);
             c_arg.items = arr.ptr;
             c_arg.items_len = arr.len;
         },
@@ -706,7 +697,7 @@ pub fn argumentToC(arena: std.mem.Allocator, arg: model.Argument) MarshalError!P
             c_arg.kind = PANCAKE_ARG_TAGGED;
             c_arg.bytes = tagged.tag.ptr;
             c_arg.bytes_len = tagged.tag.len;
-            const arr = try argsToC(arena, tagged.value);
+            const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, tagged.value);
             c_arg.items = arr.ptr;
             c_arg.items_len = arr.len;
         },
@@ -731,9 +722,15 @@ pub fn argumentToC(arena: std.mem.Allocator, arg: model.Argument) MarshalError!P
     return c_arg;
 }
 
-pub fn argsToC(arena: std.mem.Allocator, args: []const model.Argument) MarshalError![]PancakeArgument {
+pub fn argsToCWith(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_to_c: anytype,
+    arena: std.mem.Allocator,
+    args: []const model.Argument,
+) (MarshalError || RefError)![]PancakeArgument {
     const out = try arena.alloc(PancakeArgument, args.len);
-    for (args, 0..) |arg, i| out[i] = try argumentToC(arena, arg);
+    for (args, 0..) |arg, i| out[i] = try argumentToCWith(RefError, ref_ctx, ref_to_c, arena, arg);
     return out;
 }
 

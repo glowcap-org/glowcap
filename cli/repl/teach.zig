@@ -80,7 +80,7 @@ pub const Progress = struct {
         if (std.mem.eql(u8, verb, "call") or std.mem.eql(u8, verb, "tell")) self.has_deliver = true;
         if (std.mem.eql(u8, verb, "publish") or std.mem.eql(u8, verb, "fetch") or std.mem.eql(u8, verb, "call")) {
             if (ctx.session) |s| {
-                const st = &s.peer.session_state;
+                const st = &s.peer().session_state;
                 if (session_mod.inspect.exportCount(st) + session_mod.inspect.importCount(st) + session_mod.inspect.inboundAnswerCount(st) + session_mod.inspect.outboundAnswerCount(st) > 0) {
                     self.has_tables = true;
                 }
@@ -98,7 +98,7 @@ pub const Progress = struct {
         if (ctx.session != null) {
             self.has_session = true;
             self.has_connect = true;
-            const st = &ctx.session.?.peer.session_state;
+            const st = &ctx.session.?.peer().session_state;
             if (session_mod.inspect.importCount(st) > 0) self.has_fetch = true;
             if (session_mod.inspect.inboundAnswerCount(st) + session_mod.inspect.outboundAnswerCount(st) > 0) self.has_deliver = true;
             if (session_mod.inspect.exportCount(st) + session_mod.inspect.importCount(st) + session_mod.inspect.inboundAnswerCount(st) + session_mod.inspect.outboundAnswerCount(st) > 0) {

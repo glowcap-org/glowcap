@@ -20,6 +20,21 @@ pancake implements the three-operand form, following the suite and Goblins
 rather than the draft. That is a choice about interoperating with what runs
 today, not a claim about which shape is correct.
 
+## Locator hints type
+
+Two pinned sources disagree on the shape accepted for a peer locator's hints:
+
+| Source | Says |
+| ------ | ---- |
+| draft Netlayers specification | hints are “just a mapping of information” |
+| Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | the constructor contract accepts only false or a string |
+
+pancake currently represents non-empty hints as a Syrup dict. That project
+behavior cannot be assumed to cross the Goblins constructor boundary. This
+finding records only the pinned source mismatch; it does not decide which hints
+shape upstream should choose or make a pancake-specific extension an OCapN
+finding.
+
 Run:
 
 ```sh
@@ -33,7 +48,7 @@ discrepancy instead of silently carrying the note forward.
 
 ## Upstream-use note
 
-This finding and its checker were prepared with AI assistance during a pancake
+These findings and their checker were prepared with AI assistance during a pancake
 repository review, so they are evidence for the pancake maintainer rather than
 an upstream-ready report, and nobody should submit this text or script as-is.
 

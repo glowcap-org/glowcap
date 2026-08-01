@@ -109,6 +109,13 @@ C ABI seam the forward primitive exposes.
 - This does not change the sans-io core. `forward` is vat-layer (actors)
   machinery over the existing send/resolve/listener seam; the session and codec
   are untouched.
+- A turn-time `forward` cannot carry a three-party gift. `turnTarget`
+  (`src/c_abi/host/common.zig`) refuses a target foreign to the turn's own
+  session, and `forwardListener` settles the answer without passing through the
+  resolve interceptor that mints a give. Forwarding to an introduced exporter is
+  therefore an ordinary send, not a `forward`. A give that arrives on the
+  forwarded vow is broken with "introduction not forwardable", because a give is
+  signed for this vat's session key (`src/actors/vat/serve.zig`).
 
 ## Alternatives Considered
 

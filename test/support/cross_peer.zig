@@ -5,7 +5,7 @@
 //! This is host wiring, not engine semantics. A production host owns the
 //! equivalent routing (and a real Ed25519 verifier) in its adapter, so it
 //! lives in test support. The engine keeps the seams these helpers drive:
-//! `engine.cross_peer.SignatureVerifier` and the vat-scoped
+//! `engine.cross_peer.SignatureVerifier` and each session's
 //! `engine.bootstrap.GiftRegistry`. Each helper takes a `*Peer` per
 //! participating session; the compiler's exclusive mutable borrows already
 //! guarantee no two of them alias, so there is no shared state to guard.
@@ -42,13 +42,9 @@ pub fn testOnlyAcceptingVerifier() SignatureVerifier {
 /// Run the gifter's two outbound legs: the deposit to the exporter and the give
 /// to the recipient.
 ///
-/// The exporter records the gift — including the depositing gifter's session
-/// public key — so a subsequent withdrawal can verify the gifter's give
-/// certificate against it. The key comes from `gifter_key` when the caller
-/// threads one through; when `gifter_key` is null it is the partner key the
-/// exporter learned from the gifter-to-exporter handshake (`partnerSessionKey`),
-/// so a handshaked exporter records the right key with no argument. It is empty
-/// only when neither is known.
+/// The exporter records the gift in the registry owned by its live session with
+/// the gifter. Signature verification reads the key from that session, never
+/// from the gift row.
 ///
 /// Sibling copy: `apps/accountability-on-pancake/zig/three_party_test.zig`.
 /// That fork uses a real Ed25519 RoutingVerifier and threads an explicit gifter
@@ -61,16 +57,14 @@ pub fn deliverGive(
     give: model.HandoffGive,
     gifter_key: ?[]const u8,
 ) !void {
-    const learned = if (gifter_key) |key|
-        key
-    else
-        exporter.partnerSessionKey() orelse "";
+    _ = gifter_key;
+    // The harness stands in for a deposit that arrived on the gifter's own
+    // session, so it files the row where that gifter's give will look for it.
     try exporter.giftRegistry().deposit(
         exporter.allocator,
         exporter.limits(),
         give.gift_id,
         give.recipient_key,
-        learned,
     );
     try gifter.sendCopying(.{ .handoff = .{ .give = give } });
     try pumpOne(gifter, recipient);
@@ -129,7 +123,7 @@ pub fn withdrawGift(
     const registry = exporter.giftRegistry();
     const expected = try expectedReceiver(exporter);
     try registry.validateWithdraw(receive, expected);
-    _ = try registry.applyWithdraw(exporter.allocator, exporter.limits(), receive, expected);
+    _ = try registry.applyWithdraw(registry, exporter.allocator, receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpOne(recipient, exporter);

@@ -20,7 +20,7 @@ comptime {
 }
 
 const c = @import("c_abi");
-const cd = @import("c_abi_driver");
+const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
@@ -32,7 +32,7 @@ const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/ocapn_fns_gen.rs", .generate = generateOcapn },
-    .{ .path = "bindings/rust/src/sys/driver_fns_gen.rs", .generate = generateDriver },
+    .{ .path = "bindings/rust/src/sys/host_fns_gen.rs", .generate = generateDriver },
     .{ .path = "bindings/rust/src/sys/tcp_fns_gen.rs", .generate = generateTcp },
     .{ .path = "bindings/rust/src/sys/inproc_fns_gen.rs", .generate = generateInproc },
     .{ .path = "bindings/rust/src/sys/iroh_fns_gen.rs", .generate = generateIroh },
@@ -100,6 +100,31 @@ fn rustReturnType(comptime T: type) []const u8 {
 // The header-name parser is shared with the Racket generator.
 const headerParamNames = @import("header_names.zig").headerParamNames;
 
+/// C parameter names are not constrained by Rust's keyword set. Keep the
+/// header spelling recognizable and append one underscore when Rust reserves
+/// it (`ref` is used by the Host capability-release API).
+fn isRustKeyword(name: []const u8) bool {
+    const keywords = [_][]const u8{
+        "as",      "async",   "await",  "break",  "const",    "continue", "crate",
+        "dyn",     "else",    "enum",   "extern", "false",    "fn",       "for",
+        "gen",     "if",      "impl",   "in",     "let",      "loop",     "match",
+        "mod",     "move",    "mut",    "pub",    "ref",      "return",   "self",
+        "Self",    "static",  "struct", "super",  "trait",    "true",     "try",
+        "type",    "unsafe",  "use",    "where",  "while",    "abstract", "become",
+        "box",     "do",      "final",  "macro",  "override", "priv",     "typeof",
+        "unsized", "virtual", "yield",
+    };
+    for (keywords) |keyword| {
+        if (std.mem.eql(u8, name, keyword)) return true;
+    }
+    return false;
+}
+
+fn appendRustParamName(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
+    try out.appendSlice(gpa, name);
+    if (isRustKeyword(name)) try out.append(gpa, '_');
+}
+
 /// Render one archive's whole generated file: the shared GENERATED banner,
 /// the archive's use-lines, and the extern block reflected from `M`'s
 /// inventory with names from `header_path`.
@@ -150,14 +175,15 @@ fn renderArchive(
             var width: usize = 4 + 7 + row.name.len + 2 + 1;
             inline for (info.params, 0..) |p, i| {
                 if (i != 0) width += 2;
-                width += names[i].len + 2 + (comptime rustParamType(p.type.?, specials)).len;
+                width += names[i].len + @intFromBool(isRustKeyword(names[i])) + 2 + (comptime rustParamType(p.type.?, specials)).len;
             }
             if (ret.len != 0) width += 4 + ret.len;
             if (width <= 100) {
                 try out.print(gpa, "\tpub fn {s}(", .{row.name});
                 inline for (info.params, 0..) |p, i| {
                     if (i != 0) try out.appendSlice(gpa, ", ");
-                    try out.print(gpa, "{s}: {s}", .{ names[i], comptime rustParamType(p.type.?, specials) });
+                    try appendRustParamName(&out, gpa, names[i]);
+                    try out.print(gpa, ": {s}", .{comptime rustParamType(p.type.?, specials)});
                 }
                 if (ret.len != 0) {
                     try out.print(gpa, ") -> {s};\n", .{ret});
@@ -167,7 +193,9 @@ fn renderArchive(
             } else {
                 try out.print(gpa, "\tpub fn {s}(\n", .{row.name});
                 inline for (info.params, 0..) |p, i| {
-                    try out.print(gpa, "\t\t{s}: {s},\n", .{ names[i], comptime rustParamType(p.type.?, specials) });
+                    try out.appendSlice(gpa, "\t\t");
+                    try appendRustParamName(&out, gpa, names[i]);
+                    try out.print(gpa, ": {s},\n", .{comptime rustParamType(p.type.?, specials)});
                 }
                 if (ret.len != 0) {
                     try out.print(gpa, "\t) -> {s};\n", .{ret});
@@ -197,17 +225,18 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
-    return renderArchive(gpa, cd, "include/pancake_driver.h",
-        \\// The raw extern block of `libpancake_driver`. The hand-written sibling
+    return renderArchive(gpa, cd, "include/pancake_host.h",
+        \\// The raw extern block of `libpancake_host`. The hand-written sibling
         \\// (`driver.rs`) owns the `#[repr(C)]` mirrors, the callback `pub type`
         \\// aliases, and their layout pins, and re-exports this block, so consumers
-        \\// keep their `sys::driver::pancake_host_*` paths.
+        \\// keep their `sys::host::pancake_host_*` paths.
         \\
         \\
     , "use core::ffi::{c_int, c_uchar, c_uint, c_void};\n\n" ++
-        "use super::driver::{\n" ++
+        "use super::host::{\n" ++
         "\tPancakeAcceptPlan, PancakeDialPlan, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree,\n" ++
-        "\tPancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePendingDial,\n" ++
+        "\tPancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity,\n" ++
+        "\tPancakePendingDial,\n" ++
         "};\n" ++
         "use crate::sys::{\n" ++
         "\tPancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference,\n" ++
@@ -268,15 +297,15 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
 fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, cw, "include/pancake_net_transport_webrtc.h",
         \\// The raw extern block of `libpancake_net_transport_webrtc`. The
-        \\// hand-written sibling (`webrtc.rs`) owns the opaque `PancakeWebrtcPeer`
-        \\// type and re-exports this block, so consumers keep their
+        \\// hand-written sibling (`webrtc.rs`) owns the opaque handles and readiness
+        \\// record and re-exports this block, so consumers keep their
         \\// `sys::webrtc::pancake_webrtc_*` paths.
         \\
         \\
     ,
         \\use core::ffi::{c_int, c_uchar};
         \\
-        \\use super::webrtc::PancakeWebrtcPeer;
+        \\use super::webrtc::{PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
         \\
     , &.{});
 }

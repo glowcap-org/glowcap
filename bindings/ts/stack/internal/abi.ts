@@ -12,13 +12,11 @@
 // ── Struct layouts (@sizeOf/@offsetOf on the extern structs) ─────────────
 
 // PancakeReference
-export const REF_SIZE = 16;
-export const REF_KIND_OFF = 0;
-export const REF_SUB_KIND_OFF = 4;
-export const REF_ID_OFF = 8;
+export const REF_SIZE = 8;
+export const REF_ID_OFF = 0;
 
 // PancakeArgument
-export const ARG_SIZE = 72;
+export const ARG_SIZE = 64;
 export const ARG_KIND_OFF = 0;
 export const ARG_BOOLEAN_OFF = 4;
 export const ARG_INTEGER_OFF = 8;
@@ -26,8 +24,8 @@ export const ARG_FLOAT64_OFF = 16;
 export const ARG_BYTES_OFF = 24;
 export const ARG_BYTES_LEN_OFF = 32;
 export const ARG_REFERENCE_OFF = 40;
-export const ARG_ITEMS_OFF = 56;
-export const ARG_ITEMS_LEN_OFF = 64;
+export const ARG_ITEMS_OFF = 48;
+export const ARG_ITEMS_LEN_OFF = 56;
 
 // PancakeFrame (borrowed)
 export const FRAME_SIZE = 24;
@@ -60,16 +58,16 @@ export const ALLOCATOR_ALLOC_OFF = 0;
 export const ALLOCATOR_FREE_OFF = 8;
 export const ALLOCATOR_USER_DATA_OFF = 16;
 
-// PancakeHostAction (libpancake_driver, pancake_host_next_action)
-export const HOST_ACTION_SIZE = 112;
+// PancakeHostAction (libpancake_host, pancake_host_next_action)
+export const HOST_ACTION_SIZE = 104;
 export const HOST_ACTION_KIND_OFF = 0;
 export const HOST_ACTION_TICKET_OFF = 8;
 export const HOST_ACTION_SESSION_OFF = 16;
 export const HOST_ACTION_VALUE_OFF = 24;
-export const HOST_ACTION_MESSAGE_OFF = 96;
-export const HOST_ACTION_MESSAGE_LEN_OFF = 104;
+export const HOST_ACTION_MESSAGE_OFF = 88;
+export const HOST_ACTION_MESSAGE_LEN_OFF = 96;
 
-// PancakeHostPumpHooks (libpancake_driver, pancake_host_pump_drain)
+// PancakeHostPumpHooks (libpancake_host, pancake_host_pump_drain)
 export const HOST_PUMP_HOOKS_SIZE = 48;
 export const HOST_PUMP_HOOKS_CTX_OFF = 0;
 export const HOST_PUMP_HOOKS_FLUSH_OFF = 8;
@@ -78,7 +76,7 @@ export const HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF = 24;
 export const HOST_PUMP_HOOKS_COMPLETE_OFF = 32;
 export const HOST_PUMP_HOOKS_DIAL_OFF = 40;
 
-// PancakeDialPlan (libpancake_driver, pancake_host_plan_dial)
+// PancakeDialPlan (libpancake_host, pancake_host_plan_dial)
 export const DIAL_PLAN_SIZE = 56;
 export const DIAL_PLAN_SHAPE_OFF = 0;
 export const DIAL_PLAN_HOST_OFF = 8;
@@ -89,14 +87,14 @@ export const DIAL_PLAN_ADDRESSES_LEN_OFF = 40;
 export const DIAL_PLAN_REACH_KIND_OFF = 48;
 export const DIAL_PLAN_REACH_VALUE_OFF = 52;
 
-// PancakeAcceptPlan (libpancake_driver, pancake_host_plan_accept)
+// PancakeAcceptPlan (libpancake_host, pancake_host_plan_accept)
 export const ACCEPT_PLAN_SIZE = 32;
 export const ACCEPT_PLAN_DESIGNATOR_OFF = 0;
 export const ACCEPT_PLAN_DESIGNATOR_LEN_OFF = 8;
 export const ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF = 16;
 export const ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF = 24;
 
-// PancakePendingDial (libpancake_driver, pancake_host_pending_dial)
+// PancakePendingDial (libpancake_host, pancake_host_pending_dial)
 export const PENDING_DIAL_SIZE = 48;
 export const PENDING_DIAL_TRANSPORT_OFF = 0;
 export const PENDING_DIAL_TRANSPORT_LEN_OFF = 8;
@@ -105,8 +103,22 @@ export const PENDING_DIAL_DESIGNATOR_LEN_OFF = 24;
 export const PENDING_DIAL_HINT_OFF = 32;
 export const PENDING_DIAL_HINT_LEN_OFF = 40;
 
+// PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)
+export const PARTNER_IDENTITY_SIZE = 48;
+export const PARTNER_IDENTITY_SESSION_KEY_OFF = 0;
+export const PARTNER_IDENTITY_SESSION_KEY_LEN_OFF = 8;
+export const PARTNER_IDENTITY_DESIGNATOR_OFF = 16;
+export const PARTNER_IDENTITY_DESIGNATOR_LEN_OFF = 24;
+export const PARTNER_IDENTITY_LOCATOR_RECORD_OFF = 32;
+export const PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF = 40;
+
 // PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;
-export const IROH_READY_EVENT_CONN_OFF = 0;
+export const IROH_READY_EVENT_SUBJECT_OFF = 0;
 export const IROH_READY_EVENT_EVENTS_OFF = 8;
+
+// PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)
+export const WEBRTC_READY_EVENT_SIZE = 16;
+export const WEBRTC_READY_EVENT_SUBJECT_OFF = 0;
+export const WEBRTC_READY_EVENT_EVENTS_OFF = 8;
 

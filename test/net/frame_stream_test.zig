@@ -33,6 +33,25 @@ fn startSessionFrame(allocator: std.mem.Allocator, codec_id: model.CodecId) !pan
     });
 }
 
+fn startSessionFrameWithDesignator(
+    allocator: std.mem.Allocator,
+    codec_id: model.CodecId,
+    designator: []const u8,
+) !pancake.foundation.Frame {
+    return codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, .{
+        .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = &zero_pubkey },
+            .acceptable_location = .{
+                .transport = "memory",
+                .designator = designator,
+                .hints = model.Hints.emptyMap(),
+            },
+            .acceptable_location_sig = .{ .bytes = &zero_sig },
+        },
+    });
+}
+
 fn expectFramesOneWholeFrame(codec_id: model.CodecId) !void {
     const allocator = std.testing.allocator;
 
@@ -40,10 +59,11 @@ fn expectFramesOneWholeFrame(codec_id: model.CodecId) !void {
     defer wire.deinit();
 
     var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
     defer spill.deinit(allocator);
     var reader = std.Io.Reader.fixed(wire.bytes());
 
-    var got = try net.readFrameFrom(&reader, allocator, codec_id, max_frame, &spill);
+    var got = try net.readFrameFrom(&reader, allocator, codec_id, max_frame, &spill, &scan);
     defer got.deinit();
 
     // Byte-identical to the encoded frame, and shape-correct.
@@ -58,7 +78,7 @@ fn expectFramesOneWholeFrame(codec_id: model.CodecId) !void {
     _ = try codec.dispatch.decodeBody(codec_id, got.view());
 
     // Next read hits a clean boundary EOF.
-    try std.testing.expectError(error.Closed, net.readFrameFrom(&reader, allocator, codec_id, max_frame, &spill));
+    try std.testing.expectError(error.Closed, net.readFrameFrom(&reader, allocator, codec_id, max_frame, &spill, &scan));
 }
 
 test "readFrameFrom frames one whole owned Syrup frame" {
@@ -83,18 +103,19 @@ test "readFrameFrom frames each frame of a concatenation in order" {
     try stream_bytes.appendSlice(allocator, f2.bytes());
 
     var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
     defer spill.deinit(allocator);
     var reader = std.Io.Reader.fixed(stream_bytes.items);
 
-    var g1 = try net.readFrameFrom(&reader, allocator, .capnp, max_frame, &spill);
+    var g1 = try net.readFrameFrom(&reader, allocator, .capnp, max_frame, &spill, &scan);
     defer g1.deinit();
     try std.testing.expectEqualSlices(u8, f1.bytes(), g1.bytes());
 
-    var g2 = try net.readFrameFrom(&reader, allocator, .capnp, max_frame, &spill);
+    var g2 = try net.readFrameFrom(&reader, allocator, .capnp, max_frame, &spill, &scan);
     defer g2.deinit();
     try std.testing.expectEqualSlices(u8, f2.bytes(), g2.bytes());
 
-    try std.testing.expectError(error.Closed, net.readFrameFrom(&reader, allocator, .capnp, max_frame, &spill));
+    try std.testing.expectError(error.Closed, net.readFrameFrom(&reader, allocator, .capnp, max_frame, &spill, &scan));
 }
 
 test "readFrameFrom surfaces a mid-frame EOF as TruncatedFrame" {
@@ -113,13 +134,14 @@ test "readFrameFrom surfaces a mid-frame EOF as TruncatedFrame" {
     try stream_bytes.appendSlice(allocator, half);
 
     var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
     defer spill.deinit(allocator);
     var reader = std.Io.Reader.fixed(stream_bytes.items);
 
-    var first = try net.readFrameFrom(&reader, allocator, .syrup, max_frame, &spill);
+    var first = try net.readFrameFrom(&reader, allocator, .syrup, max_frame, &spill, &scan);
     first.deinit();
 
-    try std.testing.expectError(error.TruncatedFrame, net.readFrameFrom(&reader, allocator, .syrup, max_frame, &spill));
+    try std.testing.expectError(error.TruncatedFrame, net.readFrameFrom(&reader, allocator, .syrup, max_frame, &spill, &scan));
 }
 
 fn expectAssemblesThroughSpill(codec_id: model.CodecId) !void {
@@ -141,13 +163,14 @@ fn expectAssemblesThroughSpill(codec_id: model.CodecId) !void {
     var read_buf: [16]u8 = undefined;
     var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = stream_bytes.items }});
     var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
     defer spill.deinit(allocator);
 
-    var g1 = try net.readFrameFrom(&small.interface, allocator, codec_id, max_frame, &spill);
+    var g1 = try net.readFrameFrom(&small.interface, allocator, codec_id, max_frame, &spill, &scan);
     defer g1.deinit();
     try std.testing.expectEqualSlices(u8, f1.bytes(), g1.bytes());
 
-    var g2 = try net.readFrameFrom(&small.interface, allocator, codec_id, max_frame, &spill);
+    var g2 = try net.readFrameFrom(&small.interface, allocator, codec_id, max_frame, &spill, &scan);
     defer g2.deinit();
     try std.testing.expectEqualSlices(u8, f2.bytes(), g2.bytes());
 
@@ -161,7 +184,7 @@ fn expectAssemblesThroughSpill(codec_id: model.CodecId) !void {
     try std.testing.expect(!spill.isActive());
     try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
 
-    try std.testing.expectError(error.Closed, net.readFrameFrom(&small.interface, allocator, codec_id, max_frame, &spill));
+    try std.testing.expectError(error.Closed, net.readFrameFrom(&small.interface, allocator, codec_id, max_frame, &spill, &scan));
 }
 
 test "readFrameFrom assembles Syrup frames larger than the read buffer through the spill" {
@@ -179,10 +202,11 @@ test "readFrameFrom surfaces an over-cap frame as FrameTooLarge" {
     defer wire.deinit();
 
     var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
     defer spill.deinit(allocator);
     var reader = std.Io.Reader.fixed(wire.bytes());
     // A cap far below the frame: cap-on-parse rejects it.
-    try std.testing.expectError(error.FrameTooLarge, net.readFrameFrom(&reader, allocator, .syrup, 8, &spill));
+    try std.testing.expectError(error.FrameTooLarge, net.readFrameFrom(&reader, allocator, .syrup, 8, &spill, &scan));
 }
 
 test "Spill absorbBytes concatenates in order and an empty absorb leaves it unallocated" {
@@ -210,12 +234,12 @@ test "Spill consume compacts the remainder forward and releases the storage on f
     try spill.absorbBytes(allocator, &[_]u8{ 6, 7, 8, 9, 10 });
 
     // A partial consume keeps the spill live and moves the tail to the front.
-    spill.consume(allocator, 3);
+    spill.consume(allocator, 3, net.spill_retain_bytes);
     try std.testing.expectEqualSlices(u8, &[_]u8{ 4, 5, 6, 7, 8, 9, 10 }, spill.bytes());
     try std.testing.expect(spill.isActive());
 
     // Consuming the rest frees the storage outright, not just the length.
-    spill.consume(allocator, 7);
+    spill.consume(allocator, 7, net.spill_retain_bytes);
     try std.testing.expect(!spill.isActive());
     try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
 }
@@ -229,7 +253,86 @@ test "Spill absorb moves a reader's buffered bytes and leaves the reader empty" 
     const data = [_]u8{ 1, 2, 3, 4, 5 };
     var reader = std.Io.Reader.fixed(&data);
 
-    try spill.absorb(allocator, &reader);
+    try net.absorbFrom(&spill, allocator, &reader);
     try std.testing.expectEqualSlices(u8, &data, spill.bytes());
     try std.testing.expectEqual(@as(usize, 0), reader.bufferedLen());
+}
+
+test "readFrameFrom carries its frame scan across reads instead of re-walking" {
+    const allocator = std.testing.allocator;
+    // A frame arriving a read at a time is the ordinary case on a socket, and
+    // walking it from byte zero on every read is quadratic in its size — the
+    // shape a partner can buy by dribbling one big frame. The scan makes the
+    // walk resumable, so what this pins is that the reader actually carries one:
+    // after a long incomplete prefix, the cursor is deep inside the supply
+    // rather than back at the start.
+    //
+    // The frame is grown past the scan threshold by its designator and then cut
+    // short of its trailing signature, so every element the scan can step over
+    // is present and only the last one is missing.
+    var wire = try startSessionFrameWithDesignator(allocator, .syrup, &([_]u8{'a'} ** 6000));
+    defer wire.deinit();
+    const truncated = wire.bytes()[0 .. wire.bytes().len - 40];
+    try std.testing.expect(truncated.len > codec.framing.scan_threshold_bytes);
+
+    // A cap of its own: the file-wide `max_frame` is the scan threshold itself,
+    // which would refuse this prefix for size before the scan could matter.
+    const scan_max_frame: usize = 1 << 20;
+    var read_buf: [64]u8 = undefined;
+    var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = truncated }});
+    var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
+    defer spill.deinit(allocator);
+
+    // The frame never finishes, so the stream ends mid-frame.
+    try std.testing.expectError(
+        error.TruncatedFrame,
+        net.readFrameFrom(&small.interface, allocator, .syrup, scan_max_frame, &spill, &scan),
+    );
+    // The scan walked the prefix once and kept its place: without it the cursor
+    // would still be at zero and every read would have re-walked from there.
+    try std.testing.expect(scan.cursor > codec.framing.scan_threshold_bytes);
+    try std.testing.expect(scan.depth > 0);
+}
+
+test "a finished frame resets the scan, so the next one still resumes" {
+    const allocator = std.testing.allocator;
+    // A finished frame settles the scan, and a settled scan answers `ready` to
+    // everything from then on. So a reset that never happens does not corrupt
+    // framing — it silently switches the scan off, and every later frame is
+    // walked from its first byte on every read again, which is the quadratic
+    // this exists to remove. No assertion on the frames that come back can see
+    // that, which is why this one reads the scan itself.
+    var first = try startSessionFrameWithDesignator(allocator, .syrup, &([_]u8{'a'} ** 6000));
+    defer first.deinit();
+    var second = try startSessionFrameWithDesignator(allocator, .syrup, &([_]u8{'b'} ** 6000));
+    defer second.deinit();
+    try std.testing.expect(first.bytes().len > codec.framing.scan_threshold_bytes);
+
+    var stream_bytes: std.ArrayList(u8) = .empty;
+    defer stream_bytes.deinit(allocator);
+    try stream_bytes.appendSlice(allocator, first.bytes());
+    try stream_bytes.appendSlice(allocator, second.bytes());
+
+    const big_cap: usize = 1 << 20;
+    var read_buf: [512]u8 = undefined;
+    var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = stream_bytes.items }});
+    var spill: net.Spill = .{};
+    var scan: net.StreamScan = .{};
+    defer spill.deinit(allocator);
+
+    var got_first = try net.readFrameFrom(&small.interface, allocator, .syrup, big_cap, &spill, &scan);
+    defer got_first.deinit();
+    try std.testing.expectEqualSlices(u8, first.bytes(), got_first.bytes());
+
+    // The first frame is done, so the scan must be back to where a fresh one
+    // starts, ready to resume through the second frame rather than switched off.
+    try std.testing.expect(!scan.settled);
+    try std.testing.expectEqual(@as(usize, 0), scan.cursor);
+    try std.testing.expectEqual(@as(u32, 0), scan.depth);
+
+    var got_second = try net.readFrameFrom(&small.interface, allocator, .syrup, big_cap, &spill, &scan);
+    defer got_second.deinit();
+    try std.testing.expectEqualSlices(u8, second.bytes(), got_second.bytes());
+    try std.testing.expect(!scan.settled);
 }

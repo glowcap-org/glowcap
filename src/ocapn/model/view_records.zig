@@ -113,6 +113,32 @@ pub const Signature = union(enum) {
             },
         };
     }
+
+    /// Whether two signatures spell the same bytes, whichever arm each codec
+    /// filled. Syrup carries the halves and Cap'n Proto the concatenation, so
+    /// two views of one signature can disagree on arm and agree on value; a
+    /// comparison that reads either arm directly answers wrongly at best and
+    /// panics on the arm that is not there. Total and allocation-free: the
+    /// cross-arm case walks the raw bytes in two spans rather than joining the
+    /// halves.
+    pub fn eql(self: Signature, other: Signature) bool {
+        return switch (self) {
+            .raw => |bytes| switch (other) {
+                .raw => |o| std.mem.eql(u8, bytes, o),
+                .halves => |h| rawEqualsHalves(bytes, h.r, h.s),
+            },
+            .halves => |h| switch (other) {
+                .raw => |o| rawEqualsHalves(o, h.r, h.s),
+                .halves => |o| std.mem.eql(u8, h.r, o.r) and std.mem.eql(u8, h.s, o.s),
+            },
+        };
+    }
+
+    fn rawEqualsHalves(raw: []const u8, r: []const u8, s: []const u8) bool {
+        return raw.len == r.len + s.len and
+            std.mem.eql(u8, raw[0..r.len], r) and
+            std.mem.eql(u8, raw[r.len..], s);
+    }
 };
 
 /// Borrowed mirror of `model.HandoffGive`.

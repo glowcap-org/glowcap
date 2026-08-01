@@ -1,211 +1,140 @@
-# Consuming pancake from C
+# Using pancake from C
 
-This is the route for anyone calling pancake's C ABI, from C or from any
-language with a C foreign-function interface. It covers building and linking, a
-first complete program, ownership rules, and the four shipped bindings as worked
-references.
+The C application surface is `PancakeHost`. It owns CapTP sessions, routing,
+hosted objects, promises, handoff, and opaque capability identities while your
+runtime owns I/O and scheduling. Native Zig still exposes `engine.Peer` for
+low-level protocol work; C does not mirror that internal type.
 
-The C ABI ships as composable per-family archives you link à la carte
-(ADR-0059). `libpancake_ocapn` carries the sans-io peer and the shared
-vocabulary. Each transport is its own archive. The byte-fed host tier is
-`libpancake_driver`. Per-archive headers document ownership next to each
-declaration. Start with [`include/pancake_ocapn.h`](../include/pancake_ocapn.h).
-Multi-session CapTP product work uses
-[`pancake_driver.h`](../include/pancake_driver.h) (`pancake_host_*`). A
-`PancakeHost` is the multi-session CapTP product; a `PancakeTcpSession` is the
-one-partner application object. CapTP partners are sessions;
-`net.Connection` is the framed byte stream only.
+[`pancake_ocapn.h`](../include/pancake_ocapn.h) supplies shared ABI vocabulary:
+contexts, frames, arguments, locators, and URI helpers.
+[`pancake_host.h`](../include/pancake_host.h) supplies the CapTP application
+surface. Transport headers supply connections and listeners, never a second
+session API.
 
-## Build and link
-
-One command builds everything:
+## Build the libraries
 
 ```sh
 zig build
 ```
 
-That installs the archives under `zig-out/lib/` (each in static `.a` and shared
-`.so` form, plus the platform's versioned names) and their headers under
-`zig-out/include/`:
+Headers are installed under `zig-out/include/`; static and shared libraries are
+installed under `zig-out/lib/`.
 
-| Archive | Header | What it carries |
-| --------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `libpancake_ocapn` | `pancake_ocapn.h` | the sans-io peer, contexts, frames, events, URIs: the shared vocabulary every consumer needs |
-| `libpancake_driver` | `pancake_driver.h` | the byte-fed host tier (`pancake_host_*`): a multi-session CapTP Host you feed and drain yourself, with publish/fetch/send, vows, and the three-party handoff inside the library (ADR-0072) |
-| `libpancake_net` | | the net-core base; links in the chain, exports nothing on its own |
-| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | the blocking TCP layer (`pancake_tcp_*`): the frame boundary plus the owning `PancakeTcpSession` |
-| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | the socket-free in-process layer (`pancake_inproc_*`) |
-| `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | encrypted QUIC (`pancake_iroh_*`); optional, links the Rust sidecar |
-| `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | peer-to-peer WebRTC DataChannel (`pancake_webrtc_*`); optional, links the Rust sidecar |
+| Library | Header | Purpose |
+| --- | --- | --- |
+| `libpancake_ocapn` | `pancake_ocapn.h` | Shared values, locators, frames, and URI helpers. |
+| `libpancake_host` | `pancake_host.h` | The byte-fed, multi-session CapTP host. |
+| `libpancake_net` | none | Common transport base; no public calls by itself. |
+| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | TCP connections and listeners. |
+| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | In-process connections for tests and local scenarios. |
+| `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | Optional encrypted QUIC transport. |
+| `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | Optional WebRTC DataChannel transport. |
 
-Each header is generated from its Zig source by its own `gen-header` build step,
-one per row of the table above. `zig build check` fails if a committed copy is
-stale, so the header you compile against cannot disagree with the archive you
-link.
+Link `libpancake_host`, `libpancake_ocapn`, and the transport companions your
+program uses. The generated headers are checked against their Zig declarations
+on every build.
 
-You link only the archives you use. A TCP consumer takes the chain
-`ocapn + net + tcp`; statically, that needs nothing beyond libc:
+## Drive the byte-fed Host
 
-```sh
-cc -o my_app my_app.c -Izig-out/include \
-   zig-out/lib/libpancake_net_transport_tcp.a \
-   zig-out/lib/libpancake_net.a \
-   zig-out/lib/libpancake_ocapn.a
+`PancakeHost` does not own sockets. A runtime opens a Host session, associates
+it with a transport connection, and repeats three operations:
+
+1. feed received bytes with `pancake_host_session_feed_bytes`;
+2. run resulting work with `pancake_host_pump_drain`;
+3. take frames with `pancake_host_session_take_outbound` and write them.
+
+The pump hooks handle flushes, completed promises, handoff dials, and gift-id
+requests. Hosted behavior callbacks run synchronously while the Host is being
+driven. Do not block or re-enter the same Host from one of those callbacks.
+
+[`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) shows
+the feed, drain, refusal, and EOF choreography used by the language bindings.
+[`examples/c/frame_view.c`](../examples/c/frame_view.c) shows owned frames and
+borrowed views. `zig build examples` compiles and runs both.
+
+## One opaque capability type
+
+Every application-held capability is:
+
+```c
+typedef struct PancakeReference {
+    uint64_t id;
+} PancakeReference;
 ```
 
-For the shared archives, link
-`-Lzig-out/lib -lpancake_net_transport_tcp
--lpancake_net -lpancake_ocapn` and
-set your platform's runtime path. From another language's build system, all you
-need are one include directory and the archive set your transport calls for. The
-archives are symbol-disjoint, so they compose without a duplicate-symbol
-collision; `examples/c/compose_transports.c` links `ocapn + tcp + inproc` at
-once as the standing proof.
+The id is meaningful only to the `PancakeHost` that issued it. C does not
+inspect near/far, object/promise, import/export position, or handoff-token
+variants. Those are session and wire projection details owned by the Host.
 
-## The first program
+Values returned by fetch, enlivenment, calls, delivered arguments, publish,
+spawn, and handoff all use this same type. Passing a reference on another
+session of the same Host needs no enrollment step when the Host can route it;
+local actors live in the Vat owned by the Host and are projected onto destination Ports only
+as needed.
+Return an application retain with `pancake_host_ref_release`; stale and
+foreign-Host ids fail closed.
 
-Read [`examples/c/echo_peer.c`](../examples/c/echo_peer.c) before you write
-anything. It is a complete program in which two peers hold an echo conversation
-entirely in memory: the host publishes a capability behind a name, the client
-fetches it and calls it, and the reply round-trips. Every pattern a real
-consumer needs appears once: the `recv_stream` / `next_event` / `take_outbound`
-pump, and a release call for everything the library hands over. `zig build
-examples` compiles and runs it, so it cannot drift from the header.
+Promise answers remain separate `uint64_t` vow handles because an unresolved
+answer is not a passable target identity.
 
-The remaining C examples are single-topic.
-[`examples/c/frame_view.c`](../examples/c/frame_view.c) shows the owned-frame
-versus borrowed-view distinction, and
-[`examples/c/context_alloc.c`](../examples/c/context_alloc.c) routes a handle
-family's allocation through your own allocator with `PancakeContext`.
-[`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) is the
-worked program for the byte-fed host tier: two `PancakeHost`s open a keyed
-session over plain memory, so you can read the feed, flush, refusal, and EOF
-choreography before writing your own loop.
+## Host ownership versus session projection
 
-## The shape of the ABI
+| Operation | Host owns | Session selects |
+| --- | --- | --- |
+| `pancake_host_publish` | One actor and one replaceable Host-wide alias. | Nothing until a fetch or `published_ref` lazily creates a Port projection. |
+| `pancake_host_session_publish` / `_spawn` | The actor and its callback lifetime, through Host teardown. | The initial bootstrap name or projection on that session's Port. |
+| Send, tell, and turn verbs | The opaque capability identity and routing decision. | The peer/Port used when a route needs session context; it is not the actor's owner. |
 
-A `PancakePeer` is a sans-I/O protocol state machine. It owns no socket and
-never blocks: you feed it inbound bytes, take the events it surfaces, and drain
-the frames it wants sent. Your event loop (sockets, threads, language runtime)
-stays entirely yours. For consumers that want the batteries, the ABI also ships
-a blocking TCP layer (`pancake_tcp_connect`, `pancake_tcp_listen`,
-`pancake_tcp_accept`) that pairs frame read/write calls with the same peer.
+Closing the session that first published or spawned an actor removes that Port,
+not the actor. A capability already projected through another Port remains
+callable; the behavior context is released when the Host drops the actor graph.
 
-Taking an event is one call. `pancake_peer_next_event` drives the peer to idle
-and hands back the next event fully projected: a deliver or a resolve arrives as
-structured values, and anything the typed surface cannot carry arrives as its
-originating wire frame. Release each event with `pancake_any_event_release`.
-`pancake_peer_step` is the manual gear underneath it, for a host that wants to
-advance one unit of work at a time.
+`pancake_host_reference_exporter` has one narrow purpose: after a three-party
+handoff, bindings use it to recover the direct exporter session that a redeemed
+reply routes through, for back-channel hosting. Ordinary references route
+through the Host and usually have no unique exporter session.
 
-A consumer that only wants to dial a peer, fetch a capability, and call it does
-not have to run that pump at all. `libpancake_net_transport_tcp` also ships an
-owning `PancakeTcpSession`, which is the C spelling of Zig's `driver.Session`
-(ADR-0062). Four calls cover a whole conversation.
-`pancake_tcp_session_connect` dials and finishes the keyed handshake. It takes a
-handshake budget and a settle budget in milliseconds; zero means wait forever,
-which against a partner that connects and then says nothing is a hang, so pass
-finite ones. When a budget is what ended the wait, the call returns
-`PANCAKE_ERR_TIMEOUT` rather than a fault code, so you can tell your own deadline
-from a partner refusal.
-`pancake_tcp_session_fetch` takes a name and hands back a `PancakeReference`.
-`pancake_tcp_session_call` delivers a call and pumps until the answer settles
-into a `PancakeSettled`. And `pancake_tcp_session_release` tears
-it down. It reuses `pancake_ocapn.h`'s `PancakeReference` / `PancakeArgument`
-value vocabulary by layout; `PancakeSettled` itself is the owning session's
-outcome, declared in `pancake_net_transport_tcp.h` beside its only producer. The
-session is a client: it pairs with an actor-runtime host (a Zig `driver.Server`,
-a binding, or a Goblins vat), the same hosting half the Zig `driver.Session` dials.
-The sans-io peer below it is the right primitive when _you_ own the loop and the
-host. `test/c_abi/tcp_session_test.zig` is the worked round trip.
+## Locators and transports
 
-The same handle shape has a socket-free sibling, the in-process layer
-(`pancake_inproc_connect`, `pancake_inproc_listen`, `pancake_inproc_accept`).
-Two peers are wired by in-process pipes and addressed by a string designator
-instead of `host:port`, the path a smoke test dials to run a full OCapN
-conversation without touching a socket.
+Use `pancake_uri_parse_peer`, `pancake_uri_format_peer`, and the sturdyref URI
+helpers instead of parsing `ocapn://` strings yourself. Use
+`pancake_locator_record_encode` when a Host verb needs the encoded
+`<ocapn-peer>` record.
 
-Addresses are core OCapN vocabulary, so parsing them is not your job.
-`pancake_uri_parse_peer` and `pancake_uri_format_peer`, plus the matching pair
-for sturdyrefs, convert an `ocapn://` URI to and from a `PancakeLocator` that
-you read through the `pancake_locator_*` accessors. Dispatch on the parsed
-`transport`; there is no reason to write a percent-decoder.
+TCP, in-process, iroh, and WebRTC connections all carry bytes for a Host
+session. They do not own CapTP state. iroh and WebRTC use Rust sidecars and
+therefore require Cargo when those optional archives are built.
 
-pancake's two encrypted transports, iroh and webrtc, are opt-in and separate:
-the pure-Zig archives are cleartext-only, and each encrypted transport links a
-Rust sidecar. iroh's QUIC ships as a distinct optional library,
-`libpancake_net_transport_iroh`
-([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md),
-`zig build iroh-abi`, needs cargo). webrtc's DTLS DataChannel ships the same
-way as `libpancake_net_transport_webrtc`
-([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md),
-`zig build webrtc-abi`, needs cargo); its surface is a peer the caller drives
-through a signaling exchange (`pancake_webrtc_peer_*`) rather than a
-locator dial, because a WebRTC peer has no dialable address. Both are
-companions to the core archives, not supersets. iroh exports only a
-`pancake_iroh_netlayer_*` / `pancake_iroh_conn_*` family (with the same
-frame-read/write shape as the TCP layer) and shares no core symbol with
-`libpancake_ocapn`. A consumer that wants
-iroh adds `libpancake_net_transport_iroh` to its link line and includes
-[`include/pancake_net_transport_iroh.h`](../include/pancake_net_transport_iroh.h),
-which `#include`s `pancake_ocapn.h` and reuses its frame/context types by
-layout. Addressing moves from `host:port` to an endpoint id plus direct-address
-hints; iroh-call diagnostics read through `pancake_iroh_last_error` (its own
-per-thread slot).
+## Ownership
 
-Every function returns an `int32_t` return code. `PANCAKE_OK` is zero, errors
-are negative and named, and a per-thread diagnostic string carries the cause of
-the call that just failed. Each archive owns its own last-error slot, named for
-the family it exports: `pancake_last_error`, `pancake_host_last_error`, and
-`pancake_tcp_` / `pancake_inproc_` / `pancake_iroh_` / `pancake_webrtc_last_error`.
-Read the one matching the call that failed. Out-structs are written only on
-`PANCAKE_OK`, so on failure there is nothing to release.
+The headers document ownership beside every declaration. Four rules cover the
+surface:
 
-Threading is single-owner by contract: serialize every call on a given peer onto
-one thread or behind one lock. Distinct peers are independent.
+1. Input pointers are borrowed for the duration of the call.
+2. An owned result has a matching release function.
+3. A handle is released by the family that created it.
+4. Out parameters are initialized only when a call returns `PANCAKE_OK`.
 
-The surface is the size it is on purpose. Each function is one of three
-things: a distinct protocol operation, the primitive a binding actually
-consumes, or a named easy path over an explicit one. The structural
-shape is gated so it cannot bloat unnoticed: one allocator twin per constructor,
-one error channel per archive, one freeing verb per handle.
-[ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md) records that bar
-and why the obvious "one config-struct constructor" shortcut is rejected.
+Constructors ending in `_in` allocate through the `PancakeContext` supplied by
+the caller. `PancakeManagedFrame` owns its bytes and must be released exactly
+once. A `PancakeReference` is an integer value, but its Host retain is explicit
+and must be returned with `pancake_host_ref_release`. This applies to every
+reference leaf surfaced in a callback argument or SETTLE action as well as a
+top-level `out_ref`; the containing bytes may be borrowed while the capability
+retain is owned.
 
-## Ownership in one place
+## Errors and threads
 
-The header states each function's behavior next to its declaration; the whole
-vocabulary is four rules.
+Most functions return `int32_t`. `PANCAKE_OK` is zero; named errors are
+negative. Each archive has a thread-local diagnostic reader matching its
+family: `pancake_last_error`, `pancake_host_last_error`,
+`pancake_tcp_last_error`, and transport equivalents.
 
-1. **You give borrowed bytes.** Inputs you pass (`pancake_peer_recv_stream`
-   bytes, a `PancakeFrame`'s pointer, a swiss number, an argument's string) are
-   borrowed for that one call. The library copies what it must retain before
-   returning; the pointer stays yours.
-2. **You receive owned values, and you release them.** Anything the library
-   fills for you to keep (a `PancakeManagedFrame` from `take_outbound`, a
-   `PancakeAnyEvent` from `next_event`, a `PancakeEvent`) has a matching
-   `pancake_*_release` function, and you call it exactly once.
-3. **Handles release through their constructor's family.** `pancake_peer_new`
-   pairs with `pancake_peer_release`; the same holds for contexts, netlayers,
-   connections, and listeners. The `*_in` constructors allocate the whole handle
-   family through a `PancakeContext` you supply and free it back through the
-   same context, so a host can account every byte.
-4. **One transfer is explicit.** `pancake_peer_feed_owned` is the single call
-   that takes ownership _from_ you, and it takes it even on failure: a refused
-   frame is released through its own callback and your struct is cleared, so a
-   late release is a harmless no-op. Only a NULL-pointer refusal leaves the
-   frame yours. Its borrowed sibling, `pancake_peer_recv_borrowed`, dispatches
-   during the call and retains nothing.
+Serialize calls on one Host behind one thread or lock. Distinct Hosts are
+independent.
 
-If a call's behavior ever seems to disagree with these rules, the comment on its
-declaration in the archive's header (`pancake_ocapn.h` for the peer surface, the
-transport header for a transport call) is the contract.
+## Learn from a binding
 
-## The bindings as worked answers
-
-[`bindings/`](../bindings/README.md) holds four consumers of this exact
-surface, in Rust, Deno, Python, and Racket. Each wraps the same calls in its
-own language's idiom, each is exercised by `zig build bindings`, and each holds
-a live conversation with a real Goblins peer on every push. When you are unsure
-how a sequence of calls composes, the binding nearest your
-language is a tested, runnable answer.
+Rust, TypeScript, Python, and Racket consume this same Host ABI. Their pumps,
+trampolines, and release paths are runnable examples for embedding pancake in a
+language runtime; see the [binding contract](../bindings/README.md).

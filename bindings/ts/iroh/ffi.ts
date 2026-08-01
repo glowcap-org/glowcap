@@ -28,23 +28,21 @@ const irohSymbolDefs = {
 	pancake_iroh_netlayer_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_release: { parameters: [P], result: V },
+	pancake_iroh_conn_id: { parameters: [P], result: U },
 	// The event-driven loop surface: the netlayer's one I/O model.
 	// `readiness_fd` hands back the endpoint's single OS readiness fd, which the
-	// event loop parks on (a `node:net` Socket over a dup of it); `drain_ready` and
-	// the `try_*` calls return immediately, so they run synchronously on the
-	// event-loop thread. Their `intptr_t` results stay within int32 (event counts,
-	// byte counts up to a frame, and the small negative PANCAKE_ERR_* codes), so
-	// `i32` reads them without truncation. `try_connect` blocks on the dial, so it
-	// is the one non-blocking-FFI call.
+	// event loop parks on (a `node:net` Socket over a dup of it); `drain_ready`,
+	// connect lifecycle, and the `try_*` calls all return immediately.
 	pancake_iroh_netlayer_readiness_fd: { parameters: [P], result: I },
 	pancake_iroh_netlayer_drain_ready: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_netlayer_try_accept: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_iroh_netlayer_try_connect: {
-		parameters: [P, B, U, B, U, B],
+	pancake_iroh_netlayer_start_connect: {
+		parameters: [P, U, B, U, B, U],
 		result: I,
-		outBuffers: [5],
-		nonblocking: true,
+		outBuffers: [],
 	},
+	pancake_iroh_netlayer_finish_connect: { parameters: [P, U, B], result: I, outBuffers: [2] },
+	pancake_iroh_netlayer_cancel_connect: { parameters: [P, U], result: I },
 	pancake_iroh_conn_try_read: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_try_write: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 } as const;

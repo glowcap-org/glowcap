@@ -344,7 +344,7 @@ pub fn Bridge(comptime LoopT: type) type {
             }
             // Publish only on accepted desks — never on dialed exporter/app legs.
             if (session.role == .accepted) {
-                if (self.publish) |publish| try publish(self.publish_ctx, &session.served);
+                if (self.publish) |publish| try publish(self.publish_ctx, &session.served, &self.host.vat);
             }
             const shell = try self.allocator.create(Slot);
             errdefer self.allocator.destroy(shell);

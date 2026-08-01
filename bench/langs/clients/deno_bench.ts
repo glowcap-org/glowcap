@@ -5,7 +5,7 @@
 //
 //   deno run --allow-ffi --allow-read --allow-net deno_bench.ts <mode> <host> <port> <n>
 
-import { type AppValue, connect, listen, type Ref, type Session, tcpLocator } from "@pancake/stack";
+import { type Argument, connect, listen, type Ref, type Session, tcpLocator } from "@pancake/stack";
 
 const CLIENT = "deno";
 const RUNTIME = `deno/${Deno.version.deno}`;
@@ -32,7 +32,7 @@ function percentileMs(sorted: number[], p: number): number {
 	return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))];
 }
 
-function statusText(v: AppValue): string {
+function statusText(v: Argument): string {
 	if (v instanceof Uint8Array) return decoder.decode(v);
 	return String(v);
 }
@@ -186,7 +186,7 @@ async function measureHits(conn: Session, target: Ref): Promise<number[]> {
 	for (let i = 0; i < WARMUP; i++) await conn.send(target, "hit", []);
 	forceGc();
 	const lats: number[] = [];
-	let last: AppValue = 0n;
+	let last: Argument = 0n;
 	for (let i = 0; i < N; i++) {
 		const s = performance.now();
 		last = await conn.send(target, "hit", []);

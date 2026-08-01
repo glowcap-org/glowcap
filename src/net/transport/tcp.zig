@@ -332,7 +332,13 @@ const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
     .dial = residentDial,
     .listen = residentListen,
+    .io = residentIo,
 };
+
+fn residentIo(ctx: *anyopaque) ?std.Io {
+    const self: *Resident = @ptrCast(@alignCast(ctx));
+    return self.io;
+}
 
 fn residentDial(
     ctx: *anyopaque,

@@ -68,14 +68,20 @@ fn reportWirePathBudget(backing: std.mem.Allocator) !void {
 
 /// In-memory size of codec-neutral value-tree types. The rare `handoff` arm is
 /// boxed (`*Handoff`) so common args pay the `Reference` arm size, not ~160 B.
+/// The borrowed `view.*` twins print beside them: the borrowed shape keeps its
+/// handoff inline (it borrows wire bytes and may not allocate a box), so it is
+/// the wide one, and the inbound set-uniqueness fold parks arrays of it.
 fn reportModelLayout() void {
     std.debug.print(
-        "model_layout Argument={d} Message={d} Reference={d} Resolution={d}\n",
+        "model_layout Argument={d} Message={d} Reference={d} Resolution={d} view.Argument={d} view.Reference={d} view.Handoff={d}\n",
         .{
             @sizeOf(model.Argument),
             @sizeOf(model.Message),
             @sizeOf(model.Reference),
             @sizeOf(model.Resolution),
+            @sizeOf(model.view.Argument),
+            @sizeOf(model.view.Reference),
+            @sizeOf(model.view.Handoff),
         },
     );
 }

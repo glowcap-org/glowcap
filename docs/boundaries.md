@@ -1,216 +1,177 @@
-# Boundaries
+# Known limitations
 
-This page lists the edges of [what ships today](shipped.md). Most are pinned
-by a test or an ADR; the [ladder](ladder.md) and [roadmap](roadmap.md) say how
-each one moves.
+These are the limits that can change a deployment or API choice. This page is
+not a backlog or a design history. [What ships](shipped.md) is the feature
+inventory, [stability](stability.md) says how each surface is tested, and the
+[roadmap](roadmap.md) owns future work.
 
-## Netlayer
+## Transports and peer identity
 
-[architecture](architecture.md#netlayer-net) explains how transports and
-framing fit; [shipped](shipped.md) lists what ships. These edges remain open:
+- **Plain TCP and `keyed-tcp` are cleartext.** A locator's designator is the
+  value that names the peer the dialer intends to reach. `keyed-tcp` binds that
+  advertised identity to the CapTP handshake key, but it does not encrypt
+  frames. Use iroh or WebRTC when the channel must be confidential.
+- **An address is not an identity.** On plain TCP, the crossed-connection
+  tiebreak trusts the location each peer declares. A peer that can connect and
+  claim an address you are dialing can make your outgoing session lose that
+  tiebreak. `keyed-tcp` and iroh avoid this by requiring the designator to match
+  the key that signed the handshake.
+- **Address aliases can open two TCP sessions.** `127.0.0.1` and `[::1]` are
+  different designators until the partner-key index joins them. `keyed-tcp`
+  and iroh identify the partner by key from the start.
+- **`inproc` is a test transport.** Its unbounded pipes block the reading
+  thread, so it is not a production or load-test substitute.
+- **iroh reachability is not fully exercised in CI.** The loop checks
+  multiplexing, and opt-in checks cover discovery and relay use from one host.
+  They do not cover hole-punching between separate NATs.
+  `discovery_no_relay` has no green check because it needs a publishable direct
+  address. Goblins ships no iroh netlayer, so there is no live
+  Goblins-over-iroh check.
+- **A bare `webrtc` locator cannot dial.** The peer must first obtain a
+  signaling channel, either out of band or as a capability. Once signaling is
+  submitted, the native endpoint drives establishment and bytes through one
+  readiness fd and non-blocking try-I/O. Peer creation and signaling submissions
+  are still synchronous control calls, and WebRTC has no generic Host completion
+  adapter, so applications use the raw readiness family or the explicit blocking
+  connection.
 
-- **Cleartext TCP / keyed-tcp.** Anyone on the path can read frames.
-  Keyed-tcp pins the handshake key; it is not encryption. Confidentiality
-  and channel integrity are iroh's job
-  ([ADR-0075](decisions/adr/ADR-0075-keyed-tcp-designator.md)).
-- **No TLS over plain TCP.** Encryption is the iroh resident
-  ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
-- **iroh loop memory.** `iroh-loop` / `bindings-iroh-loop` prove multiplexing,
-  not a checked per-connection RSS budget. The checked floor is the warmed
-  session footprint test (~2 KiB core state).
-- **`discovery_no_relay` unchecked.** A no-relay dial-by-id needs a
-  publishable direct address; typical NAT/containers lack one, so that
-  posture is not a green check step.
-- **Discovery proof is single-host.** Opt-in `iroh-reachability` /
-  `bindings-iroh-reachability` prove discovery and relay reach, not
-  hole-punching between two distinct NATs.
-- **No Goblins-over-iroh.** Goblins ships no iroh netlayer.
-- **No native Zig QUIC.** Rejected until iroh's protocols stabilize and a
-  production Zig QUIC stack exists (ADR-0055 flip condition).
-- **Blocking pump is one fiber.** Partners that stream without draining
-  belong on the completion loop
-  ([ADR-0053](decisions/adr/ADR-0053-blocking-pump-single-fiber.md)).
-- **A bare `webrtc` locator does not dial.** pancake's dial classifier recognizes the
-  transport and validates its key designator, but the resident is not registered
-  as a `Netlayer`: a peer with no signaling reference has nowhere to send its
-  offer. A webrtc peer is reached today by redeeming a handoff give
-  ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
-- **No completion-loop tier for DataChannels.** webrtc sessions run on the
-  blocking pump; there is no `completion.Loop` backend for them, so the scale
-  path is iroh's, not webrtc's.
-- **`inproc` is for tests, not load.** Its pipes block the reading thread and
-  are unbounded by design, so it mocks a partner rather than carrying one
-  ([ADR-0047](decisions/adr/ADR-0047-in-memory-netlayer.md)).
-- **Handshake and settle deadlines default to unbounded.** `SessionOptions`
-  leaves `handshake_timeout_ms` and `settle_timeout_ms` at `0`, which blocks
-  forever against a silent partner. Every dialer can choose otherwise:
-  `pancake_tcp_session_connect` takes both budgets as parameters and reports an
-  elapsed one as `PANCAKE_ERR_TIMEOUT`. The product CLI sets finite budgets
-  ([ADR-0081](decisions/adr/ADR-0081-adapter-resilience-posture.md)); every
-  other caller must choose them deliberately.
+The iroh and WebRTC transports rely on their existing sidecars; pancake does
+not ship a native Zig QUIC or WebRTC stack.
 
-## Sessions above I/O
+## Runtime and scale
 
-[architecture](architecture.md#application-surface-driver) explains how Host,
-Session, and handoff fit; [shipped](shipped.md) lists what ships. The edges:
+- **A Host's actor runtime (its Vat) is single-threaded and non-preemptive.** A
+  hosted behavior runs synchronously to the end of its turn. A slow or blocking
+  handler therefore stalls every session adapter (Port) sharing that Host. Keep
+  handlers bounded. Separate Hosts provide scheduling isolation by also
+  separating network identity and actor graphs; when those must remain shared,
+  move blocking work out of the behavior callback instead.
+- **The 500,000-session target has not been proved under live socket load.**
+  Checked budgets hold the warmed protocol core near 2 KiB per session, and the
+  loop checks serve many connections, but neither is a 500,000-connection run.
+  [The ladder](ladder.md) carries the measured budgets.
+- **The simplest blocking pump serves one connection on one fiber.** Use the
+  TCP or iroh completion loop for a partner that streams while waiting for you
+  to drain output.
+- **`driver.PollHost` accepts only its integrated pollable transports.** TCP
+  fits directly. iroh uses its completion loop. WebRTC exposes a pollable
+  endpoint but does not yet have the adapter which binds those peer events to a
+  Host; `inproc` and the WebRTC blocking tier use `driver.BlockingSession`.
+- **Callers can still choose an infinite wait.** Zig requires an explicit
+  handshake and settle budget, but `.unbounded` remains available. The CLI and
+  examples use finite deadlines; library callers must make the same choice.
+- **Durable bootstrap storage is not implemented.** Asking `Host.init` for
+  `durable_bootstrap` currently panics. The default is ephemeral, so a
+  sturdyref does not survive the process that issued it.
+- **Some binding pumps copy outbound frames.** TypeScript, Python, and Racket
+  copy bytes before an asynchronous write because their FFI lifetimes cannot
+  retain the Zig-owned frame. Rust retains the frame across the write.
+- **macOS is compiled but not run in CI, and Windows is not implemented.**
+  Linux is the only platform on which the full check set runs today.
 
-- **App surface is the whole contract.** With a Host, ordinary
-  `connect` / `fetch` / `send` never sees the give bytes or the second
-  connection; the call settles as the introduced capability.
-- **No CapTP `draining`.** Lifecycle is `negotiating | open | closed`
-  ([ADR-0083](decisions/adr/ADR-0083-outbound-abort-closes-session.md)).
-  Host soft-stop (`condemned`) is transport above CapTP.
-- **No advertised `stream` / `equality` FeatureSet bits.** Validated bits
-  only: `pipelining`, `handoff`, `wire_delta`, `sturdyref`.
-- **Session-pair uniqueness is Host enrollment**, not wire equality
-  (ADR-0012): second dial to a live partner session, or keyed dial to a
-  verified partner key, refuses `HostError.SessionPairExists`. An accepted
-  tcp designator does not squat dial availability. Crossed hellos may still
-  race an in-flight dial (ADR-0030).
-- **`127.0.0.1` vs `[::1]` can open two sessions** until the partner-key
-  index wins. Keyed-tcp and iroh pin by key.
-- **One owning C session family.** The one-call blocking C session verbs
-  (`pancake_tcp_session_*`,
-  [ADR-0062](decisions/adr/ADR-0062-one-connect-over-a-netlayer-slice.md)) are
-  spelled on the tcp archive alone. A second transport does not copy that
-  family: before an owning inproc or iroh session surface lands, the session
-  choreography moves to one transport-neutral home and the transports keep
-  only their connect constructors. `zig build meta-check` refuses the copied
-  spelling until that move happens.
-- **Foreign promise as `send`/`tell` arg is refused** (`ForeignArgument`).
-  Object foreign fulfills stay on gift-redeem. Listen on a bare unresolved
-  promise export is refused; third-party promise listen is the ADR-0009
-  proxy path (`Node.proxyForeignPromiseFulfill`,
-  `test/engine/node_test.zig`; settlement relay
-  `Peer.applyRelayedResolution`, `test/engine/relay_resolution_test.zig`).
-- **`check` does not close the netlayer edges above.** `discovery_no_relay`,
-  two-NAT hole punching, and live-socket 500k RSS stay open; `iroh-loop` does
-  not claim them.
-- **Reserved position ceilings.** A partner-introduced import position at or
-  above 2^60, or a partner-named answer position at or above 2^63, is refused
-  (`session/mod.zig` `REDEEMED_TOKEN_BASE` / `VIRTUAL_INBOUND_ANSWER_BASE`).
-  The draft spec asks only that positions be unique, and the peers pancake is
-  proven against count up from zero, so the ceiling is unreachable in
-  practice. It exists so a hostile peer cannot alias the internal ranges
-  pancake mints above those bases. Both refusals, and the V1.0 resolver arm,
-  are pinned with accept-just-below companions in
-  `test/session/session_test.zig`.
+## API gaps
 
-## The passable model and OCapN Null
+- **The native owning `Session` facade still exposes actor/wire references.**
+  The C ABI and bindings use opaque Host-scoped capability identities, while
+  several native convenience verbs still accept `actors.Ref` or
+  `model.Reference`. Completing that facade migration is tracked by
+  [ADR-0096](decisions/adr/ADR-0096-host-scoped-capability-identity.md).
+- **Session-level enlivenment does not select or dial a peer.** It now retains
+  and verifies the complete sturdyref, refusing a mismatch before wire traffic.
+  The caller still selects an existing session. An accepted plain-TCP session
+  cannot prove its claimed listening address and is refused by default; only
+  the native low-level `assertion_only` opt-in proceeds while reporting that
+  provenance. Host-level select-or-dial remains ADR-0098 step 4.
+- **Listening to a promise received from a peer is native-Zig only.**
+  `listenTo` exists on `driver.Session`, `driver.BlockingSession`, and the
+  byte-fed Host. It is not exposed by the C ABI or the language bindings.
+- **Distributed garbage collection covers fetched references only.** Near
+  references, promises, sturdyrefs, bootstrap references, and redeemed
+  handoffs are outside the opt-in finalizer path.
+- **A host-wide published object cannot be unpublished.** Replacing a name
+  changes future discovery, but there is not yet an alias-removal verb.
+- **Local actors are retained for the Host lifetime.** Session closure and the
+  final release of an opaque capability remove projections and registry rows,
+  but do not yet collect the actor box. Earlier collection needs an explicit
+  roots policy spanning aliases, gifts, queued turns, and issued capabilities.
+- **CapTP `listen` is not an MCP tool.** It is available on the command line,
+  where it can stay parked on accept without blocking the MCP stdio loop.
+- **The public API and ABI are not stable.** There are no release tags or
+  compatibility guarantees yet. Pin a commit when consuming the package.
 
-[shipped](shipped.md) lists what the model covers. The edges:
+Archive discovery and packaging are documented in the
+[packaging guide](../bindings/PACKAGING.md#finding-the-archives). Windows release
+assets are not published.
 
-- **No OCapN Null arm.** Goblins has no Null marshalling yet; inventing one
-  would not interop. Unknown Syrup records project as `Tagged`.
-- **Set and Keyword go beyond the draft Model.** The pinned Model.md lists no
-  Set container and no Keyword atom; Goblins marshals both over Syrup, and
-  pancake follows that wire (canonical set order with duplicate refusal, the
-  Goblins `<kw …>` keyword record) rather than the narrower draft list.
-- **Goblins-as-asker against pancake's `op:get` / `op:index` / `op:untag`
-  responders** is not the live `goblins-interop` proof. In-tree Zig scenarios
-  and the reference fixtures cover the responders; the upstream suite carries
-  no projection ops, and Goblins has no `op:untag` marshaller yet. The
-  driver's asker bracket proves only that pancake accepts canonical `op:get` /
-  `op:index` frames a Goblins netlayer wrote, not that Goblins observed the
-  settlements.
-- **No `op:deliver-only`.** One-way send is a no-answer `op:deliver` (`tell`).
-  The pinned draft spec, the upstream suite, and Goblins all express one-way
-  sends that way; none of the three defines an `op:deliver-only`, and a codec
-  test pins that pancake never emits one. No interop bracket sends a `tell` at
-  a live Goblins vat yet.
+## Protocol and interop
 
-## Scalable I/O and Host durability
+- **CapTP session keys are currently reused across a Host.** This makes the
+  host identity convenient for handoff verification but collapses durable node
+  identity with the protocol's per-session identity. Fresh keys cannot simply
+  replace them: keyed-TCP's current authentication pins the locator's durable
+  key directly to `session_pubkey`, and keyed-relay shares that pin. Their byte
+  channels supply no lower peer proof. iroh has a QUIC-authenticated peer key,
+  and WebRTC has a capability-authorized DTLS binding, but their current
+  adapters do not expose those facts to Host verification.
+  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)
+  assigns every key-designator transport an explicit binding before reuse can
+  be removed. Reconnect/session-name isolation is not yet proved: an old signed
+  handoff receive can resolve against a replacement session with the same names
+  and consume a later deposit that reuses its session-local gift id.
+- **OCapN Null is absent.** Goblins does not marshal it and the upstream
+  encoding is unsettled. Unknown Syrup records remain tagged values instead.
+- **Only the negotiated features are accepted.** pancake supports
+  `pipelining`, `handoff`, `wire_delta`, and `sturdyref`. It does not advertise
+  the draft `stream` or `equality` features, and CapTP has no `draining`
+  lifecycle state here.
+- **Foreign promises have a narrower path than foreign objects.** Passing a
+  promise from one session as a `send` or `tell` argument on another is
+  refused. A relayed settlement can carry a plain value, a break, a sturdyref,
+  or a capability introduced by handoff. A promise, a locally exported object,
+  or a capability nested inside a container settles broken instead.
+- **Handoff is return-based.** A capability from another session can be
+  returned as an answer, but it cannot be pushed as an argument. An application
+  that needs to push one must pass a promise for the eventual answer instead.
+- **Handoff signatures always use Syrup.** That signing domain does not change
+  when the surrounding session uses Cap'n Proto.
+- **Remote equality across independently established sessions is not proved.**
+  Local actors keep one Host identity across Port projection and closure, and
+  repeated observations of one import on one session are canonical. No
+  scenario proves that the same remote target reached through another session,
+  especially through handoff, reuses that identity.
+- **Projection responder coverage is partly in-tree.** Field, index, and tag
+  projections are implemented. The upstream suite does not cover them, and
+  Goblins cannot yet marshal `op:untag`, so not every direction has a live
+  outside-peer check.
+- **One-way send uses `op:deliver` without an answer.** pancake does not
+  implement `op:deliver-only`; neither the pinned draft, the upstream suite,
+  nor Goblins defines that operation. No live Goblins check sends a `tell`
+  today.
+- **Two position ranges are reserved internally.** A peer-supplied import at or
+  above 2^60, or answer position at or above 2^63, is refused so it cannot
+  collide with pancake's internal handoff and virtual-answer ranges. Proven
+  peers count upward from zero, so this fails closed before affecting them.
 
-[architecture](architecture.md#application-surface-driver) explains how the
-Bridge and the completion loop work; [shipped](shipped.md) names the proofs
-(`tcp-loop`, `iroh-bridge-redeem`). The edges:
+Cap'n Proto is a pancake-to-pancake format. The project does not publish a
+fixed speed ratio between the codecs; `zig build bench-codec` measures the
+current workload.
 
-- **`durable_bootstrap` panics at `Host.init`** (a loud unsupported-posture
-  stop, not a typed error) until an embedder store lands (ADR-0082). Default is
-  ephemeral: sturdyrefs die with the process.
-- **One residual under double allocation failure:** if the connect worker hits
-  OOM again while queueing its `ConnectDone`, the notice is dropped and that
-  dial never hears its outcome (ADR-0081 / ADR-0082).
-- **Binding outbound flush copies.** TypeScript, Python, and Racket copy a
-  frame's bytes and release the frame before their async write; Rust holds the
-  frame across the write. Those runtimes' FFI lifetimes force the copy.
-- **Zero settle / loop deadlines are unbounded** (`settle_timeout_ms` /
-  `Loop.runUntil`); product CLI never leaves them at zero.
+[Community review](community-review.md) is the precise outside-peer coverage
+and specification-gap record.
 
-## C ABI archive resolve
+## Browser reachability
 
-The archive resolve cascade is
-[ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)'s contract,
-pinned by [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json).
-Hygiene refusals fail closed. Windows release-pack is not a published leg yet,
-so consumers need `PANCAKE_LIB_DIR` or in-tree `zig-out`.
+A browser is a full peer after it has a channel, but it cannot open a listening
+socket. Browser-to-browser cold dial works when both use the same relay: the
+relay holds an inbound socket under the browser's keyed identity, and the CapTP
+handshake still authenticates the peers end to end.
 
-## Codecs
+Two reachability paths are not built:
 
-The site Codecs page (`zig build docs-serve`) teaches the tradeoffs;
-[shipped](shipped.md) lists what ships. The edges:
+- a native peer cold-dialing a browser, because native bindings have no
+  rendezvous adapter;
+- a browser cold-dial across different relays, because the locator names the
+  peer identity rather than a relay route.
 
-- **Handoff signing domain is always Syrup**, even on a Cap'n Proto session
-  ([ADR-0009](decisions/adr/ADR-0009-three-party-handoff-substrate.md)).
-- **No frozen “N× faster” ratio**. `zig build bench-codec` reports numbers.
-
-## Reference lifecycle
-
-[shipped](shipped.md) lists what ships here (opt-in GC, enliven dedup,
-caretaker and attenuate). The edges:
-
-- **No arbitrary-path target canonicalization proof.**
-  `model.referencesStructurallyEqual` compares session-local representation.
-  Repeat sturdyref enlivenment reuses one import row, but no scenario presents
-  the same target through both a direct or sturdy path and a three-party
-  handoff. Full OCapN Pass Invariant Equality for that case is unproved.
-- **GC scope is `fetch` results only** (ADR-0063); near refs, promises,
-  sturdyrefs, bootstrap, redeemed handoffs stay out.
-- **Forwarding proxies are binding-layer composition**, not a new wire op
-  (ADR-0064). The C ABI stays deliver-and-resolve.
-
-## The unbuilt driver
-
-The second framework-shaped driver, `griddle`, a deterministic network
-simulator and fuzzer, is not implemented. The CLI reserves the name with a
-status placeholder (`pancake griddle status|help`); the sim runtime behind it
-does not exist. The [vision](vision.md) names what it will be. Start the runtime only
-when fuzz or simulation is the cheapest way to prove a net or driver claim that
-the live Goblins and `ocapn-conformance` check steps cannot reach, and never
-inside the sans-io core. Topology visualization (ocapnviz) is not
-implemented; it would consume griddle's timeline feeds. The CapTP lab
-(`pancake repl`) stays a separate UI.
-
-Adapter continuity (`driver.ResilientClient`, ADR-0082) is shipped. Further
-binding or demo polish lands only from a named demo or accountability failure,
-with a test or check step in the same change, not as an open-ended pass.
-
-## Product CLI edges (ADR-0084)
-
-Recipes: [`docs/cli.md`](cli.md). What ships on the product binary lives there
-and in [shipped](shipped.md). These edges stay open: no A2A-on-CapTP
-(`app a2a`), no griddle **sim runtime** (`pancake griddle` is a status
-placeholder), no ocapnviz, no `ocapn trace --ws`, no OTEL export, no
-PowerShell completion, no typo suggestions. CapTP `listen` is argv-only
-(never an MCP tool) because it parks on accept. Silent partners fail with
-exit `timeout` (finite handshake/settle budgets), not an unbounded hang.
-`ocapn listen` stops by polling `Listener.waitAcceptable` against the shared
-stop latch, never by closing the listen FD from another thread (Zig threaded Io panics on that BADF).
-
-## Browser peer completeness (ADR-0088)
-
-A browser is a full peer over every session it opens. It dials, hosts objects,
-answers calls, and redeems handoffs, and it answers a non-listening caller over
-the connection the call arrived on. That surface is inventoried in
-[shipped.md](shipped.md) and its mechanism is in
-[ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md). One edge it
-cannot cross alone:
-
-- **Cold-dial as an exporter.** A browser opens no listening socket, so a
-  stranger that names the browser reaches it only through a relay rendezvous: a
-  table from identity to a held inbound socket, a second byte-transparent bridge
-  leg. This is built and proven browser-to-browser on a shared relay
-  (`rooms-web-dm-tabs`, ADR-0088). Two forms are still designed, not built: a
-  native peer cold-dialing a browser (no native rendezvous adapter), and a
-  cross-relay cold-dial, where the locator names the identity rather than any one
-  relay.
+The [roadmap](roadmap.md) owns those tasks and the unbuilt product work,
+including the griddle simulator, protocol visualization, and A2A facade.

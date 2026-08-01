@@ -7,9 +7,10 @@
 //! this same behavior rather than transcribing the verify path three times.
 //!
 //! Attribution is attested, not trusted. The caller signs a canonical preimage
-//! over the request with its KERI key and presents its verkey; the host verifies
-//! the signature before it records an Outcome Episode, and refuses — as a clean
-//! broken promise — anything it cannot attribute.
+//! over the request with its KERI key, and presents that verkey together with
+//! the key event log that binds it to the AID it claims. The host checks both
+//! before it records an Outcome Episode, and refuses — as a clean broken
+//! promise — anything it cannot attribute.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -39,12 +40,11 @@ pub const invoke_verb = "invoke";
 /// attributing an Episode. Signer and host must hash the same bytes, so the form
 /// is fixed here.
 ///
-/// The subject is in the preimage because the Episode attributes it. What that
-/// buys is narrow and worth stating exactly: a captured (verkey, request,
-/// signature) triple cannot be re-presented under a different AID, because the
-/// AID is part of what was signed. It does not stop a caller signing under its
-/// own key and naming an AID it does not control, which needs the caller's key
-/// event log to catch.
+/// The subject is in the preimage because the Episode attributes it: a captured
+/// (verkey, request, signature) triple cannot be re-presented under a different
+/// AID, because the AID is part of what was signed. A caller signing under its
+/// own key while naming an AID it does not control is caught one step later, by
+/// the key event log it has to present alongside this signature.
 ///
 /// The request arrives from the wire and can be as large as a frame, so the
 /// preimage is allocated rather than built in a fixed buffer. Callers pass a
@@ -68,9 +68,10 @@ pub fn strArg(a: model.Argument) ?[]const u8 {
     };
 }
 
-/// The four string arguments an `invoke` carries, encoded once from a signing
-/// key and a request. `tamper` corrupts the signature so the host must refuse to
-/// attest it — the path that has to surface as a clean broken promise.
+/// The signed part of an `invoke`, encoded once from a signing key and a
+/// request: the verkey the caller presents and its signature over the preimage.
+/// `tamper` corrupts the signature so the host must refuse to attest it — the
+/// path that has to surface as a clean broken promise.
 pub const Attestation = struct {
     /// The caller's verkey, `D`-coded base64url (44 bytes).
     verkey: [1 + enc.calcSize(32)]u8,
@@ -108,29 +109,32 @@ pub const Affordance = struct {
 
     pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, invoke_verb)) return error.NoSuchMethod;
-        if (msg.args.len != 4) return error.BadInvocation;
+        if (msg.args.len != 5) return error.BadInvocation;
         const subject = strArg(msg.args[0]) orelse return error.BadInvocation;
         const verkey_b64 = strArg(msg.args[1]) orelse return error.BadInvocation;
         const request = strArg(msg.args[2]) orelse return error.BadInvocation;
         const sig_b64 = strArg(msg.args[3]) orelse return error.BadInvocation;
+        const kel = strArg(msg.args[4]) orelse return error.BadInvocation;
 
         // The subject is a fixed-width AID; a peer that sends a short one is
         // malformed, not attributable. Validate before the fixed-size copy below.
         if (subject.len != identity.SAID_LEN) return error.BadInvocation;
 
-        // Verify the caller's signature over the subject it claims and the
-        // request it is making, against the presented verkey. Because the
-        // subject is in the signed bytes, a captured signature cannot be
-        // re-presented under a different AID.
-        //
-        // What this does not prove is that the presented verkey belongs to that
-        // AID. A caller can still sign under its own key and name an AID it does
-        // not control. Catching that needs the caller's key event log, which
-        // this demo does not exchange; the README says so.
+        // First: whoever holds the presented key signed this exact subject and
+        // request. Because the subject is in the signed bytes, a captured
+        // signature cannot be re-presented under a different AID.
         const verkey = identity.decodeVerkey(verkey_b64) catch return error.UnattestedCaller;
         const sig = identity.decodeSig(sig_b64) catch return error.UnattestedCaller;
         const att = try attestation(turn.arena, subject[0..identity.SAID_LEN], request);
         identity.verify(verkey, att, sig) catch return error.UnattestedCaller;
+
+        // Second: that key really speaks for the AID being claimed. The caller
+        // presents its key event log; the host derives the AID from the log's
+        // inception event, walks the rotations, and requires the presented key to
+        // be the one the log ends on. A caller signing under its own key while
+        // naming somebody else's AID is refused here, and so is a caller
+        // presenting a key its own log has already rotated away from.
+        identity.verifyBinding(turn.arena, kel, subject, verkey) catch return error.UnboundCaller;
 
         // The capability invocation succeeds; account for it.
         const result = try std.fmt.allocPrint(turn.arena, "ack:{s}", .{request});

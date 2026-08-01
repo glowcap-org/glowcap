@@ -1,0 +1,345 @@
+//! Host-scoped live capability identity (ADR-0096).
+//!
+//! Wire positions remain session names. This registry gives the composed Host
+//! an opaque name for the target behind one of those positions. Native refs
+//! carry their Registry scope; adapters that erase it must provide a wider id
+//! source.
+//! A reverse index canonicalizes repeated observations, while an intrusive
+//! per-session list invalidates exactly the rows homed on a closing session.
+
+const std = @import("std");
+
+const model = @import("model");
+const engine = @import("engine");
+
+/// An opaque capability in one Host composition. The registry pointer is the
+/// scope proof. The C adapter supplies opaque process-unique ids so its
+/// pointer-free raw handle also fails closed when presented to another Host.
+/// `raw` exists only for the session memo and later ABI projection.
+pub const Ref = struct {
+    registry: *const Registry,
+    id: CapabilityId,
+
+    pub fn raw(self: Ref) u64 {
+        return @intFromEnum(self.id);
+    }
+
+    pub fn eql(self: Ref, other: Ref) bool {
+        return self.registry == other.registry and self.id == other.id;
+    }
+};
+comptime {
+    if (@sizeOf(Ref) != 16) @compileError("HostRef must remain a two-word scoped handle");
+}
+
+/// The target a Host capability retains while live.
+pub const Target = union(enum) {
+    /// One actor in the Host Vat. Ports lazily assign wire positions.
+    local: u64,
+    /// One real import on its owning session.
+    remote: struct {
+        peer_id: engine.PeerId,
+        far: model.FarRef,
+        /// Host-monotonic stamp for this live import-row incarnation. A partner
+        /// may reuse the numeric position after release; the stamp prevents the
+        /// old Host row from becoming canonical for the replacement.
+        incarnation: u64,
+    },
+
+    fn peerId(self: Target) ?engine.PeerId {
+        return switch (self) {
+            .local => null,
+            .remote => |remote| remote.peer_id,
+        };
+    }
+
+    fn key(self: Target) Key {
+        return switch (self) {
+            .local => |actor_id| .{ .local = actor_id },
+            .remote => |remote| .{ .remote = .{
+                .peer_id = remote.peer_id,
+                .kind = remote.far.kind,
+                .position = remote.far.import_position.int(),
+                .incarnation = remote.incarnation,
+            } },
+        };
+    }
+};
+
+const Key = union(enum) {
+    local: u64,
+    remote: struct {
+        peer_id: engine.PeerId,
+        kind: model.RefKind,
+        position: u64,
+        incarnation: u64,
+    },
+};
+
+const CapabilityId = enum(u64) { _ };
+
+/// Optional adapter-owned source for ids that leave the native scoped `Ref`.
+/// The C adapter supplies a keyed permutation of one process-wide monotonic
+/// issuer; the sans-I/O core stays unsynchronized and uses one Host-local
+/// source by default.
+pub const IdIssuer = struct {
+    ctx: ?*anyopaque = null,
+    next: *const fn (?*anyopaque) error{CapabilitySpaceExhausted}!u64,
+};
+
+const Entry = struct {
+    id: CapabilityId,
+    target: Target,
+    retains: u64,
+    peer_prev: ?u32 = null,
+    peer_next: ?u32 = null,
+};
+
+const Slot = struct {
+    state: State,
+
+    const State = union(enum) {
+        free: ?u32,
+        live: Entry,
+    };
+};
+
+/// One live/reusable Host-capability slot. This is Host-wide, not per session;
+/// keep the retained high-water cost explicit as the target grows fields.
+pub const slot_budget_bytes: usize = 80;
+comptime {
+    if (@sizeOf(Slot) > slot_budget_bytes) @compileError(std.fmt.comptimePrint(
+        "driver_core capability slot is {d} bytes, over its {d}-byte Host-wide retained-row budget",
+        .{ @sizeOf(Slot), slot_budget_bytes },
+    ));
+}
+
+/// Host-owned canonical capability rows. Storage grows to the high-water mark
+/// of simultaneously live rows. Released slots are reused, but public ids are
+/// never reused by this registry, so stale handles fail the Host-owned `by_id`
+/// lookup. A C adapter supplies opaque ids whose issuer also separates Hosts;
+/// native refs carry the registry pointer as their scope proof.
+pub const Registry = struct {
+    slots: std.ArrayListUnmanaged(Slot) = .empty,
+    free_head: ?u32 = null,
+    by_target: std.AutoHashMapUnmanaged(Key, Ref) = .empty,
+    by_id: std.AutoHashMapUnmanaged(CapabilityId, u32) = .empty,
+    peer_heads: std.AutoHashMapUnmanaged(engine.PeerId, u32) = .empty,
+    id_issuer: ?IdIssuer = null,
+    next_local_id: u64 = ref_base,
+
+    pub const Error = std.mem.Allocator.Error || error{
+        CapabilitySpaceExhausted,
+        RetainOverflow,
+        ReleaseExceedsRetains,
+        UnknownCapability,
+    };
+
+    // Private to this opaque type: this is not a reservation in any CapTP
+    // position space. Keeping the high band makes zero and ordinary wire
+    // positions invalid handles. `ref_end` is an exhausted sentinel and is
+    // never issued.
+    const ref_base: u64 = 1 << 62;
+    const ref_end: u64 = 1 << 63;
+    pub fn init(id_issuer: ?IdIssuer) Registry {
+        return .{ .id_issuer = id_issuer };
+    }
+
+    pub fn deinit(self: *Registry, allocator: std.mem.Allocator) void {
+        self.peer_heads.deinit(allocator);
+        self.by_id.deinit(allocator);
+        self.by_target.deinit(allocator);
+        self.slots.deinit(allocator);
+        self.* = .{};
+    }
+
+    /// Reserve every backing slot a fresh target homed on `peer_id` can need.
+    /// The caller uses this before making that target externally observable;
+    /// after it succeeds, retaining one fresh target cannot fail for allocation
+    /// or capability-space exhaustion. A free slot is already sufficient.
+    pub fn reserveFreshLocal(self: *Registry, allocator: std.mem.Allocator) Error!void {
+        try self.by_target.ensureUnusedCapacity(allocator, 1);
+        try self.by_id.ensureUnusedCapacity(allocator, 1);
+        if (self.free_head == null) {
+            if (self.slots.items.len > std.math.maxInt(u32)) return error.CapabilitySpaceExhausted;
+            try self.slots.ensureUnusedCapacity(allocator, 1);
+        }
+    }
+
+    /// Retain `target`, reusing its live Host identity when already observed.
+    pub fn retain(self: *Registry, allocator: std.mem.Allocator, target: Target) Error!Ref {
+        const key = target.key();
+        if (self.by_target.get(key)) |existing| {
+            const entry = self.entryPtr(existing) orelse unreachable;
+            entry.retains = std.math.add(u64, entry.retains, 1) catch return error.RetainOverflow;
+            return existing;
+        }
+
+        try self.by_target.ensureUnusedCapacity(allocator, 1);
+        try self.by_id.ensureUnusedCapacity(allocator, 1);
+        if (target.peerId()) |peer_id| if (!self.peer_heads.contains(peer_id))
+            try self.peer_heads.ensureUnusedCapacity(allocator, 1);
+        const id = try self.nextId();
+        const acquired = try self.acquireSlot(allocator);
+        const prior_head = if (target.peerId()) |peer_id| self.peer_heads.get(peer_id) else null;
+        acquired.slot.state = .{ .live = .{
+            .id = id,
+            .target = target,
+            .retains = 1,
+            .peer_next = prior_head,
+        } };
+        if (target.peerId()) |peer_id| {
+            if (prior_head) |head| self.liveEntryAt(head).peer_prev = acquired.index;
+            self.peer_heads.putAssumeCapacity(peer_id, acquired.index);
+        }
+        const ref = Ref{ .registry = self, .id = id };
+        self.by_id.putAssumeCapacity(id, acquired.index);
+        self.by_target.putAssumeCapacity(key, ref);
+        return ref;
+    }
+
+    /// The still-live target behind `ref`, or null for a stale/foreign id.
+    pub fn resolve(self: *const Registry, ref: Ref) ?Target {
+        const slot_index = self.slotFor(ref) orelse return null;
+        const slot = &self.slots.items[slot_index];
+        return switch (slot.state) {
+            .live => |entry| entry.target,
+            else => null,
+        };
+    }
+
+    /// Number of application retains on one live capability. Host release uses
+    /// this to validate a delta before committing the corresponding wire GC.
+    pub fn retainCount(self: *const Registry, ref: Ref) ?u64 {
+        const slot_index = self.slotFor(ref) orelse return null;
+        const slot = &self.slots.items[slot_index];
+        return switch (slot.state) {
+            .live => |entry| entry.retains,
+            else => null,
+        };
+    }
+
+    /// Release `delta` application retains. The final release reclaims the row;
+    /// its public id is never reused by this registry even when the slot is.
+    pub fn release(self: *Registry, ref: Ref, delta: u64) Error!?Target {
+        const entry = self.entryPtr(ref) orelse return error.UnknownCapability;
+        if (delta == 0) return null;
+        if (delta > entry.retains) return error.ReleaseExceedsRetains;
+        entry.retains -= delta;
+        if (entry.retains != 0) return null;
+        return try self.remove(ref);
+    }
+
+    /// Invalidate every capability homed on `peer_id` without scanning rows
+    /// belonging to other sessions. Returns the number retired.
+    pub fn invalidatePeer(self: *Registry, peer_id: engine.PeerId) usize {
+        var count: usize = 0;
+        while (self.peer_heads.get(peer_id)) |slot_index| {
+            const slot = &self.slots.items[slot_index];
+            const ref = switch (slot.state) {
+                .live => |entry| Ref{ .registry = self, .id = entry.id },
+                .free => unreachable,
+            };
+            const removed = self.remove(ref) catch unreachable;
+            std.debug.assert(removed.peerId().? == peer_id);
+            count += 1;
+        }
+        return count;
+    }
+
+    pub fn liveCount(self: *const Registry) usize {
+        return self.by_target.count();
+    }
+
+    fn acquireSlot(self: *Registry, allocator: std.mem.Allocator) Error!struct { index: u32, slot: *Slot } {
+        if (self.free_head) |index| {
+            const slot = &self.slots.items[index];
+            self.free_head = switch (slot.state) {
+                .free => |next| next,
+                else => unreachable,
+            };
+            return .{ .index = index, .slot = slot };
+        }
+        // `len` is the next index. The maximum u32 itself is still one valid
+        // slot; only the following length is outside the encoded slot field.
+        if (self.slots.items.len > std.math.maxInt(u32)) return error.CapabilitySpaceExhausted;
+        const index: u32 = @intCast(self.slots.items.len);
+        try self.slots.append(allocator, .{ .state = .{ .free = null } });
+        return .{ .index = index, .slot = &self.slots.items[index] };
+    }
+
+    fn remove(self: *Registry, ref: Ref) Error!Target {
+        const slot_index = self.slotFor(ref) orelse return error.UnknownCapability;
+        const slot = &self.slots.items[slot_index];
+        const entry = switch (slot.state) {
+            .live => |entry| entry,
+            else => return error.UnknownCapability,
+        };
+
+        std.debug.assert(self.by_target.remove(entry.target.key()));
+        std.debug.assert(self.by_id.remove(entry.id));
+        if (entry.target.peerId()) |peer_id| {
+            if (entry.peer_prev) |prev| {
+                self.liveEntryAt(prev).peer_next = entry.peer_next;
+            } else if (entry.peer_next) |next| {
+                self.peer_heads.putAssumeCapacity(peer_id, next);
+            } else {
+                std.debug.assert(self.peer_heads.remove(peer_id));
+            }
+            if (entry.peer_next) |next| self.liveEntryAt(next).peer_prev = entry.peer_prev;
+        }
+
+        slot.state = .{ .free = self.free_head };
+        self.free_head = slot_index;
+        return entry.target;
+    }
+
+    fn entryPtr(self: *Registry, ref: Ref) ?*Entry {
+        const slot_index = self.slotFor(ref) orelse return null;
+        const slot = &self.slots.items[slot_index];
+        return switch (slot.state) {
+            .live => |*entry| entry,
+            else => null,
+        };
+    }
+
+    fn liveEntryAt(self: *Registry, index: u32) *Entry {
+        return switch (self.slots.items[index].state) {
+            .live => |*entry| entry,
+            else => unreachable,
+        };
+    }
+
+    pub fn refFromRaw(self: *const Registry, raw: u64) Ref {
+        return .{ .registry = self, .id = @enumFromInt(raw) };
+    }
+
+    fn slotFor(self: *const Registry, ref: Ref) ?u32 {
+        if (ref.registry != self) return null;
+        return self.by_id.get(ref.id);
+    }
+
+    fn nextId(self: *Registry) error{CapabilitySpaceExhausted}!CapabilityId {
+        if (self.id_issuer) |issuer| {
+            var attempts: u8 = 0;
+            while (attempts < 16) : (attempts += 1) {
+                const raw = try issuer.next(issuer.ctx);
+                if (raw == 0) continue;
+                const id: CapabilityId = @enumFromInt(raw);
+                // A truncated opaque token may collide; retry before
+                // publication instead of replacing live authority. The bound
+                // also keeps a broken custom issuer from hanging the Host.
+                if (!self.by_id.contains(id)) return id;
+            }
+            return error.CapabilitySpaceExhausted;
+        }
+        const raw = local: {
+            if (self.next_local_id == ref_end) return error.CapabilitySpaceExhausted;
+            const current = self.next_local_id;
+            self.next_local_id += 1;
+            break :local current;
+        };
+        if (raw == 0) return error.CapabilitySpaceExhausted;
+        return @enumFromInt(raw);
+    }
+};

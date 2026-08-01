@@ -16,55 +16,39 @@
 //!
 //! Lowering is a plain value substitution. A far reference owns no heap, so a
 //! token becomes its wire far in place with no allocation. The walk runs only
-//! when the node has enrolled at least one foreign token (`Lowering.active`);
+//! when the node has enrolled at least one foreign token
+//! (`NodeServices.lowering_active`);
 //! until then every send skips it for a single bool load, so a two-party peer
 //! that never fetches a foreign capability pays nothing.
 
-const std = @import("std");
 const model = @import("model");
-const engine = @import("mod.zig");
+const services_mod = @import("node_services.zig");
+const NodeServices = services_mod.NodeServices;
 
 /// A reference names a node-local token whose home is not the connection it is
 /// being emitted on, so it has no wire name here. Raised by the node's lowering
 /// hook (`Node.lowerForConn`) and propagated out of the failed `Peer.send`.
-pub const LoweringError = error{TokenNotLiftable};
-
-/// Installed on a node-registered `Peer`: the hook that lowers one reference to
-/// its wire form on the peer's connection. `ctx` and `peer_id` bind the call to
-/// the node and the connection; `active` gates the walk so a node that has never
-/// enrolled a foreign token pays only a bool load per send.
-pub const Lowering = struct {
-    ctx: *anyopaque,
-    peer_id: engine.PeerId,
-    active: *const bool,
-    lower_fn: *const fn (ctx: *anyopaque, peer_id: engine.PeerId, reference: model.Reference) LoweringError!model.Reference,
-
-    fn lower(self: Lowering, reference: model.Reference) LoweringError!model.Reference {
-        return self.lower_fn(self.ctx, self.peer_id, reference);
-    }
-};
-
 /// Lower every reference an outbound `message` carries to its wire form on the
 /// lowering's connection, in place. The message is owned by the caller (the peer
 /// about to enqueue it), so the walk rewrites its far references — plain POD
 /// values — directly; the `@constCast`s reach into that owned argument heap,
 /// never into borrowed wire bytes. A `TokenNotLiftable` from any position aborts
 /// the whole send and leaves the caller to free the message.
-pub fn lowerMessage(lowering: Lowering, message: *model.Message) LoweringError!void {
+pub fn lowerMessage(services: NodeServices, message: *model.Message) services_mod.LoweringError!void {
     switch (message.*) {
         .deliver => |*deliver| {
-            deliver.target = try lowering.lower(deliver.target);
-            if (deliver.resolve_me_desc) |desc| deliver.resolve_me_desc = try lowering.lower(desc);
-            try lowerArguments(lowering, deliver.args);
+            deliver.target = try services.lower(deliver.target);
+            if (deliver.resolve_me_desc) |desc| deliver.resolve_me_desc = try services.lower(desc);
+            try lowerArguments(services, deliver.args);
         },
-        .resolve => |*resolve| try lowerResolution(lowering, &resolve.resolution),
+        .resolve => |*resolve| try lowerResolution(services, &resolve.resolution),
         .listen => |*listen| {
-            listen.target = try lowering.lower(listen.target);
-            listen.listener = try lowering.lower(listen.listener);
+            listen.target = try services.lower(listen.target);
+            listen.listener = try services.lower(listen.listener);
         },
-        .get => |*get| get.receiver = try lowering.lower(get.receiver),
-        .index => |*index| index.receiver = try lowering.lower(index.receiver),
-        .untag => |*untag| untag.receiver = try lowering.lower(untag.receiver),
+        .get => |*get| get.receiver = try services.lower(get.receiver),
+        .index => |*index| index.receiver = try services.lower(index.receiver),
+        .untag => |*untag| untag.receiver = try services.lower(untag.receiver),
         // No reference positions (gc, start-session, abort), or references the
         // node minted from wire data rather than a token (a handoff's gifted
         // reference is resolved through `Node.provideGiftId` before origination).
@@ -77,24 +61,24 @@ pub fn lowerMessage(lowering: Lowering, message: *model.Message) LoweringError!v
 /// chokepoint: a relayed resolution recorded by `Peer.applyRelayedResolution`
 /// (ADR-0009), whose stored value later reaches the wire through the fire
 /// carriers.
-pub fn lowerResolution(lowering: Lowering, resolution: *model.Resolution) LoweringError!void {
+pub fn lowerResolution(services: NodeServices, resolution: *model.Resolution) services_mod.LoweringError!void {
     switch (resolution.*) {
-        .fulfill => |*arg| try lowerArgument(lowering, arg),
+        .fulfill => |*arg| try lowerArgument(services, arg),
         .@"break" => {},
     }
 }
 
-fn lowerArguments(lowering: Lowering, args: []const model.Argument) LoweringError!void {
-    for (@constCast(args)) |*arg| try lowerArgument(lowering, arg);
+fn lowerArguments(services: NodeServices, args: []const model.Argument) services_mod.LoweringError!void {
+    for (@constCast(args)) |*arg| try lowerArgument(services, arg);
 }
 
-fn lowerArgument(lowering: Lowering, arg: *model.Argument) LoweringError!void {
+fn lowerArgument(services: NodeServices, arg: *model.Argument) services_mod.LoweringError!void {
     switch (arg.*) {
-        .reference => |reference| arg.* = .{ .reference = try lowering.lower(reference) },
-        .list => |items| try lowerArguments(lowering, items),
-        .set => |items| try lowerArguments(lowering, items),
-        .tagged => |tagged| try lowerArguments(lowering, tagged.value),
-        .@"struct" => |entries| for (@constCast(entries)) |*entry| try lowerArgument(lowering, &entry.value),
+        .reference => |reference| arg.* = .{ .reference = try services.lower(reference) },
+        .list => |items| try lowerArguments(services, items),
+        .set => |items| try lowerArguments(services, items),
+        .tagged => |tagged| try lowerArguments(services, tagged.value),
+        .@"struct" => |entries| for (@constCast(entries)) |*entry| try lowerArgument(services, &entry.value),
         // A handoff argument's references were minted by the node's handoff
         // machinery from wire data, never a token; every other arm is POD or bytes.
         else => {},

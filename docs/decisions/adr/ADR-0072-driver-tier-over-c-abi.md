@@ -6,14 +6,25 @@ tags: [c-abi, driver, host, net, netlayer, loop, bindings, wasm, browser]
 decision: "The C ABI gains a `libpancake_driver` archive that projects `driver.core.Host` (ADR-0068) as a sans-io core a binding drives, so a binding stops re-implementing the host tier per language on top of `pancake_peer_*` and the then-current pancake_node_* waist (since deleted; CapTP product work uses `pancake_host_*` only). Two seams are host-configurable: a binding registers netlayers as byte-fed callback vtables dispatched by transport symbol (the C projection of ADR-0062's `[]const net.netlayer.Netlayer`), and a binding either owns the loop (the core never blocks, draining through a `schedule` callback and honoring a `set_read_paused` backpressure callback while the binding pumps its own event loop) or delegates it (name a built-in netlayer and call a blocking `run`, where `net.TcpLoop` / `completion.Loop` owns sockets and scheduling; Zig CapTP multi-conn rides `driver.Bridge` per ADR-0076). The core is byte-fed, so Zig's stream-shaped `tcp`/`iroh` netlayers are used only in the Zig-owned mode where the loop bridges stream to feed; the byte-fed seam is not a rewrite of the stream contract. A published actor is embedder-hosted behavior the core hosts through `Vat.spawnHosted` / `HostedActor` (ADR-0071), reusing that contract rather than a second archive; the interim `libpancake_actors` archive is retired (this ADR supersedes ADR-0071: the `spawnHosted` foundation stands, consumed here). Because the core is sans-io it compiles to `wasm32`, so a browser binding (ADR-0070) drives this same core from JS through a WebSocket netlayer instead of driving the raw `Peer`. The archive is named after its Zig module (as `actors`/`net`/`ocapn` are), imports `driver` and `c_abi_shared`, exports only the `pancake_host_*` family, is symbol-disjoint per ADR-0059, and is an adapter, never in the sans-io core."
 supersedes: [ADR-0071]
 superseded_by: []
+amends: []
+amended_by: [ADR-0096, ADR-0100]
 ---
 
 # ADR-0072 The driver tier over the C ABI: host-configurable netlayers and loop
+
+> ADR-0100 amends the Host internals only: gifts and replay counters are
+> session-owned, while the byte-fed C waist and action contract remain intact.
 
 > **Vocabulary note (ADR-0079).** CapTP multi-connection product work is
 > `Host` / `PancakeHost` / binding `Host` over `pancake_host_*`. The
 > pancake_node_* C waist named in Context below is deleted; binding `Node` is
 > not current. Embedder-hosted behavior is `HostedActor` / `spawnHosted`.
+
+> **Vocabulary amendment (ADR-0096).** The shipped archive is
+> `libpancake_host`, and `PancakeHost` is now the sole C CapTP application
+> surface. `PancakeReference` is one opaque Host-scoped id; raw peer and owning
+> transport-session mirrors are retired. The byte-fed action/pump design below
+> stands.
 
 ## Context
 
@@ -27,7 +38,7 @@ the loop under the host is the direction that retires the boundary."
 
 Every language binding delivers that same host tier to its users. ADR-0066/0067
 gave each binding a transparent three-party story by having its `connect` build
-a composite that owns the retained identity, the shared gift registry, and the
+a composite that owned the retained identity, the then-shared gift registry, and the
 serve step. That composite is `driver.core.Host`'s job, re-written in TypeScript,
 Python, Racket, and Rust on top of the sans-io `pancake_peer_*` and the then-
 current pancake_node_* families (since deleted): the connection pump, the
@@ -259,9 +270,8 @@ ride `Vat.spawnHosted` through `pancake_host_*` directly. The interim archive,
 its header, and its export family are removed from the tree; this ADR now
 supersedes ADR-0071, whose `spawnHosted` foundation stands consumed here. The
 decision text above was updated in place to the resolved state. The Racket
-binding's raw peer wrappers were removed with its host rewire: a binding ships
-one surface (the host family): while the raw `pancake_peer_*` family remains
-covered by the Zig C-ABI tests and the C examples.
+binding's raw peer wrappers and the raw `pancake_peer_*` C family were removed
+with the host rewire; bindings and C consumers now share the host family.
 
 ## Amendment (2026-07-10, second): the seam as shipped, and the decided calls
 

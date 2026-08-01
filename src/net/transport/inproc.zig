@@ -33,6 +33,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const engine = @import("engine");
 const model = @import("model");
+const codec = @import("codec");
 const netlayer = @import("../netlayer.zig");
 const connection = @import("../connection.zig");
 const frame_stream = @import("../frame_stream.zig");
@@ -235,11 +236,14 @@ pub const InprocFrameStream = struct {
     /// read/write buffers stay caller-owned (borrowed into the endpoint).
     allocator: std.mem.Allocator,
     spill: frame_stream.Spill = .{},
+    /// How far the codec has got framing the partial frame at the front of the
+    /// supply; the tcp `FrameStream` keeps the same state for the same reason.
+    scan: codec.framing.StreamScan = .{},
 
     /// Block for one whole `codec_id` frame as an owned `Frame`; `Closed` on the
     /// partner's graceful EOF.
     pub fn readFrame(self: *InprocFrameStream) frame_stream.FrameError!foundation.Frame {
-        return frame_stream.readFrameFrom(&self.endpoint.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill);
+        return frame_stream.readFrameFrom(&self.endpoint.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill, &self.scan);
     }
 
     /// Write one frame's borrowed bytes into the partner's pipe.
@@ -395,10 +399,16 @@ pub const Network = struct {
     }
 };
 
+fn networkIo(ctx: *anyopaque) ?std.Io {
+    const self: *Network = @ptrCast(@alignCast(ctx));
+    return self.io;
+}
+
 const netlayer_vtable = Netlayer.VTable{
     .transport_name = transport_name,
     .dial = dial,
     .listen = listen,
+    .io = networkIo,
 };
 
 fn dial(

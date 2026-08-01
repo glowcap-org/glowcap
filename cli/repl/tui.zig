@@ -16,6 +16,7 @@ const exec = @import("exec.zig");
 const history_mod = @import("history.zig");
 const await_queue = @import("await_queue.zig");
 const select_mod = @import("select.zig");
+const width_mod = @import("width.zig");
 const ecs = @import("ecs/mod.zig");
 
 const Event = union(enum) {
@@ -353,7 +354,7 @@ fn handleMouse(
         }
         const phase = lab.res.selection.phase;
         if (phase == .dragging) {
-            try fillAndCopySelection(ctx, selection_text, store, lab, view_h, transcript_inner);
+            try fillAndCopySelection(ctx, selection_text, store, lab, view_h, transcript_inner, width_mod.ofScreen(&vx.screen));
             lab.res.selection.phase = .lingering;
             return;
         }
@@ -372,9 +373,13 @@ fn handleMouse(
             if (m.mods.ctrl) {
                 const local_col: usize = @intCast(@as(i32, m.col) - @as(i32, transcript_inner.x));
                 if (flatLineAt(store, view_h, local_row)) |line| {
-                    var spans: [4]links.Span = undefined;
-                    if (links.atCol(line, local_col, &spans)) |sp| {
-                        try activateLink(ctx, text_input, sp.slice(line), sp.kind);
+                    // Cell to byte offset, as in hover: the click has to open
+                    // the link the pointer was over.
+                    if (select_mod.byteAtCell(line, local_col, width_mod.ofScreen(&vx.screen))) |offset| {
+                        var spans: [4]links.Span = undefined;
+                        if (links.atByte(line, offset, &spans)) |sp| {
+                            try activateLink(ctx, text_input, sp.slice(line), sp.kind);
+                        }
                     }
                 }
                 return;
@@ -510,11 +515,17 @@ fn updateHoverAndCursor(
         }
         const local_col: usize = @intCast(@as(i32, col) - @as(i32, transcript_inner.x));
         if (flatLineAt(store, view_h, local_row)) |line| {
-            var spans: [4]links.Span = undefined;
-            if (links.atCol(line, local_col, &spans) != null) {
-                shape = .pointer;
-                vx.setMouseShape(shape);
-                return;
+            // The pointer names a cell and a scanned link is a byte range, so
+            // the column converts through the same walk the underline is
+            // painted from. Compared raw, a wide glyph earlier in the line
+            // pointed hover at a different link than the reader sees.
+            if (select_mod.byteAtCell(line, local_col, width_mod.ofScreen(&vx.screen))) |offset| {
+                var spans: [4]links.Span = undefined;
+                if (links.atByte(line, offset, &spans) != null) {
+                    shape = .pointer;
+                    vx.setMouseShape(shape);
+                    return;
+                }
             }
         }
         shape = .text; // selectable transcript
@@ -571,6 +582,7 @@ fn fillAndCopySelection(
     lab: *const ecs.LabWorld,
     view_h: usize,
     transcript_inner: RectCompat,
+    cells: select_mod.CellWidth,
 ) !void {
     buf.clearRetainingCapacity();
     if (transcript_inner.h == 0) return;
@@ -586,6 +598,7 @@ fn fillAndCopySelection(
         view_lines.items,
         buf,
         ctx.gpa,
+        cells,
     );
     if (buf.items.len == 0) return;
     try osc52Copy(ctx, buf.items);
@@ -762,7 +775,7 @@ fn applyIntent(
             if (selection_text.items.len > 0) {
                 try osc52Copy(ctx, selection_text.items);
             } else {
-                try fillAndCopySelection(ctx, selection_text, store, lab, transcript_view_h, transcript_inner);
+                try fillAndCopySelection(ctx, selection_text, store, lab, transcript_view_h, transcript_inner, width_mod.ofScreen(&vx.screen));
             }
         },
     }

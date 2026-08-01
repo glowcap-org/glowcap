@@ -28,7 +28,7 @@ pub fn buildSignedGive(
     gifter_side: []const u8,
     gift_id: []const u8,
 ) ![]u8 {
-    const record = try codec.syrup.handoffGiveRecordBytesRawLocation(
+    const record = try codec.signed.giveRecordRawLocation(
         allocator,
         recipient_key,
         exporter_location_raw,
@@ -38,5 +38,5 @@ pub fn buildSignedGive(
     );
     defer allocator.free(record);
     const sig = crypto.sign(&secret, record);
-    return codec.syrup.wrapSignedHandoffGive(allocator, record, &sig.bytes);
+    return codec.signed.wrapGive(allocator, record, &sig.bytes);
 }

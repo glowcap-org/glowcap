@@ -22,6 +22,5 @@ pub fn Store(comptime T: type, comptime cap: u16) type {
             if (self.slots[i]) |*v| return v;
             return null;
         }
-
     };
 }

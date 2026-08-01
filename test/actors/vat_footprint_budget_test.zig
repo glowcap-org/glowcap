@@ -1,20 +1,15 @@
 //! Vat footprint budget — the actor layer's half of the burst-drain contract.
 //!
-//! At the multi-session CapTP tier a vat is minted per accepted session
-//! (`driver.core.Host` via `driver.Bridge`), so vat-retained heap is
-//! per-session heap: one
-//! chatty burst must not pin its peak capacity for the session's life, the
-//! exact hole the engine's queues already close (`Queue.steady_queue_bytes`,
-//! held by test/engine/footprint_budget_test.zig). The vat holds the same
-//! posture with four declared steady bounds (`src/actors/vat.zig`, recorded in
-//! .agents/rules/memory.md's per-session footprint budget): the three arenas
-//! reset with `retain_with_limit` at their existing boundaries, and the
-//! `queue` / `moved_replies` lists `clearAndFree` above the bound at their
-//! drain points. The named price is one growth re-allocation at the start of
-//! the next burst episode, never per turn.
+//! The standard Host owns one Vat shared by its session Ports. One chatty
+//! ingress must not pin its peak queue capacity for the Vat's life. Queue
+//! messages therefore live in
+//! independently reclaimable chunks. Empty ingresses retain no chunk and the
+//! Vat retains at most one bounded spare, while its turn and settlement arenas
+//! keep their existing bounded-reset posture. The exact bounds are recorded in
+//! .agents/rules/memory.md and mirror the engine queue budget.
 //!
 //! This test runs one oversized turn (arena scratch far past the bound) and
-//! one deep send episode (queue and queue arena far past the bound), drives to
+//! one deep send episode (queue chunks far past the bound), drives to
 //! quiescence, and asserts the retained capacities are back under the bounds.
 
 const std = @import("std");
@@ -26,7 +21,7 @@ const Turn = actors.Turn;
 const Message = actors.Message;
 
 /// The declared steady bounds this test holds, mirrored from the vat's
-/// private constants (`steady_turn_arena_bytes`, `steady_queue_arena_bytes`,
+/// private constants (`steady_turn_arena_bytes`, `steady_spare_arena_bytes`,
 /// `steady_list_bytes`, all 4096). A drift between these literals and the
 /// vat's fails this test, which is the point: raising the bound is a design
 /// event taken in both places, with memory.md updated alongside.
@@ -82,8 +77,8 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
     // One oversized turn: the handler bumps 32 KiB of turn-arena scratch.
     _ = try vat.near(actor, .{ .verb = "oversized" });
 
-    // One deep send episode: the queue list and the queue arena (verb + args
-    // clones) both grow far past the steady bound, then drain to quiescence.
+    // One deep send episode: fixed-row chunks and their payload arenas grow
+    // past one steady chunk, then drain to quiescence.
     const payload = [_]u8{'x'} ** 64;
     for (0..burst_sends) |_| {
         try vat.tell(actor, .{ .verb = "note", .args = &.{.{ .bytes = &payload }} });
@@ -95,11 +90,16 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
         (try vat.near(actor, .{ .verb = "turns" })).integer,
     );
 
-    // Quiescent: the outermost drive's full-drain reset ran. Burst capacity
-    // above the bounds is freed, steady capacity retained.
-    const queued_bytes = vat.queue.capacity * @sizeOf(@TypeOf(vat.queue.items[0]));
-    try std.testing.expect(queued_bytes <= steady_bytes);
-    try std.testing.expect(vat.queue_arena.queryCapacity() <= steady_bytes);
+    // Quiescent: every completed chunk was reclaimed. Burst capacity above the
+    // bounds is freed and only the one steady spare is retained.
+    try std.testing.expect(vat.spare_chunk != null);
+    const spare = vat.spare_chunk.?;
+    // One Vat-wide spare replaces the old queue list and monolithic arena. Its
+    // fixed row array stays within one steady-list page plus a small header, and its
+    // payload arena retains at most the existing 4096-byte bound. No idle
+    // ingress keeps a separate chunk.
+    try std.testing.expect(@sizeOf(@TypeOf(spare.*)) <= steady_bytes + 128);
+    try std.testing.expect(spare.arena.queryCapacity() <= steady_bytes);
 
     // The turn arena resets when the *next* outermost turn begins, so open
     // one small turn and assert the oversized episode's capacity is gone.

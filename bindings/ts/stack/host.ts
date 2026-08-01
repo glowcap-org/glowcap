@@ -1,8 +1,8 @@
 // The CapTP host — multi-session CapTP product over the byte-fed host archive
-// (libpancake_driver, ADR-0072). Goblins' `mycapn` is two roles: the endpoint
+// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the endpoint
 // ≈ this `Host`, the router tables ≈ `engine.Node` that the host owns — never
 // a single-type equation. The `PancakeHost` owns every decision: the retained
-// identity, the shared gift registry, routing, transparent three-party
+// identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
 // the embedder contract leaves to the binding: the host handle, the
 // session-pointer → `Session` registry the action drain routes by, the vow table
@@ -12,7 +12,7 @@
 // `pump.ts`; the dial executor lives in `dial.ts`. `session.ts` owns the
 // `Session` they act on. `mod.ts` re-exports the public `Host`.
 
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer } from "./internal/seam.ts";
 import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT } from "@pancake/abi";
@@ -29,6 +29,7 @@ import type { Context } from "./context.ts";
 import { Session } from "./session.ts";
 import { dialExporter as dialExporterFn } from "./dial.ts";
 import { parkActions, runAction } from "./action.ts";
+import { HostGc } from "./gc.ts";
 
 // Every connection's maximum admissible frame; mirrors PANCAKE_DEFAULT_FRAME_CAP.
 const HOST_FRAME_CAP = DEFAULT_FRAME_CAP;
@@ -71,10 +72,10 @@ interface VowRow {
  * without bound; the oldest un-awaited outcome is evicted at the cap. */
 const MAX_UNOBSERVED_OUTCOMES = 1024;
 
-/** The CapTP host: one identity, one gift registry, one routing and redeem
+/** The CapTP host: one identity, one session directory, one routing and redeem
  * authority, shared by every session minted against it. Owns `engine.Node`
  * (the sans-io handoff router). The cross-host machinery lives in the Zig
- * core behind `libpancake_driver` (ADR-0072); this is the host-idiom residue
+ * core behind `libpancake_host` (ADR-0072); this is the host-idiom residue
  * over it — the `Session` registry, the vow table, the serialized action
  * drain that performs the I/O the host asks for (dial, flush, settle,
  * entropy), and the iroh redeem posture. */
@@ -84,6 +85,8 @@ export class Host {
 	/** The wire grammar every session this host mints negotiates in. */
 	readonly codec: Codec;
 	#raw: Ptr;
+	/** Host-owned finalizer registry and release queue. */
+	readonly #gc: HostGc;
 	// Every live session by its PancakeHostSession address, so a FLUSH action
 	// routes to the transport that owns the bytes, a dialed exporter stays
 	// reachable for teardown, and `exporterFor` maps a redeemed reply's route
@@ -105,10 +108,18 @@ export class Host {
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
 	// mid-turn close never leaks its C handle. Mirrors Python/Rust.
 	readonly #parkedReleases: Array<() => void> = [];
-	// Trampoline ctx ids of this host's giftables. The registry is process-global,
-	// not host-scoped, so nothing drops these when the host dies — `release()`
-	// frees them, or they leak one row per giftable per Host generation.
-	readonly #giftables: bigint[] = [];
+	// Trampoline ctx ids of this host's giftables, by published name. The registry
+	// is process-global, not host-scoped, so nothing drops these when the host dies
+	// — `release()` frees them, or they leak one row per giftable per Host
+	// generation. Keyed by name so `Session.publishedRef` can find the ctx.
+	readonly #giftables = new Map<string, bigint>();
+	// Every Session.spawn/publish trampoline on this Host. Actors live in the
+	// Host Vat and remain callable through sibling Ports after the Port that
+	// first projected them closes.
+	readonly hosted = new Map<bigint, bigint>();
+	// Ctx ids a re-publish displaced. Existing capabilities and gifts still reach
+	// the old Host-Vat actor, so its behavior stays registered until `release()`.
+	readonly #displacedGiftables: bigint[] = [];
 
 	/** A host with identity `seed` (32 bytes; omitted draws a fresh random one —
 	 * entropy at the binding boundary, never inside the sans-io host). `codec`
@@ -148,6 +159,21 @@ export class Host {
 			));
 		}
 		this.#raw = outPointer(out);
+		this.#gc = new HostGc();
+		// deno-lint-ignore no-this-alias -- GcHandle object closes over Host fields
+		const host = this;
+		this.#gc.bind({
+			get released() {
+				return host.#raw === NULL;
+			},
+			get hostRaw() {
+				return host.#raw;
+			},
+			kick: () => {
+				void host.kickActions();
+			},
+			scheduleDrain: (run) => setTimeout(run, 0),
+		});
 		hostFinalizer.register(this, this.#raw, this);
 	}
 
@@ -165,17 +191,24 @@ export class Host {
 	release(): void {
 		if (this.#raw === NULL) return;
 		hostFinalizer.unregister(this);
-		// Free this host's giftable behaviors from the process-global trampoline
-		// registry; nothing else drops them, so skipping this leaks a row per
-		// giftable for the process's life across every Host generation.
-		for (const ctx of this.#giftables) unregisterBehavior(ctx);
-		this.#giftables.length = 0;
+		// Sessions first: each releases its own handle, and a handle outliving
+		// the host it belongs to is a free of freed memory.
+		this.closeSessions();
 		const raw = this.#raw;
 		this.#raw = NULL;
-		if (insideTurn()) {
-			this.parkRelease(() => driverS.pancake_host_release(raw));
-		} else {
+		const releaseHost = (): void => {
 			driverS.pancake_host_release(raw);
+			for (const ctx of this.#giftables.values()) unregisterBehavior(ctx);
+			this.#giftables.clear();
+			for (const ctx of this.#displacedGiftables) unregisterBehavior(ctx);
+			this.#displacedGiftables.length = 0;
+			for (const ctx of this.hosted.values()) unregisterBehavior(ctx);
+			this.hosted.clear();
+		};
+		if (insideTurn()) {
+			this.parkRelease(releaseHost);
+		} else {
+			releaseHost();
 		}
 	}
 
@@ -236,28 +269,45 @@ export class Host {
 		return utf8Decoder.decode(out);
 	}
 
-	/** Publish `behavior` under `name` on every session of this host — those
-	 * open now and any accepted later — so a recipient can withdraw a gift
-	 * naming it on a session it dialed itself (the exporter half of a
-	 * three-party handoff, ADR-0009). The replay onto future sessions is
-	 * host-internal. Returns nothing — the gift's `Ref` is what the gifter
-	 * passes on. */
+	/** Host `behavior` once and bind `name` as a Host-wide alias. Fetch lazily
+	 * projects the actor onto a session; a deposited gift keeps that exact actor
+	 * when a recipient withdraws over its own exporter session (ADR-0009).
+	 * Returns nothing; the gift's `Ref` is what the gifter passes on. */
 	publishGiftable(name: string, behavior: Behavior): void {
 		// A giftable is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
-		const ctx = registerBehavior({ run: behavior, session: null, resolveLocal: null });
-		this.#giftables.push(ctx);
+		const ctx = registerBehavior({ run: behavior, resolveLocal: null });
 		const bytes = utf8Encoder.encode(name);
-		checkHost(driverS.pancake_host_publish(
-			this.#raw,
-			ab(bytes),
-			BigInt(bytes.length),
-			trampolinePointer(),
-			ctx,
-			NULL,
-		));
+		try {
+			checkHost(driverS.pancake_host_publish(
+				this.#raw,
+				ab(bytes),
+				BigInt(bytes.length),
+				trampolinePointer(),
+				ctx,
+				NULL,
+			));
+		} catch (err) {
+			// Nothing else drops a trampoline row, so a refused publish has to
+			// take its own back or it pins the behavior for the process's life.
+			unregisterBehavior(ctx);
+			throw err;
+		}
+		// Replacement moves discovery only. Existing capabilities and deposited
+		// gifts can still call the old actor.
+		const prior = this.#giftables.get(name);
+		if (prior !== undefined) this.#displacedGiftables.push(prior);
+		this.#giftables.set(name, ctx);
 		void this.kickActions();
+	}
+
+	/** The trampoline ctx of the giftable published under `name`, or undefined
+	 * when this host published none. Binding-internal: `Session.publishedRef`
+	 * uses it to record the Host identity a session surfaced for the giftable,
+	 * so a local send to that identity composes in process. */
+	giftableCtx(name: string): bigint | undefined {
+		return this.#giftables.get(name);
 	}
 
 	/** Track a live session by its session address. Binding-internal: the
@@ -277,28 +327,28 @@ export class Host {
 		return this.#sessions.get(ptr);
 	}
 
-	/** The direct exporter `Session` a redeemed-handoff reply `ref` routes to,
-	 * or null when it names no live redeemed route (an ordinary far reply, or an
-	 * exporter connection already gone). Deterministic (ADR-0088): the reply's
+	/** The live `Session` homing remote `ref`, or null for a local, stale,
+	 * foreign-Host, or closed-session capability. Deterministic (ADR-0088): the reply's
 	 * own token carries its route, so `Session.sendRedeeming` resolves the exact
 	 * exporter session it should host its back-channel on — no capture window,
 	 * no dependence on which dial completed first, and it finds an exporter that
 	 * a prior redeem already dialed (a cache hit that mints no new dial at all).
-	 * Binding-internal: `Session.sendRedeeming` calls it. */
+	 * `Session.sendRedeeming` suppresses its own sending session and surfaces
+	 * only a different exporter. Binding-internal. */
 	exporterFor(ref: Ref): Session | null {
-		const refBuf = refStruct(ref.reference);
+		const refBuf = refStruct(ref);
 		const out = new Uint8Array(8);
 		checkHost(driverS.pancake_host_reference_exporter(this.#raw, ab(refBuf), ab(out)));
 		const ptr = outPointer(out);
 		return ptr === NULL ? null : this.#sessions.get(ptr) ?? null;
 	}
 
-	/** Close every exporter connection this host dialed for redeems.
-	 * Binding-internal: `Session.close` sweeps them. */
-	closeExporters(): void {
-		for (const session of [...this.#sessions.values()]) {
-			if (session.hostDialed) session.closeTransport();
-		}
+	/** Close every session this host holds — the ones an application opened
+	 * and the ones the host dialed for redeems alike. Each close releases that
+	 * session's handle, so this must run before the host handle goes.
+	 * Binding-internal: `release` sweeps them. */
+	closeSessions(): void {
+		for (const session of [...this.#sessions.values()]) session.closeTransport();
 	}
 
 	/** Dial an exporter for a redeem (ActionHost). Binding-internal. */
@@ -384,13 +434,26 @@ export class Host {
 		this.#parkedReleases.push(release);
 	}
 
+	trackGcImport(ref: Ref): Ref {
+		return this.#gc.trackImport(ref);
+	}
+
+	drainGc(): void {
+		this.#gc.drainGc();
+	}
+
+	disarmGc(ref: Ref): void {
+		this.#gc.disarm(ref);
+	}
+
 	/** Run every parked release, always outside a callback frame where the C
 	 * tier accepts them. Called at the head of `kickActions` and right after a
 	 * feed returns. Binding-internal. */
 	drainParkedReleases(): void {
 		if (insideTurn()) return;
 		while (this.#parkedReleases.length > 0) {
-			this.#parkedReleases.pop()!();
+			const pending = this.#parkedReleases.splice(0);
+			for (const release of pending) release();
 		}
 	}
 

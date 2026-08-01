@@ -24,7 +24,10 @@
 // disagree on shape even though offsets legitimately differ by target width.
 
 import * as abi from "../../bindings/ts/stack/internal/abi.ts";
-import { WASM_LAYOUT_STRUCTS } from "../../bindings/ts/abi/constants.ts";
+import {
+	NATIVE_ONLY_LAYOUT_PREFIXES,
+	WASM_LAYOUT_STRUCTS,
+} from "../../bindings/ts/abi/constants.ts";
 import { fnv1a32 } from "../../bindings/ts/stack/internal/layout.ts";
 
 // The manifest rows, in the descriptor's canonical order (`layout_specs` in
@@ -45,7 +48,7 @@ function mirrorFieldCount(prefix: string): number {
 	return n;
 }
 
-const wasmPath = new URL("../../zig-out/wasm/pancake_driver.wasm", import.meta.url);
+const wasmPath = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 
 type Exports = {
 	memory: WebAssembly.Memory;
@@ -150,14 +153,25 @@ if (i !== needed) fail(`decoded ${i} words but the descriptor claimed ${needed}`
 // its `L.<PREFIX>_*` names would silently fall back to 64-bit offsets under
 // the wasm adapter, which is wrong by construction on that target.
 const manifestPrefixes = new Set(WASM_LAYOUT_STRUCTS.map((row) => row.prefix as string));
+const nativeOnly = new Set<string>(NATIVE_ONLY_LAYOUT_PREFIXES);
+for (const prefix of nativeOnly) {
+	if (manifestPrefixes.has(prefix)) {
+		fail(
+			`${prefix} is listed native-only but has a WASM_LAYOUT_STRUCTS row; ` +
+				"drop it from native_only_layouts (tools/gen/binding/ts_abi.zig)",
+		);
+	}
+}
 for (const key of Object.keys(abi)) {
 	if (!key.endsWith("_SIZE")) continue;
 	const prefix = key.slice(0, -"_SIZE".length);
+	if (nativeOnly.has(prefix)) continue;
 	if (!manifestPrefixes.has(prefix)) {
 		fail(
 			`abi.ts declares ${key} but WASM_LAYOUT_STRUCTS has no ${prefix} row; ` +
 				"add the struct to the manifest (tools/gen/binding/ts_abi.zig) and " +
-				"layout_specs (src/c_abi/wasm/mod.zig)",
+				"layout_specs (src/c_abi/wasm/mod.zig), or list it in " +
+				"native_only_layouts if its archive never links into wasm32",
 		);
 	}
 }

@@ -54,14 +54,14 @@ fn main() {
 	// Relink when the native archives change, not only when Rust sources do.
 	for archive in [
 		"libpancake_ocapn.a",
-		"libpancake_driver.a",
+		"libpancake_host.a",
 		"libpancake_net_transport_tcp.a",
 		"libpancake_net_transport_inproc.a",
 	] {
 		println!("cargo:rerun-if-changed={}", lib_dir.join(archive).display());
 	}
 
-	println!("cargo:rustc-link-lib=static=pancake_driver");
+	println!("cargo:rustc-link-lib=static=pancake_host");
 	println!("cargo:rustc-link-lib=static=pancake_ocapn");
 
 	if cfg!(feature = "tcp") {

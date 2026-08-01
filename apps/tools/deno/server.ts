@@ -1,11 +1,11 @@
 // The tools coordinator, written on pancake actors in native Deno.
 //
 // It publishes a `tools` capability. An agent fetches it and asks for the tools a
-// task needs; the coordinator hands back capabilities — full, attenuated to
-// read-only, or revocable — and the agent calls them. The agent holds exactly the
-// references it was handed: there is no ambient authority and no global directory
-// of tools to enumerate, so no reference the coordinator never sent it names a
-// capability it can reach.
+// task requests; the coordinator hands back capabilities — full, attenuated to
+// read-only, or revocable — and the agent calls them. This demo leaves policy
+// deliberately simple: a caller may request any tool name the coordinator knows.
+// A real harness must restrict that grant surface before exposing it to untrusted
+// callers.
 //
 // Read how the capability trio falls out of ordinary code:
 //   - delegation  — `grant` returns `session.spawn(toolBehavior)`, a reference the
@@ -16,12 +16,12 @@
 //
 // Run it with a port:  deno run --allow-ffi --allow-net --allow-read server.ts 9099
 
-import { type AppValue, listen, Session } from "@pancake/stack";
+import { type Argument, listen, Session } from "@pancake/stack";
 import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
 
 /** A tool is a plain behavior function. These are the things the coordinator
  * holds; it never hands the agent the functions, only capabilities to them. */
-type Tool = (verb: string, args: AppValue[]) => AppValue;
+type Tool = (verb: string, args: Argument[]) => Argument;
 
 /** A clock tool: tells the time, nothing else. */
 const clock: Tool = (verb) => {
@@ -82,7 +82,7 @@ function toolFor(name: string): Tool {
  * connection (to spawn capabilities on it) and the last revocable grant. */
 function coordinatorBehavior(session: Session) {
 	let lastRevoke: (() => void) | null = null;
-	return (verb: string, args: AppValue[]): AppValue => {
+	return (verb: string, args: Argument[]): Argument => {
 		if (verb === GRANT) {
 			const name = typeof args[0] === "string" ? args[0] : "";
 			// Delegation: hand the agent a capability to the requested tool.

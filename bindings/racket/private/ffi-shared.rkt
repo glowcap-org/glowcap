@@ -73,12 +73,12 @@
 (define-cstruct _PancakeManagedFrame
   ([bytes _pointer] [len _size] [shape _uint32] [release _pointer] [private-data _pointer]) #:malloc-mode 'atomic-interior)
 
-(define-cstruct _PancakeReference ([kind _uint32] [sub-kind _uint32] [id _uint64]) #:malloc-mode 'atomic-interior)
+(define-cstruct _PancakeReference ([id _uint64]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
    [bytes _pointer] [bytes-len _size] [reference _PancakeReference]
    [items _pointer] [items-len _size]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeHostAction` in pancake_driver.h: one embedder effect popped
+;; Mirrors `PancakeHostAction` in pancake_host.h: one embedder effect popped
 ;; from `pancake_host_next_action`. `kind` selects the live fields; a DIAL
 ;; action carries only `ticket` (locator bytes come from
 ;; `pancake_host_pending_dial`); a SETTLE's `value` sub-structure and a
@@ -112,7 +112,7 @@
            "FFI layout drift in ~a: size ~a layout ~a, expected size ~a layout ~a; re-mirror the cstruct"
            name got-size got-layout want-size want-layout)))
 
-(define reference-layout '(uint32 uint32 uint64))
+(define reference-layout '(uint64))
 (define argument-layout
   `(uint32 uint32 int64 double pointer uint64 ,reference-layout pointer uint64))
 (pin-layout! '_PancakeFrame _PancakeFrame PANCAKE-FRAME-SIZE '(pointer uint64 uint32))
@@ -125,7 +125,7 @@
 (pin-layout! '_PancakeLastAbort _PancakeLastAbort PANCAKE-LAST-ABORT-SIZE
              '(uint32 uint32 pointer uint64 pointer uint64 pointer uint64))
 
-;; ── Driver-archive types (pancake_driver.h) ──────────────────────────────────
+;; ── Driver-archive types (pancake_host.h) ──────────────────────────────────
 
 ;; The C behavior callback. `_fun` makes a Racket closure C-callable; the
 ;; closure must stay reachable while the host may invoke it (the host's
@@ -165,6 +165,21 @@
    [direct-addresses-hint-len _size]) #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeAcceptPlan _PancakeAcceptPlan PANCAKE-ACCEPT-PLAN-SIZE
              '(pointer uint64 pointer uint64))
+
+;; PancakePartnerIdentity: the verified partner identity
+;; `pancake_host_session_partner_identity` borrows into, as three (pointer,
+;; length) views the session owns. The designator and the locator record may
+;; each be NULL with a zero length; the session key is always present when the
+;; call succeeded.
+(define-cstruct _PancakePartnerIdentity
+  ([session-key _pointer]
+   [session-key-len _size]
+   [designator _pointer]
+   [designator-len _size]
+   [locator-record _pointer]
+   [locator-record-len _size]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakePartnerIdentity _PancakePartnerIdentity PANCAKE-PARTNER-IDENTITY-SIZE
+             '(pointer uint64 pointer uint64 pointer uint64))
 
 ;; Borrowed pending dial view (transport/designator/hint).
 (define-cstruct _PancakePendingDial

@@ -12,7 +12,7 @@ use std::rc::Rc;
 use crate::dial::run_dial_ticket;
 use crate::host::{check_host, HostShared};
 use crate::host_action_gen::{self, HostAction, HostActionHandlers};
-use crate::sys::driver as ffi;
+use crate::sys::host as ffi;
 use crate::{sys, Error, Result};
 
 /// Sync park arm for every `PancakeHostPumpHooks` slot: decode+append, set
@@ -130,5 +130,6 @@ impl HostActionHandlers for Handlers<'_> {
 /// core; each arm is pure I/O or marshalling. The kind inventory lives in
 /// generated [`host_action_gen::dispatch`] — a seventh kind fails compile.
 pub(crate) async fn run(host: &Rc<HostShared>, action: HostAction) -> Result<()> {
+	host.guard_open()?;
 	host_action_gen::dispatch(action, &Handlers { host }).await
 }

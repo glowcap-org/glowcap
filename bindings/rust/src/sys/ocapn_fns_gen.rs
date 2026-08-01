@@ -23,7 +23,7 @@ extern "C" {
 	) -> c_int;
 	pub fn pancake_context_release(context: *mut PancakeContext);
 	pub fn pancake_managed_frame_release(frame: *mut PancakeManagedFrame);
-	pub fn pancake_encode_peer_locator(
+	pub fn pancake_locator_record_encode(
 		transport: *const c_uchar,
 		transport_len: usize,
 		designator: *const c_uchar,
@@ -33,7 +33,7 @@ extern "C" {
 		out: *mut *mut c_uchar,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_peer_locator_bytes_release(locator: *mut c_uchar, locator_len: usize);
+	pub fn pancake_locator_record_bytes_release(bytes: *mut c_uchar, len: usize);
 	pub fn pancake_uri_parse_peer(
 		uri: *const c_uchar,
 		uri_len: usize,

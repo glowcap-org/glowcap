@@ -104,7 +104,7 @@ async fn run() -> Result<(), Fail> {
 	// this reaches the connection that performs the redeem.
 	recipient
 		.host()
-		.set_redeem_reachability(Reachability::LocalDiscovery);
+		.set_redeem_reachability(Reachability::LocalDiscovery)?;
 	let introducer = recipient.fetch("introducer").await?;
 	let granted = recipient.send(&introducer, "get-greeter", &[]).await?;
 	let greeter = Ref::try_from(&granted)

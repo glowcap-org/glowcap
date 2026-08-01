@@ -12,6 +12,13 @@
 //! a consumer drives them, the same as any not-yet-called FFI family.
 #![allow(dead_code, unused_imports)]
 
+use super::layouts_gen::*;
+
+#[repr(C)]
+pub struct PancakeWebrtcNetlayer {
+	_private: [u8; 0],
+}
+
 /// One WebRTC peer: its `RTCPeerConnection` and single reliable, ordered data
 /// channel. Opaque; the C ABI hands back a pointer to it, released with
 /// `pancake_webrtc_peer_release`.
@@ -19,6 +26,26 @@
 pub struct PancakeWebrtcPeer {
 	_private: [u8; 0],
 }
+
+pub const PANCAKE_WEBRTC_EV_OPEN: u32 = crate::abi_constants_gen::WEBRTC_EV_OPEN;
+pub const PANCAKE_WEBRTC_EV_CANDIDATE: u32 = crate::abi_constants_gen::WEBRTC_EV_CANDIDATE;
+pub const PANCAKE_WEBRTC_EV_READABLE: u32 = crate::abi_constants_gen::WEBRTC_EV_READABLE;
+pub const PANCAKE_WEBRTC_EV_WRITABLE: u32 = crate::abi_constants_gen::WEBRTC_EV_WRITABLE;
+pub const PANCAKE_WEBRTC_EV_CLOSED: u32 = crate::abi_constants_gen::WEBRTC_EV_CLOSED;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeWebrtcReadyEvent {
+	pub subject: usize,
+	pub events: u32,
+}
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeWebrtcReadyEvent>() == PANCAKE_WEBRTC_READY_EVENT_SIZE);
+	assert!(offset_of!(PancakeWebrtcReadyEvent, subject) == PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF);
+	assert!(offset_of!(PancakeWebrtcReadyEvent, events) == PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF);
+};
 
 // The raw extern block is generated (`webrtc_fns_gen.rs`, `zig build
 // gen-binding-rust-ffi`), reflected from the archive's symbol inventory and

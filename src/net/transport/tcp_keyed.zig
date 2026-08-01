@@ -66,7 +66,13 @@ const resident_vtable: Netlayer.VTable = .{
     .designator_scheme = .key,
     .dial = residentDial,
     .listen = residentListen,
+    .io = residentIo,
 };
+
+fn residentIo(ctx: *anyopaque) ?std.Io {
+    const self: *Resident = @ptrCast(@alignCast(ctx));
+    return self.io;
+}
 
 fn residentDial(
     ctx: *anyopaque,

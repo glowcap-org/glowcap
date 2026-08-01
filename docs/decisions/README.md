@@ -1,25 +1,21 @@
 # Decision records
 
-Settled decisions live here as Architecture Decision Records, one file per
-decision under [`adr/`](adr/). Each record is a terse memo: the context that
-forced a choice, the decision, and the consequences the project accepts by
-making it. Each record describes the moment its decision was made; we do not
-rewrite a record to pretend a different choice was made. The living description
-of the current shape is [`docs/architecture.md`](../architecture.md); when an
-ADR and the architecture doc disagree, the architecture doc is current and the
-ADR is history.
+Settled design choices live under [`adr/`](adr/). Each record captures the
+problem, the choice, and its consequences at the time the decision was made.
+For the current design, read [`docs/architecture.md`](../architecture.md).
+If the two disagree, the architecture page is current and the ADR is history.
 
-The set is pruned, not only grown. When the records get numerous, flatten
-them: retire a record a later decision superseded, and fold a cluster of
-related decisions into the single record that now carries them. Move any
-still-live context into the keeper or into
-[`docs/architecture.md`](../architecture.md) first, and fix every referrer in
-the same change. The directory listing is
-the index; numbering has gaps because retired and consolidated records are not
-renumbered, so a gap is not a missing file.
+The directory listing is the index. Gaps are intentional: superseded records
+are removed or folded into the decision that replaced them, and the remaining
+files are not renumbered.
 
-To write a new record, copy [`adr/template.md`](adr/template.md) and follow the
-guidance in [`CONTRIBUTING.md`](../../CONTRIBUTING.md): a change that affects
-codec or netlayer boundaries, the session state machine, negotiation, wire
-capability semantics, vocabulary, or layer separation gets a record, and the
-record flips to `accepted` before code is built against it.
+Copy [`adr/template.md`](adr/template.md) for a new record. Changes to codec or
+netlayer boundaries, session state, negotiation, wire semantics, protocol
+vocabulary, or layer ownership need one. Accept the record before building code
+against it; [`CONTRIBUTING.md`](../../CONTRIBUTING.md) has the review rules.
+
+ADR frontmatter records replacement and refinement as different relations.
+`supersedes` means the older decision is no longer living guidance; `amends`
+means its substance remains accepted with a named correction. Both relations
+are reciprocal through `superseded_by` and `amended_by`, and `meta-check`
+rejects missing targets or one-sided links.

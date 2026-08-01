@@ -1,6 +1,6 @@
 # The full gate sequence, run in the canonical devcontainer image via
-# ci/gates.sh. Codeberg remains the origin pending a maintainer hosting
-# decision, but has no project workflow; this mirror carries the full sequence.
+# ci/gates.sh. The sequence itself is forge-neutral, so this file is the only
+# thing that would change if pancake moved.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
 # The devcontainer image is rebuilt from scratch on every run (push: never,

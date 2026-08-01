@@ -11,7 +11,7 @@ This module loads exactly one archive, ``libpancake_ocapn`` (ADR-0059): the
 shared ``pancake_*`` vocabulary — context, the locator grammar, the ABI
 version, ``pancake_last_error``, and the managed-frame release. The driver and
 transport archives are symbol-disjoint companions, each loaded by its own
-internal module (:mod:`pancake._ffi_driver`, :mod:`pancake._ffi_tcp`,
+internal module (:mod:`pancake._ffi_host`, :mod:`pancake._ffi_tcp`,
 :mod:`pancake._ffi_inproc`, :mod:`pancake._ffi_iroh`). They reuse the
 ``Structure`` types defined here by *layout* — the same way the C headers
 share ``pancake_ocapn.h`` — so importing one transport never loads another.
@@ -46,7 +46,7 @@ from ._layouts_gen import (
 
 
 class _Reference(ctypes.Structure):
-    _fields_ = [("kind", ctypes.c_uint32), ("sub_kind", ctypes.c_uint32), ("id", ctypes.c_uint64)]
+    _fields_ = [("id", ctypes.c_uint64)]
 
 
 class _Argument(ctypes.Structure):

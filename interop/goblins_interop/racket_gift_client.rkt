@@ -7,7 +7,8 @@
 ;;
 ;; Topology (all TCP loopback):
 ;;   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-;;   Gifter (pancake)           fetches Bob's greeter, publishes an "introducer"
+;;   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+;;                              publishes an "introducer"
 ;;                              that returns it, and listens for the recipient.
 ;;   Carol  (Goblins recipient) dials the pancake introducer, asks for the
 ;;                              greeter, transparently redeems pancake's give, and
@@ -40,6 +41,7 @@
 ;; pancake hardcodes the same swiss the exporter host registers, the way the
 ;; interop clients fix the echo swiss.
 (define GREETER-SWISS "pancakeGiftGreeterSwissnum000001")
+(define VENDOR-SWISS "pancakeGiftVendorSwissnum0000001")
 (define INTRODUCER-SWISS "introducer")
 
 ;; Track spawned Goblins peers so any failure tears them down: a lingering
@@ -93,12 +95,14 @@
          (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve conn))))
          (loop)))))
 
-  ;; Dial Bob and fetch his greeter. The fetched ref's home is this gifter↔Bob
-  ;; connection, which is what lets pancake re-gift it across to the recipient.
+  ;; Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
+  ;; reply ref's home is this gifter↔Bob connection, so pancake can re-gift it
+  ;; without an enrollment verb.
   (define to-bob (connect (tcp-locator HOST PORT) #:host gifter-host))
-  (define greeter (session-fetch to-bob GREETER-SWISS))
-  (unless (far-ref? greeter) (gift-fail "could not fetch goblins-bob's greeter"))
-  (printf "racket-goblins-gift: fetched goblins-bob's greeter\n")
+  (define vendor (session-fetch to-bob VENDOR-SWISS))
+  (define greeter (session-send to-bob vendor (string->symbol "")))
+  (unless (ref? greeter) (gift-fail "the vendor reply was not a capability"))
+  (printf "racket-goblins-gift: lifted goblins-bob's greeter from a reply\n")
 
   ;; Publish the introducer host-wide. Returning Bob's greeter (home = the Bob
   ;; connection) to the recipient's connection trips the transparent gifter,

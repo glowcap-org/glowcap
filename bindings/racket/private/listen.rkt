@@ -46,14 +46,14 @@
 ;; server's accept loop; `accept-next-session` in `private/session.rkt` owns
 ;; that rule for every listening surface. Only the listener's own failure (a
 ;; closed listener) raises.
-;; Each accepted partner gets its own session and vat. Pass port 0 for an
-;; ephemeral port and read the bound one back with `server-port`. `accept`
-;; takes `#:time-travel?`: pass #t to give the accepted session's vat a
-;; retained, revisable behavior history (every actor it hosts), off by default.
-;; The server carries one `host` (read it with `server-host`): every accepted
-;; session shares its identity and gift registry, so a host-giftable
-;; published on it with `host-publish-giftable` appears on each accepted
-;; partner.
+;; Each accepted partner gets its own session and adapter-local Racket vat. Pass
+;; port 0 for an ephemeral port and read the bound one back with `server-port`.
+;; `accept` takes `#:time-travel?`: pass #t to retain a revisable history for
+;; actors in that Racket vat, off by default. This is separate from the native
+;; Host Vat, which owns the callback actors and survives Port closure. The server
+;; carries one `host` (read it with `server-host`): every accepted session shares
+;; its identity and live-session directory, and a host-giftable published with
+;; `host-publish-giftable` is lazily discoverable through each accepted partner.
 (struct server (listener host))
 
 (define (listen host [port 0] #:codec [codec 'syrup])

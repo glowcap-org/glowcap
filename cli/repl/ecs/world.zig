@@ -39,7 +39,5 @@ pub fn World(comptime max_entities: u16) type {
             const g = self.gen[slot];
             return @enumFromInt((@as(u32, g) << 16) | slot);
         }
-
     };
 }
-

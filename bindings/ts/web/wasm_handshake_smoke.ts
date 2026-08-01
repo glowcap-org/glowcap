@@ -6,9 +6,10 @@
 // Two independent Hosts with distinct Ed25519 identities live in one wasm
 // instance. One dials, one accepts, and their op:start-session frames shuttle
 // between them over an in-memory byte pipe — no socket, no transport, no bridge.
-// The proof is that both sessions reach `session_open`: the signed handshake,
-// the keyed crypto, the Syrup framing, and the entropy seam (the caller-drawn
-// identity seed) all run inside the wasm sandbox. It mirrors the native
+// The proof is that both sessions reach `session_open`, then a wrong-peer
+// sturdyref is refused before any frame is emitted. The signed handshake,
+// keyed crypto, Syrup framing, entropy seam, URI parsing, and peer check all
+// run inside the wasm sandbox. It mirrors the native
 // `test/driver/core_host_test.zig` "two hosts complete the keyed handshake over
 // fed bytes" scenario, one layer out through the wasm exports.
 //
@@ -19,7 +20,7 @@
 
 // Target-independent ABI values come straight from the generated, staleness-
 // gated mirror (`gen-ts-abi-check`), so this proof cannot drift from the C ABI.
-import { CODEC_SYRUP, DEFAULT_FRAME_CAP, OK, WOULD_BLOCK } from "@pancake/abi";
+import { CODEC_SYRUP, DEFAULT_FRAME_CAP, INVALID_ARGUMENT, OK, WOULD_BLOCK } from "@pancake/abi";
 
 // The `PancakeManagedFrame` byte offsets ARE target-specific (wasm32 pointers
 // and usize are four bytes), so they cannot come from the 64-bit `abi.ts`. The
@@ -27,7 +28,7 @@ import { CODEC_SYRUP, DEFAULT_FRAME_CAP, OK, WOULD_BLOCK } from "@pancake/abi";
 // was compiled for, so a struct change regenerates these rather than silently
 // invalidating a hand-copied constant. Read once, after instantiation.
 
-const wasmPath = new URL("../../../zig-out/wasm/pancake_driver.wasm", import.meta.url);
+const wasmPath = new URL("../../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 
 type Exports = {
 	memory: WebAssembly.Memory;
@@ -67,6 +68,12 @@ type Exports = {
 		session: number,
 		bytes: number,
 		len: number,
+	) => number;
+	pancake_host_session_enliven: (
+		session: number,
+		sturdyrefUri: number,
+		sturdyrefUriLen: number,
+		outVow: number,
 	) => number;
 	pancake_host_session_take_outbound: (session: number, outFrame: number) => number;
 	pancake_managed_frame_release: (frame: number) => void;
@@ -315,7 +322,22 @@ for (let round = 0; round < 64; round++) {
 // meant to explain a failure.
 const aliceOpen = sessionOpen(aliceSession);
 const bobOpen = sessionOpen(bobSession);
-const ok = converged && aliceOpen && bobOpen;
+drainOutbound(aliceSession);
+const wrongSturdyref = writeStr("ocapn://127.0.0.1%3A7999.tcp/s/widget");
+const outVow = ex.pancake_wasm_alloc(8);
+let mismatchRefused = false;
+try {
+	mismatchRefused = ex.pancake_host_session_enliven(
+				aliceSession,
+				wrongSturdyref.ptr,
+				wrongSturdyref.len,
+				outVow,
+			) === INVALID_ARGUMENT && drainOutbound(aliceSession).length === 0;
+} finally {
+	free(wrongSturdyref.ptr, wrongSturdyref.len);
+	free(outVow, 8);
+}
+const ok = converged && aliceOpen && bobOpen && mismatchRefused;
 
 ex.pancake_host_session_release(aliceSession);
 ex.pancake_host_session_release(bobSession);
@@ -324,8 +346,10 @@ ex.pancake_host_release(bob);
 
 if (!ok) {
 	console.error(
-		`FAIL: keyed handshake did not converge (alice open=${aliceOpen}, bob open=${bobOpen})`,
+		`FAIL: wasm Host proof failed (alice open=${aliceOpen}, bob open=${bobOpen}, wrong-peer refused without output=${mismatchRefused})`,
 	);
 	Deno.exit(1);
 }
-console.log("PASS: two wasm Hosts completed a keyed OCapN handshake over an in-memory byte pipe");
+console.log(
+	"PASS: two wasm Hosts completed a keyed OCapN handshake and refused wrong-peer enlivenment without output",
+);

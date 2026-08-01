@@ -1,10 +1,9 @@
-//! Per-connection capability handles and shared state: [`Ref`], [`Caretaker`],
-//! and [`SessionShared`]. [`Session`](crate::Session) is the application handle
+//! Per-connection capability support and shared state: [`Caretaker`] and
+//! [`SessionShared`]. [`Session`](crate::Session) is the application handle
 //! over one `SessionShared`; pump/host/trampoline/gc borrow `SessionShared` directly.
 //! Binding spine Pass 5 (conn extraction).
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -13,12 +12,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Notify;
 
 use crate::host::{check_host, park_session_release, try_spawn_local, HostShared};
-use crate::sys::driver as ffi;
+use crate::sys::host as ffi;
 use crate::trampoline::{
 	ctx_free, current_turn_for, inside_turn, reclaim_refused_cell, trampoline, turn_spawn,
 	ActorCell, InternalBehavior, TurnOutcome,
 };
-use crate::{sys, Argument, Error, Reference, Result, SendArena};
+use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
 pub(crate) const READ_CHUNK: usize = 16 * 1024;
 
@@ -31,74 +30,19 @@ pub(crate) fn io_err(e: std::io::Error) -> Error {
 	Error::with_detail(sys::ERR_IO, e.to_string())
 }
 
-/// A capability, a reference to an object you can `send` to, wherever it lives.
-///
-/// You get a `Ref` from [`Session::spawn`] (a local actor you host),
-/// [`Session::fetch`] (a capability a partner published), or a capability a
-/// partner handed back from a `send` (lift it with `Ref::try_from(&arg)`). Pass
-/// one as a `send` argument via `Into<Argument>` (`(&cap).into()`) and it
-/// marshals to the right wire reference; you never build `near`/`far` references
-/// by hand.
-#[derive(Debug, Clone)]
-pub struct Ref {
-	wire: crate::LiveRef,
-	// Distributed-GC death rite (ADR-0063), present only on a far capability the
-	// connection lifted from a fetch while GC was opted in. `Rc` so clones of
-	// this `Ref` share the one release unit; the last clone's drop parks the
-	// token for the single `op:gc-exports` delta. It is `Rc`, not `Arc`, because
-	// the whole handle graph is `!Send` and pinned to the connection's
-	// `LocalSet` thread. `None` for near references, refs minted with GC off,
-	// and the context-free `try_from` lift.
-	//
-	// Held only for its `Drop`: the release fires when the last clone falls, so
-	// the field is never read by name.
-	#[allow(dead_code)]
-	guard: Option<Rc<crate::gc::ImportGuard>>,
-}
-
-impl Ref {
-	/// The underlying wire reference (for the rare power-user path).
-	pub fn reference(&self) -> Reference {
-		self.wire.reference()
-	}
-
-	// A capability with no GC death rite, the default for everything but a
-	// GC-tracked fetch result.
-	pub(crate) fn bare(wire: crate::LiveRef) -> Ref {
-		Ref { wire, guard: None }
-	}
-
-	// A far capability carrying its distributed-GC death rite (ADR-0063).
-	pub(crate) fn tracked(wire: crate::LiveRef, guard: Rc<crate::gc::ImportGuard>) -> Ref {
-		Ref {
-			wire,
-			guard: Some(guard),
-		}
-	}
-}
-
 impl From<&Ref> for Argument {
 	fn from(r: &Ref) -> Argument {
-		Argument::Reference(r.wire.reference())
-	}
-}
-
-impl From<Ref> for Argument {
-	fn from(r: Ref) -> Argument {
-		Argument::Reference(r.wire.reference())
+		Argument::Reference(r.clone())
 	}
 }
 
 impl TryFrom<&Argument> for Ref {
 	type Error = ();
 
-	/// Lift a capability returned by a `send` (an `Argument::Reference` naming a
-	/// `Near` or `Far`) back into a `Ref` you can `send` to, e.g. a capability a
-	/// coordinator granted you. A promise, sturdyref, or broken reference is not
-	/// a capability in hand, so it lifts to `Err`.
+	/// Lift a capability returned by a `send` back into a `Ref` you can send to.
 	fn try_from(arg: &Argument) -> std::result::Result<Ref, ()> {
 		match arg {
-			Argument::Reference(reference) => Ok(Ref::bare(crate::LiveRef::try_from(reference)?)),
+			Argument::Reference(reference) => Ok(reference.clone()),
 			_ => Err(()),
 		}
 	}
@@ -156,21 +100,8 @@ pub(crate) struct SessionShared {
 	pub(crate) torn: Cell<bool>,
 	// Wakes the serve task off its parked read when the connection closes.
 	pub(crate) closed: Notify,
-	// Wakes the serve task to drain parked GC tokens (a finalizer may fire
-	// inside a behavior trampoline, where the release verbs are refused).
-	pub(crate) gc_wakeup: Notify,
-	// Export position -> hosted cell for the objects this session hosts, so
-	// a `Forward` whose target this side hosts composes in process (and a send
-	// to a self-spawned `Ref` runs in process). The cells are host-owned
-	// (freed by ctx_free at teardown); this table is cleared before the
-	// release that frees them.
-	hosted: RefCell<HashMap<u64, *const ActorCell>>,
-	// True for an exporter connection the host's action drain dialed to redeem
-	// a handoff, so `close()` can sweep it.
-	host_dialed: Cell<bool>,
 	// Distributed GC (ADR-0063), opt-in and off by default.
 	pub(crate) gc: Cell<bool>,
-	pub(crate) gc_pending: RefCell<Vec<u64>>,
 	// The auto-started serve task's handle; `Session::serve` takes it.
 	serving: Cell<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -195,11 +126,7 @@ impl SessionShared {
 			released: Cell::new(false),
 			torn: Cell::new(false),
 			closed: Notify::new(),
-			gc_wakeup: Notify::new(),
-			hosted: RefCell::new(HashMap::new()),
-			host_dialed: Cell::new(false),
 			gc: Cell::new(false),
-			gc_pending: RefCell::new(Vec::new()),
 			serving: Cell::new(None),
 		});
 		// Join the host's registry so a FLUSH action can find the transport and
@@ -212,21 +139,22 @@ impl SessionShared {
 		self.ptr.get()
 	}
 
-	pub(crate) fn is_host_dialed(&self) -> bool {
-		self.host_dialed.get()
+	pub(crate) fn host_key(&self) -> usize {
+		Rc::as_ptr(&self.host) as usize
 	}
 
-	/// The hosted cell behind a near export this session binds, for
-	/// in-process `Forward` composition and the local send arm.
-	pub(crate) fn hosted_cell(&self, position: u64) -> Option<*const ActorCell> {
-		self.hosted.borrow().get(&position).copied()
+	/// The hosted cell behind a Host-scoped local capability, for in-process
+	/// `Forward` composition and the local send arm.
+	pub(crate) fn hosted_cell(&self, ref_id: u64) -> Option<*const ActorCell> {
+		self.host.hosted_cell(ref_id)
 	}
 
 	pub(crate) fn closing(&self) -> bool {
-		self.closing.get() || self.released.get()
+		self.host.closing() || self.closing.get() || self.released.get()
 	}
 
 	pub(crate) fn guard_open(&self) -> Result<()> {
+		self.host.guard_open()?;
 		if self.released.get() {
 			Err(Error::with_detail(
 				sys::ERR_CLOSED,
@@ -238,7 +166,9 @@ impl SessionShared {
 	}
 
 	pub(crate) fn session_open(&self) -> bool {
-		!self.released.get() && unsafe { ffi::pancake_host_session_is_open(self.ptr.get()) } == 1
+		!self.host.closing()
+			&& !self.released.get()
+			&& unsafe { ffi::pancake_host_session_is_open(self.ptr.get()) } == 1
 	}
 
 	// ── The pump ────────────────────────────────────────────────────────────────
@@ -275,9 +205,6 @@ impl SessionShared {
 		}
 		self.released.set(true);
 		self.host.unregister_session(self.key);
-		// The cells behind these pointers are freed by the release below;
-		// nothing may resolve through them afterwards.
-		self.hosted.borrow_mut().clear();
 		let ptr = self.ptr.replace(core::ptr::null_mut());
 		if !ptr.is_null() {
 			if inside_turn() {
@@ -291,10 +218,6 @@ impl SessionShared {
 		self.host.schedule_kick();
 	}
 
-	pub(crate) fn mark_host_dialed(&self) {
-		self.host_dialed.set(true);
-	}
-
 	/// Take the serve task's handle (the `Session::serve` future awaits it).
 	pub(crate) fn take_serving(&self) -> Option<tokio::task::JoinHandle<()>> {
 		self.serving.take()
@@ -302,43 +225,56 @@ impl SessionShared {
 
 	// ── Hosting ─────────────────────────────────────────────────────────────────
 
-	// Register `behavior` as a hosted object of this session: inside a
-	// served turn through the turn-time spawn (the host refuses the top-level
-	// one there), else through the session spawn.
+	// Register `behavior` as a hosted object of this Host: inside any turn on
+	// the same Host through the turn-time spawn (the captured Session may already
+	// be closed), else through this Session's top-level spawn.
 	pub(crate) fn spawn_actor(self: &Rc<SessionShared>, behavior: InternalBehavior) -> Result<Ref> {
-		self.guard_open()?;
-		self.drain_gc();
+		let turn = current_turn_for(self.host_key());
+		if turn.is_none() {
+			self.guard_open()?;
+			self.drain_gc();
+		}
 		let cell = Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(behavior),
-			conn: Some(Rc::downgrade(self)),
 		}));
-		let position = match current_turn_for(self.key) {
+		let id = match turn {
 			Some(turn) => turn_spawn(turn, cell)?,
 			None => {
-				let mut position: u64 = 0;
+				let mut reference = sys::PancakeReference { id: 0 };
 				let rc = unsafe {
 					ffi::pancake_host_session_spawn(
 						self.ptr.get(),
 						trampoline,
 						cell as *mut core::ffi::c_void,
 						ctx_free,
-						&mut position,
+						&mut reference,
 					)
 				};
 				if rc != sys::OK {
 					unsafe { reclaim_refused_cell(rc, cell) };
 					return Err(check_host(rc).unwrap_err());
 				}
-				position
+				reference.id
 			}
 		};
-		self.hosted
+		self.host
+			.hosted
 			.borrow_mut()
-			.insert(position, cell as *const ActorCell);
-		Ok(Ref::bare(crate::LiveRef::Near {
-			id: position,
-			promise: false,
-		}))
+			.insert(id, cell as *const ActorCell);
+		Ok(Ref::bare_id(id))
+	}
+
+	/// Record the host giftable published under `name` against the opaque Host
+	/// identity this session surfaced, so local sends from any sibling Session
+	/// run in process. The C tier frees the cell with the Host.
+	pub(crate) fn bind_host_giftable(self: &Rc<SessionShared>, name: &str, ref_id: u64) {
+		if self.host.hosted.borrow().contains_key(&ref_id) {
+			return;
+		}
+		let cell = self.host.giftables.borrow().get(name).copied();
+		if let Some(cell) = cell {
+			self.host.hosted.borrow_mut().insert(ref_id, cell);
+		}
 	}
 
 	pub(crate) fn publish_actor(
@@ -350,9 +286,8 @@ impl SessionShared {
 		self.drain_gc();
 		let cell = Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(behavior),
-			conn: Some(Rc::downgrade(self)),
 		}));
-		let mut position: u64 = 0;
+		let mut reference = sys::PancakeReference { id: 0 };
 		let rc = unsafe {
 			ffi::pancake_host_session_publish(
 				self.ptr.get(),
@@ -361,20 +296,18 @@ impl SessionShared {
 				trampoline,
 				cell as *mut core::ffi::c_void,
 				ctx_free,
-				&mut position,
+				&mut reference,
 			)
 		};
 		if rc != sys::OK {
 			unsafe { reclaim_refused_cell(rc, cell) };
 			return Err(check_host(rc).unwrap_err());
 		}
-		self.hosted
+		self.host
+			.hosted
 			.borrow_mut()
-			.insert(position, cell as *const ActorCell);
-		Ok(Ref::bare(crate::LiveRef::Near {
-			id: position,
-			promise: false,
-		}))
+			.insert(reference.id, cell as *const ActorCell);
+		Ok(Ref::bare_id(reference.id))
 	}
 
 	// ── The verbs' shared plumbing ─────────────────────────────────────────────
@@ -389,14 +322,14 @@ impl SessionShared {
 	// with no answer to strand.
 	pub(crate) fn tell_local(
 		self: &Rc<SessionShared>,
-		position: u64,
+		ref_id: u64,
 		verb: String,
 		args: Vec<Argument>,
 	) {
 		let shared = Rc::clone(self);
 		try_spawn_local(async move {
 			if let Some(TurnOutcome::Forward { target, verb, args }) =
-				crate::trampoline::run_hosted(&shared, position, &verb, &args)
+				crate::trampoline::run_hosted(&shared, ref_id, &verb, &args)
 			{
 				let _ = shared.tell_wire(&target, &verb, &args);
 			}
@@ -405,7 +338,7 @@ impl SessionShared {
 
 	pub(crate) fn tell_wire(
 		self: &Rc<SessionShared>,
-		target: &Reference,
+		target: &Ref,
 		verb: &str,
 		args: &[Argument],
 	) -> Result<()> {
@@ -426,8 +359,8 @@ impl SessionShared {
 		Ok(())
 	}
 
-	/// Near-hosted vs far tell dispatch: a self-hosted near runs `tell_local`,
-	/// everything else mints through `tell_wire`. Session keeps the CapTP verb.
+	/// A self-hosted capability runs `tell_local`; everything else lowers through
+	/// the Host. Session keeps the CapTP verb.
 	pub(crate) fn tell(
 		self: &Rc<SessionShared>,
 		target: &Ref,
@@ -436,20 +369,17 @@ impl SessionShared {
 	) -> Result<()> {
 		self.guard_open()?;
 		self.drain_gc();
-		let reference = target.reference();
-		if let Reference::Near { id, .. } = &reference {
-			if self.hosted_cell(*id).is_some() {
-				self.tell_local(*id, verb.to_string(), args.to_vec());
-				return Ok(());
-			}
+		if self.hosted_cell(target.id()).is_some() {
+			self.tell_local(target.id(), verb.to_string(), args.to_vec());
+			return Ok(());
 		}
-		self.tell_wire(&reference, verb, args)
+		self.tell_wire(target, verb, args)
 	}
 
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 
 	// Drain the parked GC releases — see [`crate::gc::drain`].
 	pub(crate) fn drain_gc(&self) {
-		crate::gc::drain(self);
+		crate::gc::drain(&self.host);
 	}
 }

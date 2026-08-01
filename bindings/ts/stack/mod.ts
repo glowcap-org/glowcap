@@ -1,5 +1,5 @@
 // Idiomatic JavaScript/TypeScript API for pancake — a full OCapN/CapTP host
-// over the byte-fed host archive `libpancake_driver` (ADR-0072), with the
+// over the byte-fed host archive `libpancake_host` (ADR-0072), with the
 // shared vocabulary of `libpancake_ocapn` beside it (ADR-0059). One module
 // runs on Deno and Bun; the runtime-specific FFI and sockets are isolated
 // behind `./internal/ffi/runtime.ts`.
@@ -15,7 +15,7 @@
 // The implementation is split by responsibility into sibling modules; this
 // file is the barrel that re-exports the public surface, so `@pancake/stack`'s
 // import path is one place. The layers: `errors` (the `PancakeError` family),
-// `value` (the value vocabulary plus the `Ref`/`AppValue` application layer),
+// `value` (the value vocabulary plus the `Ref`/`Argument` application layer),
 // `codec`/`context` (marshalling and allocation scopes), `trampoline` (the one
 // native behavior callback), `host` (the `Host`), `action` (host-action
 // decode+execute), `promise` (the `RemotePromise` send returns), `gc`
@@ -33,7 +33,7 @@ import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 
 export { FetchFailed, PancakeError, VowBroken } from "./errors.ts";
 export {
-	type AppValue,
+	type Argument,
 	type Behavior,
 	type Codec,
 	Kw,
@@ -50,7 +50,13 @@ export { RemotePromise } from "./promise.ts";
 // The handshake bound is applied inside `Session`'s establish spine, which
 // every dial and every accept path reaches; the constant is exported so a
 // caller choosing its own budget can say how it relates to the default.
-export { type Channel, currentSession, HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
+export {
+	type Channel,
+	currentSession,
+	HANDSHAKE_TIMEOUT_MS,
+	type PartnerIdentity,
+	Session,
+} from "./session.ts";
 export { classifyRelayTarget, connect, type RelayTarget } from "./dial.ts";
 export { KeyedTcpServer, listen, listenKeyedTcp, Server } from "./listen.ts";
 // Bun loads its FFI adapter asynchronously (its `bun:ffi` import stays off the

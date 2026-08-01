@@ -1,14 +1,14 @@
 //! The shared WebRTC interop signaling core (ADR-0089): the one signaling-inbox
 //! actor and the one channel-bring-up client that `webrtc-signaling-captp` and
-//! `webrtc-handoff` both drive over CapTP. It lives here so those two drivers
+//! the WebRTC CapTP signaling drivers share. It lives here so those drivers
 //! are thin callers of one spine rather than two byte-identical copies of it.
 //!
 //! The inbox holds an exporter's sidecar peer and answers three verbs so a
 //! recipient can bring up the DataChannel through capability calls before the
 //! keyed handshake: `offer(sdp)` returns the exporter's SDP answer, `candidate`
 //! applies one trickled ICE candidate, and `poll` returns the exporter's next
-//! locally gathered candidate (or ""). `bringUpViaCapTP` is the recipient half
-//! that drives them until the offerer's channel opens.
+//! locally gathered candidate (or ""). Channel establishment is driven through
+//! the resident readiness fd; no native driver uses the old parked open wait.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -21,6 +21,27 @@ const driver = pancake.driver;
 /// The signaling session's frame cap: an SDP offer/answer is a few KiB, larger
 /// than the keyed session's frames, so the signaling session sizes up for it.
 pub const sig_frame_cap: usize = 16 * 1024;
+
+pub fn pollOpen(resident: *webrtc.Resident, peer: *webrtc.Peer, timeout_ms: i32) !bool {
+    var events: [16]webrtc.ReadyEvent = undefined;
+    const count = try resident.pollReady(&events, timeout_ms);
+    for (events[0..count]) |event| {
+        if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+    }
+    peer.checkOpen() catch |err| return switch (err) {
+        error.WouldBlock => false,
+        error.Closed => error.ChannelClosed,
+    };
+    return true;
+}
+
+pub fn waitOpen(resident: *webrtc.Resident, peer: *webrtc.Peer, timeout_ms: usize) !void {
+    var elapsed: usize = 0;
+    while (elapsed < timeout_ms) : (elapsed += 50) {
+        if (try pollOpen(resident, peer, 50)) return;
+    }
+    return error.ChannelBringUpTimeout;
+}
 
 pub fn strArg(a: model.Argument) ?[]const u8 {
     return switch (a) {
@@ -65,7 +86,7 @@ pub const SignalingInbox = struct {
 /// Bring the offerer's DataChannel up through the exporter's signaling inbox over
 /// CapTP: send the offer, set the answer, then trickle local candidates with
 /// `candidate` and pull the exporter's with `poll` until the channel opens.
-pub fn bringUpViaCapTP(sig: *driver.BlockingSession, inbox: actors.Ref, offerer: *webrtc.Peer, allocator: std.mem.Allocator) !void {
+pub fn bringUpViaCapTP(sig: *driver.BlockingSession, inbox: actors.Ref, resident: *webrtc.Resident, offerer: *webrtc.Peer, allocator: std.mem.Allocator) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -95,7 +116,7 @@ pub fn bringUpViaCapTP(sig: *driver.BlockingSession, inbox: actors.Ref, offerer:
             },
             .broken, .give => return error.PollBroke,
         }
-        if (offerer.waitOpen(50)) return;
+        if (try pollOpen(resident, offerer, 50)) return;
     }
     return error.ChannelBringUpTimeout;
 }

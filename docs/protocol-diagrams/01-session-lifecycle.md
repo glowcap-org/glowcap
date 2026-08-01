@@ -118,7 +118,7 @@ flowchart TD
     HR["handshake refusal while negotiating"] --> AO["queue op:abort, stay Negotiating"]
 ```
 
-One deliberate survivor is the handoff-count replay guard. It lives in the
-vat-scoped gift registry, not in any one CapTP session, so a host that keeps the
-registry across reconnects still refuses a replayed count. See
-[06-handoffs.md](06-handoffs.md) HO-7.
+Handoff replay authority follows the same lifecycle. Each live
+Receiver–Exporter session owns one monotonic accepted count; closing it destroys
+that counter. Deposited gifts likewise die with their Gifter–Exporter session.
+See [06-handoffs.md](06-handoffs.md) HO-7.

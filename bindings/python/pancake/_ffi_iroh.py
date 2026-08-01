@@ -18,7 +18,7 @@ from ._layouts_gen import (
     PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF,
     PANCAKE_IROH_CONFIG_REACHABILITY_OFF,
     PANCAKE_IROH_CONFIG_SIZE,
-    PANCAKE_IROH_READY_EVENT_CONN_OFF,
+    PANCAKE_IROH_READY_EVENT_SUBJECT_OFF,
     PANCAKE_IROH_READY_EVENT_EVENTS_OFF,
     PANCAKE_IROH_READY_EVENT_SIZE,
 )
@@ -37,10 +37,10 @@ _IROH_LIB_FILE = _lib_file("pancake_net_transport_iroh")
 class _IrohReadyEvent(ctypes.Structure):
     """One readiness record drained by ``pancake_iroh_netlayer_drain_ready``, the
     ``extern struct`` counterpart of the header's ``PancakeIrohReadyEvent``.
-    ``conn`` is the ready connection's handle (``None`` for an accept record,
-    claimed with ``try_accept``) and ``events`` the ``_IROH_EV_*`` bitset."""
+    ``subject`` is zero for accept, a request id for connect completion, and a
+    connection handle for stream readiness."""
 
-    _fields_ = [("conn", ctypes.c_void_p), ("events", ctypes.c_uint32)]
+    _fields_ = [("subject", ctypes.c_size_t), ("events", ctypes.c_uint32)]
 
 
 class _IrohConfig(ctypes.Structure):
@@ -59,18 +59,18 @@ def _pin_layout() -> None:
     # PancakeIrohReadyEvent. A plain `raise` rather than `assert`, so
     # `python -O` cannot strip it.
     got = ctypes.sizeof(_IrohReadyEvent)
-    conn_off = _IrohReadyEvent.conn.offset
+    subject_off = _IrohReadyEvent.subject.offset
     events_off = _IrohReadyEvent.events.offset
     if (
         got != PANCAKE_IROH_READY_EVENT_SIZE
-        or conn_off != PANCAKE_IROH_READY_EVENT_CONN_OFF
+        or subject_off != PANCAKE_IROH_READY_EVENT_SUBJECT_OFF
         or events_off != PANCAKE_IROH_READY_EVENT_EVENTS_OFF
     ):
         raise ImportError(
             f"pancake FFI layout drift: _IrohReadyEvent is {got} bytes "
-            f"(conn@{conn_off}, events@{events_off}); expected "
+            f"(subject@{subject_off}, events@{events_off}); expected "
             f"{PANCAKE_IROH_READY_EVENT_SIZE} bytes with "
-            f"conn@{PANCAKE_IROH_READY_EVENT_CONN_OFF}, "
+            f"subject@{PANCAKE_IROH_READY_EVENT_SUBJECT_OFF}, "
             f"events@{PANCAKE_IROH_READY_EVENT_EVENTS_OFF}; re-mirror the struct"
         )
     config_size = ctypes.sizeof(_IrohConfig)

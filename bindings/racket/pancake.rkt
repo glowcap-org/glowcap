@@ -4,15 +4,15 @@
 ;; The raw `ffi/unsafe` layer lives in the internal `private/` loaders; this
 ;; module is just the public surface over it, and that surface is one tier:
 ;; the `session` — one CapTP partner over the byte-fed host archive
-;; (libpancake_driver, ADR-0072 / ADR-0079) that bundles a vat, a pump, and the
-;; host's routing/redeem authority, constructed by `connect`/`listen`/`accept`.
+;; (libpancake_host, ADR-0072 / ADR-0079) that bundles an adapter-local Racket
+;; vat, a pump, and the shared Host's routing/redeem authority, constructed by
+;; `connect`/`listen`/`accept`.
 ;; The host owns an `engine.Node` (sans-io router); Goblins `mycapn` is two
 ;; roles — endpoint ≈ host, router tables ≈ `engine.Node`. Everything
 ;; three-party — gift origination, transparent redemption, cross-session
 ;; routing — happens inside the library; the binding moves bytes and answers
-;; the host's action queue. The raw `pancake_peer_*` family has no Racket
-;; wrapper: it stays a C-consumer surface, covered by the Zig C-ABI tests and
-;; the C examples.
+;; the host's action queue. `PancakeHost` is the sole C CapTP application
+;; surface; the native Zig engine peer is not mirrored into the ABI.
 (require "private/ffi-ocapn.rkt"
          "private/errors.rkt"
          "private/value.rkt"
@@ -28,11 +28,10 @@
          "private/listen.rkt"
          "private/constants.rkt")
 
-(provide (struct-out near-ref) (struct-out far-ref) (struct-out promise-ref)
-         (struct-out sturdy) (struct-out broken) (struct-out sym)
+(provide ref? ref-id ref-released? (struct-out sym)
          (struct-out kw) (struct-out pset) (struct-out tagged-arg)
-         near far
          (struct-out abort-info)
+         (struct-out partner-identity)
          abi-version last-error
          exn:fail:pancake? exn:fail:pancake-code exn:fail:pancake-abort
          session-flush!)
@@ -45,8 +44,10 @@
          drive break-far-vows!)
 
 ;; ── Session: the CapTP partner application surface ───────────────────────────
-;; One object an application holds. It bundles the pump, a vat, and the host,
-;; so a consumer never wires them by hand. `connect`/`listen`/`accept`
+;; One object an application holds. It bundles the pump, an adapter-local Racket
+;; vat, and the shared native Host, so a consumer never wires them by hand. The
+;; native Host owns the callback actors and their cross-Port lifetime; the
+;; Racket vat supplies the language's local actor verbs. `connect`/`listen`/`accept`
 ;; construct a session; the operations on one are `session-` prefixed
 ;; (`session-fetch`/`session-publish`/`session-spawn`/`session-send`/`session-tell`/`session-serve`),
 ;; since Racket has no method-receiver syntax to carry the verb. `session-close!`
@@ -66,11 +67,15 @@
          encode-peer-locator designator-host-port socket-addr-designator session-set-exporter-locator!
          host-redeem-reachability-value set-host-redeem-reachability!
          designator-from-seed
-         session-vat session-async session-host session-spawn session-publish
+         session-partner-identity session-partner-designator-is-key?
+         session-vat session-async session-host session-spawn session-publish session-published-ref
          session-fetch session-enliven session-send session-send-redeeming
          session-send-promise session-await
          session-index session-untag session-get session-serve session-tell session-close!
-         session-with-gc! session-caretaker session-attenuate session-revoke!
+         session-with-gc! session-release! session-caretaker session-attenuate session-revoke!
+         ;; Closing a session closes that connection; this closes every session
+         ;; the host holds, including the ones it dialed to redeem handoffs.
+         host-release!
          TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-INPROC TRANSPORT-IROH
          HINT-DIRECT-ADDRESSES)
 

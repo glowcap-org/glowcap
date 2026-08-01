@@ -85,11 +85,12 @@ synchronous call a behavior fires inside — the inbound feed — with the arriv
 `currentSession()`:
 
 ```ts
-host.publishGiftable("dm", (verb, args) => {
-	const [from, text, reply] = args; // `reply` is a Ref the caller passed
+// The name is illustrative; the rooms app publishes one inbox per peer.
+host.publishGiftable(inboxName, (verb, args) => {
+	const [text, reply] = args; // `reply` is a Ref the caller passed
 	const session = currentSession(); // the connection this call arrived on
 	if (session && reply instanceof Ref) {
-		session.send(reply, "dm", ["me", `re: ${text}`]); // answer over that connection
+		session.send(reply, "dm", [`re: ${text}`]); // answer over that connection
 	}
 });
 ```
@@ -263,7 +264,7 @@ it is what `currentSession()` enables.
 - Byte-transparent relay contract: [ADR-0086](ADR-0086-byte-transparent-relay.md).
 - Reply primitive: `currentSession()` in `bindings/ts/stack/session.ts`, the
   arriving-session ambient in `bindings/ts/stack/trampoline.ts` and
-  `bindings/ts/stack/pump.ts`; proof `apps/rooms/dm_reply_demo.ts`.
+  `bindings/ts/stack/pump.ts`; proof `apps/rooms/demos/dm_reply_demo.ts`.
 - Redeemed-session surfacing: `Session.sendRedeeming` resolving `via` through
   `Host.exporterFor` (`bindings/ts/stack/session.ts`, `bindings/ts/stack/host.ts`),
   and the same verb in every other binding: `send_redeeming` in
@@ -273,9 +274,9 @@ it is what `currentSession()` enables.
   `Node.exporterPeerFor` / `Host.exporterSessionFor` from its routing table
   (`src/ocapn/engine/node.zig`, `src/driver/core/host.zig`,
   `src/c_abi/driver/host.zig`); the rooms client's `DirectMessage`
-  (`apps/rooms/lib/room_client.ts`); proofs `apps/rooms/dm_back_demo.ts`
-  (native), `apps/rooms/dm_reredeem_test.ts` (deterministic re-redeem
-  attribution), and `apps/rooms/deno/web_dm_test.ts` (browser).
+  (`apps/rooms/lib/room_client.ts`); proofs `apps/rooms/demos/dm_back_demo.ts`
+  (native), `apps/rooms/test/dm_reredeem_test.ts` (deterministic re-redeem
+  attribution), and `apps/rooms/test/web_dm_test.ts` (browser).
 - Cold-dial rendezvous: `Rendezvous` (identity → held buffering channel) and
   `webSocketChannel` in `@pancake/relay` (`bindings/ts/relay/rendezvous.ts`,
   `bindings/ts/relay/ws_relay.ts`); the browser accept side `serveRendezvous`
@@ -283,8 +284,8 @@ it is what `currentSession()` enables.
   (`bindings/ts/stack/dial.ts`) over `net.connectRendezvous`; the resident-less
   `keyed-relay` transport symbol (`src/ocapn/model/transport.zig`,
   `src/driver/core/vocab.zig`); the rooms relay endpoints and rooms UI wiring
-  (`apps/rooms/deno/relay_server.ts`, `apps/rooms/deno/web.ts`,
-  `apps/rooms/deno/ui/net.ts`); proof `apps/rooms/deno/web_dm_tabs_test.ts`
+  (`apps/rooms/web/relay.ts`, `apps/rooms/web/serve.ts`,
+  `apps/rooms/web/ui/net.ts`); proof `apps/rooms/test/web_dm_tabs_test.ts`
   (`zig build rooms-web-dm-tabs`).
 - Remaining work: native and cross-relay cold-dial (above), and the relay items
   in [`docs/roadmap.md`](../../roadmap.md).

@@ -3,9 +3,11 @@ id: ADR-0025
 status: accepted
 date: 2026-05-17
 tags: [session, limits, resilience, abort-taxonomy, security]
-decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. A fresh insert past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. The five resource-exhaustion caps are `max_inbound_answers`, `max_listeners_per_target`, `max_imports`, `max_seen_handoff_counts`, and `max_deposited_gifts`; the sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
+decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. A fresh insert past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. The five table caps are `max_inbound_answers`, `max_listeners_per_target`, `max_imports`, `max_deposited_gifts`, and `max_pending_withdraws`; the sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0100]
 ---
 
 # ADR-0025 Session table-cap policy
@@ -15,7 +17,7 @@ superseded_by: []
 A partner that completes `op:start-session` can grow pancake's session tables
 without sending one malformed frame: blast `op:deliver` against ever-larger
 answer ids, register listeners against one target, introduce fresh imports,
-accumulate handoff-replay rows, or deposit gifts that are never withdrawn. None
+park early withdrawals whose deposits never arrive, or deposit gifts that are never withdrawn. None
 violate a wire-shape invariant, so the decoder cannot catch them; left unbounded
 they let a misbehaving peer exhaust host memory.
 
@@ -39,8 +41,8 @@ resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
 | `max_inbound_answers` | 65 536 | `InboundAnswerCapExceeded` |
 | `max_listeners_per_target` | 64 | `ListenerCapExceeded` |
 | `max_imports` | 1 048 576 | `ImportCapExceeded` |
-| `max_seen_handoff_counts` | 16 384 | `HandoffCountCapExceeded` |
 | `max_deposited_gifts` | 65 536 | `DepositedGiftCapExceeded` |
+| `max_pending_withdraws` | 4 096 | `PendingWithdrawCapExceeded` |
 
 `AbortKind.resource_exhausted` (`"ResourceExhausted"` on the wire) is a distinct
 kind in [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig): the
@@ -71,10 +73,9 @@ Two adjacent accumulators are bounded but do **not** project to
 
 ## Scope (what this does not decide)
 
-- **Handoff-count expiry.** `max_seen_handoff_counts` defends against unbounded
-  growth, but the replay-protection set cannot shrink without expiry semantics:
-  a session that has seen handoff-count N must not be tricked into re-accepting
-  it. The cap is the only defence; expiry rules are not settled here.
+- **Handoff-count expiry.** Replay authority is one scalar per live session,
+  destroyed with that session. There is no per-counter row set to expire or
+  cap.
 - **Outbound / pancake-allocated tables.** Export and outbound-answer tables
   grow at pancake's own rate, so they carry no cap. The caps bound
   partner-driven growth only.

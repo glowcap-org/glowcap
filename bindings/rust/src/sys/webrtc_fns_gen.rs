@@ -5,19 +5,29 @@
 // is stale.
 //
 // The raw extern block of `libpancake_net_transport_webrtc`. The
-// hand-written sibling (`webrtc.rs`) owns the opaque `PancakeWebrtcPeer`
-// type and re-exports this block, so consumers keep their
+// hand-written sibling (`webrtc.rs`) owns the opaque handles and readiness
+// record and re-exports this block, so consumers keep their
 // `sys::webrtc::pancake_webrtc_*` paths.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar};
 
-use super::webrtc::PancakeWebrtcPeer;
+use super::webrtc::{PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
 
 extern "C" {
 	pub fn pancake_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
+	pub fn pancake_webrtc_netlayer_new(out_netlayer: *mut *mut PancakeWebrtcNetlayer) -> c_int;
+	pub fn pancake_webrtc_netlayer_readiness_fd(netlayer: *mut PancakeWebrtcNetlayer) -> c_int;
+	pub fn pancake_webrtc_netlayer_drain_ready(
+		netlayer: *mut PancakeWebrtcNetlayer,
+		out_events: *mut PancakeWebrtcReadyEvent,
+		out_cap: usize,
+		out_count: *mut usize,
+	) -> c_int;
+	pub fn pancake_webrtc_netlayer_release(netlayer: *mut PancakeWebrtcNetlayer);
 	pub fn pancake_webrtc_peer_new(
+		netlayer: *mut PancakeWebrtcNetlayer,
 		is_offerer: c_int,
 		out_peer: *mut *mut PancakeWebrtcPeer,
 	) -> c_int;
@@ -54,14 +64,15 @@ extern "C" {
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_wait_open(peer: *mut PancakeWebrtcPeer, timeout_ms: u64) -> c_int;
-	pub fn pancake_webrtc_peer_read(
+	pub fn pancake_webrtc_peer_id(peer: *mut PancakeWebrtcPeer) -> usize;
+	pub fn pancake_webrtc_peer_is_open(peer: *mut PancakeWebrtcPeer) -> c_int;
+	pub fn pancake_webrtc_peer_try_read(
 		peer: *mut PancakeWebrtcPeer,
 		buf: *mut c_uchar,
 		len: usize,
 		out_read: *mut usize,
 	) -> c_int;
-	pub fn pancake_webrtc_peer_write(
+	pub fn pancake_webrtc_peer_try_write(
 		peer: *mut PancakeWebrtcPeer,
 		buf: *const c_uchar,
 		len: usize,

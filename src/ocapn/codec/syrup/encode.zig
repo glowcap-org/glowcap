@@ -449,14 +449,14 @@ fn writeCanonicalCollection(
         built += 1;
     }
 
-    std.mem.sort([]u8, encoded, {}, codec_order.lessByteSliceMut);
+    std.mem.sort([]u8, encoded, {}, codec_order.lessByteSlice([]u8));
     if (comptime refuse_adjacent_dupes) {
         // The decoder rejects a set whose elements are not strictly ascending,
         // which a duplicate violates, so an encoder that emitted one would ship a
         // frame pancake's own decoder rejects. A set element is its whole value,
         // so two equal elements encode to equal bytes and land adjacent after the
         // sort — one linear pass finds a duplicate.
-        try codec_order.refuseAdjacentEqualKeysMut(WalkError, encoded);
+        try codec_order.refuseAdjacentEqualKeys(WalkError, encoded);
     }
     for (encoded) |element| try sink.appendSlice(element);
 }
@@ -477,7 +477,7 @@ fn refuseDuplicateStructKeys(allocator: std.mem.Allocator, entries: []const mode
     const keys = try allocator.alloc([]const u8, entries.len);
     defer allocator.free(keys);
     for (entries, 0..) |entry, i| keys[i] = entry.key;
-    std.mem.sort([]const u8, keys, {}, codec_order.lessByteSlice);
+    std.mem.sort([]const u8, keys, {}, codec_order.lessByteSlice([]const u8));
     try codec_order.refuseAdjacentEqualKeys(WalkError, keys);
 }
 

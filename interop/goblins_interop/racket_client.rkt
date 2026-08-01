@@ -9,7 +9,9 @@
 ;; its NDJSON readiness line, then `connect` (keyed `op:start-session`),
 ;; `enliven` the echo sturdyref (bootstrap fetch + ADR-0012 dedup), calls it
 ;; positionally, then a repeat `enliven` of the same swiss-num. Positional calls
-;; pass the empty method symbol to `session-send`. Needs `racket` + `goblins`;
+;; pass the empty method symbol to `session-send`. It closes by pipelining
+;; `session-get` against a call answer Goblins settles to a Struct, the one
+;; shape a field projects out of. Needs `racket` + `goblins`;
 ;; `zig build racket-goblins-interop`.
 
 (require "../../bindings/racket/pancake.rkt"
@@ -21,6 +23,9 @@
   (or (find-executable-path "racket")
       (error 'racket-client "racket executable not found on PATH")))
 (define HOST-SCRIPT "conformance/goblins-peer/racket/goblins-host.rkt")
+;; The Struct-returning record cap goblins-host.rkt publishes for the `op:get`
+;; leg, at the swiss-num it hardcodes (the echo cap owns the NDJSON `swiss` line).
+(define RECORD-SWISS "pancakeRecordSwissnumABCDEF12345")
 
 (define-values (proc proc-out proc-in proc-err)
   (subprocess #f #f #f RACKET HOST-SCRIPT HOST (number->string PORT)))
@@ -46,13 +51,33 @@
                  #"pancake-ping")
 
   (define again (session-enliven conn sturdyref))
-  (unless (and (far-ref? echo) (far-ref? again)
-               (= (far-ref-id echo) (far-ref-id again)))
+  (unless (and (ref? echo) (ref? again)
+               (= (ref-id echo) (ref-id again)))
     (error 'racket-goblins-interop
-           "repeat enliven did not return the same far import (dedup miss)"))
+           "repeat enliven did not return the same Host identity (dedup miss)"))
   (assert-echoed (session-send conn again (string->symbol "") #"pancake-ping-again")
                  #"pancake-ping-again")
-  (printf "racket-goblins-interop: repeat enliven same import (dedup), second call resolved\n")
+  (printf "racket-goblins-interop: repeat enliven same Host identity (dedup), second call resolved\n")
+
+  ;; `session-get` pipelines an `op:get` against a still-pending answer, and a
+  ;; field only projects out of an OCapN Struct. No binding can build one,
+  ;; because the C ABI carries no Struct argument, so the record cap
+  ;; `goblins-host.rkt` publishes for this leg is the only peer that hands one
+  ;; back. Both projections are minted before either is awaited, so each rides
+  ;; the unsettled call answer and the two differing values pin which field was
+  ;; asked for.
+  (define record (session-fetch conn RECORD-SWISS))
+  (define made (session-send-promise conn record (string->symbol "") "pancake-get"))
+  (define name-vow (session-get conn made "name"))
+  (define kind-vow (session-get conn made "kind"))
+  (define (assert-projected vow field expected)
+    (define got (session-await conn vow))
+    (unless (equal? got expected)
+      (error 'racket-goblins-interop
+             "op:get on ~v projected ~v, expected ~v" field got expected)))
+  (assert-projected name-vow "name" "pancake-get")
+  (assert-projected kind-vow "kind" "record")
+  (printf "racket-goblins-interop: op:get projected name and kind out of goblins' Struct reply\n")
 
   (printf "racket-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins\n")
   (session-close! conn)

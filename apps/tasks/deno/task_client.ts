@@ -10,7 +10,7 @@
 //   for await (const tasks of board.updates) console.log(tasks);
 //   await board.leave();
 
-import { type AppValue, connect, type Ref, type Session, tcpLocator } from "@pancake/stack";
+import { type Argument, connect, type Ref, type Session, tcpLocator } from "@pancake/stack";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 export interface Task {
@@ -19,7 +19,7 @@ export interface Task {
 	completed: boolean;
 }
 
-function parseSnapshot(raw: AppValue): Task[] {
+function parseSnapshot(raw: Argument): Task[] {
 	if (!Array.isArray(raw)) return [];
 	return raw.map((entry) => {
 		if (!Array.isArray(entry) || entry.length < 3) {
@@ -92,7 +92,7 @@ export class TaskBoard {
 		await this.#session.serve().catch(() => {});
 	}
 
-	#push(raw: AppValue): void {
+	#push(raw: Argument): void {
 		try {
 			this.#snapshots.enqueue(parseSnapshot(raw));
 		} catch {

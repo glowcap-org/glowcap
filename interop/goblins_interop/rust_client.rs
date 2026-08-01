@@ -10,7 +10,7 @@
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH; `zig build rust-goblins-interop`.
 
-use pancake_rust_dogfood::{connect, tcp_locator, Argument, Reference};
+use pancake_rust_dogfood::{connect, tcp_locator, Argument};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -77,17 +77,14 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	assert_echoed(&reply, b"pancake-ping")?;
 
 	let again = conn.enliven(&sturdyref).await?;
-	match (echo.reference(), again.reference()) {
-		(Reference::Far { id: a, .. }, Reference::Far { id: b, .. }) if a == b => {}
-		_ => {
-			return Err("repeat enliven did not return the same far import (dedup miss)".into());
-		}
+	if echo != again {
+		return Err("repeat enliven did not return the same Host identity (dedup miss)".into());
 	}
 	let reply_again = conn
 		.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
 		.await?;
 	assert_echoed(&reply_again, b"pancake-ping-again")?;
-	println!("rust-goblins-interop: repeat enliven same import (dedup), second call resolved");
+	println!("rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved");
 
 	println!(
 		"rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins"

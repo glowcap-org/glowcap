@@ -5,10 +5,11 @@
 //! `installResolverForOutboundDeliver` augments an answered `op:deliver` with a
 //! synthesized resolver export advertised as `resolve_me_desc`, committing the
 //! answer-to-export link in the session. On the way back,
-//! `interceptInboundDeliver` recognizes a deliver to one of those resolver
-//! exports as the partner settling our answer (and installs the partner's own
-//! advertised resolver as our import, so our eventual resolution has somewhere
-//! to go). Our side of that settlement is `encodeResolveAsCallback`, which
+//! `registerPartnerResolver` installs the partner's own advertised resolver as
+//! our import, so our eventual resolution has somewhere to go; recognizing a
+//! deliver *to* one of our resolver exports is version-neutral and belongs to
+//! the inbound classifier (ADR-0095). Our side of that settlement is
+//! `encodeResolveAsCallback`, which
 //! renders a semantic `Resolve` as the `['fulfill|'break, payload]` deliver the
 //! partner's resolver import expects. The functions take a `*Peer` and mutate
 //! session authority through it — the names say so — exactly like the engine's
@@ -57,7 +58,7 @@ pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !m
 /// the projection has shipped, the sender installs a listener on the projected
 /// answer pointed at a synthesized resolver export: when the partner settles
 /// the projection it fires the listener as a `['fulfill|'break, …]` deliver to
-/// that export, which `interceptInboundDeliver` recognizes and surfaces back as
+/// that export, which the inbound classifier recognizes and surfaces back as
 /// a semantic `Resolve` for the projected answer — the same round trip an
 /// answered deliver earns, carried on a separate `op:listen` frame. The
 /// `op:listen` must reach the wire *after* the projection that opened the
@@ -89,9 +90,7 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
 /// `captp-unknown-record-rag` on the partner and the break is lost (the
 /// `<error>` record stays next / `.error`-argument vocabulary, which never
 /// reaches this path).
-pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
-    const resolver_import = peer.session_state.resolverForInboundAnswer(resolve.answer) orelse
-        return error.MissingV1_0Resolver;
+pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve, resolver_import: model.ImportPosition) !void {
     var args: [2]model.Argument = switch (resolve.resolution) {
         .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
         .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
@@ -110,35 +109,20 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
     try peer.pushEncoded(wire);
 }
 
-/// The outcome of intercepting an inbound V1.0 deliver.
-pub const InboundIntercept = union(enum) {
-    /// The deliver targets one of our resolver exports: it settles the inbound
-    /// `answer` carried here, and the caller surfaces a semantic `Resolve`.
-    settles_answer: model.AnswerPosition,
-    /// An ordinary deliver (to a local object, a pipelined answer, or the
-    /// bootstrap export). `answer_override` is non-null only when the deliver
-    /// carried a `resolve_me_desc` but no wire answer-position: the session
-    /// allocated a virtual inbound answer the surfaced deliver must carry so the
-    /// application's reply routes back through the resolver callback. A deliver
-    /// that already had a wire answer needs no override (the frame carries it),
-    /// so `answer_override` stays null.
-    ordinary: ?model.AnswerPosition,
-};
-
-/// Intercept an inbound V1.0 deliver, *installing session authority* for the
-/// partner's advertised resolver: a `resolve_me_desc` registers the resolver
-/// import (allocating and installing a virtual inbound answer when the deliver
-/// carries no wire answer-position, the V1.0 resolver-only call pattern). The
-/// returned `InboundIntercept` tells the caller whether the deliver settles one
-/// of our answers (surface a `Resolve`) or is ordinary, and, for the
-/// resolver-only ordinary case, which virtual answer the surfaced deliver must
-/// carry so the application can reply to it.
-pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !InboundIntercept {
-    if (deliver.target.exportPosition()) |position| {
-        if (peer.session_state.answerForResolverExport(position)) |answer| {
-            return .{ .settles_answer = answer };
-        }
-    }
+/// Register the resolver the partner advertised on an inbound V1.0 deliver,
+/// *installing session authority*: a `resolve_me_desc` registers the resolver
+/// import, allocating and installing a virtual inbound answer when the deliver
+/// carries no wire answer-position (the V1.0 resolver-only call pattern).
+///
+/// Returns that virtual answer when one was allocated, so the surfaced deliver
+/// can carry it and the application's reply routes back through the resolver
+/// callback. Null when the deliver already carried a wire answer (the frame has
+/// it) or advertised no resolver at all.
+///
+/// The other half of the V1.0 round trip — recognizing a deliver *to* one of
+/// our resolver exports — is version-neutral and lives in the inbound
+/// classifier (`engine.inbound.classifyInboundDeliver`, ADR-0095).
+pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model.AnswerPosition {
     if (deliver.resolve_me_desc) |rmd| {
         if (rmd.position()) |import_position| {
             // V1.0 resolver: the partner introduces their resolver export as
@@ -159,8 +143,8 @@ pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !Inboun
             // A resolver-only deliver (no wire answer) surfaces with the virtual
             // answer so the application's reply has a target; a deliver that
             // already carried a wire answer surfaces unchanged.
-            if (deliver.answer == null) return .{ .ordinary = answer };
+            if (deliver.answer == null) return answer;
         }
     }
-    return .{ .ordinary = null };
+    return null;
 }

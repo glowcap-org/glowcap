@@ -65,7 +65,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator, ident
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, 0);
+    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, .unbounded);
     defer cv.deinit();
     _ = try cv.publish("greeter", Greeter, .{});
     try cv.serve();
@@ -95,7 +95,7 @@ fn clientMeasure(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .unbounded);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -222,9 +222,9 @@ const loop_conns: usize = 16;
 
 /// Per-connection setup the loop host runs on accept: publish this connection's
 /// greeter on its own vat (the same static `Greeter` the serial bench uses).
-fn publishGreeterLoop(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishGreeterLoop(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     _ = ctx;
-    _ = try served.publish("greeter", Greeter, .{});
+    _ = try served.publish(vat, "greeter", Greeter, .{});
 }
 
 /// Run the completion loop until every connection has closed.
@@ -273,7 +273,7 @@ fn loopClient(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, 0);
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, .unbounded);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

@@ -23,7 +23,7 @@
          racket/lazy-require
          "constants.rkt"
          "ffi-shared.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "errors.rkt"
          "value.rkt"
          "codec.rkt"
@@ -33,7 +33,7 @@
 ;; module; lazy-require breaks the cycle).
 (lazy-require
  ["session.rkt" (session-vat session-host session-ptr)]
- ["pump.rkt" (pump-until)]
+ ["pump.rkt" (pump-until current-deliver-session)]
  ["host.rkt" (host-retain! host-retire! call-with-host)]
  ["promise.rkt" (await-vow session-far-send)])
 
@@ -47,10 +47,16 @@
 ;; drains to the enclosing verb's unwind.
 (define current-turn (make-parameter #f))
 
-;; The current turn pointer when it belongs to connection `c`, else #f.
+;; The current turn pointer when it belongs to a Port on `c`'s Host, else #f.
+;; A hosted actor may outlive the Port it was first projected through, and a
+;; turn-time spawn needs only the Host-owned turn, not that old Port handle.
 (define (current-turn-for c)
   (define t (current-turn))
-  (and t (eq? (cdr t) c) (car t)))
+  (and t
+       (cdr t)
+       c
+       (eq? (session-host (cdr t)) (session-host c))
+       (car t)))
 
 ;; Whether ANY hosted turn is running on this thread — the pump defers action
 ;; drains while one is (the host refuses the driving verbs inside a callback;
@@ -107,7 +113,7 @@
     [(forward? chased)
      (define target (forward-target chased))
      (cond
-       [(or (far-ref? target) (near-ref? target))
+       [(ref? target)
         (define mb (string->bytes/utf-8 (symbol->string (forward-method chased))))
         (define keep (box '()))
         (define-values (aptr acnt) (args->c (forward-args chased) keep))
@@ -124,31 +130,37 @@
 ;; context, and settle the reply. Every raise (an attenuator's "Attenuated", a
 ;; revoked caretaker's "Revoked", an unknown-method error) crosses the boundary
 ;; as a break carrying the message.
-(define (serve-foreign-call c v turn verb-ptr verb-len args-ptr args-len out-reply run)
+(define (serve-foreign-call v turn verb-ptr verb-len args-ptr args-len out-reply run)
   (with-handlers ([converts-to-broken? (lambda (e) (turn-break! turn (exn->message e)))])
     (define method (decode-verb verb-ptr verb-len))
     (define args (args<-c args-ptr args-len))
-    (define result (parameterize ([current-turn (cons turn c)]) (run method args)))
-    (settle-turn-reply c v turn result out-reply)))
+    ;; A native callback can only run synchronously inside the pump's feed
+    ;; bracket. The arriving Session supplies routing; never retain the Port
+    ;; that happened to create this Host-owned actor.
+    (define arriving (current-deliver-session))
+    (unless arriving (error "hosted callback ran outside a session feed"))
+    (define result (parameterize ([current-turn (cons turn arriving)]) (run method args)))
+    (settle-turn-reply arriving v turn result out-reply)))
 
-;; The PancakeHostBehavior for a vat actor hosted on connection `c`: each wire
+;; The PancakeHostBehavior for a vat actor: each wire
 ;; deliver runs the actor's current cell through `run-turn` (so `bcom` and
 ;; time-travel apply) with the vat current, exactly as a local `$` would.
-(define (make-actor-trampoline c v actor-id)
+(define (make-actor-trampoline v actor-id)
   (lambda (_ctx turn verb-ptr verb-len args-ptr args-len out-reply)
-    (serve-foreign-call c v turn verb-ptr verb-len args-ptr args-len out-reply
+    (serve-foreign-call v turn verb-ptr verb-len args-ptr args-len out-reply
                         (lambda (method args)
                           (run-turn (actor-ref v actor-id) method args)))))
 
 ;; The PancakeHostBehavior for a host-wide giftable (`host-publish-giftable`):
-;; one behavior closure published under one swissnum on every session, so it
-;; is bound to no single vat. The behavior lives in a cell here so a `bcom`
-;; return still swaps it; a `forward` return reaches only far targets (there is
-;; no vat to resolve a local one against).
+;; one behavior closure hosted once under a Host-wide alias. It is bound to no
+;; Racket vat; the core Host Vat projects it onto sessions as needed. The
+;; behavior lives in a cell here so a `bcom` return still swaps it; a `forward`
+;; return reaches only far targets (there is no Racket vat to resolve a local
+;; one against).
 (define (make-giftable-trampoline behavior)
   (define cell (box behavior))
   (lambda (_ctx turn verb-ptr verb-len args-ptr args-len out-reply)
-    (serve-foreign-call #f #f turn verb-ptr verb-len args-ptr args-len out-reply
+    (serve-foreign-call #f turn verb-ptr verb-len args-ptr args-len out-reply
                         (lambda (method args)
                           (define result (apply (unbox cell) method args))
                           (cond
@@ -157,13 +169,13 @@
                              (become-result result)]
                             [else result])))))
 
-;; Spawn a hosted object at a fresh export position from INSIDE a turn — the
+;; Spawn a hosted object at a fresh Host identity from INSIDE a turn — the
 ;; turn-time form the host allows where the top-level spawn is latched. Returns
-;; the export position.
-(define (turn-spawn-position! turn trampoline)
-  (define-values (rc pos) (pancake_host_turn_spawn turn trampoline #f #f))
+;; opaque capability.
+(define (turn-spawn-ref! turn trampoline)
+  (define-values (rc capability) (pancake_host_turn_spawn turn trampoline #f #f))
   (check/host rc)
-  pos)
+  capability)
 
 ;; Observe a local vow to settlement and classify: register the listener, run
 ;; the turn in `drive`, and — when a proxy forwarding to a far target deferred
@@ -247,25 +259,25 @@
           (error "Attenuated")))))
 
 ;; Host `actor` on connection `c`: build the trampoline that runs the actor's
-;; current cell on each wire deliver, bind it at a fresh export position —
+;; current cell on each wire deliver, bind it at a fresh Host identity —
 ;; through the turn-time spawn when called from inside a hosted turn (a served
 ;; factory minting the capability it replies with), through the top-level
-;; publish/spawn otherwise — and record the export in the vat so a near
-;; reference to it resolves in process. Returns the near capability. Session's
+;; publish/spawn otherwise — and record the identity in the vat so the opaque
+;; reference resolves in process. Returns the capability. Session's
 ;; `session-spawn` / `session-publish` / proxy factories wrap this.
 (define (register-hosted-actor! c actor #:name [name #f])
   (define v (session-vat c))
   (define m (session-host c))
-  (define tramp (make-actor-trampoline c v (actor-ref-id actor)))
+  (define tramp (make-actor-trampoline v (actor-ref-id actor)))
   (host-retain! m tramp)
   (define turn (and (not name) (current-turn-for c)))
   ;; The host never owns the row (the free callback is #f), so a refused mint
   ;; must retire the retained closure or it leaks for the host's life.
-  (define pos
+  (define capability
     (with-handlers ([(lambda (_) #t)
                      (lambda (e) (host-retire! m tramp) (raise e))])
       (cond
-        [turn (turn-spawn-position! turn tramp)]
+        [turn (turn-spawn-ref! turn tramp)]
         [else
          (call-with-host m
            (lambda ()
@@ -281,8 +293,8 @@
                 (define-values (rc p) (pancake_host_session_spawn (session-ptr c) tramp #f #f))
                 (check/host rc)
                 p])))])))
-  (bind-export! v actor pos)
-  (near pos))
+  (bind-export! v actor (ref-id capability))
+  (make-ref/internal (ref-id capability)))
 
 ;; ADR-0064 caretaker factory: resolve `target`, spawn a forwarding actor, host
 ;; it, and record the live box for `revoke-caretaker!`. Session's
@@ -297,7 +309,7 @@
     (with-vat v
       (spawn (caretaker-behavior live resolved))))
   (define proxy (register-hosted-actor! c actor))
-  (hash-set! (vat-revocables v) (near-ref-id proxy) live)
+  (hash-set! (vat-revocables v) (ref-id proxy) live)
   proxy)
 
 ;; ADR-0064 attenuator factory: resolve `target`, spawn a verb-filtered
@@ -314,11 +326,11 @@
 ;; Sever a caretaker `proxy` from `caretaker-proxy` / `session-caretaker`:
 ;; clear the live flag and drop the revocables row. Idempotent.
 (define (revoke-caretaker! c proxy)
-  (unless (near-ref? proxy)
+  (unless (ref? proxy)
     (raise-pancake 'session-revoke! ERR-INVALID-ARGUMENT
                    "revoke target is not a caretaker proxy: ~a" proxy))
   (define revocables (vat-revocables (session-vat c)))
-  (define live (hash-ref revocables (near-ref-id proxy) #f))
+  (define live (hash-ref revocables (ref-id proxy) #f))
   (when live
     (set-box! live #f)
-    (hash-remove! revocables (near-ref-id proxy))))
+    (hash-remove! revocables (ref-id proxy))))

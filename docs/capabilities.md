@@ -1,113 +1,102 @@
-# Capabilities, CapTP, and OCapN, from zero
+# Capabilities, CapTP, and OCapN
 
-This page is the on-ramp. It assumes you are a competent programmer who has
-never met object-capability security. If you already know what a vat and a
-sturdyref are, skip back to the [README](../README.md) quickstart. The site's
-Why OCapN page makes the same argument from the protocols you already run,
-with a step-through picture (`zig build docs-serve`, then Explore).
+Start here if object-capability security is new to you. If the terms already
+feel familiar, go to the [quick start](../README.md#quick-start).
 
-## What a capability is
+## A capability is a reference with authority
 
-A capability is a reference that _is_ the permission. If you hold a reference to
-an object, you can call it. If you do not hold it, you cannot, and you cannot
-forge one, guess one, or escalate your way to one. There are no access-control
-lists, role checks, or string-typed permission names to consult. An unauthorized
-caller has nothing to make the call with.
+If you hold a capability to an object, you may call it. If you do not, you
+cannot forge or guess one. Passing the reference passes that authority.
 
-Most systems use ambient authority: a program runs with a pool of permissions
-attached to its identity, and every library it links shares that pool. A
-capability system has no pool. Authority arrives one reference at a time, from
-whoever chose to hand it over.
+Capability systems can still use roles or policy where an application needs
+them. The important change is at the object boundary: permission arrives as a
+reference, rather than being inferred from a process identity or a global
+namespace.
 
-Three patterns fall out of that rule:
+This avoids *ambient authority*, where a program and every library it loads can
+draw from one shared pool of permissions. In a capability design, authority
+arrives one reference at a time from someone who chose to grant it.
 
-- **Delegation.** Handing someone a capability grants the permission. Passing
-  the reference is the grant.
-- **Attenuation.** To grant less than you hold, wrap the capability in an object
-  that exposes only the narrower surface, and hand out the wrapper.
-- **Revocation.** Hand out a forwarder you control. When you cut the forwarder,
-  every copy of the grant dies with it.
+Three common patterns follow:
 
-In ordinary memory-safe programming you already live by this rule: an object
-reference can only be used by code it was given to. Capability security is that
-discipline taken seriously. CapTP is what lets it cross a network.
+- **Delegation:** pass a capability to someone else.
+- **Attenuation:** wrap it with an object that exposes fewer operations.
+- **Revocation:** pass a forwarder that you can later switch off.
 
-## What CapTP adds
+These are ordinary object-reference patterns. CapTP carries them across a
+network.
 
-[CapTP](http://erights.org/elib/distrib/captp/) (the Capability Transport
-Protocol, from the E language) extends those references over a connection. Two
-programs open a session and hand each other references to local objects. A
-peer can name only the references it was handed, because the session tables
-mint every one of them and there is no directory to guess at. Confidentiality
-on the wire is the netlayer's job, not the protocol's.
+## CapTP carries references between programs
 
-The trust boundary sits at the wire and its session tables. A vat is one
-program's container of objects, running one message at a time. Within a single
-vat, code that holds the vat handle can reach any object the vat hosts.
-Capability discipline begins where two mutually suspicious parties meet.
+[CapTP](http://erights.org/elib/distrib/captp/) is the Capability Transport
+Protocol. Two programs open a session, export local objects, and pass references
+to each other.
 
-CapTP also carries promises. Calling a remote object returns immediately with a
-promise for the answer. You may call methods on that promise before it resolves;
-the call is forwarded to wherever the answer turns out to live. That is promise
-pipelining, and it collapses round trips into a single flight. The protocol also
-keeps distributed garbage-collection accounts so unused exports are reclaimed.
+The session assigns wire positions to those references and rejects positions
+the other peer was never given. A new session begins with one bootstrap
+capability; any directory or lookup service is reached through that object, not
+through a global object namespace.
 
-When three parties are involved (Alice holds a capability to Carol's object and
-wants to give it to Bob), CapTP defines the handoff: a signed introduction that
-lets Bob present his grant to Carol directly, without Alice proxying every later
-call. In pancake's application surface that introduction usually settles as the
-live capability itself (a Host redeems the give inside the wait). Human
-teaching plus runnable chapters: the site Concepts page
-(`zig build docs-serve`) and `examples/zig/02_introduce_and_redeem.zig`.
+Remote calls return promises. A caller may send the next operation to a promise
+before its answer arrives; CapTP forwards that operation when the promise
+settles. This is *promise pipelining*, and it can turn a chain of dependent calls
+into one network flight.
 
-## What OCapN is, and where Goblins fits
+CapTP also supports three-party handoff. If Alice holds a capability to Carol's
+object and wants Bob to have it, Alice introduces them. Bob redeems that
+introduction with Carol and receives a direct capability; Alice does not remain
+as a proxy.
 
-[OCapN](https://github.com/ocapn/ocapn) (the Object Capability Network) is the
-standards effort, stewarded by the
-[Spritely Institute](https://spritely.institute/) and a community group. It
-turns CapTP into one interoperable protocol: an abstract message model, concrete
-wire encodings, and netlayers. The draft specifications live in the OCapN
-repository; this repository vendors a copy under
-[`conformance/ocapn-spec/`](../conformance/ocapn-spec/).
+pancake handles this under its session API. The call awaiting the introduced
+object settles to the live capability after redemption. Run
+[`examples/zig/02_introduce_and_redeem.zig`](../examples/zig/02_introduce_and_redeem.zig)
+to see the whole exchange.
 
-[Spritely Goblins](https://spritely.institute/goblins/) is the reference
-implementation in practice. Its wire behavior defines what interoperating means
-today. pancake treats Goblins as the authority on what correct looks like.
-`zig build goblins-interop` holds a live conversation with a real Goblins vat
-in both directions, over Syrup and TCP. The per-binding steps cover the client
-direction only; [`community-review.md`](community-review.md) says what each one
-does and does not prove. The
-[protocol diagrams](protocol-diagrams/README.md) flag the few places where
-pancake speaks a Goblins convention the draft spec does not yet pin down.
+CapTP does not choose encryption or network reachability. Those belong to the
+netlayer carrying its byte stream.
 
-pancake is the systems-language entry to that ecosystem: the protocol core in
-Zig, a C ABI above it, and bindings so the same capability discipline is
-reachable from Rust, Python, Deno, and Racket. Memory and allocation cost are
-part of the contract. The [architecture](architecture.md) doc names those
-budgets.
+## OCapN makes CapTP interoperable
+
+[OCapN](https://github.com/ocapn/ocapn), the Object Capability Network, defines
+an interoperable message model, wire encodings, and netlayers for CapTP. The
+work is stewarded by the [Spritely Institute](https://spritely.institute/) and
+the OCapN community.
+
+[Spritely Goblins](https://spritely.institute/goblins/) is the main reference
+implementation in practice and pancake's live interop peer.
+
+pancake provides the protocol core in Zig, a C ABI, and bindings for Rust,
+TypeScript, Python, and Racket. It speaks
+[Syrup](https://github.com/ocapn/syrup), the canonical OCapN encoding, and can
+also use Cap'n Proto between pancake peers.
+
+For the implementation, read [Architecture](architecture.md). For exact
+outside-peer coverage, read [Community review](community-review.md). The
+[protocol diagrams](protocol-diagrams/README.md) show the conversations on the
+wire.
 
 ## Glossary
 
-| Term               | Meaning                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| capability         | A reference that is itself the permission to use what it names.                                                                   |
-| ambient authority  | Permission drawn from identity or environment rather than from a held reference.                                                  |
-| CapTP              | The session protocol that carries capabilities, calls, and promises between two programs.                                         |
-| OCapN              | The standardization of CapTP: one message model, several codecs and netlayers, many implementations.                              |
-| vat                | One single-threaded container of objects; all calls into a vat run one turn at a time.                                            |
-| turn               | One message delivery processed to completion inside a vat.                                                                        |
-| reference          | A name for an object; _near_ if it lives in your vat, _far_ if it lives across a session.                                         |
-| export / import    | Session-table positions for a shared object: export on the side that owns it, import on the side that received it.                |
-| promise            | A reference to an answer that has not arrived yet; it later resolves to a value or breaks with a reason.                          |
-| promise pipelining | Calling through a promise before it resolves, so dependent calls travel in one flight.                                            |
-| swiss number       | A high-entropy name the host registers an object under, so a partner can fetch it through the bootstrap object.                   |
-| bootstrap object   | The one well-known capability a fresh session starts with; everything else is fetched or passed from there.                       |
-| sturdyref          | A durable, out-of-band token (peer plus swiss number) that can be turned back into a live reference later.                        |
-| locator            | The `ocapn://` URI form that names a peer (and optionally a sturdyref) so a netlayer can dial it.                                 |
-| handoff            | The signed three-party introduction that moves a capability from one session to another without proxying.                         |
-| designator         | The part of a locator that names _which_ peer, usually a public key; the hints beside it say how to reach it.                     |
-| give               | The signed introduction a handoff produces. The recipient presents it to the exporter to withdraw the capability it names.        |
-| vow                | A promise for a value that has not settled yet; you may call through it before it does.                                           |
-| netlayer           | The transport a locator names, bound to a byte stream. CapTP itself names no transport; pancake ships `tcp`, `keyed-tcp`, `inproc`, iroh, and webrtc. |
-| codec              | The wire encoding of the message model; pancake ships Syrup and Cap'n Proto behind one dispatch boundary.                         |
-| Syrup              | The S-expression-flavored binary encoding Goblins speaks; the default OCapN wire format.                                          |
+| Term | Meaning |
+| --- | --- |
+| capability | A reference that conveys permission to use what it names. |
+| ambient authority | Permission drawn from identity or environment rather than a held reference. |
+| CapTP | The session protocol carrying capabilities, calls, and promises between programs. |
+| OCapN | The interoperable CapTP message model, codecs, and netlayers. |
+| vat | A container of objects that processes one message at a time. |
+| turn | One message delivery processed to completion inside a vat. |
+| reference | A name for an object: *near* in your vat, *far* across a session. |
+| export / import | The session-table positions for an object on its owning and receiving sides. |
+| promise | A reference to an answer that has not settled yet. |
+| vow | Another name for a promise that may later fulfill or break. |
+| promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
+| bootstrap object | The one well-known capability available when a session opens. |
+| swiss number | A high-entropy name registered under the bootstrap object for later lookup. |
+| sturdyref | Durable data naming a peer and swiss number. Redemption still depends on that host preserving its identity and registration and continuing to honor it. |
+| locator | An `ocapn://` URI naming a peer, and optionally a sturdyref, for a netlayer to dial. |
+| designator | The part of a locator naming the peer, usually a public key. Hints say how to reach it. |
+| handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
+| give | The signed introduction presented to the exporting peer during handoff. |
+| netlayer | A transport bound to a byte stream. pancake ships TCP, keyed TCP, in-process, iroh, and WebRTC netlayers. |
+| codec | A wire encoding for the message model. pancake ships Syrup and Cap'n Proto. |
+| Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

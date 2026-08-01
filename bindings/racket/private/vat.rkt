@@ -12,7 +12,7 @@
 ;; The vat is the LOCAL half only: cells, the queued-turn loop (`drive`), local
 ;; vows and their listeners, `bcom`, and the time-travel history. Everything
 ;; wire-shaped — hosting exports, far sends, far vows, three-party redemption —
-;; lives in the byte-fed host archive (libpancake_driver) behind
+;; lives in the byte-fed host archive (libpancake_host) behind
 ;; `private/session.rkt`. A connection installs a `far-ops` record into its
 ;; vat, so `<-` to a far reference and `on` over a far vow stay
 ;; location-transparent for the application; a pure-local vat (no connection)
@@ -138,8 +138,10 @@
 ;; (make-vat #:time-travel? #f), a vat of local actors. `#:time-travel? #t` opts
 ;; every actor in this vat into a retained, revisable behavior history reachable
 ;; through `vat-snapshot` / `vat-restore!`; the default vat keeps no history and
-;; its turn path is the in-place box write below, unchanged. A connection builds
-;; its own vat and installs the far half; an application uses `session-vat`.
+;; its turn path is the in-place box write below, unchanged. This is the
+;; adapter-local Racket actor runtime, not the native Vat owned by PancakeHost. A
+;; connection builds one and installs the far half; an application uses
+;; `session-vat`.
 (define (make-vat #:time-travel? [time-travel? #f])
   (vat (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv)
        (and time-travel? (time-travel (box (hasheqv)) (box '())))
@@ -220,7 +222,7 @@
 (define ($ ref method . args)
   (cond
     [(actor-ref? ref) (near-resolve (run-turn ref method args))]
-    [(far-ref? ref) (error '$ "cannot near-call a far reference, use <-")]
+    [(ref? ref) (error '$ "cannot synchronously call a Host reference; use <-")]
     [else (error '$ "not an actor reference: ~a" ref)]))
 
 ;; Resolve a near-call result: a value returns directly; a `forward` (a
@@ -405,7 +407,7 @@
   (unless (actor-ref? actor) (error 'bind-export! "can only bind a local actor reference"))
   (hash-set! (vat-exports v) export-id (actor-ref-id actor)))
 
-;; Map a wire reference to a vat target, routing a `near-ref` export this vat
+;; Map a Host reference to a vat target, routing an export this vat
 ;; hosts to its local `actor-ref` so a self-spawned capability resolves
 ;; in-process rather than going out on the wire to its own export — the same
 ;; self-routing the sibling bindings perform through their hosted tables
@@ -413,7 +415,7 @@
 ;; `resolve_local`). A reference this vat does not host comes back unchanged.
 (define (vat-resolve-target v target)
   (define actor-id
-    (and (near-ref? target) (hash-ref (vat-exports v) (near-ref-id target) #f)))
+    (and (ref? target) (hash-ref (vat-exports v) (ref-id target) #f)))
   (if actor-id (actor-ref v actor-id) target))
 
 ;; ── break-far-vows! : settle every outstanding far vow as broken ──────────────

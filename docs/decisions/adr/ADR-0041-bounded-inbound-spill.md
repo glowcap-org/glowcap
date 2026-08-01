@@ -3,7 +3,7 @@ id: ADR-0041
 status: accepted
 date: 2026-06-10
 tags: [net, runtime, c_abi, resilience, memory, performance]
-decision: "Per-connection read buffers are small and fixed; an admissible inbound frame larger than the read buffer accumulates once in a bounded owned spill (`net.Spill`) and decodes from there, freed the moment it drains. All three inbound consumers (`pumpOver`, `readFrameFrom`/`FrameStream`, and the completion loop) share the one spill type, so steady per-connection memory is the read buffer, not `SessionLimits.max_frame_bytes`. Boundedness is the codec's cap-during-scan verdict (ADR-0029) plus a defensive incomplete-at-cap mirror in each consumer."
+decision: "Per-connection read buffers are small and fixed; an admissible inbound frame larger than the read buffer accumulates once in a bounded owned spill (`foundation.Spill`) and decodes from there, freed the moment it drains. All the inbound consumers (`pumpOver`, `readFrameFrom`/`FrameStream`, the completion loop, and the byte-fed host tier's stream tail) share the one spill type, each naming what a drained spill keeps, so steady per-connection memory is the read buffer, not `SessionLimits.max_frame_bytes`. Boundedness is the codec's cap-during-scan verdict (ADR-0029) plus a defensive incomplete-at-cap mirror in each consumer."
 supersedes: []
 superseded_by: []
 ---
@@ -26,17 +26,18 @@ deferred it. This ADR closes it.
 ## Decision
 
 **The read buffer sizes the steady state; the spill carries the rare large
-frame.** `net.Spill` is a bounded owned accumulation that is inactive (zero
+frame.** `foundation.Spill` is a bounded owned accumulation that is inactive (zero
 allocation) while frames fit the read buffer. When one frame outgrows the
 buffer, the buffered prefix moves into the spill and the buffer keeps reading;
 the frame decodes from the spill's contiguous bytes through the same one parser
 (ADR-0029), and leftover bytes (the start of the next frame) compact forward.
-The spill frees its storage the moment it drains, so a burst of large frames
-shares one allocation and a quiet connection holds none.
+A drained spill returns capacity past what its caller says to keep, and a
+stream reader keeps nothing, so a burst of large frames shares one allocation
+and a quiet connection holds none.
 
-**All three inbound consumers share the one type.** `pumpOver` (the peer-driving
+**Every inbound consumer shares the one type.** `pumpOver` (the peer-driving
 connection), `readFrameFrom`/`FrameStream` (the peer-less frame boundary the C
-ABI sits on), and the completion loop all hold a `net.Spill` and decode from
+ABI sits on), and the completion loop all hold a `foundation.Spill` and decode from
 `spill bytes when active, read buffer
 otherwise`. The stream-edge hand-off lives
 in one shared function (`fillThroughSpill`), keeping the ADR-0030 property that
@@ -86,8 +87,11 @@ small buffers regardless of the negotiated cap.
   buffer the caller thought they sized, and never shrinks back.
 - **Retain spill capacity for the connection's lifetime.** Rejected: one large
   frame would pin `max_frame_bytes` of memory forever, recreating the problem
-  the spill solves; free-on-drain keeps the steady state honest and a burst
-  still shares one allocation.
+  the spill solves. What a drained spill keeps is the caller's to name, and a
+  stream reader keeps nothing; a burst still shares one allocation. The
+  byte-fed host tier names a small steady size instead, which is a different
+  thing from pinning a burst: straddling a chunk boundary is its ordinary
+  traffic rather than its exception.
 - **Read directly into the spill once active.** Rejected for now: it would
   duplicate the stream-edge classification (`fillStep`) that
   graceful-vs-truncated EOF depends on, to save one bounded copy on the rare
@@ -95,8 +99,9 @@ small buffers regardless of the negotiated cap.
 
 ## Consequences
 
-- `net` gains `Spill` and `fillThroughSpill`; `pumpOver` and `readFrameFrom`
-  take the caller's spill; `FrameStream.initStream` takes the allocator that
+- `foundation` gains `Spill`; `net` gains `fillThroughSpill` and the
+  reader-shaped `absorbFrom` the core cannot hold; `pumpOver` and
+  `readFrameFrom` take the caller's spill; `FrameStream.initStream` takes the allocator that
   owns its spill (and `readFrame` drops its allocator parameter so the two
   cannot diverge).
 - The C-ABI endpoint and the completion loop allocate 16 KiB steady read

@@ -1,113 +1,54 @@
 ---
 .title = "What you can depend on",
-.description = "Which parts of pancake are proven and which are not — transports, bindings, codecs, and the C ABI under them, each rated with the evidence behind it.",
+.description = "The recurring evidence behind pancake's protocol, transports, bindings, and platforms.",
 .date = @date("2026-07-25T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-pancake is one library with a lot of surface: five transports, four language
-bindings, two codecs, and a C ABI under all of them. Those pieces are not
-equally proven, and saying so plainly is more useful than a single badge would
-be.
+pancake has no stable release yet. This table says what runs on every push,
+whether that check crosses into code maintained outside the project, and what
+it still leaves open. It is evidence, not a compatibility or security promise.
 
-Every pluggable piece gets a support tier. A tier is not a judgement about how
-finished the code looks. It answers one question: what runs automatically to
-prove this still works, and who wrote the thing it is proved against?
+## Evidence by surface
 
-## The tiers
+| Surface | Evidence on every push | What remains |
+| --- | --- | --- |
+| Protocol core | The upstream OCapN suite and a live Goblins peer exercise model, session, engine, calls, promises, and all three handoff roles. | Community review lists the exact outside-peer gaps. |
+| Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
+| Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads pancake's hand-written format. |
+| `tcp` | The OCapN and Goblins checks use it for live sessions. | The channel is cleartext. |
+| `iroh` | `iroh-interop` and the relay checks use real iroh endpoints and its QUIC stack. | Both CapTP peers are pancake; two-NAT hole-punching is not in CI. |
+| `keyed-tcp` and `inproc` | In-tree restart, refusal, and end-to-end netlayer tests run under `check`. | No outside peer speaks these transport symbols; `inproc` is test-only. |
+| `webrtc` | Rust sidecar tests cover queue progress, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. | The readiness-driven native DataChannel, browser, and signaling-mesh checks are manual rather than CI runs; generic Host adoption and handoff redemption are not built. |
+| C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. | There is no independent C consumer; live binding proofs still pass through this ABI. |
+| Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client and in both handoff roles. | Only Deno has a live check in which Goblins dials the binding. |
+| TypeScript on Bun | `bun-dogfood` exercises the shared TypeScript source against pancake. | No Bun-native Goblins check runs. |
+| Native Zig driver and actor layer | Front-door session, host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are pancake-native APIs with no outside implementation to compare. |
+| Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes pancake's outbound GC or binding finalizers. |
+| Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The outside-peer proof does not run through the Python, Rust, or Racket relays. |
+| CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
+| Browser WebAssembly | JavaScript-to-Wasm handshake and ABI checks run in CI. | Real Chromium peer, WebRTC, and cold-dial scenarios are manual checks. |
+| Linux | The full CI sequence runs on Linux. | No claim is made for untested kernel or architecture combinations. |
+| macOS | Cross-compilation checks the library and kqueue backend. | Nothing executes on macOS in CI. |
+| Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
+| Hostile-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, sessions, handoff, locators, the host, actors, and persistent collections. | The per-push fuzz budget is shallow, and most assertions are written by pancake. |
 
-**Tier 1 — proved against somebody else's code, on every push.** At least one
-check behind the row talks to an implementation this project does not control:
-the upstream OCapN test suite (`zig build ocapn-conformance`), a live
-[Spritely Goblins](https://spritely.institute/goblins/) peer
-(`zig build goblins-interop`), the upstream Syrup encoder, or a real
-[iroh](https://www.iroh.computer/) network. `zig build check-external` runs
-the whole set. If pancake drifts from the specification, one of them notices
-without anyone remembering to look.
+Outside evidence is useful only for the boundary it crosses. A live iroh
+endpoint checks the transport stack, not agreement with another CapTP
+implementation. A live Goblins session checks protocol interop, not API
+stability.
 
-**Tier 2 — proved on every push, against pancake's own code.** The checks run
-automatically and catch a break before it ships, but every party to them is
-pancake. They prove the pieces agree with each other, not that the whole agrees
-with the specification.
+The detailed outside-peer matrix is in
+[community review](https://github.com/jimisaacs/pancake/blob/main/docs/community-review.md).
+The evidence is current only when the
+[checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml)
+is green for the commit you are evaluating. The
+[repository page](https://github.com/jimisaacs/pancake/blob/main/docs/stability.md)
+lists the exact checks that run.
 
-**Tier 3 — a proof exists, but nothing runs it for you.** There is a real check
-in the tree and you can run it yourself. Expect the surface to work; do not
-expect a regression to be noticed quickly.
-
-## Where things stand
-
-This table is held identical to the one in
-[docs/stability.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/stability.md)
-by a build check, and that file carries the evidence behind every row.
-
-| Piece | Tier |
-| --- | --- |
-| The protocol core (model, codec, session, engine) | 1 |
-| Syrup codec | 1 |
-| `tcp` transport | 1 |
-| `iroh` transport | 1 |
-| Cap'n Proto codec | 2 |
-| `keyed-tcp` and `inproc` transports | 2 |
-| The actor layer and the persistent map (its snapshot store) | 2 |
-| The Rust, TypeScript (Deno), Python, and Racket bindings | 1 |
-| The TypeScript binding on Bun | 2 |
-| C ABI | 2 |
-| The relay, in all four runtimes | 2 |
-| `webrtc` transport | 3 |
-| Browser (`wasm32`) | 2 |
-| macOS | 3 |
-| Windows | not implemented |
-| Mutation fuzzing | 2 |
-
-These tiers describe the checks configured in the mirror workflow. They are
-current evidence only when that
-[workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml) is
-green for the commit you are looking at.
-
-A word on two rows: Deno, Python, Rust, and Racket outrank the C ABI they
-sit on because each runs a live Goblins conversation. Bun runs the shared
-TypeScript source against pancake but not against Goblins.
-
-`zig build fuzz` runs coverage-guided mutation fuzzing on every push, over every
-surface that takes bytes somebody else chose. That means both codecs, from the framer that finds a
-frame's edges to the decoder that reads it. It means the whole inbound path,
-from stream bytes to the events an application sees. It means the byte-fed host
-at read boundaries the fuzzer picks, and blocking reads through the spill that
-carries a frame across two of them. It means handoff parsing and locator
-parsing. Anything it finds becomes a saved input that the ordinary test
-suite replays from then on.
-
-Most of it looks for more than crashes. A decoded message has to survive being
-re-encoded and decoded again unchanged, which catches a codec that reads a frame
-differently from how it writes one. A session has to keep every table inside the
-limit it declares, checked after each step against caps deliberately set low
-enough to cross, because a table growing past its bound is a partner exhausting
-your memory without anything ever crashing.
-
-Caveats: each target searches on its own, and a run's own counter has to
-advance for it to count, so a target that stops working fails the sweep by
-name rather than hiding behind the others. The per-push budget is a standing
-sweep, not a deep search. And it has found nothing yet, which you can read
-either way.
-
-The [full page in the repository](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/stability.md)
-names, for every row, the exact checks behind its tier and the work that would
-raise it. A build check compares its list of what runs on every push against
-the continuous-integration script itself, so a tier cannot quietly outlive the
-proof it rests on.
-
-## What a tier is not
-
-It is not an API promise. No type, function, or wire detail here is frozen, and
-no version carries a compatibility guarantee.
-
-It is not a security claim. Unreviewed code is unreviewed code at every tier,
-and [SECURITY.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/SECURITY.md)
-is where that conversation belongs.
-
-If you are evaluating pancake and one of these tiers matters to you, say so on
-the [issue tracker](https://codeberg.org/jimisaacs/pancake/issues). A surface
-with a user gets its proof wired in first, and
-[Project &amp; status]($link.page('project')) maps where the whole climb stands.
+For feature coverage, read
+[what ships](https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md).
+For consequences that may change a deployment, read
+[known limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md).

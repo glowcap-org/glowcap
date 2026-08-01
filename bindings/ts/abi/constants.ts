@@ -3,7 +3,7 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // The target-independent half of the TypeScript ABI mirror: the constant
-// values from the libpancake_ocapn, libpancake_driver, and
+// values from the libpancake_ocapn, libpancake_host, and
 // libpancake_net_transport_iroh Zig declarations.
 // These are the same on every target, so they own one home here, the
 // @pancake/abi package, and both the native stack binding and the wasm32
@@ -19,6 +19,7 @@ export const WOULD_BLOCK = -7;
 export const CLOSED = -8;
 export const IO = -9;
 export const BUFFER_TOO_SMALL = -16;
+export const NOT_FOUND = -15;
 export const UNSUPPORTED_VALUE = -13;
 export const BROKEN = -14;
 export const TIMEOUT = -17;
@@ -52,13 +53,12 @@ export const IROH_EV_READABLE = 1;
 export const IROH_EV_WRITABLE = 2;
 export const IROH_EV_CLOSED = 4;
 export const IROH_EV_ACCEPT = 8;
-export const REF_NEAR = 0;
-export const REF_FAR = 1;
-export const REF_PROMISE = 2;
-export const REF_STURDY = 3;
-export const REF_BROKEN = 4;
-export const REF_SUB_OBJECT = 0;
-export const REF_SUB_PROMISE = 1;
+export const IROH_EV_CONNECT = 16;
+export const WEBRTC_EV_OPEN = 1;
+export const WEBRTC_EV_CANDIDATE = 2;
+export const WEBRTC_EV_READABLE = 4;
+export const WEBRTC_EV_WRITABLE = 8;
+export const WEBRTC_EV_CLOSED = 16;
 export const ARG_INTEGER = 0;
 export const ARG_FLOAT64 = 1;
 export const ARG_BOOLEAN = 2;
@@ -74,12 +74,9 @@ export const ARG_KEYWORD = 11;
 export const ARG_BIG_INTEGER = 12;
 export const CODEC_SYRUP = 0;
 export const CODEC_CAPNP = 1;
-export const CAPTP_VERSION_V1_0 = 0;
-export const CAPTP_VERSION_NEXT = 1;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
-export const REDEEMED_TOKEN_BASE = 1152921504606846976n;
 
 // ── Wasm layout-descriptor manifest (pancake_wasm_abi_layout) ────────────
 // Struct index i of the wasm32 module's layout descriptor is row i here;
@@ -90,7 +87,7 @@ export const REDEEMED_TOKEN_BASE = 1152921504606846976n;
 // target; only the offset numbers are target-specific.
 export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "MANAGED_FRAME", fields: ["BYTES", "LEN", "SHAPE", "RELEASE", "PRIVATE_DATA"] },
-	{ prefix: "REF", fields: ["KIND", "SUB_KIND", "ID"] },
+	{ prefix: "REF", fields: ["ID"] },
 	{ prefix: "ARG", fields: ["KIND", "BOOLEAN", "INTEGER", "FLOAT64", "BYTES", "BYTES_LEN", "REFERENCE", "ITEMS", "ITEMS_LEN"] },
 	{ prefix: "FRAME", fields: ["BYTES", "LEN", "SHAPE"] },
 	{ prefix: "LAST_ABORT", fields: ["DOMAIN", "HAS_KIND", "KIND_NAME", "KIND_NAME_LEN", "MESSAGE", "MESSAGE_LEN", "ERROR_NAME", "ERROR_NAME_LEN"] },
@@ -100,4 +97,15 @@ export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "DIAL_PLAN", fields: ["SHAPE", "HOST", "HOST_LEN", "PORT", "ADDRESSES", "ADDRESSES_LEN", "REACH_KIND", "REACH_VALUE"] },
 	{ prefix: "ACCEPT_PLAN", fields: ["DESIGNATOR", "DESIGNATOR_LEN", "DIRECT_ADDRESSES_HINT", "DIRECT_ADDRESSES_HINT_LEN"] },
 	{ prefix: "PENDING_DIAL", fields: ["TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINT", "HINT_LEN"] },
+	{ prefix: "PARTNER_IDENTITY", fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN"] },
+] as const;
+
+// Layout prefixes that exist only in native archives the wasm32 module
+// never links (a browser has no iroh sidecar to link). A wasm
+// marshaller must never read these; the layout check requires every
+// other 64-bit prefix to have a manifest row above, and refuses a
+// prefix listed here that gains one.
+export const NATIVE_ONLY_LAYOUT_PREFIXES = [
+	"IROH_READY_EVENT",
+	"WEBRTC_READY_EVENT",
 ] as const;

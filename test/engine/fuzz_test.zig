@@ -1,7 +1,7 @@
 //! Hostile-bytes fuzzing of the whole inbound path, against live session state.
 //!
 //! The codec fuzzers next door stop at decode. This one starts where a socket
-//! does: bytes go into `Peer.applyStreamPrefix`, which finds frame boundaries,
+//! does: bytes go into `Peer.recvStreamPrefix`, which finds frame boundaries,
 //! decodes, runs session validation, applies to the session tables, and surfaces
 //! events. Every layer the protocol has is downstream of that call.
 //!
@@ -170,7 +170,7 @@ fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
     while (from.takeOutbound()) |frame_in| {
         var frame = frame_in;
         defer frame.deinit();
-        _ = to.applyStreamPrefix(frame.bytes()) catch return;
+        _ = to.recvStreamPrefix(frame.bytes()) catch return;
         drainApplication(to) catch return;
     }
 }
@@ -183,7 +183,7 @@ fn inject(peer: *engine.Peer, bytes: []const u8) !void {
     @memcpy(scratch[0..valid], bytes[0..valid]);
 
     while (valid > 0) {
-        const outcome = peer.applyStreamPrefix(scratch[0..valid]) catch {
+        const outcome = peer.recvStreamPrefix(scratch[0..valid]) catch {
             // A refusal is a legitimate answer to hostile bytes; the session is
             // condemned and there is nothing further to apply.
             try drainApplication(peer);

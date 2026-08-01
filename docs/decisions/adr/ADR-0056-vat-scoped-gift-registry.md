@@ -1,14 +1,21 @@
 ---
 id: ADR-0056
-status: accepted
+status: superseded
 date: 2026-06-11
 tags: [handoff, three-party, gift-registry, engine, session]
 decision: "The vat-scoped `engine.bootstrap.GiftRegistry` is the single gift and handoff-count authority. The session's gift tables and gift methods are deleted; every `Peer` owns a private registry and a host serving several direct sessions to one vat shares one across its peers. Re-depositing a gift id replaces the prior row (replay stays blocked by the monotonic handoff count). A `withdraw-gift` whose gift has no live deposit parks on the peer and settles once the deposit lands. The registry carries no lock: the engine is externally synchronized, and a host that shares a registry across threads owns the locking."
 supersedes: [ADR-0009]
-superseded_by: []
+superseded_by: [ADR-0100]
+amends: []
+amended_by: [ADR-0096]
 ---
 
 # ADR-0056 Vat-scoped gift registry is the single handoff authority
+
+> Superseded by [ADR-0100](ADR-0100-session-owned-handoff-authority.md). The
+> cross-session premise here was wrong: the Exporter resolves the still-live
+> Gifter–Exporter session and reads that session's gift table, as OCapN and
+> Goblins specify. This record remains the history of the displaced design.
 
 ## Context
 

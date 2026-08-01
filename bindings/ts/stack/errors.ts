@@ -5,7 +5,7 @@
 // guards stay package-internal.
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { readErrorSlot } from "./internal/seam.ts";
 import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_SESSION, BROKEN, OK } from "@pancake/abi";
 

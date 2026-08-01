@@ -1,33 +1,37 @@
 //! WebRTC DataChannel transport: a peer-to-peer channel for keyed OCapN
 //! sessions. Unlike TCP or iroh, there is no dialable address — the channel is
 //! established by an SDP signaling exchange (offer, answer, ICE candidates).
-//! Callers drive the signaling directly through this file's `Peer` struct, then
-//! run the session bytes over the open DataChannel.
+//! A `Resident` owns the shared sidecar runtime and readiness fd. Callers create
+//! `Peer`s from it, drive signaling directly, then run session bytes over the
+//! open DataChannel through either the explicit blocking connection or try-I/O.
 //!
-//! The byte path mirrors every other transport: the sidecar connection is
-//! presented as a `*std.Io.Reader` / `*std.Io.Writer` pair, pinned so the
-//! vtable can recover the concrete reader and writer by field offset.
+//! The readiness path owns channel progress and non-blocking byte I/O. The
+//! explicit blocking path presents the same channel as a pinned
+//! `*std.Io.Reader` / `*std.Io.Writer` pair for `BlockingSession`.
 //!
 //! ## Usage sequence
 //!
-//! 1. `Peer.init(is_offerer)` — create a sidecar peer in one of the two roles
-//! 2. Signaling exchange: `createOffer` / `createAnswer`, `setRemoteOffer` /
-//!    `setRemoteAnswer`, `addRemoteCandidate` / `nextLocalCandidate` both ways
-//! 3. `waitOpen` — block until the data channel opens
-//! 4. `connection()` — present the channel as a `net.Connection` the session runs
-//!    over, or `read`/`write` directly for the byte-fed C ABI path
+//! 1. Call `Resident.init()`, register `Resident.readinessFd`, then create a peer
+//!    in one signaling role with `resident.newPeer(is_offerer)`.
+//! 2. Submit offers, answers, and remote candidates outside the reactor turn;
+//!    peer creation and signaling submissions are synchronous control calls.
+//! 3. When the fd wakes, call `Resident.drainReady` and route each record by its
+//!    stable `PeerId`. Drain local candidates on `ev_candidate`; call `checkOpen`
+//!    on `ev_open` and stop on `ev_closed`. A blocking owner can use
+//!    `Resident.pollReady`, which performs the same ordered drain.
+//! 4. Once open, use `tryRead` / `tryWrite` from that readiness loop, or call
+//!    `connection()` to present the channel as a blocking `net.Connection`.
 //!
 //! ## Dial posture
 //!
-//! `Resident.dial()` and `listen()` return `error.InvalidAddress`: a bare webrtc
-//! locator names no address, so a channel only opens through a signaling
-//! exchange. The dial classifier still recognizes the transport symbol and
-//! validates the key designator — `driver_core.planDial` returns
+//! A `Resident` deliberately has no `dial` or `listen`: a bare WebRTC locator
+//! carries no signaling authority. The dial classifier still recognizes the
+//! transport symbol and validates the key designator. `driver_core.planDial` returns
 //! `DialPlan.signaling`, and `PANCAKE_DIAL_SHAPE_SIGNALING` ships in every
 //! binding's constants table. The resident compiles and type-checks under
-//! `zig build check` but is not registered as a `Netlayer`. A peer reaches
-//! another over webrtc today by redeeming a handoff give, which carries the
-//! signaling reference the bare locator lacks (`zig build webrtc-handoff`).
+//! `zig build check` but is not a `Netlayer`. Today a caller must drive signaling
+//! and adopt the resulting channel explicitly; generic Host dialing and handoff
+//! redemption over WebRTC remain roadmap work.
 //!
 //! ## Sidecar posture
 //!
@@ -46,32 +50,43 @@ const net = @import("net");
 const Io = std.Io;
 const Connection = net.Connection;
 const Buffers = net.netlayer.Buffers;
-const Netlayer = net.netlayer.Netlayer;
 
 /// The transport symbol this resident signs into `op:start-session`. The dial
 /// classifier recognizes it; the resident is not registered as a `Netlayer`
 /// (see "Dial posture" above).
 pub const transport_name = model.transport.webrtc;
 
+/// WebRTC locators name peers by keyed-session identity even though this
+/// resident intentionally exposes no address-based `Netlayer` vtable.
+pub const designator_scheme: net.netlayer.DesignatorScheme = .key;
+
 /// The peer's Ed25519 designator length, the same key width keyed-tcp and iroh
 /// name their peers by.
 pub const designator_len = foundation.crypto.PeerKey.designator_len;
 
 // ── Sidecar C ABI (transports/webrtc/src/lib.rs) ─────────────────────────────
-// One opaque handle is both endpoint and connection: a WebRTC peer owns exactly
-// one data channel, so there is no separate connection type.
+// The endpoint owns the shared runtime and readiness namespace. Each peer owns
+// exactly one data channel, so there is no separate connection handle.
 
 const CPeer = opaque {};
+const CEndpoint = opaque {};
 
-extern fn pancake_webrtc_sidecar_peer_new(is_offerer: i32) ?*CPeer;
+extern fn pancake_webrtc_sidecar_endpoint_new() ?*CEndpoint;
+extern fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const CEndpoint) i32;
+extern fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
+extern fn pancake_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) void;
+extern fn pancake_webrtc_sidecar_peer_new(endpoint: *CEndpoint, is_offerer: i32) ?*CPeer;
 extern fn pancake_webrtc_sidecar_peer_create_offer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
 extern fn pancake_webrtc_sidecar_peer_create_answer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
 extern fn pancake_webrtc_sidecar_peer_set_remote(peer: *CPeer, sdp: [*]const u8, sdp_len: usize, is_offer: i32) i32;
 extern fn pancake_webrtc_sidecar_peer_add_remote_candidate(peer: *CPeer, cand: [*]const u8, cand_len: usize) i32;
 extern fn pancake_webrtc_sidecar_peer_next_local_candidate(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
-extern fn pancake_webrtc_sidecar_peer_wait_open(peer: *CPeer, timeout_ms: u64) i32;
+extern fn pancake_webrtc_sidecar_peer_id(peer: *const CPeer) usize;
+extern fn pancake_webrtc_sidecar_peer_is_open(peer: *const CPeer) i32;
 extern fn pancake_webrtc_sidecar_conn_read(peer: *CPeer, buf: [*]u8, len: usize) isize;
 extern fn pancake_webrtc_sidecar_conn_write(peer: *CPeer, buf: [*]const u8, len: usize) isize;
+extern fn pancake_webrtc_sidecar_conn_try_read(peer: *CPeer, buf: [*]u8, len: usize) isize;
+extern fn pancake_webrtc_sidecar_conn_try_write(peer: *CPeer, buf: [*]const u8, len: usize) isize;
 extern fn pancake_webrtc_sidecar_conn_close(peer: *CPeer) void;
 extern fn pancake_webrtc_sidecar_peer_free(peer: *CPeer) void;
 
@@ -80,6 +95,23 @@ extern fn pancake_webrtc_sidecar_peer_free(peer: *CPeer) void;
 const rc_ok: i32 = 0;
 const rc_would_block: i32 = -2;
 const rc_buffer_too_small: i32 = -3;
+
+pub const ev_open: u32 = 1;
+pub const ev_candidate: u32 = 2;
+pub const ev_readable: u32 = 4;
+pub const ev_writable: u32 = 8;
+pub const ev_closed: u32 = 16;
+
+/// One resident readiness record. `subject` is a stable, nonzero `PeerId`
+/// minted by that resident and never reused during its lifetime.
+pub const ReadyEvent = extern struct {
+    subject: usize,
+    events: u32,
+};
+
+pub const PeerId = enum(usize) {
+    _,
+};
 
 // ── The byte path: sidecar connection as a pinned Reader/Writer ───────────────
 
@@ -126,10 +158,9 @@ const WebrtcStream = net.netlayer.PinnedStream(ConnSource, StreamContext);
 /// one. `SignalFailed` is any other sidecar refusal.
 pub const SignalError = error{ SignalFailed, BufferTooSmall };
 
-/// One WebRTC peer: the sidecar handle for its connection and its single data
-/// channel, plus the `std.Io` the connection reads and writes through. The
-/// caller creates a `Peer`, drives the signaling exchange to bring the channel
-/// up, then turns it into a `Connection` a keyed session runs over.
+/// One WebRTC peer: the sidecar handle for its connection and single data
+/// channel. The caller creates a `Peer`, drives the signaling exchange to bring
+/// the channel up, then uses try-I/O or turns it into a blocking `Connection`.
 pub const Peer = struct {
     peer: *CPeer,
 
@@ -137,12 +168,19 @@ pub const Peer = struct {
 
     /// Create a peer in one of the two signaling roles. The offerer creates the
     /// data channel and produces the SDP offer; the answerer receives the
-    /// channel and produces the answer. The byte-fed path (the C ABI and
-    /// bindings) reads and writes session bytes directly with `read` / `write`;
-    /// a `net.Connection` consumer passes its `std.Io` to `connection`.
-    pub fn init(is_offerer: bool) InitError!Peer {
-        const peer = pancake_webrtc_sidecar_peer_new(@intFromBool(is_offerer)) orelse return error.PeerCreateFailed;
+    /// channel and produces the answer. The readiness path reads and writes
+    /// session bytes with `tryRead` / `tryWrite`; a blocking `net.Connection`
+    /// consumer passes its `std.Io` to `connection`.
+    fn init(resident: *Resident, is_offerer: bool) InitError!Peer {
+        const peer = pancake_webrtc_sidecar_peer_new(resident.endpoint, @intFromBool(is_offerer)) orelse return error.PeerCreateFailed;
         return .{ .peer = peer };
+    }
+
+    /// Stable resident-scoped identity carried by `ReadyEvent.subject`.
+    pub fn id(self: *const Peer) PeerId {
+        const raw = pancake_webrtc_sidecar_peer_id(self.peer);
+        std.debug.assert(raw != 0);
+        return @enumFromInt(raw);
     }
 
     /// Close the data channel and connection without freeing the handle,
@@ -152,8 +190,8 @@ pub const Peer = struct {
         pancake_webrtc_sidecar_conn_close(self.peer);
     }
 
-    /// Free the sidecar peer, closing the channel and shutting down its runtime.
-    /// Call after the `Connection` this peer minted is closed.
+    /// Free the sidecar peer and release its reference to the resident's shared
+    /// runtime. Call after the `Connection` this peer minted is closed.
     pub fn deinit(self: *Peer) void {
         pancake_webrtc_sidecar_peer_free(self.peer);
         self.* = undefined;
@@ -212,16 +250,22 @@ pub const Peer = struct {
         };
     }
 
-    /// Block until the data channel opens, or `timeout_ms` elapses. Returns true
-    /// once open.
-    pub fn waitOpen(self: *Peer, timeout_ms: u64) bool {
-        return pancake_webrtc_sidecar_peer_wait_open(self.peer, timeout_ms) == rc_ok;
+    /// Non-blocking channel-open check. A false result means wait for an
+    /// `ev_open` or `ev_closed` readiness record and retry.
+    pub const OpenError = error{ WouldBlock, Closed };
+
+    pub fn checkOpen(self: *const Peer) OpenError!void {
+        return switch (pancake_webrtc_sidecar_peer_is_open(self.peer)) {
+            rc_ok => {},
+            rc_would_block => error.WouldBlock,
+            else => error.Closed,
+        };
     }
 
     /// Present the open data channel as a `Connection` a keyed session runs over,
     /// reading and writing through `io`, with `bufs` sizing its reader and
-    /// writer. Call after `waitOpen` reports the channel open. The returned
-    /// connection borrows this peer's handle; it must be closed before `deinit`.
+    /// writer. Call after `checkOpen` succeeds. The connection borrows this
+    /// peer's handle and must close before `deinit`.
     pub fn connection(self: *Peer, io: Io, engine_peer: *engine.Peer, bufs: Buffers) std.mem.Allocator.Error!Connection {
         const stream = try WebrtcStream.create(
             engine_peer.allocator,
@@ -233,75 +277,81 @@ pub const Peer = struct {
         return stream.intoConnection(io, engine_peer);
     }
 
-    /// A byte-fed transport error: `Closed` is a clean end of stream, `Failed`
-    /// any other refusal from the sidecar.
-    /// A read observes both a clean end of stream (`Closed`, a zero-length
-    /// sidecar read) and a fault (`Failed`); a write only ever faults.
-    pub const ByteError = error{ Closed, Failed };
-    pub const WriteError = error{Failed};
+    pub const TryByteError = error{ WouldBlock, Closed, Failed };
 
-    /// Blocking read of session bytes into `buf`, returning the count read. The
-    /// byte-fed path the C ABI and bindings drive, without a `net.Connection`.
-    pub fn read(self: *Peer, buf: []u8) ByteError!usize {
-        const n = pancake_webrtc_sidecar_conn_read(self.peer, buf.ptr, buf.len);
+    /// Non-blocking read for readiness owners. `WouldBlock` means re-arm on
+    /// `ev_readable`; `Closed` is clean end of stream.
+    pub fn tryRead(self: *Peer, buf: []u8) TryByteError!usize {
+        const n = pancake_webrtc_sidecar_conn_try_read(self.peer, buf.ptr, buf.len);
         if (n == 0) return error.Closed;
+        if (n == rc_would_block) return error.WouldBlock;
         if (n < 0) return error.Failed;
         return @intCast(n);
     }
 
-    /// Write session bytes, returning the count written (all of `bytes` on
-    /// success, since the sidecar sends the whole slice). The sidecar write
-    /// returns the length or a fault, never a partial or a zero, so a write
-    /// cannot report `Closed`.
-    pub fn write(self: *Peer, bytes: []const u8) WriteError!usize {
-        const n = pancake_webrtc_sidecar_conn_write(self.peer, bytes.ptr, bytes.len);
+    /// Copy a prefix into the bounded sidecar send queue and return immediately.
+    /// Advance by the returned count. `WouldBlock` means re-arm on `ev_writable`
+    /// and retry the remaining slice.
+    pub fn tryWrite(self: *Peer, bytes: []const u8) TryByteError!usize {
+        const n = pancake_webrtc_sidecar_conn_try_write(self.peer, bytes.ptr, bytes.len);
+        if (n == rc_would_block) return error.WouldBlock;
         if (n < 0) return error.Failed;
         return @intCast(n);
     }
 };
 
-// ── Netlayer designator scheme (ADR-0089 phase 4 scaffolding) ────────────────
-// A webrtc peer is named by its Ed25519 key, so its designator scheme is `key`,
-// the same as keyed-tcp and iroh. This vtable declares that fact, which is what
-// arms the driver's dial-side identity pin and what the designator-scheme sync
-// checks against the byte-fed `driver_core.vocab` table. Dialing a `webrtc`
-// locator through the plain netlayer is not wired yet: a channel comes up
-// through a signaling exchange (offer, answer, ICE), not a synchronous dial of a
-// dialable address, so `dial` and `listen` fail closed by design. The signaling
-// capability has landed (ADR-0089 phase 5); what remains is phase 4, the
-// locator's route through the netlayer dispatch. The live path drives a `Peer`
-// and its signaling methods directly, above this seam.
-
-const netlayer_vtable = Netlayer.VTable{
-    .transport_name = transport_name,
-    .designator_scheme = .key,
-    .dial = residentDial,
-    .listen = residentListen,
-};
-
-fn residentDial(ctx: *anyopaque, peer: *engine.Peer, locator: model.PeerLocator, bufs: Buffers) net.netlayer.DialError!Connection {
-    _ = .{ ctx, peer, locator, bufs };
-    // A webrtc locator carries no dialable address; the channel is established
-    // by the signaling exchange, not a synchronous dial (ADR-0089 phase 5).
-    return error.InvalidAddress;
-}
-
-fn residentListen(ctx: *anyopaque, allocator: std.mem.Allocator, config: net.netlayer.ListenConfig) net.netlayer.ListenError!net.netlayer.Listener {
-    _ = .{ ctx, allocator, config };
-    // A webrtc peer opens no listening socket; it is reached through signaling.
-    return error.InvalidAddress;
-}
-
-/// The webrtc netlayer resident. It holds no shared endpoint state today: a
-/// webrtc channel is per-peer and comes up through signaling, not a bound
-/// endpoint. A host that registers it (`netlayer()`) gains locator dispatch for
-/// the `webrtc` transport with the `.key` designator scheme declared above, so a
-/// `webrtc` locator routes here and fails closed with a clear address error
-/// rather than reading as an unknown transport. The actual channel-open is the
-/// signaling exchange (ADR-0089 phase 5); the live phase-2 path drives a `Peer`
-/// directly, above this seam.
+/// The WebRTC netlayer resident: one shared sidecar runtime, readiness fd, and
+/// stable peer-id namespace. It intentionally exposes no `Netlayer`: a bare
+/// `webrtc` locator carries no signaling authority, so generic address-based
+/// dial and listen methods would be false APIs. The host's dial classifier still
+/// identifies the signaling shape; a signaling owner creates peers here.
 pub const Resident = struct {
-    pub fn netlayer(self: *Resident) Netlayer {
-        return .{ .ctx = self, .vtable = &netlayer_vtable };
+    endpoint: *CEndpoint,
+
+    pub const InitError = error{EndpointCreateFailed};
+
+    pub fn init() InitError!Resident {
+        return .{
+            .endpoint = pancake_webrtc_sidecar_endpoint_new() orelse return error.EndpointCreateFailed,
+        };
+    }
+
+    pub fn deinit(self: *Resident) void {
+        pancake_webrtc_sidecar_endpoint_free(self.endpoint);
+        self.* = undefined;
+    }
+
+    pub fn newPeer(self: *Resident, is_offerer: bool) Peer.InitError!Peer {
+        return Peer.init(self, is_offerer);
+    }
+
+    /// Borrowed, read-only OS readiness fd. Register it once and call
+    /// `drainReady` whenever it wakes; the resident owns it until `deinit`.
+    pub fn readinessFd(self: *const Resident) i32 {
+        return pancake_webrtc_sidecar_endpoint_readiness_fd(self.endpoint);
+    }
+
+    /// Clear the fd's coalesced wake bytes, then drain stable peer-id records.
+    /// Owning that order here makes a lost-wakeup ordering error unavailable to
+    /// callers. A concurrent signal either joins this drain or leaves its wake
+    /// byte for the next poll.
+    pub fn drainReady(self: *const Resident, out: []ReadyEvent) error{ReadinessFailed}!usize {
+        const count = pancake_webrtc_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
+        if (count < 0) return error.ReadinessFailed;
+        return @intCast(count);
+    }
+
+    /// Park on the readiness fd for at most `timeout_ms`, then perform the same
+    /// ordered wake-byte and record drain as `drainReady`. This is the blocking
+    /// embedding helper; reactors register `readinessFd` and call `drainReady`
+    /// from their own poller instead.
+    pub fn pollReady(self: *const Resident, out: []ReadyEvent, timeout_ms: i32) error{ReadinessFailed}!usize {
+        const fd = self.readinessFd();
+        if (fd < 0) return error.ReadinessFailed;
+        var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+        const ready = std.posix.poll(&fds, timeout_ms) catch return error.ReadinessFailed;
+        if (ready == 0) return 0;
+        if (fds[0].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) == 0) return error.ReadinessFailed;
+        return self.drainReady(out);
     }
 };

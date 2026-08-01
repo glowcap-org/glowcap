@@ -94,8 +94,8 @@ both, including the escapes that shaped it.
   deadline hang-proof, in-process listen/call adapter), run by
   `zig build cli-test` (also part of `check`); not wired through `all_test`
   because the product binary lives outside `src/`. CapTP dials in this tree
-  pass a finite `handshake_timeout_ms`; unbounded (`0`) is a hang, not a slow
-  test — see the [cli rule](cli.md). Product-adapter proofs use
+  name a finite handshake budget; `.unbounded` is a hang, not a slow test —
+  see the [cli rule](cli.md). Product-adapter proofs use
   `cli/test_api.zig` in-process; ad-hoc live CapTP in an agent session is the
   product binary via the [pancake-cli skill](../skills/pancake-cli/SKILL.md).
   Do not invent a parallel Zig dialer outside `cli/` / `test/cli/`. A shell
@@ -114,6 +114,10 @@ both, including the escapes that shaped it.
   declaration, so an unreferenced public API cannot rot unanalyzed.
 - `bindings/rust`: Rust C ABI consumer smoke tests, run by
   `zig build rust-dogfood`.
+- `bindings/proofs`: hermetic per-binding proof families — one scenario per
+  family, run once per binding, every peer pancake. Authority is the C ABI
+  contract, never interop; the Rust client of each family lives in
+  `bindings/rust/examples/` because Cargo compiles examples there.
 
 External conformance lives outside `test/`: the arbiters in
 [`conformance/`](../../conformance/README.md) and the cross-implementation

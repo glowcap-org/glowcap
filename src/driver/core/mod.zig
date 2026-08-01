@@ -11,6 +11,7 @@
 const served = @import("served.zig");
 const vocab = @import("vocab.zig");
 const host = @import("host.zig");
+const capability = @import("capability.zig");
 const host_action = @import("host_action.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
 const action_drain = @import("action_drain.zig");
@@ -30,18 +31,24 @@ pub const Publish = served.Publish;
 
 // The byte-fed multi-session CapTP host core (ADR-0072): the node's decisions
 // executed with no socket (see `host.zig`). `driver.Bridge` and
-// the C ABI's `libpancake_driver` are its embedders.
+// the C ABI's `libpancake_host` are its embedders.
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
 pub const HostAction = host_action.HostAction;
 pub const CrossedHellos = crossed_hellos.CrossedHellos;
 pub const HostError = host.HostError;
+pub const EnlivenPeerPolicy = host.EnlivenPeerPolicy;
+pub const PeerProvenance = host.PeerProvenance;
+pub const EnlivenStart = host.EnlivenStart;
+pub const HostRef = capability.Ref;
 
 pub const Error = vocab.Error;
+pub const Budget = vocab.Budget;
 pub const SettleCapture = vocab.SettleCapture;
 pub const SettleFlag = vocab.SettleFlag;
 pub const FetchCapture = vocab.FetchCapture;
 pub const Identity = vocab.Identity;
+pub const PartnerIdentity = vocab.PartnerIdentity;
 pub const AcceptIdentity = vocab.AcceptIdentity;
 pub const Vow = vocab.Vow;
 pub const Capability = vocab.Capability;

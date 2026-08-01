@@ -1,6 +1,6 @@
 ---
 .title = "TypeScript",
-.description = "The TypeScript binding: one source across Deno, Bun, and Node, giving the Session and Server API over the pancake C ABI.",
+.description = "The TypeScript binding: one session API across Deno, Bun, and browser WebAssembly.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -8,7 +8,7 @@
 ---
 
 One TypeScript source, three runtimes. `@pancake/stack`
-([`mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts))
+([`mod.ts`](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/stack/mod.ts))
 gives Deno and Bun the `Session` / `Server` API over the pancake C ABI, plus the
 optional `@pancake/iroh` transport that `connect` loads lazily when it sees an
 iroh locator.
@@ -18,14 +18,11 @@ The same source also compiles to WebAssembly as `@pancake/web`, so the same
 [In the browser]($link.page('bindings/browser')) covers how a page reaches its
 peers.
 
-Build the archives with `zig build`, and add `zig build iroh-abi` for the iroh
-snippet.
-Set `PANCAKE_LIB_DIR`, then run with `deno run --allow-ffi --allow-read`, adding
-`--allow-net` and `--allow-env` as needed. One thing the snippets do not show:
-`@pancake/stack` is a workspace member of the checkout, not a published
-package, so run from `bindings/ts` or point an import map at
-`bindings/ts/stack/mod.ts`. Install details:
-[Bindings]($link.page('bindings')).
+`@pancake/stack` is not published yet. Pin a checkout, build the archives, and
+run from `bindings/ts` or point an import map at `bindings/ts/stack/mod.ts`.
+Set `PANCAKE_LIB_DIR` only if the archives are outside `zig-out/lib`. Deno
+needs `--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the
+library path comes from the environment.
 
 ## The same round-trip
 
@@ -40,7 +37,7 @@ holds `serve`'s promise anyway, to observe a clean or faulty shutdown.
 > ```ts
 > import { connect, tcpLocator } from "@pancake/stack";
 >
-> // tcp: the peer is a place, a cleartext host and port.
+> // Plain TCP uses a cleartext host and port.
 > const partner = tcpLocator("127.0.0.1", 9099);
 >
 > const session = await connect(partner);
@@ -61,8 +58,7 @@ holds `serve`'s promise anyway, to observe a clean or faulty shutdown.
 > import { connect } from "@pancake/stack";
 > import { Reachability } from "@pancake/iroh";
 >
-> // iroh reachability: the peer is a key, not a place. Discovery resolves
-> // the bare node id over the open internet; no address in hand.
+> // Discovery resolves a bare iroh node ID without an address hint.
 > const partner = "ocapn://3b6a…da29.iroh";
 >
 > const session = await connect(partner, Reachability.Discovery);
@@ -79,9 +75,8 @@ holds `serve`'s promise anyway, to observe a clean or faulty shutdown.
 > session.close();
 > ```
 
-The iroh snippet differs only in the locator: a bare node id plus the
-`Reachability.Discovery` posture you passed to `connect`. `fetch` and `send` are
-unchanged. For dial-by-id and discovery, see [iroh]($link.page('transports/iroh')).
+The iroh tab needs `@pancake/iroh` and a discovery-reachable node id. The
+session calls stay the same.
 
 The `serve` promise resolves when the session closes cleanly and rejects on a
 transport or protocol error. When the loop ends, every `send` still awaiting a
@@ -110,18 +105,17 @@ fetchable by name, and `serve` dispatches the partner's calls to it.
 > ```ts
 > import { listenIroh, Reachability } from "@pancake/iroh";
 >
-> // iroh reachability: bind a key, not a place. The endpoint publishes its
-> // identity, and partners dial the id from anywhere.
+> // Bind a key, not a place. Partners can dial this node id from anywhere.
 > const server = listenIroh(Reachability.Discovery);
-> console.log(server.uri); // ocapn://<node-id>.iroh?…; hand this to partners
+> console.log(server.uri); // hand this locator to partners
 > for await (const session of server) {
 >   session.publish("greeter", (_verb, args) => `hello, ${args[0]}`);
 >   session.serve().catch(() => {});
 > }
 > ```
 
-Over iroh there is no host and port to bind. `listenIroh` takes that same
-reachability posture, and the server reports its own locator through `server.uri`.
+Over iroh there is no host and port to bind. The server reports its node-id
+locator through `server.uri`.
 
 ## Async
 
@@ -142,14 +136,7 @@ product in [modules]($link.page('modules')), and
 [Concepts]($link.page('concepts')) explains the three-party handoff a giftable
 rides on.
 
-## Binding check and example
-
-```sh
-zig build deno-dogfood    # the Deno consumer against the pancake archives
-zig build bun-dogfood     # the same source, on Bun
-```
-
 The full surface lives in the
-[TypeScript binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/README.md).
+[TypeScript binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/README.md).
 The same source runs under Deno and Bun, and its wasm build is
 [In the browser]($link.page('bindings/browser')).

@@ -1,11 +1,11 @@
-// The application surface over the byte-fed host (libpancake_driver,
+// The application surface over the byte-fed host (libpancake_host,
 // ADR-0072): `Session` and its verbs (`fetch`/`send`/`tell`/`spawn`/
 // `publish`/`enliven`/`serve`/`close`), plus mint/handshake
 // (`establishDialedLocator` / `establishAccepted`). The dial executor and
 // `connect` live in `dial.ts`; Server/`listen` live in `listen.ts`. The
 // `RemotePromise` handle, fetch/enliven mint→await, far-send `sendFar` /
 // `promiseFor`, live in `promise.ts`. Spawn/publish hosting, ADR-0064
-// proxies, and near/far send·tell dispatch live in `trampoline.ts`. The
+// proxies, and Host-reference send·tell dispatch live in `trampoline.ts`. The
 // byte-fed embedder pump — handshake,
 // read raw bytes, feed, drain, flush — lives in `pump.ts`. The host owns
 // everything else: routing, redemption, gift origination, far vows. `mod.ts`
@@ -21,10 +21,8 @@ import {
 	insideTurn,
 	publishHosted,
 	spawnHosted,
-	unregisterBehavior,
 } from "./trampoline.ts";
-import { type AppValue, type Behavior, Ref } from "./value.ts";
-import { parseLocator } from "./locator.ts";
+import { type Argument, type Behavior, Ref, refFromId } from "./value.ts";
 import { Host } from "./host.ts";
 import {
 	fetchLike,
@@ -32,7 +30,7 @@ import {
 	type PromiseFactoryHandle,
 	RemotePromise,
 } from "./promise.ts";
-import { ConnGc } from "./gc.ts";
+import { releaseRef } from "./gc.ts";
 import {
 	flushOutbound as pumpFlushOutbound,
 	lastAbort as pumpLastAbort,
@@ -40,15 +38,35 @@ import {
 	runHandshake,
 	serveLoop,
 } from "./pump.ts";
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, outPointer, readBytes } from "./internal/seam.ts";
+import { ab, outPointer, outU64, readBytes } from "./internal/seam.ts";
 import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, INVALID_ARGUMENT, TIMEOUT } from "@pancake/abi";
+import { CLOSED, INVALID_ARGUMENT, NOT_FOUND, TIMEOUT } from "@pancake/abi";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
+// Decoder for the partner designator, which is text on every transport.
+const utf8Decoder = new TextDecoder();
+
+/** What a CapTP partner proved about itself during the handshake, as
+ * {@link Session.partnerIdentity} returns it.
+ *
+ * The partner signs its whole location record, and these three fields are read
+ * back out of that one verified signature, so the designator and the record are
+ * bound to the session key rather than merely accompanying it. */
+export interface PartnerIdentity {
+	/** The partner's session public key. Always present. */
+	readonly sessionKey: Uint8Array;
+	/** The designator the partner signed, as text: its key in hex on a
+	 * key-designator transport, a `host:port` on an address transport. It is
+	 * `""` when the signed location carried no designator. */
+	readonly designator: string;
+	/** The verbatim location record the key and the designator were read from,
+	 * empty when the handshake captured none. */
+	readonly locatorRecord: Uint8Array;
+}
 
 /** How long a partner has to finish the keyed handshake once the byte channel
  * is open, on both halves: what `connect` allows a dialed partner, and what a
@@ -126,38 +144,24 @@ export class Session {
 	#writing: Promise<void> = Promise.resolve();
 	// Live accessors into the private fields above — what `pump.ts` drives.
 	readonly #pump: PumpHandle;
-	// Export position -> trampoline ctx id for the objects this session
+	// Opaque Host capability id -> trampoline ctx id for objects this session
 	// hosts, so a `Forward` whose target this side hosts composes in process.
-	readonly #hosted = new Map<bigint, bigint>();
-
-	/** True for an exporter session the host's action drain dialed to redeem
-	 * a handoff, so `close()` can sweep it. Binding-internal. */
-	hostDialed = false;
+	readonly #hosted: Map<bigint, bigint>;
+	// Set when this session created the host it runs on, which `connect()` does
+	// when the caller supplies none. Such a host has no other reachable owner,
+	// so closing the session releases it; a caller-supplied host is never
+	// released here, because other sessions may still be using it.
+	ownsHost = false;
 
 	// Distributed GC (ADR-0063), opt-in and off by default — see `gc.ts`.
-	readonly #gc = new ConnGc();
+	#gcEnabled = false;
 
 	private constructor(ptr: Ptr, host: Host, transport: Channel) {
 		this.#ptr = ptr;
 		this.#host = host;
+		this.#hosted = host.hosted;
 		this.#transport = transport;
 		this.#pump = this.#makePump();
-		// deno-lint-ignore no-this-alias -- GcHandle closes over Session `#` fields
-		const s = this;
-		this.#gc.bind({
-			get released() {
-				return s.#released;
-			},
-			get hostRaw() {
-				return s.#host.raw;
-			},
-			kick: () => {
-				void s.#host.kickActions();
-			},
-			scheduleDrain: (run) => {
-				setTimeout(run, 0);
-			},
-		});
 		// Join the host's registry so a FLUSH action can find the transport and
 		// a dialed exporter stays reachable for teardown.
 		host.registerSession(ptr, this);
@@ -169,6 +173,7 @@ export class Session {
 		const s = this;
 		return {
 			deliverOwner: s,
+			deliverHost: s.#host,
 			get ptr() {
 				return s.#ptr;
 			},
@@ -208,7 +213,7 @@ export class Session {
 		const s = this;
 		return {
 			guardOpen: () => s.#guardOpen(),
-			drainGc: () => s.#gc.drainGc(),
+			drainGc: () => s.#host.drainGc(),
 			get ptr() {
 				return s.#ptr;
 			},
@@ -247,7 +252,7 @@ export class Session {
 		return this.#ptr;
 	}
 
-	/** The session's shared host, its retained identity and gift registry.
+	/** The session's shared host, its retained identity and handoff router.
 	 * Shared by every session of one host, so the gifter half of a handoff
 	 * can reach a sibling session's session keys. An application reads it to
 	 * publish host-giftables (`Host.publishGiftable`), share one identity
@@ -417,13 +422,24 @@ export class Session {
 
 	// ── Teardown ────────────────────────────────────────────────────────────────
 
-	/** Close the session and every exporter connection its host dialed for
-	 * handoffs. A running `serve()` resolves cleanly; pending vows settle with
-	 * the typed CLOSED. */
+	/** Close this session's connection and nothing else. A running `serve()`
+	 * resolves cleanly; pending vows settle with the typed CLOSED.
+	 *
+	 * It does not reach a sibling session, and it does not reach the
+	 * connections the host opened by itself to redeem a handoff — the `via`
+	 * from `sendRedeeming()` is one of those. `Host.release()` ends those.
+	 *
+	 * A session that had to make its own host — `connect(locator)` with no host
+	 * passed, the ordinary case — closes that host with it, so single-session
+	 * code needs no host call. */
 	close(): void {
 		this.#closing = true;
-		this.#host.closeExporters();
 		this.closeTransport();
+		// A host this session created has no other owner, so it goes too, and
+		// with it every connection it dialed for redeems. A caller-supplied
+		// host stays: sibling sessions on it are still running, and closing
+		// their exporters from here is not this session's call to make.
+		if (this.ownsHost) this.#host.release();
 	}
 
 	/** Close just this session, without touching the host's other sessions:
@@ -442,13 +458,8 @@ export class Session {
 		if (this.#released) return;
 		this.#released = true;
 		this.#host.unregisterSession(this.#ptr);
-		// The host can never deliver to this session's hosted objects again;
-		// drop their trampoline entries so the registry does not pin dead
-		// behaviors. Host-wide giftables live on the host, untouched here.
-		for (const ctx of this.#hosted.values()) {
-			unregisterBehavior(ctx);
-		}
-		this.#hosted.clear();
+		// Hosted actors belong to the Host Vat; sibling Ports may still carry
+		// their capabilities. Host.release owns the trampoline sweep.
 		const ptr = this.#ptr;
 		this.#ptr = NULL;
 		if (insideTurn()) {
@@ -484,16 +495,16 @@ export class Session {
 			get hosted() {
 				return s.#hosted;
 			},
-			turnOwner: s,
+			hostOwner: s.#host,
 		};
 	}
 
 	/** Spawn a local actor and return a capability to it. The `Ref`
 	 * auto-marshals when passed as a `send` argument, so handing a partner a
 	 * callback is just `send(target, verb, [..., conn.spawn(behavior)])`. The
-	 * position comes from the session's one export allocator, so it can never
-	 * alias a bootstrap or resolver export. Callable from inside a served turn
-	 * (a factory's `create` minting the task it replies with). */
+	 * returned identity is opaque and Host-scoped; wire export positions stay
+	 * inside pancake. Callable from inside a served turn (a factory's `create`
+	 * minting the task it replies with). */
 	spawn(behavior: Behavior): Ref {
 		return spawnHosted(this.#makeHosting(), behavior);
 	}
@@ -503,6 +514,45 @@ export class Session {
 	 * cryptographic secret where the name itself is the authorization. */
 	publish(name: string, behavior: Behavior): Ref {
 		return publishHosted(this.#makeHosting(), name, behavior);
+	}
+
+	/** A {@link Ref} for the object published under `name` on this session, or
+	 * null when nothing is published there.
+	 *
+	 * {@link publish} returns its own `Ref`, so this is for the other publisher:
+	 * {@link Host.publishGiftable} hosts one actor under a Host-wide alias and
+	 * returns nothing. Reading its Host identity lazily projects it onto this
+	 * session so an application can pass it as an ordinary capability argument;
+	 * no enrollment step exists.
+	 *
+	 * A `send` to the returned `Ref` runs the behavior in process rather than over
+	 * the wire, and a giftable registered no session, so `currentSession()` inside
+	 * it is null. Pass it on as a capability argument; a behavior
+	 * written to answer over the connection its call arrived on will not answer a
+	 * local send. */
+	publishedRef(name: string): Ref | null {
+		this.#guardOpen();
+		const bytes = utf8Encoder.encode(name);
+		const out = new Uint8Array(8);
+		const code = driverS.pancake_host_session_published_ref(
+			this.#ptr,
+			ab(bytes),
+			BigInt(bytes.length),
+			ab(out),
+		);
+		if (code === NOT_FOUND) return null;
+		checkHost(code);
+		const ref = refFromId(outU64(out));
+		// Join the host's giftable to the identity this session surfaced, so a
+		// later local send to the returned Ref composes in process. Skipped when the
+		// identity is already known: `publish` on this session recorded its own.
+		if (!this.#hosted.has(ref.id)) {
+			const ctx = this.#host.giftableCtx(name);
+			if (ctx !== undefined) {
+				this.#hosted.set(ref.id, ctx);
+			}
+		}
+		return ref;
 	}
 
 	/** Wrap `target` (local or far) in a revocable caretaker (ADR-0064).
@@ -542,31 +592,25 @@ export class Session {
 			name,
 			driverS.pancake_host_session_fetch,
 		);
-		return this.#gc.trackImport(ref);
+		return this.#gcEnabled ? this.#host.trackGcImport(ref) : ref;
 	}
 
-	/** Enliven a sturdyref against this session (ADR-0012): bring the
-	 * durable `(peer, swissnum)` to life as a live `Ref`. Parses `sturdyref`
-	 * for its swissnum, then fetches it through the host's dedup cache — a
+	/** Enliven a sturdyref against this session (ADR-0098): bring the
+	 * durable `(peer, swissnum)` to life as a live `Ref`. Passes `sturdyref`
+	 * as a complete locator. The host verifies it against this session before
+	 * consulting its dedup cache — a
 	 * repeat enliven of the same swissnum on this session short-circuits with
 	 * no wire traffic (its completion is queued before the minting call
 	 * returns). The session must already be open to the sturdyref's peer;
-	 * the sans-io core tracks no remote locator and never dials. Rejects with
+	 * this session-level call never dials. Rejects with
 	 * `VowBroken` when the partner breaks the enliven, and with `FetchFailed`
 	 * when it fulfills with something that is not a capability. */
-	// `async` so a malformed sturdyref rejects rather than throwing: the parse
-	// below is synchronous, and without this a caller's `.catch` handled a
-	// broken partner but not a broken string — while the sibling `fetch` one
-	// method up rejects on everything.
 	async enliven(sturdyref: string): Promise<Ref> {
-		const swiss = utf8Encoder.encode(
-			parseLocator(sturdyref, true).swissnum,
-		);
 		// Unlike `fetch`, the result is not GC-tracked: the host's dedup cache
 		// owns an enlivened capability, outside the finalizer seam (ADR-0063).
 		return await fetchLike(
 			this.#makeMintAwait(),
-			swiss,
+			utf8Encoder.encode(sturdyref),
 			sturdyref,
 			driverS.pancake_host_session_enliven,
 		);
@@ -590,7 +634,7 @@ export class Session {
 	send(
 		target: Ref | RemotePromise,
 		verb: string,
-		args: AppValue[] = [],
+		args: Argument[] = [],
 	): RemotePromise {
 		// A send that cannot be issued comes back as a failed handle, not a
 		// throw. `send` must return synchronously so a caller can pipeline at
@@ -600,7 +644,7 @@ export class Session {
 		// caller who cleared a dead route in that handler kept using it.
 		try {
 			this.#guardOpen();
-			this.#gc.drainGc();
+			this.#host.drainGc();
 			return dispatchSend(
 				this.#hosted,
 				this.#makePromiseFactory(),
@@ -643,11 +687,12 @@ export class Session {
 	async sendRedeeming(
 		target: Ref | RemotePromise,
 		verb: string,
-		args: AppValue[] = [],
-	): Promise<{ reply: AppValue; via: Session | null }> {
+		args: Argument[] = [],
+	): Promise<{ reply: Argument; via: Session | null }> {
 		this.#guardOpen();
 		const reply = await this.send(target, verb, args);
-		const via = reply instanceof Ref ? this.#host.exporterFor(reply) : null;
+		let via = reply instanceof Ref ? this.#host.exporterFor(reply) : null;
+		if (via === this) via = null;
 		return { reply, via };
 	}
 
@@ -656,9 +701,9 @@ export class Session {
 	 * and none comes back, so it is the right call for a notification or a
 	 * broadcast: it costs one deliver, not a deliver plus a reply. Flushes
 	 * immediately. */
-	async tell(target: Ref, verb: string, args: AppValue[] = []): Promise<void> {
+	async tell(target: Ref, verb: string, args: Argument[] = []): Promise<void> {
 		this.#guardOpen();
-		this.#gc.drainGc();
+		this.#host.drainGc();
 		await dispatchTell(
 			this.#hosted,
 			{
@@ -688,6 +733,75 @@ export class Session {
 		));
 	}
 
+	// ── The partner's proved identity ──────────────────────────────────────────
+
+	/** Read the identity this session's partner proved during the handshake.
+	 *
+	 * A returned identity always means the partner's signature was checked.
+	 * That signature covers the partner's whole location record, so the
+	 * designator is bound to the session key by the same signature: only the
+	 * holder of that key can advertise that designator. This is how a server
+	 * refuses a caller that claims a locator it does not own. Read the
+	 * designator here, compare it against the name the caller claims for
+	 * itself, and refuse the call when the two differ.
+	 *
+	 * It throws while the partner's `op:start-session` has not arrived with a
+	 * key yet, and it throws on a session opened without partner verification,
+	 * because then there is no proved identity to hand back. You cannot read an
+	 * unverified identity through this verb, so you never have to remember to
+	 * ask whether the bytes were checked.
+	 *
+	 * The bytes are copied out of the session, so the returned values are yours
+	 * and stay valid once the session is gone. */
+	partnerIdentity(): PartnerIdentity {
+		this.#guardOpen();
+		const buf = new Uint8Array(L.PARTNER_IDENTITY_SIZE);
+		checkHost(driverS.pancake_host_session_partner_identity(this.#ptr, ab(buf)));
+		// The views the call filled in are session-owned and a later call can
+		// invalidate them, so every field is copied here (`readBytes` owns its
+		// result) before this returns.
+		const dv = new DataView(buf.buffer);
+		const view = (off: number, lenOff: number): Uint8Array =>
+			readBytes(L.getPtr(dv, off), L.getUsize(dv, lenOff));
+		return {
+			sessionKey: view(
+				L.PARTNER_IDENTITY_SESSION_KEY_OFF,
+				L.PARTNER_IDENTITY_SESSION_KEY_LEN_OFF,
+			),
+			designator: utf8Decoder.decode(view(
+				L.PARTNER_IDENTITY_DESIGNATOR_OFF,
+				L.PARTNER_IDENTITY_DESIGNATOR_LEN_OFF,
+			)),
+			locatorRecord: view(
+				L.PARTNER_IDENTITY_LOCATOR_RECORD_OFF,
+				L.PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF,
+			),
+		};
+	}
+
+	/** Whether the partner proved it owns the designator it advertised, which
+	 * is true when that designator is exactly its verified session key written
+	 * in canonical hex.
+	 *
+	 * The comparison lives in the library so that no caller has to re-derive
+	 * it. It answers for a key-designator transport (`keyed-tcp`, `iroh`,
+	 * `webrtc`, and `keyed-relay`), where the key is the name. An address
+	 * transport such as `tcp` names a socket address that the key does not
+	 * determine, so the answer there is false, and false is the correct answer
+	 * rather than a failure.
+	 *
+	 * It throws for the same two reasons {@link partnerIdentity} does: the
+	 * partner's key has not arrived yet, or this session was opened without
+	 * partner verification. */
+	partnerDesignatorIsKey(): boolean {
+		this.#guardOpen();
+		const out = new Uint8Array(4);
+		checkHost(
+			driverS.pancake_host_session_partner_designator_is_key(this.#ptr, ab(out)),
+		);
+		return new DataView(out.buffer).getUint32(0, true) !== 0;
+	}
+
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 
 	/** Opt this session into distributed GC (ADR-0063), off by default. Once
@@ -700,20 +814,42 @@ export class Session {
 	 * result the dedup cache owns) are outside this seam. Returns `this` for
 	 * chaining. */
 	withGc(): this {
-		this.#gc.enable();
+		this.#gcEnabled = true;
 		return this;
+	}
+
+	/** Give a capability back to the partner, now, because this application is
+	 * done holding it.
+	 *
+	 * Releases one application retain. For a remote capability the Host emits
+	 * any required `op:gc-exports`; a local capability needs no wire message.
+	 * {@link withGc} does this too, but only for a {@link fetch} result and
+	 * only when the runtime gets round to it; this is deterministic and works
+	 * for any far capability this session holds, including one lifted from a
+	 * delivered argument or a reply.
+	 *
+	 * `ref` is spent afterwards and every use of it throws. The Host generation
+	 * makes the stale id fail closed; the binding rejects it before crossing the
+	 * ABI.
+	 *
+	 * A reference from another Host, or one already released, is a caller error
+	 * and throws. */
+	release(ref: Ref): void {
+		if (ref.released) {
+			throw new Error("pancake: capability already released");
+		}
+		releaseRef(this.#host.raw, ref);
+		this.#host.disarmGc(ref);
+		ref.markReleased();
 	}
 }
 
 /** The live connection whose inbound call is running right now, or null outside
  * any hosted turn.
  *
- * A behavior published with {@link Host.publishGiftable} is bound to no single
- * session — the same object answers calls that arrive on every connection — so
- * it cannot close over one the way a `Session.spawn`/`Session.publish` actor
- * does. When such a behavior must reply to its caller (send to a reply
- * capability it was handed, or hand back a fresh one), it reads the arriving
- * connection here:
+ * A hosted actor can answer calls arriving through any Port on its Host. When
+ * behavior must reply to its caller (send to a reply capability it was handed,
+ * or hand back a fresh one), it reads the arriving connection here:
  *
  *   host.publishGiftable("dm", (verb, args) => {
  *     const from = String(args[0]), text = String(args[1]);
@@ -726,8 +862,7 @@ export class Session {
  *
  * The reply capability is a far import on the arriving connection, so it must be
  * sent on that same connection. Capture the session synchronously inside the
- * turn (it is null once the turn returns) to reply on a later turn. A
- * session-bound actor already holds its own connection and does not need this. */
+ * turn (it is null once the turn returns) to reply on a later turn. */
 export function currentSession(): Session | null {
 	const s = currentTurnSession();
 	return s instanceof Session ? s : null;

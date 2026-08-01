@@ -22,8 +22,10 @@
 const std = @import("std");
 
 const model = @import("model");
+const engine = @import("engine");
 
 const c = @import("mod.zig");
+const shared = @import("c_abi_shared");
 const ctx = @import("context.zig");
 
 const PancakeLocator = c.PancakeLocator;
@@ -400,4 +402,44 @@ pub export fn pancake_uri_format_sturdyref(
     const rendered = model.uri.writeSturdyref(alloc, sturdyref) catch |err| return writeErrToCode(err);
     defer alloc.free(rendered);
     return copyOut(rendered, out, cap, out_len);
+}
+
+/// Encode the verbatim `<ocapn-peer>` record embedded in a signed handoff
+/// locator. `direct_addresses`, when non-empty, becomes the comma-separated
+/// `direct-addresses` hint. The result is owned and must be released with
+/// `pancake_locator_record_bytes_release`.
+pub export fn pancake_locator_record_encode(
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    direct_addresses: ?[*]const u8,
+    direct_addresses_len: usize,
+    out: ?*?[*]u8,
+    out_len: ?*usize,
+) i32 {
+    const out_slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const out_len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
+    const transport_slice = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
+    const designator_slice = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
+    const addrs = if (direct_addresses) |ptr| ptr[0..direct_addresses_len] else &.{};
+    var entries_buf: [1]model.HintEntry = undefined;
+
+    const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, .{
+        .transport = transport_slice,
+        .designator = designator_slice,
+        .hints = model.Hints.forDirectAddresses(addrs, &entries_buf),
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return PANCAKE_ERR_INTERNAL,
+        else => return c.PANCAKE_ERR_CODEC,
+    };
+    out_slot.* = bytes.ptr;
+    out_len_slot.* = bytes.len;
+    return PANCAKE_OK;
+}
+
+/// Release bytes returned by `pancake_locator_record_encode`. NULL is a no-op.
+pub export fn pancake_locator_record_bytes_release(bytes: ?[*]u8, len: usize) void {
+    const ptr = bytes orelse return;
+    ctx.library_allocator.free(ptr[0..len]);
 }

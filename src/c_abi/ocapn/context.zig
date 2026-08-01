@@ -3,9 +3,8 @@
 //!
 //! `pancake_context_new` routes through `library_allocator`;
 //! `pancake_context_new_with_allocator` routes every allocation through host
-//! callbacks. Handles created *in* a context (`pancake_peer_new_in`,
-//! `pancake_tcp_netlayer_new_in`) and everything they own — managed outbound and
-//! event frames, adopted inbound frames, TCP connection/listener payloads and
+//! callbacks. Handles created *in* a context (`pancake_tcp_netlayer_new_in`,
+//! for example) and everything they own — managed frames, transport payloads and
 //! their read/write buffers — allocate and free through that one context. C
 //! callers still free only through the explicit release functions; the context is
 //! the policy, never a `free` a caller invokes by hand.

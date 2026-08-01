@@ -104,7 +104,7 @@ fn callOnce(
         .designator = designator,
         .hints = .{ .entries = &hint_entries },
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
     defer cv.deinit();
     std.debug.print("iroh-interop: client dialed by endpoint id and opened the keyed session\n", .{});
 
@@ -132,7 +132,7 @@ fn callByIdOnly(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -146,9 +146,9 @@ fn callByIdOnly(
 /// session pubkey is its 32 raw bytes. Equality on both means one key is the
 /// transport identity, the locator designator, and the session signing key.
 fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !void {
-    const designator = cv.served.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
+    const designator = cv.served.port.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
     if (!std.mem.eql(u8, designator, node_id_hex)) return error.PartnerDesignatorMismatch;
-    const key = cv.served.peer.session_state.partnerSessionKey() orelse return error.NoPartnerKey;
+    const key = cv.served.port.peer.session_state.partnerSessionKey() orelse return error.NoPartnerKey;
     if (key.len != 32) return error.PartnerKeyWidth;
     var key_arr: [32]u8 = undefined;
     @memcpy(&key_arr, key[0..32]);
@@ -168,7 +168,7 @@ fn hostUnified(
     var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
     defer scaffold.deinit();
 
-    var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, 0);
+    var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .unbounded);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, expect_partner_id);
 
@@ -195,7 +195,7 @@ fn callUnified(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, scaffold.read_buf, scaffold.write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, scaffold.read_buf, scaffold.write_buf, .unbounded);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, server_id);
 

@@ -46,6 +46,24 @@ This rule is about how prose _reads_. Whether a state claim is _true_ is
 [doc-drift](doc-drift.md)'s job. The two run together: a doc has to be both
 honest and readable.
 
+## Build a reader's path
+
+A first-read page is not a compressed repository dump. It answers one question
+for one reader, then points to the next useful level of detail.
+
+- Lead with why the reader opened the page and what they can do there.
+- Introduce a project term in plain language before using it as shorthand.
+- Put the ordinary path before alternatives, internals, and exceptions.
+- Move maintainer mechanics and release procedure out of consumer landing
+  pages.
+- Let one document own each status claim. Other pages link to it instead of
+  retelling it.
+- Use a table when the reader is comparing choices. Use prose when one idea
+  depends on the previous one.
+
+Every paragraph should earn the next. A correct detail in the wrong place is
+still a documentation defect.
+
 ## Neighbors And Citations
 
 - The projects pancake stands on — Spritely Goblins, OCapN, E, iroh, Zig, Syrup,

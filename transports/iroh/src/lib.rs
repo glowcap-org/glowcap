@@ -1,16 +1,15 @@
 //! The iroh netlayer sidecar (ADR-0055).
 //!
-//! This staticlib wraps one iroh endpoint behind the narrow blocking C ABI
+//! This staticlib wraps one iroh endpoint behind the narrow C ABI
 //! declared in `include/pancake_iroh_sidecar.h`, emitting
 //! `libpancake_iroh_sidecar.a`. The Zig resident
 //! (`src/net/transport/iroh.zig`) is the only consumer. Shape decisions:
 //!
 //! * Each endpoint owns its own tokio runtime behind the opaque handle, so a
-//!   caller needs no async runtime of its own; every C call blocks the calling
-//!   thread by running `block_on` against that runtime. The runtime's thread
-//!   bill is explicit and bounded: two worker threads named `pancake-iroh`,
-//!   enough for iroh's internal driver tasks while the caller's own threads do
-//!   the blocking.
+//!   caller needs no async runtime of its own. Evented dial, accept, and stream
+//!   I/O surface through one readiness fd; the explicit blocking resident keeps
+//!   the few `_blocking` calls. The runtime's thread bill is explicit and
+//!   bounded: two worker threads named `pancake-iroh`.
 //! * The caller chooses the endpoint's reachability when it is created, and
 //!   nothing is on by default: `REACH_DIRECT` binds relay-less and lookup-less
 //!   (dial by id plus explicit address hints), `REACH_DISCOVERY` adds the
@@ -26,13 +25,14 @@
 //! * No panic crosses the FFI boundary: every entry point runs under
 //!   `catch_unwind` and maps a panic to the function's error return.
 
-use std::collections::{BTreeSet, VecDeque};
-use std::io::Write as _;
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::io::{Read as _, Write as _};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use iroh::address_lookup::memory::MemoryLookup;
@@ -45,9 +45,9 @@ use tokio::task::JoinHandle;
 const ALPN: &[u8] = b"ocapn/pancake/1";
 
 /// Upper bound on a single dial, discovery resolution plus relay/hole-punch
-/// setup. A dial that cannot be established within this window returns null with
-/// a timed-out code (the Zig resident maps it to `error.TimedOut`) instead of
-/// parking the calling thread forever. Loopback and in-process dials complete in
+/// setup. A dial that cannot be established within this window terminates with
+/// a timed-out code (the Zig resident maps it to `error.TimedOut`). Loopback and
+/// in-process dials complete in
 /// milliseconds, so this bounds only the public-discovery path, where it keeps a
 /// failed dial from hanging a gate or a caller.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -78,6 +78,15 @@ const EV_READABLE: u32 = 1;
 const EV_WRITABLE: u32 = 2;
 const EV_CLOSED: u32 = 4;
 const EV_ACCEPT: u32 = 8;
+const EV_CONNECT: u32 = 16;
+
+const DIAL_OK: i32 = 0;
+const DIAL_INVALID: i32 = 1;
+const DIAL_TIMEOUT: i32 = 2;
+const DIAL_UNREACHABLE: i32 = 3;
+const DIAL_LOST: i32 = 4;
+const DIAL_CANCELED: i32 = 5;
+const DIAL_PENDING: i32 = 6;
 
 /// The non-blocking inbound/outbound buffer bound, per connection and direction
 /// (ADR-0057's back-pressure policy). A reader that fills the inbound buffer
@@ -89,8 +98,9 @@ const EV_ACCEPT: u32 = 8;
 const NB_BUFFER_BOUND: usize = 1 << 20;
 
 /// The steady per-direction buffer capacity a connection retains once a burst
-/// drains, mirroring the Zig loop's posture (`loop_read_buf_bytes` and
-/// `steady_outbound_bytes` in `src/net/completion/loop.zig`, both 16 KiB):
+/// drains, mirroring the Zig posture (`loop_read_buf_bytes` in
+/// `src/net/completion/loop.zig` and `steady_outbound_bytes` in
+/// `src/net/frame_stream.zig`, both 16 KiB):
 /// burst capacity frees on drain so one slow episode never pins its high-water
 /// bytes for the connection's lifetime, while steady-sized capacity is retained
 /// so ordinary traffic never reallocates.
@@ -103,15 +113,14 @@ const NB_STEADY_BYTES: usize = 16 * 1024;
 /// READ_CHUNK_BYTES`), matching the previous 64 KiB read granularity.
 const READ_CHUNK_BYTES: usize = 64 * 1024;
 
-/// One drained readiness record: the connection that became ready (its
-/// `PancakeIrohConn` pointer as an integer, or null for an `EV_ACCEPT` record)
-/// and the `EV_*` bitset describing how. `#[repr(C)]` so the Zig resident reads
-/// the identical layout; kept in lockstep with `pancake_iroh_sidecar_ready_event`
-/// in the header and `ReadyEvent` in the resident.
+/// One drained readiness record. `subject` is zero for `EV_ACCEPT`, a caller
+/// request id for `EV_CONNECT`, and otherwise a stable endpoint-scoped
+/// connection id. `#[repr(C)]` keeps the layout in lockstep with
+/// `pancake_iroh_sidecar_ready_event` and the Zig resident's `ReadyEvent`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PancakeIrohReadyEvent {
-	conn: usize,
+	subject: usize,
 	events: u32,
 }
 
@@ -174,6 +183,8 @@ pub struct PancakeIrohEndpoint {
 	connect_timeout: std::time::Duration,
 	readiness: OnceLock<Arc<Readiness>>,
 	accept: OnceLock<Arc<AcceptState>>,
+	dials: OnceLock<Arc<DialState>>,
+	next_conn_id: AtomicUsize,
 }
 
 /// Opaque connection handle: one QUIC connection carrying one bidirectional
@@ -183,19 +194,19 @@ pub struct PancakeIrohEndpoint {
 /// after which the blocking calls refuse (the connection is owned by the loop).
 /// `nb` holds the non-blocking state once that transition happens.
 pub struct PancakeIrohConn {
+	id: usize,
 	rt: tokio::runtime::Handle,
 	conn: Connection,
 	send: Mutex<Option<SendStream>>,
 	recv: Mutex<Option<RecvStream>>,
 	nb: OnceLock<Arc<NbConn>>,
-	/// The reader/writer task handles. `conn_free` aborts and joins them
-	/// before this box's address is freed, so a stale task can never signal
-	/// readiness under a pointer a later connection reuses (ABA).
+	/// The reader/writer task handles. `conn_free` aborts and joins them before
+	/// returning, so no task outlives its connection.
 	nb_tasks: OnceLock<(JoinHandle<()>, JoinHandle<()>)>,
 }
 
 /// One endpoint's readiness channel: the self-pipe the loop polls plus the queue
-/// of pending `(conn, events)` records. Every readiness signal appends to
+/// of pending `(subject, events)` records. Every readiness signal appends to
 /// `queue` and writes one byte to `writer`, so a loop blocked on the read end
 /// wakes and drains the queue.
 struct Readiness {
@@ -214,6 +225,7 @@ impl Readiness {
 		// and a coalesced wakeup never blocks a signalling task on a full pipe.
 		reader.set_nonblocking(true).ok()?;
 		writer.set_nonblocking(true).ok()?;
+		reader.shutdown(std::net::Shutdown::Write).ok()?;
 		Some(Arc::new(Readiness {
 			reader,
 			writer: Mutex::new(writer),
@@ -221,17 +233,59 @@ impl Readiness {
 		}))
 	}
 
-	/// Enqueue one readiness record and nudge the self-pipe. The wakeup byte is
-	/// best-effort: the queue already carries the event, so a full pipe (an
-	/// undrained backlog) is harmless, the loop is already going to wake.
-	fn signal(&self, conn: usize, events: u32) {
+	/// Best-effort self-pipe wake used both when publishing an event and when a
+	/// short drain leaves queued records. `WouldBlock` is safe to discard because
+	/// it means unread bytes fill the pipe, so the read fd is already poll-readable.
+	/// Interrupted writes retry because they provide no such guarantee.
+	fn nudge(&self) {
+		if let Ok(mut writer) = self.writer.lock() {
+			loop {
+				match writer.write(&[1]) {
+					Ok(_) => return,
+					Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+					Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => return,
+					// The read half is gone, so there is no live poller left to wake.
+					Err(_) => return,
+				}
+			}
+		}
+	}
+
+	/// Enqueue one readiness record and nudge the self-pipe.
+	fn signal(&self, subject: usize, events: u32) {
 		self.queue
 			.lock()
 			.unwrap()
-			.push_back(PancakeIrohReadyEvent { conn, events });
-		if let Ok(mut w) = self.writer.lock() {
-			let _ = w.write(&[1u8]);
+			.push_back(PancakeIrohReadyEvent { subject, events });
+		self.nudge();
+	}
+
+	/// Clear coalesced wake bytes before draining authoritative records. A signal
+	/// racing this operation either joins this drain or leaves a byte for the next
+	/// poll. A short record drain re-nudges the fd for its remaining backlog.
+	fn drain(&self, dest: &mut [PancakeIrohReadyEvent]) -> usize {
+		let mut wake = [0u8; 256];
+		let mut reader = &self.reader;
+		loop {
+			match reader.read(&mut wake) {
+				Ok(0) => break,
+				Ok(_) => {}
+				Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+				Err(_) => break,
+			}
 		}
+
+		let mut queue = self.queue.lock().unwrap();
+		let count = dest.len().min(queue.len());
+		for slot in dest.iter_mut().take(count) {
+			*slot = queue.pop_front().unwrap();
+		}
+		let remaining = !queue.is_empty();
+		drop(queue);
+		if remaining {
+			self.nudge();
+		}
+		count
 	}
 }
 
@@ -251,6 +305,87 @@ struct AcceptedRaw {
 	recv: RecvStream,
 }
 
+/// One endpoint's in-flight and completed outbound dials. A request id exists
+/// in exactly one state until `finish_connect` consumes it. The endpoint owns a
+/// successful raw connection until that transfer.
+struct DialState {
+	entries: Mutex<HashMap<usize, DialEntry>>,
+	readiness: Arc<Readiness>,
+}
+
+enum DialEntry {
+	Pending {
+		abort: Option<tokio::task::AbortHandle>,
+	},
+	Terminal(Result<AcceptedRaw, i32>),
+}
+
+impl DialState {
+	fn complete(&self, request_id: usize, result: Result<AcceptedRaw, i32>) {
+		let publish = {
+			let mut entries = self.entries.lock().unwrap();
+			match entries.get_mut(&request_id) {
+				Some(entry @ DialEntry::Pending { .. }) => {
+					*entry = DialEntry::Terminal(result);
+					true
+				}
+				Some(DialEntry::Terminal(_)) | None => false,
+			}
+		};
+		if publish {
+			self.readiness.signal(request_id, EV_CONNECT);
+		}
+	}
+
+	fn cancel(&self, request_id: usize) -> bool {
+		let (found, publish, abort) = {
+			let mut entries = self.entries.lock().unwrap();
+			match entries.get_mut(&request_id) {
+				Some(entry @ DialEntry::Pending { .. }) => {
+					let abort = match entry {
+						DialEntry::Pending { abort } => abort.take(),
+						DialEntry::Terminal(_) => unreachable!(),
+					};
+					*entry = DialEntry::Terminal(Err(DIAL_CANCELED));
+					(true, true, abort)
+				}
+				Some(DialEntry::Terminal(_)) => (true, false, None),
+				None => (false, false, None),
+			}
+		};
+		if let Some(abort) = abort {
+			abort.abort();
+		}
+		if publish {
+			self.readiness.signal(request_id, EV_CONNECT);
+		}
+		found
+	}
+
+	fn cancel_all(&self) {
+		let mut signals = Vec::new();
+		let mut aborts = Vec::new();
+		{
+			let mut entries = self.entries.lock().unwrap();
+			for (request_id, entry) in entries.iter_mut() {
+				if let DialEntry::Pending { abort } = entry {
+					if let Some(abort) = abort.take() {
+						aborts.push(abort);
+					}
+					*entry = DialEntry::Terminal(Err(DIAL_CANCELED));
+					signals.push(*request_id);
+				}
+			}
+		}
+		for abort in aborts {
+			abort.abort();
+		}
+		for request_id in signals {
+			self.readiness.signal(request_id, EV_CONNECT);
+		}
+	}
+}
+
 /// Non-blocking state for one connection: the bounded inbound/outbound buffers
 /// the reader and writer tasks move bytes through, the notifies that wake those
 /// tasks, and the endpoint readiness this connection signals into. The reader
@@ -258,8 +393,7 @@ struct AcceptedRaw {
 /// they can hold them across `.await` without a `!Send` guard.
 struct NbConn {
 	readiness: Arc<Readiness>,
-	/// This connection's `PancakeIrohConn` pointer as an integer, the identity
-	/// the loop matches drained records against.
+	/// Stable endpoint-scoped identity the loop matches drained records against.
 	id: usize,
 	inbound: Mutex<Inbound>,
 	outbound: Mutex<Outbound>,
@@ -363,6 +497,8 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 			connect_timeout,
 			readiness: OnceLock::new(),
 			accept: OnceLock::new(),
+			dials: OnceLock::new(),
+			next_conn_id: AtomicUsize::new(1),
 		})))
 	}));
 	match result {
@@ -404,9 +540,9 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_node_id(
 /// comma-separated UTF-8 list (e.g. `127.0.0.1:5000,[::1]:5001`). Bound
 /// wildcard addresses are reported as their loopback form, so the list is
 /// dialable on the local host; concretely discovered addresses are included
-/// as-is. This is the hint string a partner passes to `pancake_iroh_sidecar_connect`.
-/// Returns the byte count written, or -1 when `out_cap` is too small. Borrows
-/// the handle; writes no terminator.
+/// as-is. This is the hint string a partner passes to either connect surface.
+/// Returns the byte count written, or -1 when `out_cap` is too small. Borrows the
+/// handle; writes no terminator.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_endpoint_direct_addrs(
 	ep: *const PancakeIrohEndpoint,
@@ -425,28 +561,99 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_direct_addrs(
 	result.unwrap_or(-1)
 }
 
-/// Dial a remote endpoint by id, open the session's one bidirectional stream,
-/// and return an owned connection handle (release with
-/// `pancake_iroh_sidecar_conn_free`), or null on failure. `node_id` is the partner's id
-/// string (hex or base32, as printed by `pancake_iroh_sidecar_endpoint_node_id`);
-/// `addr_hints` is the partner's comma-separated direct-address list. It may be
-/// empty: an endpoint bound with a discovery posture (`REACH_DISCOVERY`,
-/// `REACH_DISCOVERY_NO_RELAY`, or `REACH_LOCAL_DISCOVERY`) resolves the partner
-/// by id alone, while a `REACH_DIRECT` endpoint needs the hints to reach
-/// anything. Blocks
-/// until the QUIC connection is established. The stream is lazy: the caller
-/// must write first (OCapN's dialer does, with `op:start-session`). The
-/// endpoint must outlive every connection it minted.
-///
-/// `out_code` (when non-null) is written a dial classification the Zig resident
-/// projects onto `net.netlayer.DialError` (ADR-0081): 0 on success, then on
-/// failure 1 = invalid (a malformed id or hint), 2 = timed out (the dial or
-/// stream-open deadline elapsed), 3 = unreachable (the QUIC connection could not
-/// be established — a discovery, relay, or network fault), 4 = lost (the
-/// connection came up but its stream then failed). iroh has no
-/// connection-refused: a dead port never answers, so it times out.
+/// Parse the borrowed public target representation into an owned iroh address.
+fn parse_target(
+	node_id: *const u8,
+	node_id_len: usize,
+	addr_hints: *const u8,
+	addr_hints_len: usize,
+) -> Result<EndpointAddr, i32> {
+	if node_id.is_null() || (addr_hints.is_null() && addr_hints_len != 0) {
+		return Err(DIAL_INVALID);
+	}
+	let id_str = std::str::from_utf8(unsafe { std::slice::from_raw_parts(node_id, node_id_len) })
+		.map_err(|_| DIAL_INVALID)?;
+	let id = EndpointId::from_str(id_str).map_err(|_| DIAL_INVALID)?;
+	let mut addr = EndpointAddr::new(id);
+	if addr_hints_len > 0 {
+		let hints =
+			std::str::from_utf8(unsafe { std::slice::from_raw_parts(addr_hints, addr_hints_len) })
+				.map_err(|_| DIAL_INVALID)?;
+		for hint in hints.split(',') {
+			let hint = hint.trim();
+			if hint.is_empty() {
+				continue;
+			}
+			let sock = SocketAddr::from_str(hint).map_err(|_| DIAL_INVALID)?;
+			addr = addr.with_ip_addr(sock);
+		}
+	}
+	Ok(addr)
+}
+
+async fn dial_raw(
+	ep: Endpoint,
+	addr: EndpointAddr,
+	connect_timeout: std::time::Duration,
+) -> Result<AcceptedRaw, i32> {
+	let conn = match tokio::time::timeout(connect_timeout, ep.connect(addr, ALPN)).await {
+		Ok(Ok(conn)) => conn,
+		Ok(Err(e)) => {
+			eprintln!("pancake-iroh: connect failed: {e:?}");
+			return Err(DIAL_UNREACHABLE);
+		}
+		Err(_) => {
+			eprintln!("pancake-iroh: connect timed out after {connect_timeout:?}");
+			return Err(DIAL_TIMEOUT);
+		}
+	};
+	let (send, recv) = match tokio::time::timeout(connect_timeout, conn.open_bi()).await {
+		Ok(Ok(streams)) => streams,
+		Ok(Err(e)) => {
+			eprintln!("pancake-iroh: open_bi failed: {e:?}");
+			return Err(DIAL_LOST);
+		}
+		Err(_) => {
+			eprintln!("pancake-iroh: open_bi timed out after {connect_timeout:?}");
+			return Err(DIAL_TIMEOUT);
+		}
+	};
+	Ok(AcceptedRaw { conn, send, recv })
+}
+
+fn make_conn(ep: &PancakeIrohEndpoint, raw: AcceptedRaw) -> Option<*mut PancakeIrohConn> {
+	let id = ep
+		.next_conn_id
+		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+			next.checked_add(1)
+		})
+		.ok()?;
+	Some(Box::into_raw(Box::new(PancakeIrohConn {
+		id,
+		rt: ep.rt.handle().clone(),
+		conn: raw.conn,
+		send: Mutex::new(Some(raw.send)),
+		recv: Mutex::new(Some(raw.recv)),
+		nb: OnceLock::new(),
+		nb_tasks: OnceLock::new(),
+	})))
+}
+
+fn endpoint_dials(ep: &PancakeIrohEndpoint) -> Option<&Arc<DialState>> {
+	if ep.dials.get().is_none() {
+		let readiness = endpoint_readiness(ep)?.clone();
+		let _ = ep.dials.set(Arc::new(DialState {
+			entries: Mutex::new(HashMap::new()),
+			readiness,
+		}));
+	}
+	ep.dials.get()
+}
+
+/// Deliberately blocking convenience for the explicit blocking resident. The
+/// evented backend and public ABI use start/finish/cancel below.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_connect(
+pub extern "C" fn pancake_iroh_sidecar_connect_blocking(
 	ep: *mut PancakeIrohEndpoint,
 	node_id: *const u8,
 	node_id_len: usize,
@@ -454,87 +661,20 @@ pub extern "C" fn pancake_iroh_sidecar_connect(
 	addr_hints_len: usize,
 	out_code: *mut i32,
 ) -> *mut PancakeIrohConn {
-	const DIAL_OK: i32 = 0;
-	const DIAL_INVALID: i32 = 1;
-	const DIAL_TIMEOUT: i32 = 2;
-	const DIAL_UNREACHABLE: i32 = 3;
-	const DIAL_LOST: i32 = 4;
 	let result = catch_unwind(AssertUnwindSafe(|| -> Result<*mut PancakeIrohConn, i32> {
-		let ep = unsafe { &*ep };
-		let id_str =
-			std::str::from_utf8(unsafe { std::slice::from_raw_parts(node_id, node_id_len) })
-				.map_err(|_| DIAL_INVALID)?;
-		let id = EndpointId::from_str(id_str).map_err(|_| DIAL_INVALID)?;
-		let mut addr = EndpointAddr::new(id);
-		if addr_hints_len > 0 {
-			let hints = std::str::from_utf8(unsafe {
-				std::slice::from_raw_parts(addr_hints, addr_hints_len)
-			})
-			.map_err(|_| DIAL_INVALID)?;
-			for hint in hints.split(',') {
-				let hint = hint.trim();
-				if hint.is_empty() {
-					continue;
-				}
-				let sock = SocketAddr::from_str(hint).map_err(|_| DIAL_INVALID)?;
-				addr = addr.with_ip_addr(sock);
-			}
+		if ep.is_null() {
+			return Err(DIAL_INVALID);
 		}
-		// Bound the dial so a partner that never resolves or never answers
-		// fails closed instead of parking this thread forever. A failed or
-		// timed-out dial logs its cause to stderr — the sidecar's only output —
-		// so a discovery or relay fault is diagnosable instead of a bare null.
-		let conn = match ep.rt.block_on(async {
-			tokio::time::timeout(ep.connect_timeout, ep.ep.connect(addr, ALPN)).await
-		}) {
-			Ok(Ok(conn)) => conn,
-			Ok(Err(e)) => {
-				eprintln!("pancake-iroh: connect failed: {e:?}");
-				return Err(DIAL_UNREACHABLE);
-			}
-			Err(_) => {
-				eprintln!(
-					"pancake-iroh: connect timed out after {:?}",
-					ep.connect_timeout
-				);
-				return Err(DIAL_TIMEOUT);
-			}
-		};
-		// Bound the stream open too: a partner that completes the QUIC
-		// handshake but never services the bidirectional stream (a reconnect
-		// race) would otherwise park this thread forever, past the connect
-		// timeout above. Fail closed with the same shape.
-		let (send, recv) = match ep
+		let ep = unsafe { &*ep };
+		let addr = parse_target(node_id, node_id_len, addr_hints, addr_hints_len)?;
+		let raw = ep
 			.rt
-			.block_on(async { tokio::time::timeout(ep.connect_timeout, conn.open_bi()).await })
-		{
-			Ok(Ok(streams)) => streams,
-			Ok(Err(e)) => {
-				eprintln!("pancake-iroh: open_bi failed: {e:?}");
-				return Err(DIAL_LOST);
-			}
-			Err(_) => {
-				eprintln!(
-					"pancake-iroh: open_bi timed out after {:?}",
-					ep.connect_timeout
-				);
-				return Err(DIAL_TIMEOUT);
-			}
-		};
-		Ok(Box::into_raw(Box::new(PancakeIrohConn {
-			rt: ep.rt.handle().clone(),
-			conn,
-			send: Mutex::new(Some(send)),
-			recv: Mutex::new(Some(recv)),
-			nb: OnceLock::new(),
-			nb_tasks: OnceLock::new(),
-		})))
+			.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
+		make_conn(ep, raw).ok_or(DIAL_LOST)
 	}));
 	let (handle, code) = match result {
 		Ok(Ok(handle)) => (handle, DIAL_OK),
 		Ok(Err(code)) => (std::ptr::null_mut(), code),
-		// A panic unwound out of the dial; treat it as a lost connection
-		// rather than hiding it behind a success or a bare null.
 		Err(_) => (std::ptr::null_mut(), DIAL_LOST),
 	};
 	if !out_code.is_null() {
@@ -543,48 +683,186 @@ pub extern "C" fn pancake_iroh_sidecar_connect(
 	handle
 }
 
-/// Block until a partner dials this endpoint, accept its connection and its
-/// first bidirectional stream, and return an owned connection handle (release
-/// with `pancake_iroh_sidecar_conn_free`), or null on failure or endpoint close.
-/// Because QUIC bi streams are lazy, this returns only once the dialer has
-/// written its first bytes (OCapN's `op:start-session`). The endpoint must
-/// outlive every connection it minted.
+/// Admit one outbound dial without blocking. Borrowed target bytes are parsed
+/// before return; the endpoint owns the Tokio task and terminal result.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_endpoint_start_connect(
+	ep: *mut PancakeIrohEndpoint,
+	request_id: usize,
+	node_id: *const u8,
+	node_id_len: usize,
+	addr_hints: *const u8,
+	addr_hints_len: usize,
+) -> i32 {
+	let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), i32> {
+		if ep.is_null() || request_id == 0 {
+			return Err(DIAL_INVALID);
+		}
+		let ep = unsafe { &*ep };
+		let addr = parse_target(node_id, node_id_len, addr_hints, addr_hints_len)?;
+		let dials = endpoint_dials(ep).ok_or(DIAL_LOST)?.clone();
+		{
+			let mut entries = dials.entries.lock().unwrap();
+			if entries.contains_key(&request_id) {
+				return Err(DIAL_INVALID);
+			}
+			entries.insert(request_id, DialEntry::Pending { abort: None });
+		}
+		let task_dials = dials.clone();
+		let endpoint = ep.ep.clone();
+		let timeout = ep.connect_timeout;
+		let task = ep.rt.spawn(async move {
+			let result = dial_raw(endpoint, addr, timeout).await;
+			task_dials.complete(request_id, result);
+		});
+		let abort = task.abort_handle();
+		drop(task);
+		let should_abort = {
+			let mut entries = dials.entries.lock().unwrap();
+			match entries.get_mut(&request_id) {
+				Some(DialEntry::Pending { abort: slot }) => {
+					*slot = Some(abort.clone());
+					false
+				}
+				Some(DialEntry::Terminal(_)) | None => true,
+			}
+		};
+		if should_abort {
+			abort.abort();
+		}
+		Ok(())
+	}));
+	match result {
+		Ok(Ok(())) => DIAL_OK,
+		Ok(Err(code)) => code,
+		Err(_) => DIAL_LOST,
+	}
+}
+
+/// Consume one terminal dial result. Returns the dial classification and writes
+/// the owned connection on success. A pending request returns DIAL_PENDING.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_endpoint_finish_connect(
+	ep: *mut PancakeIrohEndpoint,
+	request_id: usize,
+	out_conn: *mut *mut PancakeIrohConn,
+) -> i32 {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		if ep.is_null() || out_conn.is_null() {
+			return DIAL_INVALID;
+		}
+		unsafe { *out_conn = std::ptr::null_mut() };
+		let ep = unsafe { &*ep };
+		let Some(dials) = ep.dials.get() else {
+			return DIAL_INVALID;
+		};
+		let terminal = {
+			let mut entries = dials.entries.lock().unwrap();
+			match entries.remove(&request_id) {
+				Some(DialEntry::Terminal(result)) => result,
+				Some(pending @ DialEntry::Pending { .. }) => {
+					entries.insert(request_id, pending);
+					return DIAL_PENDING;
+				}
+				None => return DIAL_INVALID,
+			}
+		};
+		match terminal {
+			Ok(raw) => {
+				if let Some(conn) = make_conn(ep, raw) {
+					unsafe { *out_conn = conn };
+					DIAL_OK
+				} else {
+					DIAL_LOST
+				}
+			}
+			Err(code) => code,
+		}
+	}));
+	result.unwrap_or(DIAL_LOST)
+}
+
+/// Cancel one admitted dial. The pending-to-canceled winner emits the request's
+/// sole terminal event; canceling an already-terminal request is idempotent.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_endpoint_cancel_connect(
+	ep: *mut PancakeIrohEndpoint,
+	request_id: usize,
+) -> i32 {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		if ep.is_null() || request_id == 0 {
+			return DIAL_INVALID;
+		}
+		let ep = unsafe { &*ep };
+		match ep.dials.get() {
+			Some(dials) if dials.cancel(request_id) => DIAL_OK,
+			_ => DIAL_INVALID,
+		}
+	}));
+	result.unwrap_or(DIAL_LOST)
+}
+
+async fn accept_one(ep: &PancakeIrohEndpoint) -> Option<AcceptedRaw> {
+	loop {
+		let incoming = ep.ep.accept().await?;
+		let Ok(accepting) = incoming.accept() else {
+			// Unsolicited or malformed datagrams are routine; keep accepting.
+			continue;
+		};
+		let Ok(conn) = accepting.await else {
+			continue;
+		};
+		// Bound the stream accept: a dialer that opens the QUIC connection but
+		// never its bidirectional stream is dropped instead of holding the
+		// acceptor. A stalled or failed accept keeps serving the next incoming.
+		let Ok(Ok((send, recv))) = tokio::time::timeout(ep.connect_timeout, conn.accept_bi()).await
+		else {
+			continue;
+		};
+		return Some(AcceptedRaw { conn, send, recv });
+	}
+}
+
+/// Block until a partner dials this endpoint, accept its connection and first
+/// bidirectional stream, and return an owned connection handle, or null on
+/// failure or endpoint close. The endpoint must outlive every connection.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_accept(
 	ep: *mut PancakeIrohEndpoint,
 ) -> *mut PancakeIrohConn {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
-		ep.rt.block_on(async {
-			loop {
-				let incoming = ep.ep.accept().await?;
-				let Ok(accepting) = incoming.accept() else {
-					// Unsolicited or malformed datagrams are routine; keep
-					// accepting.
-					continue;
-				};
-				let Ok(conn) = accepting.await else {
-					continue;
-				};
-				// Bound the stream accept: a dialer that opens the QUIC
-				// connection but never its bidirectional stream is dropped
-				// after the timeout instead of holding the acceptor. A stalled
-				// or failed accept keeps serving the next incoming.
-				let Ok(Ok((send, recv))) =
-					tokio::time::timeout(ep.connect_timeout, conn.accept_bi()).await
-				else {
-					continue;
-				};
-				return Some(Box::into_raw(Box::new(PancakeIrohConn {
-					rt: ep.rt.handle().clone(),
-					conn,
-					send: Mutex::new(Some(send)),
-					recv: Mutex::new(Some(recv)),
-					nb: OnceLock::new(),
-					nb_tasks: OnceLock::new(),
-				})));
-			}
-		})
+		ep.rt
+			.block_on(accept_one(ep))
+			.and_then(|raw| make_conn(ep, raw))
+	}));
+	match result {
+		Ok(Some(handle)) => handle,
+		_ => std::ptr::null_mut(),
+	}
+}
+
+/// As `pancake_iroh_sidecar_accept`, but return null when `timeout_ms` elapses.
+/// This is the blocking listener's private wait primitive; it never arms or
+/// drains the endpoint readiness queue.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
+	ep: *mut PancakeIrohEndpoint,
+	timeout_ms: i32,
+) -> *mut PancakeIrohConn {
+	if timeout_ms < 0 {
+		return pancake_iroh_sidecar_accept(ep);
+	}
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		let ep = unsafe { &*ep };
+		ep.rt
+			.block_on(tokio::time::timeout(
+				std::time::Duration::from_millis(timeout_ms as u64),
+				accept_one(ep),
+			))
+			.ok()
+			.flatten()
+			.and_then(|raw| make_conn(ep, raw))
 	}));
 	match result {
 		Ok(Some(handle)) => handle,
@@ -727,9 +1005,8 @@ pub extern "C" fn pancake_iroh_sidecar_conn_free(conn: *mut PancakeIrohConn) {
 	}));
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let inner = *unsafe { Box::from_raw(conn) };
-		// Stop the reader/writer tasks before this box's address is reusable,
-		// so a stale task can never signal readiness under a pointer a later
-		// connection reuses (ABA). Abort, then join so none outlives the free.
+		// Stop the reader/writer tasks before returning. Readiness uses a stable
+		// id, but joining still prevents work from outliving ownership.
 		if let Some((reader, writer)) = inner.nb_tasks.into_inner() {
 			reader.abort();
 			writer.abort();
@@ -867,7 +1144,8 @@ async fn nb_acceptor(
 /// The OS readiness fd for this endpoint's scale surface: the read end of the
 /// self-pipe the sidecar nudges whenever a connection (or the acceptor) becomes
 /// ready. The completion loop registers this once and polls it; on wake it
-/// drains the fd's bytes and calls `pancake_iroh_sidecar_endpoint_drain_ready`.
+/// calls `pancake_iroh_sidecar_endpoint_drain_ready`, which clears the fd's
+/// coalesced bytes before it drains records.
 /// Returns -1 if the readiness channel could not be created. Borrows the handle;
 /// the fd is owned by the endpoint and is valid until
 /// `pancake_iroh_sidecar_endpoint_free`.
@@ -906,21 +1184,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_drain_ready(
 			return 0;
 		}
 		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
-		let mut q = r.queue.lock().unwrap();
-		let n = std::cmp::min(out_cap, q.len());
-		for slot in dest.iter_mut().take(n) {
-			*slot = q.pop_front().unwrap();
-		}
-		let remaining = !q.is_empty();
-		drop(q);
-		// A backlog larger than the buffer must still wake the loop: nudge the
-		// pipe so the next poll drains the remainder.
-		if remaining {
-			if let Ok(mut w) = r.writer.lock() {
-				let _ = w.write(&[1u8]);
-			}
-		}
-		n as isize
+		r.drain(dest) as isize
 	}));
 	result.unwrap_or(-1)
 }
@@ -973,14 +1237,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_try_accept(
 		let ep = unsafe { &*ep };
 		let acc = ep.accept.get()?;
 		let raw = acc.ready.lock().unwrap().pop_front()?;
-		Some(Box::into_raw(Box::new(PancakeIrohConn {
-			rt: ep.rt.handle().clone(),
-			conn: raw.conn,
-			send: Mutex::new(Some(raw.send)),
-			recv: Mutex::new(Some(raw.recv)),
-			nb: OnceLock::new(),
-			nb_tasks: OnceLock::new(),
-		})))
+		make_conn(ep, raw)
 	}));
 	match result {
 		Ok(Some(handle)) => handle,
@@ -1017,7 +1274,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
 		};
 		let nb = Arc::new(NbConn {
 			readiness: readiness.clone(),
-			id: conn as usize,
+			id: conn_ref.id,
 			inbound: Mutex::new(Inbound::default()),
 			outbound: Mutex::new(Outbound::default()),
 			read_room: Notify::new(),
@@ -1031,10 +1288,23 @@ pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
 		let _ = conn_ref.nb_tasks.set((reader, writer));
 		// The connection starts writable: the loop may flush as soon as it has
 		// bytes to send.
-		readiness.signal(conn as usize, EV_WRITABLE);
+		readiness.signal(conn_ref.id, EV_WRITABLE);
 		0
 	}));
 	result.unwrap_or(-1)
+}
+
+/// Stable readiness identity for a connection. It is unique for the endpoint's
+/// lifetime and never derived from the allocation address.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_id(conn: *const PancakeIrohConn) -> usize {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		if conn.is_null() {
+			return 0;
+		}
+		unsafe { (*conn).id }
+	}));
+	result.unwrap_or(0)
 }
 
 /// Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
@@ -1142,6 +1412,9 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_write(
 pub extern "C" fn pancake_iroh_sidecar_endpoint_close(ep: *mut PancakeIrohEndpoint) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
+		if let Some(dials) = ep.dials.get() {
+			dials.cancel_all();
+		}
 		ep.rt.block_on(ep.ep.close());
 	}));
 }
@@ -1156,6 +1429,9 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoin
 	}
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let handle = unsafe { Box::from_raw(ep) };
+		if let Some(dials) = handle.dials.get() {
+			dials.cancel_all();
+		}
 		handle.rt.block_on(handle.ep.close());
 		// Dropping the runtime outside an async context shuts it down cleanly.
 		drop(handle);
@@ -1165,64 +1441,218 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoin
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::io::{Read, Write};
 	use std::net::UdpSocket;
 	use std::time::{Duration, Instant};
+
+	#[test]
+	fn a_full_self_pipe_is_already_a_readable_wakeup() {
+		let readiness = Readiness::new().unwrap();
+		let fill = [1u8; 4096];
+		{
+			let mut writer = readiness.writer.lock().unwrap();
+			loop {
+				match writer.write(&fill) {
+					Ok(_) => {}
+					Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+					Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
+					Err(err) => panic!("unexpected self-pipe fill error: {err}"),
+				}
+			}
+		}
+
+		readiness.signal(7, EV_READABLE);
+		let mut byte = [0u8; 1];
+		let mut reader = &readiness.reader;
+		assert_eq!(reader.read(&mut byte).unwrap(), 1);
+		assert_eq!(readiness.queue.lock().unwrap().len(), 1);
+	}
+
+	#[test]
+	fn drain_owns_wake_bytes_and_the_exported_half_is_read_only() {
+		let readiness = Readiness::new().unwrap();
+		let mut exported = &readiness.reader;
+		assert!(exported.write_all(&[1]).is_err());
+
+		readiness.signal(7, EV_WRITABLE);
+		let mut events = [PancakeIrohReadyEvent {
+			subject: 0,
+			events: 0,
+		}];
+		assert_eq!(readiness.drain(&mut events), 1);
+		assert_eq!(events[0].subject, 7);
+		assert_eq!(events[0].events, EV_WRITABLE);
+
+		let mut byte = [0u8; 1];
+		let err = exported.read(&mut byte).unwrap_err();
+		assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
+	}
+
+	#[test]
+	fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
+		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 200);
+		assert!(!ep.is_null(), "endpoint_new");
+		let started = Instant::now();
+		let conn = pancake_iroh_sidecar_accept_timeout(ep, 20);
+		assert!(conn.is_null());
+		assert!(started.elapsed() < Duration::from_secs(1));
+		let endpoint = unsafe { &*ep };
+		assert!(endpoint.readiness.get().is_none());
+		assert!(endpoint.accept.get().is_none());
+		pancake_iroh_sidecar_endpoint_free(ep);
+	}
+
+	fn black_hole_target() -> (UdpSocket, String, String) {
+		// Keeping the port bound prevents an ICMP port-unreachable from turning
+		// the intended pending dial into an immediate failure.
+		let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind black hole");
+		let hint = socket.local_addr().expect("black hole addr").to_string();
+		let endpoint_id = SecretKey::from([7u8; 32]).public().to_string();
+		(socket, endpoint_id, hint)
+	}
+
+	fn wait_event(ep: *mut PancakeIrohEndpoint) -> PancakeIrohReadyEvent {
+		let deadline = Instant::now() + Duration::from_secs(5);
+		let mut events = [PancakeIrohReadyEvent {
+			subject: 0,
+			events: 0,
+		}; 4];
+		loop {
+			let n =
+				pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len());
+			if n > 0 {
+				return events[0];
+			}
+			assert!(Instant::now() < deadline, "timed out waiting for readiness");
+			std::thread::sleep(Duration::from_millis(10));
+		}
+	}
 
 	/// A short caller-set connect timeout must trip fast. The dial's only route is
 	/// a bound-but-silent UDP black hole: because the port is bound, the OS never
 	/// answers the QUIC handshake and never sends an ICMP port-unreachable that
 	/// would fail the dial fast, so the connect can end only by the deadline. A
-	/// 200ms endpoint therefore returns null in well under the 30s default,
+	/// 200ms endpoint therefore publishes a timeout in well under the 30s default,
 	/// proving the per-endpoint `connect_timeout` reaches the connect await rather
 	/// than merely that some dial eventually fails. Hermetic: `REACH_DIRECT` binds
 	/// relay-less and lookup-less, and every address is loopback.
 	#[test]
-	fn short_connect_timeout_trips_fast() {
-		// Hold the black hole open for the whole dial. An unbound port would draw
-		// an ICMP port-unreachable and fail the dial immediately, hiding whether
-		// the timeout fired; a bound socket we never read absorbs the packets.
-		let black_hole = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind black hole");
-		let hint = black_hole
-			.local_addr()
-			.expect("black hole addr")
-			.to_string();
-
-		// A valid, parseable endpoint id that names no reachable endpoint.
-		let unreachable_id = SecretKey::from([7u8; 32]).public().to_string();
-
+	fn evented_connect_returns_promptly_and_times_out_once() {
+		let (_black_hole, unreachable_id, hint) = black_hole_target();
 		// 200ms per-endpoint deadline; direct reachability so the dial uses only
 		// our hint (no discovery, no relays), leaving the black hole the sole route.
 		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 200);
 		assert!(!ep.is_null(), "endpoint_new");
 
 		let started = Instant::now();
-		let mut code: i32 = -1;
-		let conn = pancake_iroh_sidecar_connect(
+		let code = pancake_iroh_sidecar_endpoint_start_connect(
 			ep,
+			1,
 			unreachable_id.as_ptr(),
 			unreachable_id.len(),
 			hint.as_ptr(),
 			hint.len(),
-			&mut code,
 		);
-		let elapsed = started.elapsed();
-
+		assert_eq!(code, DIAL_OK);
 		assert!(
-			conn.is_null(),
-			"a black-hole dial must fail closed, not connect"
+			started.elapsed() < Duration::from_millis(100),
+			"start_connect must return promptly"
 		);
-		// A silent UDP black hole answers nothing, so the dial trips the caller
-		// deadline: the classification is timed-out (2), not a refused or an
-		// unreachable that iroh cannot observe here (ADR-0081).
+
+		let event = wait_event(ep);
+		assert_eq!(event.subject, 1);
+		assert_eq!(event.events, EV_CONNECT);
+
+		let mut conn = std::ptr::null_mut();
 		assert_eq!(
-			code, 2,
-			"a black-hole dial classifies as timed out, got {code}"
+			pancake_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
+			DIAL_TIMEOUT
 		);
-		assert!(
-			elapsed < Duration::from_secs(5),
-			"the 200ms caller timeout must trip well under the 30s default, took {elapsed:?}"
+		assert!(conn.is_null());
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_finish_connect(ep, 1, &mut conn),
+			DIAL_INVALID,
+			"terminal result is one-shot"
+		);
+		let mut events = [PancakeIrohReadyEvent {
+			subject: 0,
+			events: 0,
+		}; 1];
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len()),
+			0,
+			"one admitted dial emits exactly one terminal event"
 		);
 
+		pancake_iroh_sidecar_endpoint_free(ep);
+	}
+
+	#[test]
+	fn rejected_connect_owes_no_event() {
+		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 200);
+		assert!(!ep.is_null(), "endpoint_new");
+		let invalid = b"not-an-endpoint-id";
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_start_connect(
+				ep,
+				1,
+				invalid.as_ptr(),
+				invalid.len(),
+				std::ptr::null(),
+				0,
+			),
+			DIAL_INVALID
+		);
+		let mut event = PancakeIrohReadyEvent {
+			subject: 0,
+			events: 0,
+		};
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1),
+			0
+		);
+		pancake_iroh_sidecar_endpoint_free(ep);
+	}
+
+	#[test]
+	fn canceled_connect_finishes_once() {
+		let (_black_hole, unreachable_id, hint) = black_hole_target();
+		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 5_000);
+		assert!(!ep.is_null(), "endpoint_new");
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_start_connect(
+				ep,
+				23,
+				unreachable_id.as_ptr(),
+				unreachable_id.len(),
+				hint.as_ptr(),
+				hint.len(),
+			),
+			DIAL_OK
+		);
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23),
+			DIAL_OK
+		);
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23),
+			DIAL_OK,
+			"cancel is idempotent while the terminal row exists"
+		);
+
+		let event = wait_event(ep);
+		assert_eq!(event.subject, 23);
+		assert_eq!(event.events, EV_CONNECT);
+		let mut conn = std::ptr::null_mut();
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
+			DIAL_CANCELED
+		);
+		assert!(conn.is_null());
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_finish_connect(ep, 23, &mut conn),
+			DIAL_INVALID
+		);
 		pancake_iroh_sidecar_endpoint_free(ep);
 	}
 }

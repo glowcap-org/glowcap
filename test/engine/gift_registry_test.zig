@@ -1,7 +1,6 @@
-//! Authority tests for the vat-scoped `engine.bootstrap.GiftRegistry`
-//! (ADR-0056): deposit / withdraw bookkeeping, recipient match, monotonic
-//! handoff-count replay rejection, re-deposit replacement, and the ADR-0025
-//! resource caps. Gift withdrawal moves authority only behind signature
+//! Authority tests for the session-owned `engine.bootstrap.GiftRegistry`:
+//! deposit / withdraw bookkeeping, recipient match, monotonic handoff-count
+//! replay rejection, re-deposit replacement, and the deposited-gift cap. Gift withdrawal moves authority only behind signature
 //! verification, so these exercise the registry the way the verified callers do
 //! (`engine.bootstrap.resolveForWithdraw`, the test-support
 //! `cross_peer.withdrawGift` harness),
@@ -47,10 +46,9 @@ fn validate(registry: *const GiftRegistry, receive: model.HandoffReceive) sessio
 fn apply(
     registry: *GiftRegistry,
     allocator: std.mem.Allocator,
-    limits: session.SessionLimits,
     receive: model.HandoffReceive,
 ) !?model.Reference {
-    return registry.applyWithdraw(allocator, limits, receive, expected_receiver);
+    return registry.applyWithdraw(registry, allocator, receive);
 }
 
 fn makeReceive(
@@ -92,12 +90,12 @@ test "registry deposits a gift and accepts a matching withdrawal" {
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
 
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
     try std.testing.expect(registry.giftLive("gift-1"));
 
     const receive = makeReceive("gift-1", "recipient-key", &session_a, 1);
     try validate(&registry, receive);
-    _ = try apply(&registry, allocator, default_limits, receive);
+    _ = try apply(&registry, allocator, receive);
     try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
@@ -111,7 +109,6 @@ test "the generic inbound path moves no gift-withdrawal authority" {
         exporter.session_state.limits,
         "gift-1",
         "recipient-key",
-        "",
     );
     // A top-level handoff frame on the generic recv path (the surface a hostile
     // socket peer reaches directly) must never burn a deposited gift: no
@@ -138,7 +135,7 @@ test "registry rejects withdrawal with a mismatched recipient key" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
 
     try std.testing.expectError(
         session.Error.InvalidGift,
@@ -151,12 +148,12 @@ test "registry rejects a replayed or out-of-order handoff count" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
-    try registry.deposit(allocator, default_limits, "gift-2", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    try registry.deposit(allocator, default_limits, "gift-2", "recipient-key");
 
     const first = makeReceive("gift-1", "recipient-key", &session_a, 2);
     try validate(&registry, first);
-    _ = try apply(&registry, allocator, default_limits, first);
+    _ = try apply(&registry, allocator, first);
 
     try std.testing.expectError(
         session.Error.HandoffReplay,
@@ -170,10 +167,10 @@ test "a withdrawn gift cannot be withdrawn twice" {
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
 
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
     const first = makeReceive("gift-1", "recipient-key", &session_a, 1);
     try validate(&registry, first);
-    _ = try apply(&registry, allocator, default_limits, first);
+    _ = try apply(&registry, allocator, first);
 
     // A fresh signed receive with a higher handoff count is not a replay, so
     // the refusal here is the consumed gift's row being gone: a gift is spent
@@ -193,14 +190,11 @@ test "a re-deposit of the same gift id replaces the prior row and frees it" {
     // the testing allocator proves the first is freed on overwrite, a leak or a
     // double free fails this test.
     const first = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "first") } };
-    try registry.depositOwned(allocator, default_limits, "gift-1", first, "gifter-key-a");
+    try registry.depositOwned(allocator, default_limits, "gift-1", first);
 
+    // A second deposit on the same live session replaces that session's row.
     const second = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "second") } };
-    try registry.depositOwned(allocator, default_limits, "gift-1", second, "gifter-key-b");
-
-    // The replacement also swaps the provenance: a withdraw now yields the
-    // second capability under the second gifter key.
-    try std.testing.expectEqualStrings("gifter-key-b", registry.giftGifterKey("gift-1").?);
+    try registry.depositOwned(allocator, default_limits, "gift-1", second);
     try std.testing.expectEqualStrings("second", registry.giftedCap("gift-1").?.broken.message);
 }
 
@@ -209,17 +203,17 @@ test "a re-deposit after withdrawal re-arms the gift" {
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
 
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
     const first = makeReceive("gift-1", "recipient-key", &session_a, 1);
     try validate(&registry, first);
-    _ = try apply(&registry, allocator, default_limits, first);
+    _ = try apply(&registry, allocator, first);
     try std.testing.expect(!registry.giftLive("gift-1"));
 
     // Re-authorizing the same gift id replaces the consumed row. Replay stays
     // blocked by the monotonic handoff count, not by refusing the deposit: the
     // first certificate cannot be presented again, but a fresh higher-count
     // receive withdraws the re-armed gift.
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
     try std.testing.expect(registry.giftLive("gift-1"));
     try std.testing.expectError(
         session.Error.HandoffReplay,
@@ -227,7 +221,7 @@ test "a re-deposit after withdrawal re-arms the gift" {
     );
     const fresh = makeReceive("gift-1", "recipient-key", &session_a, 2);
     try validate(&registry, fresh);
-    _ = try apply(&registry, allocator, default_limits, fresh);
+    _ = try apply(&registry, allocator, fresh);
     try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
@@ -237,10 +231,10 @@ test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
     defer registry.deinit(allocator);
     const limits: session.SessionLimits = .{ .max_deposited_gifts = 1 };
 
-    try registry.deposit(allocator, limits, "gift-a", "recipient", "");
+    try registry.deposit(allocator, limits, "gift-a", "recipient");
     try std.testing.expectError(
         session.Error.DepositedGiftCapExceeded,
-        registry.deposit(allocator, limits, "gift-b", "recipient", ""),
+        registry.deposit(allocator, limits, "gift-b", "recipient"),
     );
     try std.testing.expect(registry.giftLive("gift-a"));
     try std.testing.expect(!registry.giftLive("gift-b"));
@@ -260,10 +254,10 @@ test "consumed gifts do not count toward max_deposited_gifts" {
         const id = try std.fmt.bufPrint(&buf, "gift-{d}", .{i});
         // Only one gift is ever live at a time, so a cap of 1 admits every
         // deposit once its predecessor has been withdrawn.
-        try registry.deposit(allocator, limits, id, "recipient", "");
+        try registry.deposit(allocator, limits, id, "recipient");
         const receive = makeReceive(id, "recipient", &session_a, i + 1);
         try validate(&registry, receive);
-        _ = try apply(&registry, allocator, limits, receive);
+        _ = try apply(&registry, allocator, receive);
     }
 }
 
@@ -276,21 +270,21 @@ test "re-arming a consumed gift still respects max_deposited_gifts" {
     // live count past the bound.
     const limits: session.SessionLimits = .{ .max_deposited_gifts = 2 };
 
-    try registry.deposit(allocator, limits, "gift-a", "recipient", "");
-    try registry.deposit(allocator, limits, "gift-b", "recipient", "");
+    try registry.deposit(allocator, limits, "gift-a", "recipient");
+    try registry.deposit(allocator, limits, "gift-b", "recipient");
     const withdraw_a = makeReceive("gift-a", "recipient", &session_a, 1);
     try validate(&registry, withdraw_a);
-    _ = try apply(&registry, allocator, limits, withdraw_a); // a consumed, one slot free
-    try registry.deposit(allocator, limits, "gift-c", "recipient", ""); // fills the free slot
+    _ = try apply(&registry, allocator, withdraw_a); // a consumed, one slot free
+    try registry.deposit(allocator, limits, "gift-c", "recipient"); // fills the free slot
     // Re-depositing the consumed gift-a would push live gifts to three; the cap
     // refuses it just as it refuses any third live deposit.
     try std.testing.expectError(
         session.Error.DepositedGiftCapExceeded,
-        registry.deposit(allocator, limits, "gift-a", "recipient", ""),
+        registry.deposit(allocator, limits, "gift-a", "recipient"),
     );
 }
 
-test "the registry mints monotonic emitted handoff counts per receiving session" {
+test "each session registry mints one monotonic emitted handoff count" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
@@ -299,109 +293,16 @@ test "the registry mints monotonic emitted handoff counts per receiving session"
     // the recipient-side mirror of the accepted-count replay guard, so the count
     // this node emits is exactly the count the exporter's `validateWithdraw`
     // expects next.
-    try std.testing.expectEqual(@as(u64, 0), try registry.nextEmittedCount(allocator, default_limits, &session_a));
-    try std.testing.expectEqual(@as(u64, 1), try registry.nextEmittedCount(allocator, default_limits, &session_a));
-    try std.testing.expectEqual(@as(u64, 2), try registry.nextEmittedCount(allocator, default_limits, &session_a));
-
-    // Counters are per receiving session: a second exporter session starts fresh.
-    try std.testing.expectEqual(@as(u64, 0), try registry.nextEmittedCount(allocator, default_limits, "session-b"));
-    try std.testing.expectEqual(@as(u64, 3), try registry.nextEmittedCount(allocator, default_limits, &session_a));
-}
-
-test "emitted-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)" {
-    const allocator = std.testing.allocator;
-    var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    const limits: session.SessionLimits = .{ .max_seen_handoff_counts = 1 };
-
-    // The first receiving session allocates the one permitted row; a second
-    // distinct session overflows it, the same cap its accepted-count mirror holds.
-    _ = try registry.nextEmittedCount(allocator, limits, &session_1);
-    _ = try registry.nextEmittedCount(allocator, limits, &session_1);
-    try std.testing.expectError(
-        session.Error.HandoffCountCapExceeded,
-        registry.nextEmittedCount(allocator, limits, &session_2),
-    );
-}
-
-test "seen-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)" {
-    const allocator = std.testing.allocator;
-    var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    const limits: session.SessionLimits = .{ .max_seen_handoff_counts = 1 };
-
-    // Two gifts so two distinct recipients can withdraw. A row is keyed by the
-    // recipient's derived side name, so distinct recipients are what grow the
-    // table, and one recipient cannot grow it at all.
-    try registry.deposit(allocator, limits, "gift-a", "recipient", "");
-    try registry.deposit(allocator, limits, "gift-b", "recipient", "");
-
-    const first: engine.handoff_names.ExpectedReceiver = .{ .side = name32("recipient-1"), .session = session_1 };
-    const second: engine.handoff_names.ExpectedReceiver = .{ .side = name32("recipient-2"), .session = session_2 };
-
-    // The replay-tracking table grows through the verified withdraw apply, so
-    // drive it the way `resolveForWithdraw` and the test-support withdraw
-    // harness (`test/support/cross_peer.zig`) do.
-    _ = try registry.applyWithdraw(
-        allocator,
-        limits,
-        makeReceive("gift-a", "recipient", &session_1, 1),
-        first,
-    );
-    try std.testing.expectError(
-        session.Error.HandoffCountCapExceeded,
-        registry.applyWithdraw(
-            allocator,
-            limits,
-            makeReceive("gift-b", "recipient", &session_2, 1),
-            second,
-        ),
-    );
-}
-
-test "one peer's maxed-out handoff count cannot refuse another peer's handoffs" {
-    const allocator = std.testing.allocator;
-    var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-
-    // The registry is shared by every session on the host, so the replay counter
-    // has to be keyed by something the withdrawing peer cannot choose. A peer
-    // holding both the gifter and the recipient key satisfies both signature
-    // checks with a gift it deposited itself, so signatures alone constrain
-    // nothing about the name it writes: here it withdraws at the highest count
-    // there is, which would be a permanent refusal for anyone sharing its row.
-    try registry.deposit(allocator, default_limits, "attacker-gift", "recipient-key", "");
-    const attacker_side = name32("attacker-side");
-    const named_session = name32("victim-and-exporter");
-    const attacker: engine.handoff_names.ExpectedReceiver = .{
-        .side = attacker_side,
-        .session = named_session,
-    };
-    const maxed = makeReceiveAs(
-        "attacker-gift",
-        "recipient-key",
-        &attacker_side,
-        &named_session,
-        std.math.maxInt(u64),
-    );
-    try registry.validateWithdraw(maxed, attacker);
-    _ = try registry.applyWithdraw(allocator, default_limits, maxed, attacker);
-
-    // The row it wrote is its own — keyed by its derived side, not by the
-    // session name it named — so another peer's very first withdraw, at the
-    // lowest count a fresh session mints, still lands.
-    try registry.deposit(allocator, default_limits, "victim-gift", "recipient-key", "");
-    const honest = makeReceive("victim-gift", "recipient-key", &session_a, 1);
-    try validate(&registry, honest);
-    _ = try apply(&registry, allocator, default_limits, honest);
-    try std.testing.expect(!registry.giftLive("victim-gift"));
+    try std.testing.expectEqual(@as(u64, 0), try registry.nextEmittedCount());
+    try std.testing.expectEqual(@as(u64, 1), try registry.nextEmittedCount());
+    try std.testing.expectEqual(@as(u64, 2), try registry.nextEmittedCount());
 }
 
 test "a receive naming a session other than the derived one is refused" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
 
     // `expected_receiver` names `session_a`; this receive names another session.
     // An exporter that knows its own key holds the receive to the pair it
@@ -418,7 +319,7 @@ test "an unkeyed exporter still keys the counter by the derived side" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
 
     // With no session key of its own, the exporter cannot say which session the
     // receive belongs to, so it does not check that name. The side it derives
@@ -427,9 +328,9 @@ test "an unkeyed exporter still keys the counter by the derived side" {
     const anywhere = name32("any-session-at-all");
     const first = makeReceive("gift-1", "recipient-key", &anywhere, 7);
     try registry.validateWithdraw(first, unkeyed);
-    _ = try registry.applyWithdraw(allocator, default_limits, first, unkeyed);
+    _ = try registry.applyWithdraw(&registry, allocator, first);
 
-    try registry.deposit(allocator, default_limits, "gift-2", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-2", "recipient-key");
     try std.testing.expectError(
         session.Error.HandoffReplay,
         registry.validateWithdraw(makeReceive("gift-2", "recipient-key", &anywhere, 7), unkeyed),
@@ -440,7 +341,7 @@ test "a receive naming the wrong side is refused" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
+    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
 
     const other_side: engine.handoff_names.ExpectedReceiver = .{
         .session = session_a,
@@ -490,4 +391,79 @@ test "a non-key-width handoff key is refused rather than derived from" {
         error.MalformedKey,
         engine.handoff_names.ExpectedReceiver.derive(&([_]u8{0x11} ** 32), "short"),
     );
+}
+
+test "a gifted near with no published name is refused at deposit" {
+    const allocator = std.testing.allocator;
+    const peer_fixture = @import("../support/peer_fixture.zig");
+    const cross_peer = @import("../support/cross_peer.zig");
+
+    // The gifter and the exporter, wired so the deposit crosses a real wire.
+    var gifter = peer_fixture.openPeer(allocator);
+    defer gifter.deinit();
+    var exporter = peer_fixture.openPeer(allocator);
+    defer exporter.deinit();
+
+    // A near names an export position, and a position means whatever the
+    // session reading it says it means. The withdraw lands on the recipient's
+    // session, where this number belongs to nobody: accepting the deposit
+    // would have the exporter hand out a reference into another session's
+    // range, mint an export row for it there, and drag that session's
+    // allocator past the end of its own range.
+    // The gifter holds the exporter's object as an import; the exporter reads
+    // that same reference back as one of its own exports.
+    try exporter.session_state.registerExport(.from(9));
+    try gifter.session_state.registerImport(.from(9));
+    try gifter.sendDepositGift("gift-unnamed", .{ .far = model.FarRef.object(9) });
+    try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));
+
+    // The accepted side of this rule — a deposit whose gifted near does carry
+    // a swissnum — is what every live handoff step exercises end to end
+    // (`goblins-handoff`, `goblins-gift`, `deno-gifter-handoff`), so it is not
+    // restated here against a hand-built session.
+}
+
+test "a gifted far is refused at deposit rather than at the recipient's expense" {
+    const allocator = std.testing.allocator;
+    const peer_fixture = @import("../support/peer_fixture.zig");
+    const cross_peer = @import("../support/cross_peer.zig");
+
+    var gifter = peer_fixture.openPeer(allocator);
+    defer gifter.deinit();
+    var exporter = peer_fixture.openPeer(allocator);
+    defer exporter.deinit();
+
+    // The mirror of the near rule above, from the import side. The gifter
+    // gifts one of its *own* exports, so the exporter reads it back as a far:
+    // an object the gifter hosts, which this exporter cannot serve to anybody.
+    // Handed back verbatim on the recipient's session it would name an export
+    // that session never made.
+    try gifter.session_state.registerExport(.from(9));
+    try gifter.sendDepositGift("gift-far", .{ .near = model.NearRef.object(9) });
+    try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));
+
+    // Refusing at the deposit is what puts the refusal on the gifter's own
+    // session. Left for the withdraw responder to discover, the same gift
+    // would abort the *recipient's* session instead, which is a seam a gifter
+    // could aim deliberately.
+    try std.testing.expect(!exporter.giftRegistry().giftLive("gift-far"));
+}
+
+test "two gifters reusing one gift id keep separate rows" {
+    const allocator = std.testing.allocator;
+    // Gift ids are unique only within the Gifter–Exporter session. Separate
+    // session registries make reuse structural rather than adding another
+    // gifter dimension to every row.
+    var alice_registry: GiftRegistry = .{};
+    defer alice_registry.deinit(allocator);
+    var bob_registry: GiftRegistry = .{};
+    defer bob_registry.deinit(allocator);
+
+    const from_alice = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "alice's") } };
+    try alice_registry.depositOwned(allocator, default_limits, "my-gift", from_alice);
+    const from_bob = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "bob's") } };
+    try bob_registry.depositOwned(allocator, default_limits, "my-gift", from_bob);
+
+    try std.testing.expectEqualStrings("alice's", alice_registry.giftedCap("my-gift").?.broken.message);
+    try std.testing.expectEqualStrings("bob's", bob_registry.giftedCap("my-gift").?.broken.message);
 }

@@ -72,11 +72,13 @@ pub fn main() !void {
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    // `pancake.Vat` is the front-door alias for `actors.Vat`.
-    var host_vat = pancake.Vat.initOver(allocator, host_peer);
+    // The Vat owns actors and turns. The Port owns this session's wire names.
+    var host_vat = pancake.Vat.init(allocator);
     defer host_vat.deinit();
+    var host_port = actors.Port.init(allocator, host_peer);
+    defer host_port.deinit();
     const greeter = try host_vat.spawn(Greeter, .{ .greeting = "Howdy" });
-    try host_vat.bindExport(greeter, 5);
+    try host_port.bindExport(greeter, 5);
     // This example wires both peers by hand, so the caller learns position 5
     // out-of-band rather than from a marshaled reference. An explicit grant
     // makes the hand-picked position addressable; a capability introduced on
@@ -84,16 +86,18 @@ pub fn main() !void {
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.initOver(allocator, caller_peer);
+    var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit();
 
     const ref: actors.Ref = .{ .far = model.FarRef.object(5) };
     var result = Result{};
-    const vow = try caller_vat.send(ref, .{
+    const vow = try caller_port.send(&caller_vat, ref, .{
         .verb = "hello",
         .args = &.{.{ .string = "world" }},
     });
-    try caller_vat.on(vow, .{ .ctx = &result, .func = onResolve });
+    try caller_port.on(&caller_vat, vow, .{ .ctx = &result, .func = onResolve });
 
     _ = try caller_peer.step();
     while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
@@ -101,7 +105,7 @@ pub fn main() !void {
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = try host_vat.serve(&e);
+        _ = try host_port.serve(&host_vat, &e);
     }
     _ = try host_peer.step();
     while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
@@ -109,7 +113,7 @@ pub fn main() !void {
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = try caller_vat.serve(&e);
+        _ = try caller_port.serve(&caller_vat, &e);
     }
 
     if (result.done) {

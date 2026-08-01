@@ -9,10 +9,22 @@
 ;; table itself is generated from the archive's annotated symbol inventory
 ;; (`ffi-webrtc-gen.rkt`, `zig build gen-binding-racket-ffi`); this module opens
 ;; the library and hands it to the generated table builder.
-(require "ffi-webrtc-gen.rkt"
+(require ffi/unsafe
+         "constants-gen.rkt"
+         "ffi-webrtc-gen.rkt"
          "ffi-shared.rkt"
+         "layouts-gen.rkt"
          "lib-resolve.rkt")
-(provide webrtc-fn)
+(provide webrtc-fn
+         _PancakeWebrtcReadyEvent
+         PancakeWebrtcReadyEvent-subject PancakeWebrtcReadyEvent-events
+         WEBRTC-EV-OPEN WEBRTC-EV-CANDIDATE WEBRTC-EV-READABLE
+         WEBRTC-EV-WRITABLE WEBRTC-EV-CLOSED)
+
+(define-cstruct _PancakeWebrtcReadyEvent ([subject _uintptr] [events _uint32])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeWebrtcReadyEvent _PancakeWebrtcReadyEvent
+             PANCAKE-WEBRTC-READY-EVENT-SIZE '(uintptr uint32))
 
 (define webrtc-ffi-cache (box #f))
 

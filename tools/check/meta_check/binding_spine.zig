@@ -5,7 +5,9 @@
 //! gc / dial / listen choreography, the iroh readiness-loop convergence, and
 //! the sidecar ABI pins — and these checks hold the four mirrors to the same
 //! shape until generation retires each needle family (the generated-constants
-//! tier already covers the value families). Wired by the meta-check driver
+//! tier already covers the value families). Generation moves the seam rather
+//! than closing it, so the last check here holds the hand-written loaders to
+//! the generated signature tables they call. Wired by the meta-check driver
 //! (`tools/check/meta_check.zig`).
 
 const std = @import("std");
@@ -184,7 +186,7 @@ pub fn checkBindingConstants(
 ) !void {
     const headers = [_][]const u8{
         "include/pancake_ocapn.h",
-        "include/pancake_driver.h",
+        "include/pancake_host.h",
         "include/pancake_net_transport_tcp.h",
         "include/pancake_net_transport_inproc.h",
         "include/pancake_net_transport_iroh.h",
@@ -317,7 +319,7 @@ pub fn checkBindingHostActionDrains(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const header_path = "include/pancake_driver.h";
+    const header_path = "include/pancake_host.h";
     const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for host-action drain check with {s}", .{ header_path, @errorName(err) });
         return;
@@ -615,8 +617,8 @@ pub fn checkBindingHostActionSpine(
         "@import(\"codec_order\")",
     });
     // Stale ticket-only DIAL contract prose must not return in the C header
-    // sources. The generated include/pancake_driver.h needs no row of its
-    // own: `gen-header-driver-check` holds it byte-identical to these two.
+    // sources. The generated include/pancake_host.h needs no row of its
+    // own: `gen-header-host-check` holds it byte-identical to these two.
     for ([_][]const u8{
         "action's transport",
         "the same pieces a DIAL action carries",
@@ -624,16 +626,16 @@ pub fn checkBindingHostActionSpine(
         "at locator, then report",
         "fields stay zeroed for layout stability",
     }) |needle| {
-        if (try fileContains(io, gpa, root, "tools/gen/header/driver.zig", needle)) {
-            try appendViolation(gpa, violations, "tools/gen/header/driver.zig: stale DIAL prose `{s}` — ticket-only; pendingDial owns the URI", .{needle});
+        if (try fileContains(io, gpa, root, "tools/gen/header/host.zig", needle)) {
+            try appendViolation(gpa, violations, "tools/gen/header/host.zig: stale DIAL prose `{s}` — ticket-only; pendingDial owns the URI", .{needle});
         }
-        if (try fileContains(io, gpa, root, "src/c_abi/driver/mod.zig", needle)) {
-            try appendViolation(gpa, violations, "src/c_abi/driver/mod.zig: stale DIAL prose `{s}` — ticket-only; drop dead locator fields", .{needle});
+        if (try fileContains(io, gpa, root, "src/c_abi/host/mod.zig", needle)) {
+            try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: stale DIAL prose `{s}` — ticket-only; drop dead locator fields", .{needle});
         }
     }
     // Dead dial-view fields must stay deleted on PancakeHostAction (parts live
     // on PancakePendingDial only — no verbatim locator field).
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/driver/mod.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
         \\pub const PancakeHostAction = extern struct {
         \\    kind: u32,
         \\    ticket: u64,
@@ -643,7 +645,7 @@ pub fn checkBindingHostActionSpine(
         \\    message_len: usize,
         \\};
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/driver/mod.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
         \\pub const PancakePendingDial = extern struct {
         \\    transport: ?[*]const u8,
         \\    transport_len: usize,
@@ -657,8 +659,8 @@ pub fn checkBindingHostActionSpine(
     if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", "pub const PendingDialView = struct {\n        locator:")) {
         try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: PendingDialView must not carry locator — transport/designator/hint only", .{});
     }
-    if (try fileContains(io, gpa, root, "src/c_abi/driver/host.zig", ".locator = view.locator")) {
-        try appendViolation(gpa, violations, "src/c_abi/driver/host.zig: pancake_host_pending_dial must not fill a locator field", .{});
+    if (try fileContains(io, gpa, root, "src/c_abi/host/host.zig", ".locator = view.locator")) {
+        try appendViolation(gpa, violations, "src/c_abi/host/host.zig: pancake_host_pending_dial must not fill a locator field", .{});
     }
     // One TCP host:port admission; DialResolver / planDial compose it.
     try expectFileContains(io, gpa, root, violations, "src/ocapn/model/uri.zig", &.{
@@ -816,7 +818,8 @@ pub fn checkBindingPromiseSpine(
     }
 }
 
-/// Binding spine Pass 5 (Rust): `Ref` / `Caretaker` / `SessionShared` live in
+/// Binding spine Pass 5 (Rust): the one application `Ref` lives with
+/// `Argument` in `lib.rs`; `Caretaker` / `SessionShared` live in
 /// `session_shared.rs`, not `session.rs`. Grep-level.
 pub fn checkBindingRustConnSpine(
     io: std.Io,
@@ -834,13 +837,15 @@ pub fn checkBindingRustConnSpine(
         return;
     };
     defer gpa.free(contents);
-    for ([_][]const u8{ "pub struct Ref", "pub struct Caretaker", "pub(crate) struct SessionShared", "fn tell(" }) |needle| {
+    for ([_][]const u8{ "pub struct Caretaker", "pub(crate) struct SessionShared", "fn tell(" }) |needle| {
         if (std.mem.indexOf(u8, contents, needle) == null) {
             try appendViolation(gpa, violations, "{s}: session_shared module missing `{s}`", .{ path, needle });
         }
     }
+    try expectFileContains(io, gpa, root, violations, "bindings/rust/src/lib.rs", &.{"pub struct Ref"});
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/rust/src/session.rs", .needle = "pub struct Ref" },
+        .{ .path = "bindings/rust/src/session_shared.rs", .needle = "pub struct Ref" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "pub struct Caretaker" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "pub(crate) struct SessionShared" },
     };
@@ -851,7 +856,7 @@ pub fn checkBindingRustConnSpine(
         };
         defer gpa.free(session);
         if (std.mem.indexOf(u8, session, b.needle) != null) {
-            try appendViolation(gpa, violations, "{s}: `{s}` belongs in session_shared.rs, not session (Pass 5)", .{ b.path, b.needle });
+            try appendViolation(gpa, violations, "{s}: `{s}` is outside its Rust binding owner (Pass 5)", .{ b.path, b.needle });
         }
     }
 }
@@ -870,19 +875,19 @@ pub fn checkBindingGcSpine(
     }{
         .{
             .path = "bindings/ts/stack/gc.ts",
-            .markers = &.{ "class ConnGc", "interface GcHandle", "pancake_host_gc_release", "trackImport(", "drainGc(", "bind(" },
+            .markers = &.{ "class HostGc", "interface GcHandle", "pancake_host_ref_release", "trackImport(", "drainGc(", "bind(" },
         },
         .{
             .path = "bindings/python/pancake/_gc.py",
-            .markers = &.{ "class ConnGc", "class GcHandle", "def bind_session", "pancake_host_gc_release", "def track_import", "def drain_gc", "def bind" },
+            .markers = &.{ "class HostGc", "class GcHandle", "def bind_host", "pancake_host_ref_release", "def track_import", "def drain_gc", "def bind" },
         },
         .{
             .path = "bindings/rust/src/gc.rs",
-            .markers = &.{ "struct ImportGuard", "pancake_host_gc_release", "fn drain", "fn track_import" },
+            .markers = &.{ "struct ImportGuard", "pancake_host_ref_release", "fn drain", "fn track_import" },
         },
         .{
             .path = "bindings/racket/private/gc.rkt",
-            .markers = &.{ "session-with-gc!", "track-import!", "drain-gc!", "pancake_host_gc_release" },
+            .markers = &.{ "session-with-gc!", "track-import!", "drain-gc!", "pancake_host_ref_release" },
         },
     };
     for (mods) |mod| {
@@ -906,14 +911,14 @@ pub fn checkBindingGcSpine(
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/stack/session.ts", .needle = "#trackImport(" },
         .{ .path = "bindings/ts/stack/session.ts", .needle = "#drainGc(" },
-        .{ .path = "bindings/ts/stack/session.ts", .needle = "pancake_host_gc_release" },
+        .{ .path = "bindings/ts/stack/session.ts", .needle = "pancake_host_ref_release" },
         .{ .path = "bindings/python/pancake/_session.py", .needle = "def _track_import" },
         .{ .path = "bindings/python/pancake/_session.py", .needle = "def _drain_gc" },
         .{ .path = "bindings/python/pancake/_session.py", .needle = "def _on_import_dropped" },
-        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_gc_release" },
+        .{ .path = "bindings/python/pancake/_session.py", .needle = "pancake_host_ref_release" },
         .{ .path = "bindings/rust/src/session.rs", .needle = "fn track_import" },
-        .{ .path = "bindings/rust/src/session.rs", .needle = "pancake_host_gc_release" },
-        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_gc_release" },
+        .{ .path = "bindings/rust/src/session.rs", .needle = "pancake_host_ref_release" },
+        .{ .path = "bindings/racket/private/session.rkt", .needle = "pancake_host_ref_release" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (track-import!" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (drain-gc!" },
         .{ .path = "bindings/racket/private/session.rkt", .needle = "(define (session-with-gc!" },
@@ -929,7 +934,7 @@ pub fn checkBindingGcSpine(
         }
     }
 
-    // Python ConnGc must not poke Session privates — GcHandle owns the seam.
+    // Python HostGc must not poke owner privates — GcHandle owns the seam.
     const py_gc = "bindings/python/pancake/_gc.py";
     const py_gc_contents = root.readFileAlloc(io, py_gc, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for GcHandle check with {s}", .{ py_gc, @errorName(err) });
@@ -938,13 +943,13 @@ pub fn checkBindingGcSpine(
     defer gpa.free(py_gc_contents);
     for ([_][]const u8{ "session._host", "session._loop", "session._released", "getattr(session", "._s._" }) |needle| {
         if (std.mem.indexOf(u8, py_gc_contents, needle) != null) {
-            try appendViolation(gpa, violations, "{s}: `{s}` — ConnGc must use GcHandle, not Session privates", .{ py_gc, needle });
+            try appendViolation(gpa, violations, "{s}: `{s}` — HostGc must use GcHandle, not owner privates", .{ py_gc, needle });
         }
     }
 
     // Python owning modules must use Session/Host binding-internal seams
     // (raw/host/gc/hosted/…), not underscore reach-ins — the same class of
-    // smell as the pre-fix ConnGc getattr path.
+    // smell as the pre-fix GC getattr path.
     const py_seam = [_]struct { path: []const u8, needles: []const []const u8 }{
         .{ .path = "bindings/python/pancake/_pump.py", .needles = &.{ "session._", "host._" } },
         .{ .path = "bindings/python/pancake/_promise.py", .needles = &.{"session._"} },
@@ -1282,7 +1287,7 @@ pub fn checkBindingEmbedderPump(
 
     // Zig-facing shared drain (ADR-0072 fifth amendment) — authority for the
     // one-loop switch tests rewire onto; must not silently disappear.
-    const zig_pump = "src/c_abi/driver/embedder_pump.zig";
+    const zig_pump = "src/c_abi/host/embedder_pump.zig";
     root.access(io, zig_pump, .{}) catch {
         try appendViolation(gpa, violations, "{s}: file must exist — Zig embedder_pump (ADR-0072 fifth)", .{zig_pump});
         return;
@@ -1361,7 +1366,7 @@ pub fn checkBindingEmbedderTrampoline(
         },
         .{
             .path = "bindings/python/pancake/_trampoline.py",
-            .markers = &.{ "_chase_local_forwards", "_run_hosted", "_send_local", "_tell_local", "_tell_far", "_dispatch_send", "_dispatch_tell", "_caretaker_proxy", "_attenuate_proxy", "_spawn_hosted", "_publish_hosted", "def _register_actor", "_current_turn", "_last_reply_keep", "pancake_host_turn_break", "pancake_host_turn_forward", "pancake_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
+            .markers = &.{ "_chase_local_forwards", "_run_hosted", "_send_local", "_tell_local", "_tell_far", "_dispatch_send", "_dispatch_tell", "_caretaker_proxy", "_attenuate_proxy", "_spawn_hosted", "_publish_hosted", "def _register_actor", "_current_turn", "_reply_state", "threading.local()", "last_reply_keep", "pancake_host_turn_break", "pancake_host_turn_forward", "pancake_host_turn_spawn", "MAX_LOCAL_FORWARD_HOPS", "FORWARD_CYCLE_MESSAGE" },
         },
         .{
             .path = "bindings/rust/src/trampoline.rs",
@@ -1397,7 +1402,7 @@ pub fn checkBindingEmbedderTrampoline(
         };
         defer gpa.free(contents);
         for (mod.markers) |needle| {
-            if (std.mem.indexOf(u8, contents, needle) == null) {
+            if (!containsAsSymbol(contents, needle)) {
                 try appendViolation(gpa, violations, "{s}: trampoline missing `{s}`", .{ mod.path, needle });
             }
         }
@@ -1467,7 +1472,7 @@ pub fn checkBindingEmbedderTrampoline(
             continue;
         };
         defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, b.needle) != null) {
+        if (containsAsSymbol(contents, b.needle)) {
             try appendViolation(gpa, violations, "{s}: `{s}` belongs in promise/trampoline, not session (Pass 4c/4e/4f)", .{ b.path, b.needle });
         }
     }
@@ -1505,11 +1510,12 @@ pub fn checkBindingEmbedderTrampoline(
     }
 }
 
-/// Living-state honesty for the embedder-spine inventory: shipped.md and
-/// bindings/README.md must name every Pass-1..5 module, declare the split
-/// complete, and name the handshake pump + trampoline / opt-in callback pump.
-/// Also refuse the retired Racket API name `set-node-redeem-reachability`
-/// anywhere under bindings/ (the live export is `set-host-redeem-reachability!`).
+/// The binding maintainer guide must name every embedder-spine module, declare
+/// the split complete, and name the handshake pump plus trampoline and opt-in
+/// callback pump. Keep this internal inventory out of the consumer landing
+/// page. Also refuse the retired Racket API name
+/// `set-node-redeem-reachability` anywhere under bindings/ (the live export is
+/// `set-host-redeem-reachability!`).
 pub fn checkBindingEmbedderSpineDocs(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -1518,30 +1524,7 @@ pub fn checkBindingEmbedderSpineDocs(
 ) !void {
     const docs = [_]struct { path: []const u8, needles: []const []const u8 }{
         .{
-            .path = "docs/shipped.md",
-            .needles = &.{
-                // The module names themselves, not a phrasing around them: the
-                // inventory has to name each one, and how the sentence reads is
-                // the writer's business.
-                "`pump`",
-                "`action`",
-                "`promise`",
-                "promiseFor",
-                "sendFar",
-                "`gc`",
-                "`dial`",
-                "`listen`",
-                "embedder-spine module split is complete",
-                "trampoline",
-                "caretaker",
-                "`session_shared`",
-                "embedder_pump",
-                "pancake_host_pump_drain",
-                "handshake",
-            },
-        },
-        .{
-            .path = "bindings/README.md",
+            .path = "bindings/DEVELOPING.md",
             .needles = &.{
                 "**pump module**",
                 "**action module**",
@@ -1583,6 +1566,7 @@ pub fn checkBindingEmbedderSpineDocs(
         "bindings/ts",
         "bindings/racket",
         "bindings/README.md",
+        "bindings/DEVELOPING.md",
     };
     const exts = [_][]const u8{ ".py", ".rs", ".ts", ".rkt", ".md" };
     for (bind_roots) |bind_root| {
@@ -1680,10 +1664,10 @@ const ReflectedFfiBinding = struct {
 };
 
 const reflected_ffi_bindings = [_]ReflectedFfiBinding{
-    .{ .name = "rust", .prefix = "rust/", .gen_ffi = "rust/src/sys/driver_fns_gen.rs" },
+    .{ .name = "rust", .prefix = "rust/", .gen_ffi = "rust/src/sys/host_fns_gen.rs" },
     .{ .name = "python", .prefix = "python/", .gen_ffi = "python/pancake/_sigs_gen.py" },
-    .{ .name = "ts", .prefix = "ts/", .gen_ffi = "ts/stack/internal/ffi/driver.ts" },
-    .{ .name = "racket", .prefix = "racket/", .gen_ffi = "racket/private/ffi-driver-gen.rkt" },
+    .{ .name = "ts", .prefix = "ts/", .gen_ffi = "ts/stack/internal/ffi/host.ts" },
+    .{ .name = "racket", .prefix = "racket/", .gen_ffi = "racket/private/ffi-host-gen.rkt" },
 };
 
 /// A driver FFI symbol reflected into a binding but deliberately not wired there,
@@ -2156,4 +2140,173 @@ pub fn checkIrohSidecarPins(
     if (pins_seen == 0) {
         try appendViolation(gpa, violations, "{s}: found no pinned dependencies — the sidecar pin scanner no longer matches this manifest", .{manifest_path});
     }
+}
+
+/// The generated Python signature tables are factories the hand-written FFI
+/// loaders call, passing the ctypes mirrors positionally: one archive per
+/// `<name>_sigs`, whose parameter list is decided by which symbols the archive's
+/// inventory actually declares. Omitting a symbol can therefore drop a
+/// parameter, and Python only says so when the loader runs, which is a runtime
+/// step rather than `check`. This holds each call's argument list to the
+/// generated declaration.
+pub fn checkPythonSigsFactoryArity(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const gen_path = "bindings/python/pancake/_sigs_gen.py";
+    const gen = root.readFileAlloc(io, gen_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the sigs-factory arity check with {s}", .{ gen_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(gen);
+
+    var dir = root.openDir(io, "bindings/python/pancake", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "bindings/python/pancake: failed to open for the sigs-factory arity check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var factories: usize = 0;
+    var from: usize = 0;
+    while (std.mem.indexOfPos(u8, gen, from, "\ndef ")) |at| {
+        const name_start = at + "\ndef ".len;
+        const open = std.mem.indexOfScalarPos(u8, gen, name_start, '(') orelse break;
+        from = open;
+        const name = gen[name_start..open];
+        if (!std.mem.endsWith(u8, name, "_sigs")) continue;
+        const declared = parenArgList(gen, open) orelse continue;
+        factories += 1;
+
+        // The one hand-written caller: `_bind(facade, lib, <name>(…))` or a
+        // `sigs = <name>(…)` binding, in this package's loader for that archive.
+        var walker = try dir.walkSelectively(gpa);
+        defer walker.deinit();
+        var found = false;
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.basename, ".py")) continue;
+            if (std.mem.eql(u8, entry.basename, "_sigs_gen.py")) continue;
+            const src = dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch continue;
+            defer gpa.free(src);
+            var scan: usize = 0;
+            while (std.mem.indexOfPos(u8, src, scan, name)) |site| {
+                scan = site + 1;
+                if (site + name.len >= src.len or src[site + name.len] != '(') continue;
+                if (site > 0 and (std.ascii.isAlphanumeric(src[site - 1]) or src[site - 1] == '_')) continue;
+                const passed = parenArgList(src, site + name.len) orelse continue;
+                found = true;
+                if (!argListsEqual(declared, passed)) {
+                    const want = try joinArgList(gpa, declared);
+                    defer gpa.free(want);
+                    const got = try joinArgList(gpa, passed);
+                    defer gpa.free(got);
+                    try appendViolation(gpa, violations, "bindings/python/pancake/{s}: `{s}(…)` passes ({s}) but {s} declares ({s}) — a symbol's `python_omit` changed the generated parameter list; match the call, since Python only refuses this when the loader runs", .{ entry.path, name, got, gen_path, want });
+                }
+            }
+        }
+        if (!found) {
+            try appendViolation(gpa, violations, "{s}: `{s}` has no caller under bindings/python/pancake — a generated signature table nothing loads, or the arity scanner no longer matches", .{ gen_path, name });
+        }
+    }
+    if (factories == 0) {
+        try appendViolation(gpa, violations, "{s}: found no `*_sigs` factories — the arity scanner no longer matches this generated table", .{gen_path});
+    }
+}
+
+/// The text between the parenthesis at `open` and its match, or null when the
+/// parentheses do not balance within the file.
+fn parenArgList(src: []const u8, open: usize) ?[]const u8 {
+    var depth: usize = 0;
+    var i = open;
+    while (i < src.len) : (i += 1) {
+        switch (src[i]) {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if (depth == 0) return src[open + 1 .. i];
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+/// Whether two argument lists name the same identifiers in the same order,
+/// ignoring the whitespace and trailing commas the two spellings differ on.
+fn argListsEqual(a: []const u8, b: []const u8) bool {
+    var it_a = argIter(a);
+    var it_b = argIter(b);
+    while (true) {
+        const next_a = it_a.next();
+        const next_b = it_b.next();
+        if (next_a == null and next_b == null) return true;
+        if (next_a == null or next_b == null) return false;
+        if (!std.mem.eql(u8, next_a.?, next_b.?)) return false;
+    }
+}
+
+const ArgIter = struct {
+    rest: []const u8,
+
+    fn next(self: *ArgIter) ?[]const u8 {
+        while (self.rest.len != 0) {
+            const at = std.mem.indexOfScalar(u8, self.rest, ',') orelse self.rest.len;
+            const item = std.mem.trim(u8, self.rest[0..at], " \t\n\r");
+            self.rest = if (at == self.rest.len) self.rest[at..] else self.rest[at + 1 ..];
+            if (item.len != 0) return item;
+        }
+        return null;
+    }
+};
+
+fn argIter(list: []const u8) ArgIter {
+    return .{ .rest = list };
+}
+
+/// An argument list on one line, for a violation message the two spellings'
+/// own line breaks would otherwise render unreadably.
+fn joinArgList(gpa: std.mem.Allocator, list: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    var it = argIter(list);
+    var first = true;
+    while (it.next()) |item| {
+        if (!first) try out.appendSlice(gpa, ", ");
+        first = false;
+        try out.appendSlice(gpa, item);
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+/// Whether `haystack` contains `needle` as a whole symbol rather than as the
+/// prefix of a longer one. The bans and presence checks above name FFI symbols
+/// and call spellings, so a plain substring match reads
+/// `pancake_host_session_published_ref` as a use of
+/// `pancake_host_session_publish` and refuses a sibling verb that never broke the
+/// rule. A required needle has the same defect facing the other way: a longer
+/// sibling would satisfy it. Boundaries are only required at an end whose own
+/// character is part of an identifier, so a needle spelled with trailing
+/// punctuation (`"return sendLocal("`) still matches.
+///
+/// A needle that begins with an identifier character no longer matches mid-
+/// identifier, so `"tell_local("` is not found inside `"run_tell_local("`. Spell
+/// such a needle with whatever precedes it when that is what you meant.
+pub fn containsAsSymbol(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return false;
+    const identLike = struct {
+        fn f(ch: u8) bool {
+            return std.ascii.isAlphanumeric(ch) or ch == '_';
+        }
+    }.f;
+    var from: usize = 0;
+    while (std.mem.indexOfPos(u8, haystack, from, needle)) |at| {
+        from = at + 1;
+        if (identLike(needle[0]) and at > 0 and identLike(haystack[at - 1])) continue;
+        const end = at + needle.len;
+        if (identLike(needle[needle.len - 1]) and end < haystack.len and identLike(haystack[end])) continue;
+        return true;
+    }
+    return false;
 }

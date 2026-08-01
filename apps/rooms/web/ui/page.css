@@ -1,0 +1,2092 @@
+/* Rooms wears pancake's own colours — cream paper, cocoa ink, an amber accent,
+   a teal flourish — so it looks like part of the project rather than like any
+   chat app it borrows ideas from. Those come from ui/tokens.css, linked ahead of
+   this file in page.html; what follows is only what rooms means by them. */
+:root {
+	--danger: light-dark(#b23b2e, #e07a5f);
+	--ok: var(--teal);
+	--warn: var(--accent);
+	--hover: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), color-mix(in srgb, #ffffff 7%, transparent));
+	/* Your own messages, the Send button, and the pill that marks a mention of
+	   you all sit on the same amber fill, so they share one set of tokens. Fill
+	   and ink are chosen together: cream ink reads on a deep amber but washes
+	   out on a bright one, so the dark theme keeps the bright fill and flips the
+	   ink to the roast instead. Every pairing below clears 4.5:1 at both ends of
+	   the gradient, which is the bar for text this size. */
+	--mine-from: light-dark(var(--accent-deep), var(--accent));
+	--mine-to: light-dark(#8a4708, var(--accent-deep));
+	--on-accent: light-dark(#fff8ef, #241a10);
+	/* light-dark() returns a colour, so it goes around the colour and not around
+	   the whole shadow. Wrapping the whole value parses as a colour function in
+	   the wrong place, the declaration is thrown away, and every box-shadow that
+	   named these tokens quietly resolved to none. Both spellings look the same
+	   in a stylesheet and only one of them draws anything. */
+	--shadow-sm-color: light-dark(color-mix(in srgb, var(--ink) 10%, transparent), rgba(0,0,0,.4));
+	--shadow-color: light-dark(color-mix(in srgb, var(--ink) 16%, transparent), rgba(0,0,0,.5));
+	--shadow-sm: 0 1px 2px var(--shadow-sm-color);
+	--shadow: 0 14px 40px var(--shadow-color);
+	/* One height for interactive controls, so buttons and single-line inputs line
+	   up without per-element tuning. */
+	/* Avatar tints. A fixed ramp of ten that does not follow the theme, because
+	   the chip carries white initials and every tint has to clear 4.5:1 against
+	   them. Three of these are the light arm of --accent-deep, --teal, and
+	   --teal-deep, so `var()` would read correctly here and then flip to a dark
+	   arm that misses the bar (3.67, 2.48, and 3.47 against white). The ramp is
+	   therefore written out, and it is the one place in rooms allowed to spell a
+	   core value; ui/tokens.css owns every other colour. */
+	--avatar-1: #ae6115;
+	--avatar-2: #257f88;
+	--avatar-3: #a4560c;
+	--avatar-4: #1b5f66;
+	--avatar-5: #956e27;
+	--avatar-6: #557f58;
+	--avatar-7: #9c4a2f;
+	--avatar-8: #3a7d8c;
+	--avatar-9: #7a5c34;
+	--avatar-10: #2f6f78;
+	/* Controls come in two sizes and no others. A control that belongs to the
+	   application — anything in the topbar, the rail's own header, the composer —
+	   is --control-h, so the whole frame of the page is one height and reads as
+	   one set. A control that belongs to a row of content — the "+" on a section
+	   heading, the direct-line mark on a member — is --control-sm, because it is
+	   subordinate to the line it sits in and sizing it like the chrome would have
+	   it shouting over the thing it acts on. Anything reaching for a third number
+	   is really asking which of these two it is. */
+	--control-h: 36px;
+	/* The pancake mark, at whichever end of the chrome is holding it. One number
+	   for both homes: see `.mark-btn::before`. */
+	--mark-size: 20px;
+	--control-sm: 26px;
+	/* The composer's own text line. The padding that centres a single line in the
+	   input is derived from these two, so raising the control height for touch
+	   moves the padding with it. Held apart, the phone's taller control kept the
+	   desktop's padding and left the line sitting at the top of it. */
+	--composer-line: 20px;
+	/* The topbar's accent hairline, drawn over its top edge, so the top padding can
+	   offset it and the content is not crowded. */
+	--accent-line: 3px;
+	/* One height for both column headers — the topbar and the sidebar workspace — so
+	   their bottom borders line up across the grid regardless of their very different
+	   content (the topbar sizes to its 36px buttons, the workspace to its 18px title).
+	   It is the topbar's natural height: the 36px buttons plus 12px+12px padding, the
+	   accent line, and the 1px border. Keep in step with --control-h if that changes. */
+	--header-h: 64px;
+	/* Shared cap for the centered message cards — the DM provenance note and the
+	   system pills — so they line up at one width and change together. */
+	--card-max: min(760px, 90%);
+	/* The two rails that flank the conversation — the rooms and direct-message
+	   list on the left, the roster on the right — are the same kind of surface, so
+	   they take one width, one inset, and one fill. A matched pair that drifts
+	   apart by a few pixels on each measure does not read as two considered
+	   choices; it reads as a mistake nobody can name. --rail-pad insets a row pill
+	   from the panel edge and --row-pad insets the row's contents from the pill, so
+	   a section label and the names under it start on the same vertical line in
+	   both rails. */
+	--rail-w: 264px;
+	--rail-pad: 12px;
+	--row-pad: 8px;
+	/* The dissolve at the top of the composer band. The band's own top padding
+	   matches it, so the fade lives entirely in empty space, and the message log
+	   reserves the band minus this: a resting message stops exactly where the
+	   gradient becomes opaque, clear of it, with nothing between them going to
+	   waste. The two numbers have to agree, so there is one of them. */
+	--composer-fade: 12px;
+	--rail-fill: linear-gradient(180deg, var(--paper-raised), color-mix(in srgb,
+		var(--accent) 5%,
+		var(--paper-raised)));
+}
+/* "Syrup" — the same warmth turned down to a dark roast. Two arms, mirroring
+   ui/tokens.css: the media query answers for a reader who never touches the
+   toggle, the attribute for one who does, and the attribute wins either way. */
+@media (prefers-color-scheme: dark) {
+	html:not([data-theme="light"]) {
+		color-scheme: dark;
+	}
+}
+html[data-theme="dark"] {
+	color-scheme: dark;
+}
+* {
+	box-sizing: border-box;
+}
+/* Interface icons (see icons.ts). Stroked paths that take the colour of the
+   control around them, so a button tints on hover without a second asset and
+   the toolbar holds still on a system with no emoji font installed. */
+.icon-svg {
+	display: block;
+	flex: none;
+}
+/* The little state marks — a padlock on a direct conversation, the sigil in the
+   room title — are icons sitting in a run of text, so they centre on the line
+   rather than on the text baseline. */
+.lock,
+#roomSigil {
+	display: inline-flex;
+	align-items: center;
+}
+html,
+body {
+	height: 100%;
+}
+/* Make the hidden attribute authoritative. Several toggled controls (the members
+   and notify buttons) hide via .hidden, but the display rules below (.ghost /
+   .icon set display: inline-flex) would otherwise override it and leave them
+   visible — e.g. a Members button lingering in a direct message. */
+[hidden] {
+	display: none !important;
+}
+body {
+	margin: 0;
+	-webkit-tap-highlight-color: transparent;
+	overscroll-behavior: none;
+	touch-action: manipulation;
+	font: 15px/1.5 var(--font-sans);
+	font-kerning: normal;
+	-webkit-font-smoothing: antialiased;
+	color: var(--ink);
+	background:
+		radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--accent)
+		12%, var(--paper))
+		0%, var(--paper) 55%) no-repeat,
+		var(--paper);
+}
+/* The app shell: a fixed two-column grid on desktop (sidebar + main column); the
+   mobile media query turns it into a single-screen list/conversation stack. */
+.app {
+	position: relative;
+	height: 100dvh;
+	display: grid;
+	grid-template-columns: var(--rail-w) minmax(0, 1fr);
+}
+/* Collapsing a rail hands its width to the conversation, and both rails do it
+   the same way: the track goes away and the panel goes with it, at once. There
+   is no slide, because a panel that also gives up its space can only animate one
+   of the two — either the layout moves, which is a reflow every frame, or the
+   panel slides across ground it has already handed over. Neither is worth the
+   third of a second. */
+.app.rooms-hidden {
+	grid-template-columns: minmax(0, 1fr);
+}
+.app.rooms-hidden .sidebar {
+	display: none;
+}
+::selection {
+	background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+/* Many controls reset with all:unset, which drops the focus ring. Restore a
+   clear keyboard-only ring so tabbing through rooms, DMs, and toolbar buttons
+   is visible; :focus-visible keeps it off mouse clicks. Inputs keep their own
+   softer :focus ring below. */
+button:focus-visible,
+[tabindex]:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+/* Honour a reduced-motion preference: drop the transitions and the reconnect
+   spinner's spin, so the interface holds still for anyone who asks the OS for
+   less movement. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: .001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: .001ms !important;
+	}
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+.sidebar {
+	background: var(--rail-fill);
+	border-right: 1px solid var(--rule);
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	/* A zero-width track still holds its contents, and a control nobody can see
+	   is still a control the keyboard walks into — the same trap the roster sheet
+	   had. visibility takes the rail out of the tab order and the accessibility
+	   tree, and it steps discretely, so it goes at the end of the collapse and
+	   comes back at the start of the opening. */
+	min-width: 0;
+	overflow: hidden;
+}
+/* The rail's header measures itself exactly as the topbar does — the same
+   hairline above, the same padding under it, the same control height inside —
+   rather than centring its contents in a matching total. Both still come to
+   --header-h, so the two bottom borders line up as before, but now every row
+   inside them lines up too. That is what puts the mark on the same pixel
+   whichever header is holding it: collapsing the rail hands the mark to the
+   topbar, and it does not move. */
+.workspace {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: var(--header-h);
+	padding: calc(12px + var(--accent-line)) calc(var(--rail-pad) + var(--row-pad)) 12px;
+	color: var(--ink);
+	font-weight: 800;
+	font-size: 18px;
+	letter-spacing: -.01em;
+	border-bottom: 1px solid var(--rule);
+}
+/* The conversation's ribbon runs the width of its own column and stops at the
+   rail, which is the boundary the two surfaces actually have. The rail answers
+   with the same ribbon turned down, so the break reads as two headers that know
+   about each other rather than one that forgot its flourish. Turned down by
+   opacity rather than by a darker colour of its own: the ink in this palette is
+   cream in the dark theme, so anything mixed toward it there comes out brighter
+   than it started, and this has to read as the quieter of the two in both.
+
+   It also runs the other way, teal to amber, so it arrives at the seam in the
+   colour the conversation's ribbon departs in. Two bars, one hue crossing
+   between them: the break stays a break, and the eye still reads a line that
+   goes all the way across. */
+.workspace::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: var(--accent-line);
+	background: linear-gradient(90deg, var(--teal) 0%, var(--accent) 100%);
+	opacity: .38;
+}
+/* One control with two homes. The pancake mark is three stacked bars already —
+   a hamburger that happens to be breakfast — so the rail carries it beside the
+   wordmark while it is open, and the topbar picks up the same mark when it is
+   closed. Only ever one of the two is on screen, so it reads as the toggle
+   travelling with the rail rather than as two buttons that agree.
+
+   That reading only survives if the mark does not move or change size when it
+   changes homes, so its size is settled here for both and neither home restates
+   it. Each home separately naming a size is how the two came to differ by a
+   pixel, which is small enough to read as a redraw rather than as travel. */
+.mark-btn::before {
+	content: "";
+	width: var(--mark-size);
+	height: var(--mark-size);
+	flex: none;
+	background: currentColor;
+	-webkit-mask: var(--mark-stack) center/contain no-repeat;
+	mask: var(--mark-stack) center/contain no-repeat;
+}
+.workspace .mark-btn {
+	all: unset;
+	box-sizing: border-box;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: var(--control-h);
+	height: var(--control-h);
+	border-radius: 9px;
+	/* The same frame the topbar's controls wear. Bare, the mark read as the
+	   wordmark's decoration rather than the control that puts the rail away —
+	   the one thing it is not allowed to look like, since the topbar's copy of it
+	   is the only way back. Bordered and at the chrome's height, the two read as
+	   one control with two homes, which is what they are. */
+	border: 1px solid var(--rule);
+	color: var(--accent);
+}
+.workspace .mark-btn:hover {
+	background: color-mix(in srgb, var(--accent) 13%, transparent);
+	border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.workspace small {
+	font-weight: 600;
+	font-size: 12px;
+	letter-spacing: .12em;
+	text-transform: uppercase;
+	color: var(--accent-deep);
+}
+/* Each section takes the height its list needs and no more, so the two read as
+   one stack of headings. Letting the rooms section grow to fill instead pushed
+   direct messages down to sit on the status line, with a screen of nothing
+   between the last room and the heading — which reads as a rail that failed to
+   finish loading. The slack now falls below both, where empty space is just
+   empty space. Both may shrink when the lists are long, and each keeps its own
+   scroller. */
+.section {
+	padding: 12px var(--rail-pad);
+	min-height: 0;
+	flex: 0 1 auto;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+/* Direct messages never take more than half the rail, so a long list of them
+   cannot crush the rooms above it. */
+.section.dms {
+	max-height: 50%;
+	border-top: 1px solid var(--rule);
+}
+.section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px var(--row-pad);
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+.section-head button {
+	all: unset;
+	cursor: pointer;
+	width: var(--control-sm);
+	height: var(--control-sm);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 7px;
+	color: var(--accent-deep);
+	font-size: 18px;
+}
+.section-head button:hover {
+	background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+#roomList {
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+	min-height: 0;
+	overflow-y: auto;
+}
+/* The row is a container; the button inside it is what opens the room, and on
+   the room you are in a second button sits beside it to leave. Nesting one
+   inside the other would be a control within a control, which no assistive
+   software can announce. */
+#roomList li {
+	position: relative;
+	border-radius: 9px;
+	color: var(--ink);
+}
+#roomList .room-open {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 7px var(--row-pad);
+	border-radius: 9px;
+	cursor: pointer;
+	color: inherit;
+}
+#roomList li:hover {
+	background: var(--hover);
+}
+/* Leaving takes the badge's own slot rather than a slot of its own: the row
+   gives up no width to hold it, and no room's name is cut short to make space
+   for a mark that is not showing. The count is what a reader wants from this row
+   until the moment they reach for it, and it returns the moment they leave. */
+#roomList .room-leave,
+#dmList .room-leave {
+	all: unset;
+	box-sizing: border-box;
+	position: absolute;
+	right: var(--row-pad);
+	top: 50%;
+	translate: 0 -50%;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 7px;
+	cursor: pointer;
+	color: var(--danger);
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+#roomList li.joined:hover .rcount,
+#roomList li.joined:focus-within .rcount {
+	opacity: 0;
+}
+#roomList li.joined:hover .room-leave,
+#roomList li.joined:focus-within .room-leave {
+	opacity: 1;
+}
+#roomList .room-leave:hover,
+#dmList .room-leave:hover {
+	background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+#roomList .rcount {
+	transition: opacity .12s ease;
+}
+/* A finger cannot hover, so where there is no pointer the mark takes a place of
+   its own beside the count instead of borrowing its slot: this rail is a screen
+   of its own on a phone and has the width to hold both. The desktop trade — one
+   slot, revealed under the pointer — is what a 264px rail can afford, and it
+   stays as it is. */
+@media (hover: none) {
+	#roomList li,
+	#dmList li {
+		display: flex;
+		align-items: center;
+	}
+	#roomList .room-open,
+	#dmList .dm-open {
+		flex: 1;
+		min-width: 0;
+	}
+	#roomList li.joined .room-leave,
+	#dmList li .room-leave {
+		position: static;
+		translate: none;
+		flex: none;
+		margin-right: var(--row-pad);
+		opacity: 1;
+	}
+	#roomList li.joined .rcount,
+	#dmList li .dm-marks {
+		opacity: 1;
+	}
+}
+/* Two different facts about a room, told apart. The bar says you are a member of
+   this one; the fill says it is also the thing on screen. They coincide most of
+   the time, and come apart exactly when a direct message is open — which used to
+   leave nothing anywhere saying which room you were still in, though the room is
+   what makes those people reachable in the first place. The list already had the
+   room in it; it just never said it was yours. */
+#roomList li.joined,
+#roomList li.here {
+	position: relative;
+}
+/* Four grounds, each a step warmer than the last: a room you are only looking
+   at in the list, one you are a member of, one you are also reading, and each of
+   those under the pointer. The membership tint is the faintest thing here on
+   purpose — the bar is what says it, and this only keeps the row from reading as
+   one of the others while the bar is doing the talking. */
+#roomList li.joined {
+	background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+#roomList li.joined:hover {
+	background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+#roomList li.here {
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	color: var(--accent-deep);
+}
+#roomList li.here:hover {
+	background: color-mix(in srgb, var(--accent) 21%, transparent);
+}
+#roomList li.joined .rname {
+	font-weight: 600;
+}
+/* The marker is a real bar with its own geometry, centred on the row. An inset
+   shadow would follow the pill's corner radius and curve, which reads as a bevel
+   rather than a mark. */
+#roomList li.joined::before,
+#roomList li.here::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 50%;
+	translate: 0 -50%;
+	width: 3px;
+	height: 1.15em;
+	border-radius: 0 3px 3px 0;
+	background: var(--accent);
+}
+#roomList .hash {
+	color: var(--accent);
+	flex: none;
+	font-weight: 700;
+}
+#roomList .rname {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+#roomList .rcount {
+	font-size: 12px;
+	flex: none;
+	background: color-mix(in srgb, var(--teal) 16%, transparent);
+	color: var(--teal-deep);
+	padding: 1px 8px;
+	border-radius: 9px;
+	min-width: 22px;
+	text-align: center;
+	font-weight: 600;
+}
+#roomList li.here .rcount {
+	background: color-mix(in srgb, var(--accent) 24%, transparent);
+	color: var(--accent-deep);
+}
+#roomList .empty {
+	padding: 6px var(--row-pad);
+	color: var(--ink-soft);
+	font-size: 13px;
+	cursor: default;
+}
+.newroom {
+	display: none;
+	padding: 4px var(--row-pad) 0;
+}
+.newroom.show {
+	display: block;
+}
+.newroom input {
+	width: 100%;
+	font: inherit;
+	padding: 7px 10px;
+	border-radius: 9px;
+	border: 1px solid var(--rule);
+	background: var(--paper);
+	color: var(--ink);
+}
+.newroom input::placeholder {
+	color: var(--ink-soft);
+}
+.newroom input:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.sidebar-foot {
+	margin-top: auto;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 12px calc(var(--rail-pad) + var(--row-pad));
+	border-top: 1px solid var(--rule);
+	font-size: 13px;
+	color: var(--ink-soft);
+}
+.dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--ink-soft);
+	flex: none;
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.dot.connected {
+	background: var(--ok);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.dot.connecting,
+.dot.reconnecting {
+	background: var(--warn);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.dot.disconnected {
+	background: var(--danger);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+/* ── Main column ──────────────────────────────────────────────────────── */
+.workarea {
+	min-width: 0;
+	min-height: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+/* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
+   is what makes this visible; on desktop nothing scrolls past it). It stays above
+   the message stream but below the reconnect banner and the mobile roster sheet. A
+   backdrop blur makes the translucent background read as frosted glass rather than
+   letting messages bleed through. */
+.topbar {
+	/* Pin to the shared header height so the bottom border matches the sidebar
+	   workspace header. min-height (not height) so the mobile query can still grow it
+	   past this for the safe-area inset. */
+	min-height: var(--header-h);
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: calc(12px + var(--accent-line)) 20px 12px;
+	border-bottom: 1px solid var(--rule);
+	background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+}
+/* The accent hairline lives on the topbar, so it rides along with the sticky header
+   instead of scrolling away at the top of the page. */
+.topbar::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: var(--accent-line);
+	background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
+}
+.topbar h1 {
+	margin: 0;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+/* The room's name is the control that leaves it. Nothing else in this header is
+   about this room in particular, so a separate button beside the title only
+   asked which of the two the reader was meant to act on. The whole chip is the
+   button: it stands at the height of the icon buttons across the bar, takes a
+   hover ground like them, and shows the mark for what pressing it does only once
+   you are over it. The mark's place is held whether or not it is showing, so the
+   title never shifts under the pointer. */
+.topbar .title-btn {
+	all: unset;
+	box-sizing: border-box;
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	height: var(--control-h);
+	/* Trailing room for the mark, and a leading inset the negative margin gives
+	   back, so the title still begins where it would with no chip around it. */
+	padding: 0 28px 0 8px;
+	margin-left: -8px;
+	border-radius: 9px;
+	font-size: 17px;
+	font-weight: 800;
+	letter-spacing: -.01em;
+	line-height: 1;
+	color: var(--ink);
+	cursor: default;
+	white-space: nowrap;
+}
+/* Before a room, and inside a direct message, there is nothing to leave. */
+.topbar .title-btn:disabled {
+	padding-right: 8px;
+}
+.topbar .title-btn:disabled .leave-x {
+	display: none;
+}
+.topbar .title-btn:not(:disabled) {
+	cursor: pointer;
+}
+.topbar .title-btn:not(:disabled):hover,
+.topbar .title-btn:not(:disabled):focus-visible {
+	background: var(--hover);
+}
+.topbar .leave-x {
+	position: absolute;
+	right: 6px;
+	display: inline-flex;
+	align-items: center;
+	color: var(--danger);
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+.topbar .title-btn:not(:disabled):hover .leave-x,
+.topbar .title-btn:not(:disabled):focus-visible .leave-x {
+	opacity: 1;
+}
+.topbar h1 .hash {
+	color: var(--accent);
+	font-weight: 700;
+}
+/* Before the first join there is no room, and the header used to name one
+   anyway: a `#` and the word "rooms", which reads as a room called rooms. The
+   sigil is what claims a room, so it stays off until there is one, and the line
+   holds the state instead — in the muted register the roster and the rails use
+   for the same moment. */
+.topbar .title-btn:has(#roomSigil[hidden]) {
+	color: var(--ink-soft);
+	font-weight: 600;
+}
+.topbar .spacer {
+	flex: 1;
+}
+/* A toggle has to look toggled. The Members button has always carried
+   aria-pressed, so assistive software knew whether the roster was up; everyone
+   else was told only by the roster itself, which is the one thing the button
+   takes away. It wears the same "on" treatment as the notification bell beside
+   it. */
+.topbar .icon[aria-pressed="true"] {
+	color: var(--accent-deep);
+	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.topbar .icon[aria-pressed="true"]:hover {
+	background: color-mix(in srgb, var(--accent) 20%, transparent);
+	color: var(--accent-deep);
+}
+/* A floating connection-status pill that overlays the stream rather than
+   reflowing the page. It fades in with a small spinner, so it reads as a
+   transient "working on it" indicator, not a modal or an alert. */
+.banner {
+	position: absolute;
+	top: 14px;
+	left: 50%;
+	z-index: 6;
+	display: inline-flex;
+	align-items: center;
+	gap: 9px;
+	padding: 7px 15px 7px 13px;
+	border-radius: 999px;
+	background: var(--paper-raised);
+	border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--rule));
+	color: var(--ink);
+	font-size: 13px;
+	font-weight: 600;
+	box-shadow: var(--shadow);
+	opacity: 0;
+	pointer-events: none;
+	transform: translateX(-50%) translateY(-10px);
+	transition: opacity .2s ease, transform .2s ease;
+}
+.banner.show {
+	opacity: 1;
+	transform: translateX(-50%) translateY(0);
+}
+.banner::before {
+	content: "";
+	width: 13px;
+	height: 13px;
+	flex: none;
+	border-radius: 50%;
+	border: 2px solid color-mix(in srgb, var(--warn) 30%, transparent);
+	border-top-color: var(--warn);
+}
+.banner.show::before {
+	animation: bannerspin .7s linear infinite;
+}
+@keyframes bannerspin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.content {
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0,1fr) var(--rail-w);
+}
+.content.no-members {
+	grid-template-columns: minmax(0,1fr);
+}
+.content.no-members .members {
+	display: none;
+}
+
+/* ── Message stream, left/right chat bubbles ─────────────────────────── */
+.stream {
+	position: relative;
+	min-height: 0;
+}
+#log {
+	position: absolute;
+	inset: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+	/* The composer floats over the bottom of this column, so the last message
+	   stops at the band's top edge, where the ramp above is still fully clear:
+	   nothing is veiled while it sits still, and the ramp is the space between
+	   the conversation and the field.
+	   main.ts measures the band and keeps --composer-h honest; the fallback is
+	   its resting height, for the first paint before the observer has run. */
+	padding: 16px 0 var(--composer-h, 113px);
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+/* Pin messages to the bottom (just above the composer) when a conversation is
+   short, on both desktop and mobile; when it overflows there is no free space so
+   it scrolls normally. */
+#log > :first-child {
+	margin-top: auto;
+}
+/* The panel that opens a conversation. It is the top of the log, so it carries
+   the room's own name and one plain sentence about what this conversation is.
+   Bounded to the same width as the system pills so the column reads as one
+   measure, and left-aligned because it is prose, not a notice. */
+.conv-intro {
+	align-self: center;
+	width: var(--card-max);
+	margin: 8px 0 14px;
+	padding: 16px 18px;
+	border: 1px solid var(--rule);
+	border-radius: 14px;
+	background: linear-gradient(150deg, color-mix(in srgb, var(--teal) 9%,
+		var(--paper-raised)), var(--paper-raised) 65%);
+}
+.conv-intro h2 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 6px;
+	font-size: 17px;
+	color: var(--teal-deep);
+}
+.conv-intro p {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--ink-soft);
+	text-wrap: pretty;
+}
+
+/* Each scroll panel keeps its touch scrolling to itself (the body is locked), so
+   flinging a list or the roster does not rubber-band or chain to anything else. */
+#roomList,
+#dmList,
+#members {
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+}
+.row {
+	display: flex;
+	gap: 10px;
+	padding: 2px 20px;
+	align-items: flex-start;
+}
+.row.them {
+	justify-content: flex-start;
+}
+.row.mine {
+	justify-content: flex-end;
+}
+.row .avatar {
+	width: 32px;
+	height: 32px;
+	border-radius: 10px;
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #fff;
+	font-weight: 700;
+	font-size: 13px;
+	box-shadow: var(--shadow-sm);
+}
+.row.mine .avatar {
+	display: none;
+}
+.stack {
+	display: flex;
+	flex-direction: column;
+	max-width: min(560px, 76%);
+	min-width: 0;
+}
+.row.mine .stack {
+	align-items: flex-end;
+}
+.who {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin: 0 0 4px 12px;
+}
+.bubble {
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	color: var(--ink);
+	padding: 8px 13px;
+	border-radius: 16px;
+	border-top-left-radius: 6px;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+	box-shadow: var(--shadow-sm);
+}
+.bubble + .bubble {
+	margin-top: 3px;
+}
+.row.mine .bubble {
+	background: linear-gradient(135deg, var(--mine-from) 0%, var(--mine-to) 100%);
+	color: var(--on-accent);
+	border-color: transparent;
+	border-radius: 16px;
+	border-top-right-radius: 6px;
+	border-top-left-radius: 16px;
+}
+/* Our own optimistic sends. A line dims while "sending", waiting on the wire to confirm
+   it, and tints "failed" when the send rejects. A failed bubble is a button: tap it, or
+   focus it and press Enter or Space, to send the same line again. */
+.bubble.sending {
+	opacity: .55;
+}
+.bubble.failed {
+	cursor: pointer;
+}
+.row.mine .bubble.failed {
+	background: linear-gradient(135deg, var(--danger) 0%,
+		color-mix(in srgb, var(--danger) 78%, #000) 100%);
+}
+.bubble.failed:focus-visible {
+	outline: 2px solid var(--danger);
+	outline-offset: 2px;
+}
+.time {
+	font-size: 10.5px;
+	color: var(--ink-soft);
+	margin: 4px 0 2px 12px;
+}
+.row.mine .time {
+	margin: 4px 4px 2px 0;
+}
+.sys {
+	align-self: stretch;
+	text-align: center;
+	/* No horizontal padding: the pill inside is capped at --card-max and centred, the
+	   same as the DM note, so both resolve that width against the message area itself.
+	   A wrapper inset here would measure --card-max's percentage against a smaller box
+	   and make the pill narrower than the note. */
+	padding: 6px 0;
+}
+/* inline-block, so a message that wraps stays one rounded pill instead of
+   breaking into a jagged box per line. */
+.sys span {
+	display: inline-block;
+	max-width: var(--card-max);
+	text-align: center;
+	line-height: 1.5;
+	text-wrap: pretty; /* keep a multi-line system pill's last line from dangling */
+	font-size: 12.5px;
+	color: var(--ink-soft);
+	background: color-mix(in srgb, var(--ink) 6%, transparent);
+	padding: 4px 13px;
+	border-radius: 12px;
+}
+.jump {
+	position: absolute;
+	left: 50%;
+	bottom: calc(var(--composer-h, 113px) + 8px);
+	transform: translateX(-50%);
+	display: none;
+	cursor: pointer;
+	border: 1px solid var(--rule);
+	background: var(--paper-raised);
+	color: var(--accent-deep);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 700;
+	padding: 7px 16px;
+	border-radius: 20px;
+	box-shadow: var(--shadow);
+	/* Above the .stream::after dim scrim (z-index 2), so the button reads on top of
+	   the fade rather than behind it. */
+	z-index: 3;
+}
+.jump.show {
+	/* Flex, not block: the label sits beside its arrow. */
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* ── Member pane ──────────────────────────────────────────────────────── */
+/* The roster is the second rail, and it takes the first one's geometry and fill.
+   It used to be 24px narrower on a wash of 60%-transparent paper, which against
+   the cream background left it barely a surface at all: two panels flanking the
+   conversation, only one of which looked like it was there. */
+.members {
+	min-height: 0;
+	border-left: 1px solid var(--rule);
+	padding: 12px var(--rail-pad);
+	display: flex;
+	flex-direction: column;
+	background: var(--rail-fill);
+}
+/* Same shape as a sidebar section head, so "Members" and "Rooms" sit on one line
+   across the two rails. */
+.members h2 {
+	margin: 0;
+	padding: 4px var(--row-pad);
+	font-size: 12px;
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+	font-weight: 700;
+}
+#presenceSummary {
+	margin: 2px 0 0;
+	padding: 0 var(--row-pad);
+	font-size: 13px;
+	color: var(--ink-soft);
+}
+#members {
+	margin: 8px 0 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	overflow-y: auto;
+	min-height: 0;
+}
+#members li {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 7px var(--row-pad);
+	/* The button plus this row's own 7px top and bottom. */
+	min-height: calc(var(--control-sm) + 14px);
+	border-radius: 9px;
+}
+#members li:hover {
+	background: var(--hover);
+}
+#members .pip {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	flex: none;
+	border: 1.5px solid currentColor;
+}
+#members .online {
+	color: var(--teal-deep);
+}
+#members .online .pip {
+	background: var(--teal);
+	color: var(--teal);
+}
+#members .offline {
+	color: var(--ink-soft);
+	opacity: .7;
+}
+#members .offline .pip {
+	background: transparent;
+}
+#members .name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ink);
+}
+#members .offline .name {
+	color: var(--ink-soft);
+}
+.empty {
+	color: var(--ink-soft);
+	font-size: 13px;
+}
+
+/* ── Composer ─────────────────────────────────────────────────────────── */
+/* Every control shares --control-h and centers its own contents, and the row
+   bottom-aligns them. A single line is therefore even top and bottom, and the
+   buttons stay pinned to the bottom as the textarea grows. */
+/* It belongs to the message column, not to the window. As a row of the whole
+   work area it ran the full width, under the roster as well, and the roster's
+   fill stopped short above it: a band across the screen that changed colour for
+   no reason a reader could name, and that stayed put while the column beside it
+   grew and shrank with the panels.
+
+   Here it floats over the bottom of the column it serves, so it takes that
+   column's width and follows it. The messages pass underneath and dissolve into
+   paper on the way, which is the topbar's frosted edge answered at the other
+   end of the page: the fade is the boundary, and there is no line to draw. */
+.composer {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding: var(--composer-fade) 20px calc(20px + env(safe-area-inset-bottom));
+	background: linear-gradient(to top,
+		var(--paper) calc(100% - var(--composer-fade)),
+		transparent 100%);
+}
+/* One line above the input, shared by the two things that ever want it: who else
+   is typing, and the shortcut reminder while you are composing. They are rarely
+   both true and never both worth reading, so they take turns in one reserved row
+   rather than each holding a row of their own — which is what made the band tall
+   enough to notice. Reserved, not grown on demand, because the band is anchored
+   to the bottom of the message column: anything that changes its height moves its
+   top edge, and the top edge is the dissolve. */
+.composer-status {
+	position: relative;
+	height: 15px;
+	/* Clear of the field below it. Sat directly on the input's border, the line's
+	   descenders came within three pixels of it, and the two read as one crowded
+	   block rather than a caption and the thing it captions. Its clearance above
+	   comes from the composer's own top padding, since that is the side the
+	   messages arrive from. Measured between the glyphs, not the boxes: the boxes
+	   agreed while the ink was two pixels apart. */
+	margin-bottom: 8px;
+}
+.typing,
+.composer .hint {
+	position: absolute;
+	/* Aligned with the text you are writing: the input's own left padding plus
+	   its border, so the status line and the caret start on one edge. */
+	inset: 0 6px 0 15px;
+	line-height: 15px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--ink-soft);
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+.typing {
+	font-size: 12px;
+	font-style: italic;
+}
+.typing.show {
+	opacity: 1;
+}
+.composer .hint {
+	font-size: 11.5px;
+}
+/* The hint appears while the field has the caret, and yields to the typing line
+   whenever someone else is at their keyboard. */
+.composer:has(form:focus-within) .hint {
+	opacity: 1;
+}
+.composer:has(.typing.show) .hint {
+	opacity: 0;
+}
+.composer form {
+	display: flex;
+	align-items: flex-end;
+	gap: 6px;
+	border: 1px solid var(--rule);
+	border-radius: 14px;
+	padding: 6px 6px 6px 14px;
+	background: var(--paper-raised);
+	box-shadow: var(--shadow-sm);
+}
+.composer form:focus-within {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.composer textarea {
+	flex: 1;
+	font: inherit;
+	line-height: var(--composer-line);
+	border: 0;
+	background: none;
+	color: var(--ink);
+	padding: calc((var(--control-h) - var(--composer-line)) / 2) 0;
+	margin: 0;
+	outline: none;
+	resize: none;
+	height: var(--control-h);
+	min-height: var(--control-h);
+	max-height: 140px;
+}
+.composer textarea::placeholder {
+	color: var(--ink-soft);
+}
+.composer button {
+	all: unset;
+	box-sizing: border-box;
+	cursor: pointer;
+	height: var(--control-h);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 10px;
+}
+.composer .emoji-btn {
+	min-width: var(--control-h);
+	border-radius: 9px;
+	font-size: 18px;
+	color: var(--ink-soft);
+}
+.composer .emoji-btn:hover {
+	background: var(--hover);
+}
+.composer button[type="submit"] {
+	padding: 0 18px;
+	font-weight: 700;
+	color: var(--on-accent);
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
+}
+.composer button[type="submit"]:hover {
+	filter: brightness(1.05);
+}
+.composer button:disabled {
+	opacity: .4;
+	cursor: not-allowed;
+	filter: none;
+}
+
+/* ── Join card ────────────────────────────────────────────────────────── */
+/* A sibling of the message log, not a child of it: the log is repainted by
+   clearing its children, and a join card living inside would be destroyed the
+   first time a conversation rendered — leaving nothing to show a rejected nick.
+   It covers the log while it is up, so it carries the paper background. */
+.join-wrap {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	overflow-y: auto;
+	background: var(--paper);
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+.join {
+	width: min(390px, 100%);
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+	border: 1px solid var(--rule);
+	border-radius: 18px;
+	padding: 28px;
+	background: var(--paper-raised);
+	box-shadow: var(--shadow);
+	position: relative;
+	overflow: hidden;
+}
+.join::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: 4px;
+	background: linear-gradient(90deg, var(--accent), var(--teal));
+}
+.join h2 {
+	margin: 4px 0 0;
+	font-size: 21px;
+	letter-spacing: -.01em;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+.join p.lead {
+	margin: -4px 0 6px;
+	color: var(--ink-soft);
+	font-size: 14px;
+}
+.join label {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin-bottom: -7px;
+}
+.join input {
+	font: inherit;
+	padding: 11px 13px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--paper);
+	color: var(--ink);
+}
+.join input:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.join #joinBtn {
+	all: unset;
+	text-align: center;
+	cursor: pointer;
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
+	color: var(--on-accent);
+	padding: 12px;
+	border-radius: 11px;
+	font-weight: 800;
+	margin-top: 2px;
+}
+.join #joinBtn:hover {
+	filter: brightness(1.05);
+}
+.join #joinBtn:disabled {
+	opacity: .55;
+	cursor: progress;
+	filter: none;
+}
+/* The join card's shortcut into the rooms list. Its whole job is revealing a
+   list that is off screen, and on desktop the list is already beside the card,
+   so the button had nothing to do and did nothing when pressed. It belongs to
+   the phone layout, where the list is a separate screen and this is the way to
+   it before you have joined anything. */
+.join .ghost-link {
+	all: unset;
+	display: none;
+	align-self: center;
+	cursor: pointer;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--teal-deep);
+	padding: 4px 8px;
+	border-radius: 8px;
+}
+.join .ghost-link:hover {
+	background: color-mix(in srgb, var(--teal) 12%, transparent);
+	color: var(--teal);
+}
+.join .ghost-link:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.error {
+	min-height: 1.2em;
+	margin: -4px 0 0;
+	color: var(--danger);
+	font-size: 13px;
+}
+
+/* ── Rich text inside bubbles ─────────────────────────────────────────── */
+.bubble a {
+	color: var(--teal-deep);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.row.mine .bubble a {
+	color: var(--on-accent);
+}
+.bubble code {
+	font-family: var(--font-mono);
+	font-size: .9em;
+	background: color-mix(in srgb, var(--ink) 9%, transparent);
+	padding: 1px 5px;
+	border-radius: 5px;
+}
+.row.mine .bubble code {
+	background: color-mix(in srgb, var(--on-accent) 20%, transparent);
+}
+.mention {
+	color: var(--accent-deep);
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	padding: 0 4px;
+	border-radius: 5px;
+	font-weight: 600;
+}
+.row.mine .mention {
+	color: var(--on-accent);
+	background: color-mix(in srgb, var(--on-accent) 24%, transparent);
+}
+.mention.you {
+	background: var(--mine-from);
+	color: var(--on-accent);
+}
+.row.them .bubble.hl {
+	/* A line that names you: a warm tint and a firmer border. The bubble's
+	   corners are too round to carry an edge marker, so the fill does the work
+	   and the message stays the loudest thing in the row. */
+	border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	background: color-mix(in srgb, var(--accent) 13%, var(--paper-raised));
+}
+
+/* ── Day + unread dividers ────────────────────────────────────────────── */
+.divider {
+	align-self: stretch;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 20px;
+	color: var(--ink-soft);
+	font-size: 12px;
+}
+.divider::before,
+.divider::after {
+	content: "";
+	height: 1px;
+	background: var(--rule);
+	flex: 1;
+}
+.divider span {
+	white-space: nowrap;
+	font-weight: 600;
+}
+.divider.unread {
+	color: var(--accent-deep);
+}
+.divider.unread::before,
+.divider.unread::after {
+	background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ── /me action lines ─────────────────────────────────────────────────── */
+.sys.action span {
+	font-style: italic;
+	color: var(--accent-deep);
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ── Per-message hover actions ────────────────────────────────────────── */
+.row {
+	position: relative;
+}
+.row .acts {
+	position: absolute;
+	/* Clear of the sender's name rather than half over it. The bar floats above
+	   the row and overlaps the message before it, which is what every chat
+	   client does with a hover toolbar; the solid fill and the z-index below
+	   keep it readable where it lands. */
+	top: -22px;
+	display: none;
+	gap: 2px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 9px;
+	padding: 2px;
+	box-shadow: var(--shadow-sm);
+	z-index: 2;
+}
+.row.them .acts {
+	left: 54px;
+}
+.row.mine .acts {
+	right: 20px;
+}
+/* Only reveal on a real hover device. On touch, tapping a row triggers a sticky
+   :hover, which would otherwise leave Copy/@ stuck visible on the tapped row. */
+@media (hover: hover) {
+	.row:hover .acts,
+	.row:focus-within .acts {
+		display: flex;
+		animation: acts-in .12s ease-out;
+	}
+}
+/* Keyboard users get the same bar without a pointer ever being involved. */
+.row:focus-within .acts {
+	display: flex;
+}
+@keyframes acts-in {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+}
+.row .acts button {
+	all: unset;
+	cursor: pointer;
+	font-size: 12.5px;
+	line-height: 1;
+	padding: 5px 7px;
+	border-radius: 7px;
+	color: var(--ink-soft);
+}
+.row .acts button:hover {
+	background: var(--hover);
+	color: var(--ink);
+}
+
+/* ── Topbar icon buttons (theme, notifications) ───────────────────────── */
+.topbar .icon {
+	all: unset;
+	/* Restore the global border-box that all:unset drops, so the 1px border sizes
+	   inside --control-h instead of adding 2px and making the icon buttons taller. */
+	box-sizing: border-box;
+	cursor: pointer;
+	width: var(--control-h);
+	height: var(--control-h);
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 9px;
+	border: 1px solid var(--rule);
+	color: var(--ink-soft);
+	font-size: 15px;
+	/* Tight line box so the glyph centres in the button instead of riding high on
+	   the inherited 1.5 line-height. */
+	line-height: 1;
+}
+/* The roster's control carries the roster's number. A count belongs beside the
+   thing that opens the list it counts, not at the other end of the bar next to
+   the room's name — where collapsing the roster took the list away and left the
+   number stranded. The button widens to hold it and stays an icon button in
+   every other respect. */
+.topbar .count-btn {
+	width: auto;
+	min-width: var(--control-h);
+	padding: 0 11px 0 9px;
+	gap: 7px;
+	font-size: 13px;
+	font-weight: 700;
+}
+/* Two digits' worth of room, held whether or not both are used. Members come and
+   go constantly, and a button that resized on every arrival would walk the whole
+   toolbar sideways as it did; tabular figures keep each digit the same width as
+   the last, so within that reserve nothing moves at all. Only the step to "99+"
+   costs a glyph, and a room does not cross that line twice in an afternoon. */
+#memberCount {
+	min-width: 2ch;
+	text-align: center;
+	/* Its own size, not the button's. The phone layout scales the icon buttons up
+	   for the glyphs they hold, and a numeral told to be 20px is not a bigger
+	   picture, it is a shout. */
+	font-size: 13px;
+	font-variant-numeric: tabular-nums;
+}
+/* The rooms rail's toggle, and the left-hand answer to the Members button at the
+   other end of the topbar: one control per rail, each reporting whether its rail
+   is showing. What it does differs by layout because the rails do — on desktop
+   the rail sits beside the conversation and this collapses it, on a phone the
+   rail is a screen of its own and this opens it — but "is the rooms list up?" is
+   the same question in both, so it is the same button and the same aria-pressed.
+
+   It wears the pancake mark rather than a drawn menu glyph, because the mark is
+   already three stacked bars: a hamburger that happens to be breakfast. The
+   unread dot flags activity behind the rail while it is closed. */
+#backBtn {
+	display: none;
+	position: relative;
+	margin-right: 2px;
+}
+.app.rooms-hidden #backBtn {
+	display: inline-flex;
+}
+#backBtn.has-unread::after {
+	content: "";
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+/* The roster-sheet scrim is mobile-only; display:none keeps it out of the .app
+   grid on desktop (the media query turns it on when the sheet opens). */
+#sheetScrim {
+	display: none;
+}
+.topbar .icon:hover {
+	background: var(--hover);
+	color: var(--ink);
+}
+.topbar .icon.on {
+	color: var(--accent-deep);
+	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ── Emoji picker popup ───────────────────────────────────────────────── */
+.emoji-pop {
+	position: absolute;
+	bottom: 64px;
+	right: 20px;
+	display: none;
+	grid-template-columns: repeat(8, 1fr);
+	gap: 2px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 12px;
+	padding: 8px;
+	box-shadow: var(--shadow);
+	z-index: 6;
+}
+.emoji-pop.show {
+	display: grid;
+}
+.emoji-pop button {
+	all: unset;
+	cursor: pointer;
+	font-size: 19px;
+	padding: 5px;
+	border-radius: 8px;
+	text-align: center;
+}
+.emoji-pop button:hover {
+	background: var(--hover);
+}
+
+/* ── Direct-message threads (sidebar) ─────────────────────────────────── */
+#dmList {
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+	min-height: 0;
+	overflow-y: auto;
+}
+#dmList li {
+	position: relative;
+	border-radius: 9px;
+	color: var(--ink);
+}
+#dmList .dm-open {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 7px var(--row-pad);
+	border-radius: 9px;
+	cursor: pointer;
+	color: inherit;
+}
+#dmList li:hover {
+	background: var(--hover);
+}
+#dmList li.here:hover {
+	background: color-mix(in srgb, var(--teal) 23%, transparent);
+}
+/* A room row carries one trailing mark, so the leave mark can take its place. A
+   direct row carries several — presence, the lock or a closed label, unread —
+   and dropping the leave mark on top of them drew the two over each other. They
+   hang off one group element and step aside together, which is the same gesture
+   the room row makes and leaves one mark where there were several. The group is
+   what makes that true of a mark added later, too: a stylesheet that named the
+   marks one at a time is how the closed label came to sit under the button. */
+#dmList .dm-marks {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: none;
+	transition: opacity .12s ease;
+}
+#dmList li:hover .dm-marks,
+#dmList li:focus-within .dm-marks {
+	opacity: 0;
+}
+#dmList li:hover .room-leave,
+#dmList li:focus-within .room-leave {
+	opacity: 1;
+}
+#dmList li.here {
+	position: relative;
+	background: color-mix(in srgb, var(--teal) 18%, transparent);
+	color: var(--teal-deep);
+}
+#dmList li.here::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 50%;
+	translate: 0 -50%;
+	width: 3px;
+	height: 1.15em;
+	border-radius: 0 3px 3px 0;
+	background: var(--teal);
+}
+#dmList .dmavatar {
+	width: 22px;
+	height: 22px;
+	border-radius: 7px;
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #fff;
+	font-weight: 700;
+	font-size: 10.5px;
+}
+#dmList .rname {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+#dmList .lock {
+	flex: none;
+	color: var(--teal);
+	font-size: 11px;
+}
+#dmList .rcount {
+	font-size: 11px;
+	flex: none;
+	background: var(--mine-from);
+	color: var(--on-accent);
+	padding: 1px 7px;
+	border-radius: 9px;
+	min-width: 20px;
+	text-align: center;
+	font-weight: 700;
+}
+#dmList .empty {
+	padding: 6px var(--row-pad);
+	color: var(--ink-soft);
+	font-size: 13px;
+	cursor: default;
+}
+/* A presence dot per direct line, the same online/offline language the member
+   pane uses: filled when the peer is reachable, hollow and dimmed when not. */
+#dmList .dmpip {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex: none;
+	border: 1.5px solid var(--ink-soft);
+	background: transparent;
+}
+#dmList .dmpip.on {
+	background: var(--teal);
+	border-color: var(--teal);
+}
+#dmList li.off {
+	opacity: .55;
+}
+/* A conversation whose member has gone. Not the same as offline — offline comes
+   back, and this does not — so it reads as spent rather than dimmed. A departed
+   member is offline too, by every test the roster can make, so the row would
+   otherwise carry the dim as well and say the milder of the two states on top of
+   the truer one. The line through the name is what tells this one. */
+#dmList li.off.closed {
+	opacity: 1;
+}
+#dmList li.closed .rname {
+	text-decoration: line-through;
+	text-decoration-color: color-mix(in srgb, var(--ink-soft) 60%, transparent);
+}
+#dmList .closed-mark {
+	flex: none;
+	font-size: 11px;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+#dmList li.off.here {
+	opacity: 1;
+}
+
+/* A direct line to a member the room says is reachable, marked with the same
+   two-endpoint glyph a direct conversation carries in its title. It is shown on
+   every such row rather than revealed on hover, for three reasons that all point
+   the same way: which members you can reach directly is worth seeing at a
+   glance, a control that only exists under the pointer cannot be found by
+   looking, and the hidden button held its place in the row anyway — so every
+   name it sat behind was cut short with a stretch of empty space beside it. */
+#members li .dm-btn {
+	all: unset;
+	box-sizing: border-box;
+	cursor: pointer;
+	margin-left: auto;
+	flex: none;
+	width: var(--control-sm);
+	height: var(--control-sm);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--teal-deep);
+	border: 1px solid color-mix(in srgb, var(--teal) 34%, transparent);
+	border-radius: 8px;
+}
+#members li .dm-btn:hover {
+	background: color-mix(in srgb, var(--teal) 14%, transparent);
+	color: var(--teal);
+}
+
+/* ── Direct-message provenance (topbar + in-stream note) ──────────────── */
+.topbar h1 .at {
+	color: var(--teal);
+	font-weight: 700;
+}
+.provenance {
+	display: none;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--teal-deep);
+	background: color-mix(in srgb, var(--teal) 14%, transparent);
+	border: 1px solid color-mix(in srgb, var(--teal) 30%, transparent);
+	padding: 4px 10px;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+.provenance.show {
+	display: inline-flex;
+}
+.provenance .lock {
+	font-size: 12px;
+}
+/* When the peer is offline there is no live direct line, so drop the lock and
+   mute the chip rather than imply a secure connection that is not there. */
+.provenance.offline {
+	color: var(--ink-soft);
+	background: color-mix(in srgb, var(--ink-soft) 12%, transparent);
+	border-color: color-mix(in srgb, var(--ink-soft) 26%, transparent);
+}
+.provenance.offline .lock {
+	display: none;
+}
+
+/* A touch screen has no pointer to hover with, so a mark that waits for one is a
+   mark nobody there can find. The room's name still leaves the room; its mark
+   simply stands there, in the quiet ink the rest of the header uses, and takes
+   the warning colour under the finger rather than before it. */
+@media (hover: none) {
+	.topbar .title-btn:not(:disabled) .leave-x {
+		opacity: 1;
+		color: var(--ink-soft);
+	}
+	.topbar .title-btn:not(:disabled):active .leave-x {
+		color: var(--danger);
+	}
+}
+
+/* The phone layout. `dom.ts` matches this same width to decide whether to drive
+   the back button and the roster sheet; move one and move the other. */
+@media (max-width: 820px) {
+	/* A finger needs the whole of a control, so the small tier grows to the
+	   chrome's height here. The chrome does not move: it is already sized for
+	   touch, and the two tiers meeting at one number is the honest answer when
+	   the pointer is a fingertip. */
+	:root {
+		--control-sm: var(--control-h);
+	}
+	/* Master-detail on a phone: the sidebar (the rooms and DM list) and the
+	   workarea (a conversation, or the join card) each take the whole screen, and
+	   a class on .app flips between them — the list-then-conversation stack phone
+	   messengers use. It replaces the old split that crushed both panes onto one
+	   cramped screen and hid the create-room and start-DM actions entirely. */
+	/* Do not fight the keyboard, and make the whole document the scroll region (like
+	   a native chat) instead of an inner panel. The app column grows with the
+	   messages and the log flows in the document rather than scrolling on its own,
+	   so the page scrolls and iOS pushes it up for the keyboard. The column keeps a
+	   100dvh minimum and the log flex-grows, and the shared margin-top: auto rule
+	   pins a short conversation's messages and the composer to the bottom. No locked
+	   body, no fixed positioning, no per-frame repositioning. */
+	.app {
+		display: block;
+		height: auto;
+		min-height: 100dvh;
+	}
+	.app.show-list .sidebar {
+		min-height: 100dvh;
+	}
+	.workarea {
+		display: flex;
+		flex-direction: column;
+		min-height: 100dvh;
+	}
+	.content {
+		display: flex;
+		flex-direction: column;
+		flex: 1 0 auto;
+	}
+	.stream {
+		display: flex;
+		flex-direction: column;
+		flex: 1 0 auto;
+	}
+	#log {
+		position: static;
+		overflow: visible;
+		flex: 1 0 auto;
+		padding: 16px 0 12px;
+	}
+	.jump {
+		position: fixed;
+		left: 50%;
+		bottom: calc(30px + env(safe-area-inset-bottom));
+	}
+	/* Here the page itself scrolls and the composer rides along at the end of it,
+	   so nothing passes behind it and it needs no band of its own. The fade that
+	   keeps the jump-to-latest button legible is anchored to the viewport instead,
+	   where the button now is. */
+	.composer {
+		position: relative;
+		padding: 0 12px calc(16px + env(safe-area-inset-bottom));
+		background: none;
+	}
+	.stream::after {
+		content: "";
+		display: none;
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 150px;
+		z-index: 2;
+		pointer-events: none;
+		background: linear-gradient(to top, var(--paper) 0%, transparent 100%);
+	}
+	.stream:has(.jump.show)::after {
+		display: block;
+	}
+	.sidebar {
+		display: none;
+		border-right: 0;
+		padding-top: env(safe-area-inset-top);
+	}
+	.app.show-list .sidebar {
+		display: flex;
+	}
+	.app.show-list .workarea {
+		display: none;
+	}
+
+	/* The list keeps its base vertical layout and gains touch-sized rows and "+"
+	   buttons; nothing is hidden, so creating a room and starting a DM work just
+	   like on desktop. */
+	.workspace {
+		/* The two headers are never on screen together here, which is the reason to
+		   measure them alike rather than a licence to stop. On the desktop the mark
+		   travels a few hundred pixels and the eye follows it; here the screens swap
+		   under a thumb that has not moved, so a mark one pixel off its other home
+		   reads as the page redrawing rather than as the same control. Same shared
+		   height, same padding under the hairline, same control inside — the topbar
+		   below matches this, and the rail's own screen edge is the sidebar's
+		   safe-area inset, kept out of this box so the two do not count it twice. */
+		min-height: var(--header-h);
+		padding: calc(10px + var(--accent-line)) calc(var(--rail-pad) + var(--row-pad)) 10px;
+	}
+	.section-head button {
+		font-size: 21px;
+	}
+	#roomList .room-open,
+	#dmList li {
+		padding: 11px var(--row-pad);
+	}
+	.newroom input {
+		font-size: 16px;
+	}
+	.sidebar-foot {
+		padding: 12px calc(var(--rail-pad) + var(--row-pad)) calc(12px +
+			env(safe-area-inset-bottom));
+	}
+
+	/* Conversation screen: one column; the desktop member column is off and the
+	   roster opens as a bottom sheet instead (below). */
+	.content {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.join-wrap {
+		position: static;
+		flex: 1 0 auto;
+		overflow: visible;
+		place-items: start center;
+		min-height: 100%;
+	}
+	/* The rail's header, measured to match, and inset to the same column: the mark
+	   is the one control both headers hold, so it has to land in the same place
+	   when the screens swap. The horizontal number is the rail's, not a tighter one
+	   of the topbar's own, because the rail has a second thing to line up with —
+	   the room names in the list under it start at that column too, so pulling the
+	   mark left to gain eight pixels here would take the wordmark off the list it
+	   heads. The inset grows the bar rather than eating into it: carried in the
+	   padding alone it comes out of the space the mark centres in, so on a notched
+	   phone the bar has no slack left to centre in and the mark sits two pixels
+	   above its other home. Grown by the inset, that space is the same at every
+	   inset and so is the mark. */
+	.topbar {
+		gap: 8px;
+		min-height: calc(var(--header-h) + env(safe-area-inset-top));
+		padding: calc(10px + var(--accent-line) + env(safe-area-inset-top)) calc(var(--rail-pad) +
+			var(--row-pad)) 10px;
+	}
+	/* Float the reconnect banner below the sticky topbar and keep it fixed, so it
+	   stays visible even while you scroll back through older messages. */
+	.banner {
+		position: fixed;
+		top: calc(env(safe-area-inset-top) + 64px);
+	}
+	.topbar .spacer {
+		display: none;
+	}
+	.topbar h1 {
+		flex: 1;
+	}
+	/* Content-sized here, not stretched. Stretched, the chip filled the bar and
+	   carried its mark off to the far right, a whole screen from the name it
+	   belongs to; the heading around it does the filling instead. */
+	.topbar .title-btn {
+		flex: 0 1 auto;
+		min-width: 0;
+	}
+	#roomName {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	#roomMeta {
+		display: none;
+	}
+	/* Keep the provenance chip, but make it phone-safe. A hard max-width cap (not a
+	   flex-shrink, which a nowrap chip defeats) means it can never push the toolbar
+	   icons off the edge, and it truncates within that cap. The text is also
+	   shortened on mobile in showDmProvenance ("Encrypted" / "Direct" / "Offline"),
+	   so it rarely needs to truncate at all. */
+	.topbar .provenance {
+		max-width: 46vw;
+		min-width: 0;
+	}
+	#provenanceText {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.topbar .icon {
+		font-size: 20px;
+	}
+	/* The phone has no rail beside the conversation, so the topbar carries the
+	   mark at all times: it is the only way to the list screen. */
+	#backBtn {
+		display: inline-flex;
+		font-size: 22px;
+	}
+	.join input,
+	.composer textarea {
+		font-size: 16px;
+	}
+	/* Here the rooms list is a screen of its own, so the shortcut to it earns
+	   its place. */
+	.join .ghost-link {
+		display: block;
+	}
+	.composer-status .hint {
+		display: none;
+	}
+	/* Scale the whole composer row together via its shared height — a bigger touch
+	   target for the primary input — so the textarea and the buttons stay even (the
+	   desktop invariant), rather than sizing the buttons alone and leaving the text
+	   line short. */
+	.composer {
+		--control-h: 42px;
+	}
+	.emoji-pop {
+		left: 12px;
+		right: 12px;
+	}
+	.stack {
+		max-width: 88%;
+	}
+
+	/* The roster as a bottom sheet, opened by the topbar Members button. Driven by
+	   members-open (not the desktop no-members class), so the desktop collapse
+	   logic is untouched. */
+	.members {
+		display: flex;
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 40;
+		max-height: 72dvh;
+		margin: 0;
+		border-left: 0;
+		border-top: 1px solid var(--rule);
+		border-radius: 16px 16px 0 0;
+		box-shadow: var(--shadow);
+		/* A solid sheet: the base .members background is 60% transparent (a subtle
+		   desktop side panel), which over the scrim reads as a murky dimmed page. */
+		background: var(--paper-raised);
+		padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+		/* A closed sheet is off the bottom of the screen, not gone: transform alone
+		   left its members and their Message buttons in the tab order and in the
+		   accessibility tree, so a keyboard could walk into a panel nobody could
+		   see. visibility takes it out of both, and it steps discretely — straight
+		   to visible on open, and only after the slide on close — so the animation
+		   is unchanged. */
+		visibility: hidden;
+		transform: translateY(101%);
+		transition: transform .22s ease, visibility .22s ease;
+	}
+	/* A grab handle, so the sheet reads as a dismissable sheet (tap the scrim,
+	   or the Members button again, to close it). */
+	.members::before {
+		content: "";
+		flex: none;
+		align-self: center;
+		width: 36px;
+		height: 4px;
+		margin-bottom: 12px;
+		border-radius: 2px;
+		background: var(--rule);
+	}
+	.app.members-open .members {
+		visibility: visible;
+		transform: translateY(0);
+	}
+	#sheetScrim {
+		display: none;
+		position: fixed;
+		inset: 0;
+		z-index: 39;
+		background: rgba(0,0,0,.4);
+	}
+	.app.members-open #sheetScrim {
+		display: block;
+	}
+}

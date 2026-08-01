@@ -85,14 +85,10 @@ try {
 	);
 
 	const again = await conn.enliven(sturdyref);
-	if (
-		echo.reference.kind !== "far" ||
-		again.reference.kind !== "far" ||
-		echo.reference.id !== again.reference.id
-	) {
+	if (echo.id !== again.id) {
 		fail(
 			"deno-goblins-interop",
-			"repeat enliven did not return the same far import (dedup miss)",
+			"repeat enliven did not return the same Host identity (dedup miss)",
 		);
 	}
 	assertEchoed(

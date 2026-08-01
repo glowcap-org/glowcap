@@ -21,7 +21,7 @@
 import { type Browser, chromium } from "playwright";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
-const WASM = new URL("../../zig-out/wasm/pancake_driver.wasm", import.meta.url);
+const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 const BUNDLE_CONFIG =
 	new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
 
@@ -103,7 +103,7 @@ try {
 			socket.onopen = () => relay.join(role, socket);
 			return response;
 		}
-		if (url.pathname === "/pancake_driver.wasm") {
+		if (url.pathname === "/pancake_host.wasm") {
 			return new Response(wasmBytes, { headers: { "content-type": "application/wasm" } });
 		}
 		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });

@@ -6,7 +6,8 @@
 //!
 //! Topology (all TCP loopback):
 //!   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-//!   Gifter (pancake)           fetches Bob's greeter, publishes an "introducer"
+//!   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+//!                              publishes an "introducer"
 //!                              that returns it, and listens for the recipient.
 //!   Carol  (Goblins recipient) dials the pancake introducer, asks for the
 //!                              greeter, transparently redeems pancake's give, and
@@ -28,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pancake_rust_dogfood::{
-	connect, listen, socket_addr_designator, tcp_locator, Argument, Session,
+	connect, listen, socket_addr_designator, tcp_locator, Argument, Ref, Session,
 };
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
@@ -50,6 +51,7 @@ const RECIPIENT_SCRIPT: &str = "conformance/goblins-peer/racket/gift-recipient.r
 // pancake hardcodes the same swiss the exporter host registers, the way the
 // interop clients fix the echo swiss.
 const GREETER_SWISS: &str = "pancakeGiftGreeterSwissnum000001";
+const VENDOR_SWISS: &str = "pancakeGiftVendorSwissnum0000001";
 const INTRODUCER_SWISS: &str = "introducer";
 
 fn parse_port() -> Result<u16, Fail> {
@@ -136,12 +138,15 @@ async fn gift(port: u16) -> Result<(), Fail> {
 		}
 	});
 
-	// Dial Bob and fetch his greeter, sharing the gifter's node identity. The
-	// fetched ref's home is this gifter↔Bob connection, which is what lets
-	// pancake re-gift it across to the recipient.
+	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
+	// reply ref's home is this gifter↔Bob connection, which is what lets pancake
+	// re-gift it without an enrollment verb.
 	let to_bob = connect(&tcp_locator(HOST, port), None, Some(host.clone())).await?;
-	let greeter = to_bob.fetch(GREETER_SWISS).await?;
-	println!("rust-goblins-gift: fetched goblins-bob's greeter");
+	let vendor = to_bob.fetch(VENDOR_SWISS).await?;
+	let offered = to_bob.send(&vendor, "", &[]).await?;
+	let greeter = Ref::try_from(&offered)
+		.map_err(|_| format!("vendor did not return a capability: {offered:?}"))?;
+	println!("rust-goblins-gift: lifted goblins-bob's greeter from a reply");
 
 	// Publish the introducer Host-wide. Returning Bob's greeter (home = the Bob
 	// session) to the recipient's session trips the transparent gifter,

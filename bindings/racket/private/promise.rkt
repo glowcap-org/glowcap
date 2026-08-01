@@ -11,7 +11,7 @@
          racket/lazy-require
          "constants.rkt"
          "ffi-shared.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "errors.rkt"
          "host.rkt"
          "value.rkt"
@@ -142,7 +142,7 @@
 ;; `mint!` runs the registering FFI verb (the one thing that differs) and
 ;; returns the minted vow id, the vow joins the host's table before the lock
 ;; drops, and the pump drains its SETTLE/FAIL completion off the action queue.
-;; Classify: only a live near/far reference fulfills; a partner break raises
+;; Classify: only a live Host reference fulfills; a partner break raises
 ;; typed ERR-BROKEN; the disconnect's own break raises typed ERR-CLOSED.
 (define (blocking-fetch c who what label mint!)
   (define m (session-host c))
@@ -164,7 +164,7 @@
   (case (car r)
     [(ok)
      (define val (cdr r))
-     (unless (or (near-ref? val) (far-ref? val))
+     (unless (ref? val)
        (raise-pancake who ERR-UNSUPPORTED-VALUE
                       "~a \"~a\" did not resolve to a capability: ~a" what label val))
      val]
@@ -202,7 +202,7 @@
            (define v (session-vow home id 'pending '()))
            (register-vow! m v)
            (if answer? v (void))]
-          [(or (far-ref? target) (near-ref? target))
+          [(ref? target)
            (cond
              [answer?
               (define-values (rc id)

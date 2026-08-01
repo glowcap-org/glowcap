@@ -51,9 +51,9 @@ const ui_consumers = [_]UiConsumer{
         .miss_costs = "the site would fetch it mid-render, as a flash of fallback type",
     },
     .{
-        .fonts_dir = "apps/rooms/deno/ui/fonts",
+        .fonts_dir = "apps/rooms/web/ui/fonts",
         .fonts_target = "../../../../../ui/fonts/",
-        .names_faces_in = "apps/rooms/deno/web.ts",
+        .names_faces_in = "apps/rooms/web/serve.ts",
         .miss_costs = "rooms would serve it as 404",
     },
 };
@@ -366,7 +366,7 @@ const UiSurface = struct { css: []const u8, two_armed: bool };
 const ui_surfaces = [_]UiSurface{
     .{ .css = "ui/tokens.css", .two_armed = false },
     .{ .css = "site/assets/style.css", .two_armed = true },
-    .{ .css = "apps/rooms/deno/ui/page.css", .two_armed = false },
+    .{ .css = "apps/rooms/web/ui/page.css", .two_armed = false },
 };
 
 pub fn checkUiThemeParity(

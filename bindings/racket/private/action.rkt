@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: host action execute over the byte-fed host
-;; (libpancake_driver, ADR-0072 / ADR-0079).
+;; (libpancake_host, ADR-0072 / ADR-0079).
 ;;
 ;; Owns the shared C drain (`pancake_host_pump_drain`) with sync park-only
 ;; hooks, then honors each parked arm (`drain-host-actions!`). CapTP verbs stay
@@ -15,7 +15,7 @@
 (require racket/lazy-require
          ffi/unsafe
          "constants.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "errors.rkt"
          "codec.rkt"
          "vat.rkt"

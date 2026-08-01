@@ -64,7 +64,7 @@ pub fn emitAbortForError(self: *Peer, err: anyerror) void {
         .kind = projected.kind,
         .message = projected.message,
     }, projected.disposition) catch {
-        if (projected.disposition == .close) self.session_state.close();
+        if (projected.disposition == .close) self.closeSession();
     };
 }
 
@@ -137,11 +137,11 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     // ordering (see `classifyInboundDeliver`).
     var tag = eventKindFromBody(decoded_body);
     var answer_override: events.AnswerOverride = .none;
-    var v1_0_resolve: ?model.view.Resolve = null;
+    var resolver_callback_resolve: ?model.view.Resolve = null;
     var bootstrap_request: ?bootstrap.Request = null;
     if (decoded_body == .deliver) {
         switch (try classifyInboundDeliver(self, decoded_body.deliver)) {
-            // Surfaces as a semantic `Resolve` (ADR-0010). The resolution is
+            // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
             // a *borrowed* view over the deliver's args, applied through the
             // session's resolver-callback seam below — no owned
             // materialization. `recordResolverCallbackResolve` settles the
@@ -150,10 +150,10 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
             // kept alive on the event queue, carries the value to the
             // application. The borrow stays valid because that frame outlives
             // the apply call.
-            .v1_0_resolve => |answer| {
+            .resolver_callback_resolve => |answer| {
                 tag = .resolve;
                 answer_override = .{ .resolver_callback = answer };
-                v1_0_resolve = .{
+                resolver_callback_resolve = .{
                     .answer = answer,
                     .resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args),
                 };
@@ -203,13 +203,15 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     var introduced: session.validate.IntroducedImports = .init(self.allocator, self.session_state.limits);
     defer introduced.deinit();
 
-    if (v1_0_resolve) |resolve| {
+    const was_closed = self.session_state.state == .closed;
+    if (resolver_callback_resolve) |resolve| {
         try self.session_state.recordResolverCallbackResolve(resolve);
     } else if (tag == .deliver) {
         try self.session_state.recordInboundDeliverView(decoded_body, &introduced);
     } else {
         try self.session_state.recordRecvView(decoded_body);
     }
+    if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
     appended = false;
 
     // Patch the far mentions onto the just-pushed event when the deliver
@@ -239,28 +241,40 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
 
     if (bootstrap_request) |action| {
         switch (action) {
-            .fetch => |req| try self.sendCopying(bootstrap.resolveForSwissnum(&self.session_state, req)),
+            .fetch => |req| {
+                const scope = if (self.node_services) |services| services.peer_id else null;
+                try self.sendCopying(try bootstrap.resolveForSwissnum(&self.session_state, self.localObjectProjection(), scope, req));
+            },
             .deposit_gift => |req| {
-                if (try bootstrap.resolveForDeposit(&self.session_state, self.giftRegistry(), req)) |msg| {
+                const scope = if (self.node_services) |services| services.peer_id else null;
+                const response = try bootstrap.resolveForDeposit(&self.session_state, self.giftRegistry(), self.localObjectProjection(), scope, req);
+                if (self.node_services) |services| services.giftDeposited(req.gift_id);
+                if (response) |msg| {
                     try self.sendCopying(msg);
                 }
             },
             .withdraw_gift => |req| {
-                switch (try bootstrap.resolveForWithdraw(self.allocator, &self.session_state, self.giftRegistry(), req)) {
+                const scope = if (self.node_services) |services| services.peer_id else null;
+                if (self.pendingWithdrawCount() >= self.session_state.limits.max_pending_withdraws) {
+                    const gifter = bootstrap.liveGifterSession(self.gifterSessionResolver(), req.receive.signed_give);
+                    if (gifter == null or !gifter.?.gifts.giftLive(req.receive.signed_give.gift_id)) {
+                        return session.Error.PendingWithdrawCapExceeded;
+                    }
+                }
+                switch (try bootstrap.resolveForWithdraw(self.allocator, &self.session_state, self.giftRegistry(), self.gifterSessionResolver(), self.localObjectProjection(), scope, req)) {
                     .settled => |msg| try self.sendWithdrawSettled(msg),
                     // The gift's deposit has not arrived yet (it travels on
                     // a different session); park the withdraw, `step`
                     // settles it once the deposit lands.
-                    .awaiting_deposit => {
-                        if (self.pending_withdraws.items.len >= self.session_state.limits.max_pending_withdraws) {
+                    .awaiting_deposit => |admission| {
+                        if (self.pendingWithdrawCount() >= self.session_state.limits.max_pending_withdraws) {
+                            var receive = admission.receive;
+                            receive.deinit(self.allocator);
                             return session.Error.PendingWithdrawCapExceeded;
                         }
-                        const owned = try (model.view.Handoff{ .receive = req.receive }).toOwned(self.allocator);
-                        errdefer model.freeHandoff(self.allocator, owned);
-                        try self.pending_withdraws.append(self.allocator, .{
-                            .handoff = owned,
-                            .answer = req.answer,
-                        });
+                        var receive = admission.receive;
+                        errdefer receive.deinit(self.allocator);
+                        try self.parkPendingWithdraw(receive, req.answer, admission.gifter_peer_id);
                     },
                 }
             },
@@ -274,9 +288,9 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
 /// call targets a `desc:answer` promise, and a bootstrap deliver targets the
 /// bootstrap export, three disjoint target shapes.
 const InboundDeliverClass = union(enum) {
-    /// A V1.0 resolver-callback (ADR-0010) settling the inbound answer
+    /// A deliver to one of our resolver exports, settling the outbound answer
     /// carried here; the frame surfaces as a semantic `Resolve`.
-    v1_0_resolve: model.AnswerPosition,
+    resolver_callback_resolve: model.AnswerPosition,
     /// Pipelined against an answer we owe (ADR-0007): the call was queued or
     /// redirected during classification, so the frame surfaces nothing.
     pipelined,
@@ -293,23 +307,38 @@ const InboundDeliverClass = union(enum) {
     ordinary: ?model.AnswerPosition,
 };
 
-/// Classify an inbound `op:deliver` into the one route it takes. The three
+/// Classify an inbound `op:deliver` into the one route it takes. The four
 /// special-case probes live here in their load-bearing order, so the
 /// precedence is data at the call site rather than comment-enforced
 /// sequencing:
 ///
-/// 1. V1.0 resolver classification runs first. Classification installs the
-///    partner's resolver as a side effect, and a pipelined deliver carrying
+/// 1. The resolver-export probe runs first, and runs on every session
+///    (ADR-0095). A deliver to an export we minted as a resolver settles the
+///    answer that export was bound to, whatever else the position might also
+///    look like.
+/// 2. V1.0 resolver registration runs next. It installs the partner's
+///    advertised resolver as a side effect, and a pipelined deliver carrying
 ///    `resolve_me_desc` needs that resolver installed before its frame is
 ///    released, so the V1.0 translation finds it when the drained call
 ///    resolves later.
-/// 2. Pipelining runs after V1.0 classify: an inbound deliver whose target
+/// 3. Pipelining runs after that registration: an inbound deliver whose target
 ///    is a still-pending answer is queued until that answer resolves
 ///    (ADR-0007).
-/// 3. The bootstrap probe runs last, so a pipelined call is never mistaken
+/// 4. The bootstrap probe runs last, so a pipelined call is never mistaken
 ///    for a bootstrap fetch, and a resolver-only fetch has its virtual
 ///    answer installed before the bootstrap action is computed.
 fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeliverClass {
+    // A resolver export settles by an `['fulfill|'break, payload]` deliver on
+    // every negotiated version, so this probe carries no version gate: the
+    // V1.0 resolver callback and the `op:listen` notification a listener
+    // export receives are the same wire shape (ADR-0095). Only a `.near`
+    // reaches the link, so a partner-named `.far` in the same integer space
+    // cannot key it.
+    if (deliver.target.exportPosition()) |position| {
+        if (self.session_state.answerForResolverExport(position)) |answer| {
+            return .{ .resolver_callback_resolve = answer };
+        }
+    }
     // A resolver-only deliver (no wire answer) has a virtual answer
     // allocated here; carry it to the `.ordinary` surface so a deliver to a
     // local object can be replied to. A pipelined or bootstrap deliver
@@ -317,10 +346,7 @@ fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeli
     // `answerForResolverImport`), so the override only matters for ordinary.
     var ordinary_answer: ?model.AnswerPosition = null;
     if (self.session_state.needsV1_0Translation()) {
-        switch (try v1_0.interceptInboundDeliver(self, deliver)) {
-            .settles_answer => |answer| return .{ .v1_0_resolve = answer },
-            .ordinary => |answer| ordinary_answer = answer,
-        }
+        ordinary_answer = try v1_0.registerPartnerResolver(self, deliver);
     }
     if (try pipeline.maybeEnqueuePipelinedCall(self, deliver)) {
         return .pipelined;

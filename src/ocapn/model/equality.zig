@@ -17,17 +17,6 @@
 const std = @import("std");
 const model = @import("mod.zig");
 
-comptime {
-    // Every value below is compared and hashed twice: once over the owned
-    // `model.*` shape (infallible, allocator-free) and once over the borrowed
-    // `model.view.*` shape (fallible, over lazy sequences). The two shapes keep
-    // separate exhaustive switches, so bind their arm sets — a new arm on one
-    // shape cannot land without the mirror arm the paired switch needs.
-    model.assertUnionArmsMirror(model.Argument, model.view.Argument);
-    model.assertUnionArmsMirror(model.Reference, model.view.Reference);
-    model.assertUnionArmsMirror(model.Handoff, model.view.Handoff);
-}
-
 // The recursion ceiling is `model.max_value_depth`, the one shared value-tree
 // depth bound. In practice we only ever compare trees the session already
 // validated (its `max_nesting_depth` sits far below it) or values we built
@@ -35,25 +24,27 @@ comptime {
 // have crossed an OCapN network anyway, so calling such a comparison unequal and
 // stopping there is the safe move.
 
+// One spine. Every comparison and hash below runs over the borrowed
+// `model.view.*` shape, and the owned entry points project through
+// `view.*.fromOwned` — the same one-spine pattern `owned.zig` uses for its
+// clones. There used to be a second, hand-mirrored owned spine here, and the
+// divergence between the two is where a codec-dependent union read hid; a
+// projection cannot diverge. An owned projection is slice-backed and its hints
+// are `.projected`, so the lazy-view failure arms (`MalformedView`, the
+// materialize allocation) cannot fire on it; that is what licenses the
+// `catch unreachable` in the infallible wrappers below.
+
+/// The infallible owned entry points compare values this process built (test
+/// fixtures, session-held rows), so they carry no caller budget: the work is
+/// bounded by the caller's own tree. Anything partner-influenced goes through
+/// the `*Bounded` forms and charges.
+const unbounded_visits = std.math.maxInt(usize);
+
 /// Are these two references structurally equal? Different variants are never
 /// equal. Within a variant we go field by field, and that includes the `near` /
 /// `far` wire kind (per ADR-0010, a reference carries its wire tag).
 pub fn referencesStructurallyEqual(a: model.Reference, b: model.Reference) bool {
-    return referencesEqualDepth(a, b, 0);
-}
-
-fn referencesEqualDepth(a: model.Reference, b: model.Reference, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    return switch (a) {
-        .near => |x| b == .near and x.export_position == b.near.export_position and x.kind == b.near.kind,
-        .far => |x| b == .far and x.import_position == b.far.import_position and x.kind == b.far.kind,
-        .promise => |x| b == .promise and x.answer_position == b.promise.answer_position and
-            pipelinePathsEqualDepth(x.path, b.promise.path, depth),
-        .sturdy => |x| b == .sturdy and
-            peerLocatorsEqual(x.peer, b.sturdy.peer) and
-            std.mem.eql(u8, x.swissnum, b.sturdy.swissnum),
-        .broken => |x| b == .broken and std.mem.eql(u8, x.message, b.broken.message),
-    };
+    return argumentsEqual(.{ .reference = a }, .{ .reference = b });
 }
 
 /// Locator identity on two `model.PeerLocator` values, the equality axis a
@@ -69,61 +60,29 @@ pub fn peerLocatorsEqual(a: model.PeerLocator, b: model.PeerLocator) bool {
 /// Structural equality on two argument value trees. Recurses through lists,
 /// sets, tagged values, and nested references; the `Hints.wire_form`
 /// hint-encoding marker is *not* compared (it is a wire-shape artifact, not a
-/// semantic value).
+/// semantic value). Runs over the borrowed spine via `fromOwned`; see the
+/// one-spine note at the top of this file.
 pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
-    return argumentsEqualDepth(a, b, 0);
+    var budget = CompareBudget.init(unbounded_visits);
+    var no_scratch_buf: [0]u8 = .{};
+    var no_scratch = std.heap.FixedBufferAllocator.init(&no_scratch_buf);
+    return viewArgumentsEqualBounded(
+        .fromOwned(&a),
+        .fromOwned(&b),
+        .{ .scratch = no_scratch.allocator(), .budget = &budget },
+    ) catch unreachable;
 }
 
-fn argumentsEqualDepth(a: model.Argument, b: model.Argument, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    return switch (a) {
-        .bytes => |x| b == .bytes and std.mem.eql(u8, x, b.bytes),
-        .symbol => |x| b == .symbol and std.mem.eql(u8, x, b.symbol),
-        .string => |x| b == .string and std.mem.eql(u8, x, b.string),
-        .keyword => |x| b == .keyword and std.mem.eql(u8, x, b.keyword),
-        .reference => |x| b == .reference and referencesEqualDepth(x, b.reference, depth),
-        .@"error" => |x| b == .@"error" and std.mem.eql(u8, x.message, b.@"error".message),
-        .handoff => |x| b == .handoff and handoffsEqual(x.*, b.handoff.*),
-        .integer => |x| b == .integer and x == b.integer,
-        .boolean => |x| b == .boolean and x == b.boolean,
-        .float64 => |x| b == .float64 and float64Equal(x, b.float64),
-        .void => b == .void,
-        .list => |x| b == .list and argumentSlicesEqualDepth(x, b.list, depth + 1),
-        .set => |x| b == .set and setsEqualDepth(x, b.set, depth + 1),
-        .tagged => |x| b == .tagged and std.mem.eql(u8, x.tag, b.tagged.tag) and
-            argumentSlicesEqualDepth(x.value, b.tagged.value, depth + 1),
-        .@"struct" => |x| b == .@"struct" and structsEqualDepth(x, b.@"struct", depth + 1),
-        // Canonical decimal digits (no leading zero, magnitude outside i64, both
-        // enforced at decode) make bytewise comparison arithmetic equality, and
-        // keep a big arm from ever spelling the same value as an `integer` arm.
-        .big_integer => |x| b == .big_integer and x.negative == b.big_integer.negative and
-            std.mem.eql(u8, x.digits, b.big_integer.digits),
-    };
-}
-
-/// Order-independent equality for an OCapN Struct (Model.md § Struct). The wire
-/// order of entries does not matter, and the two codecs may emit a different key
-/// order, so two structs are Equal when they have the same length and every key in
-/// one is present in the other with an Equal value. Keys are Strings, compared by
-/// bytes; values recurse. No allocation, O(n*m) over the entry count, which is
-/// fine for the small structs that cross the wire. Duplicate keys are refused at
-/// decode, so a single-direction key scan suffices: with equal lengths and unique
-/// keys, if every key of `a` matches one in `b`, `b` has no key `a` lacks.
-fn structsEqualDepth(a: []const model.StructEntry, b: []const model.StructEntry, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    if (a.len != b.len) return false;
-    for (a) |entry| {
-        const other = findEntry(b, entry.key) orelse return false;
-        if (!argumentsEqualDepth(entry.value, other, depth)) return false;
-    }
-    return true;
-}
-
-fn findEntry(entries: []const model.StructEntry, key: []const u8) ?model.Argument {
-    for (entries) |entry| {
-        if (std.mem.eql(u8, entry.key, key)) return entry.value;
-    }
-    return null;
+/// The budgeted owned comparison, for owned trees that carry partner
+/// influence (a stored relayed resolution, an inbound owned fallback). Same
+/// spine as `viewArgumentsEqualBounded`; the projection is just cheaper to
+/// build.
+pub fn argumentsEqualBounded(
+    a: *const model.Argument,
+    b: *const model.Argument,
+    ctx: CompareCtx,
+) CompareError!bool {
+    return viewArgumentsEqualBounded(.fromOwned(a), .fromOwned(b), ctx);
 }
 
 /// The hash of a float, consistent with `float64Equal`. Every NaN bit pattern
@@ -187,73 +146,16 @@ fn hashHandoff(h: *std.hash.Wyhash, handoff: anytype) void {
 }
 
 /// Structural hash consistent with `argumentsEqual`: two Equal values always
-/// hash equal. It hashes a subset of what equality compares, so a collision is
-/// possible and a caller must confirm with `argumentsEqual`, but an Equal pair
-/// can never be missed. The order-independent arms (set, struct) combine their
-/// children commutatively, mirroring `setsEqualDepth` / `structsEqualDepth`.
-/// Process-local grouping only (duplicate detection inside one frame); never a
-/// wire artifact.
-///
-/// Every arm carrying a distinguishable payload contributes it, because callers
-/// group by hash before confirming: an arm that hashed to its tag alone would
-/// put every value of that arm in one group and turn the confirmation into a
-/// quadratic scan, which an inbound frame full of distinct floats or distinct
-/// error messages could ask for directly.
+/// hash equal. It is `viewArgumentHash` over the owned projection, so the two
+/// shapes share one hasher and one grouping: distinct values that collide
+/// under one entry point collide under the other, which is what lets a fold
+/// that grouped by one hasher confirm with either comparison. Process-local
+/// grouping only (duplicate detection inside one frame); never a wire
+/// artifact.
 pub fn argumentHash(arg: model.Argument) u64 {
-    return argumentHashDepth(arg, 0);
-}
-
-fn argumentHashDepth(arg: model.Argument, depth: usize) u64 {
-    // Equality refuses past `max_value_depth`, so no two values this deep are
-    // ever Equal and any constant is consistent here.
-    if (depth > model.max_value_depth) return 0;
-    var h = std.hash.Wyhash.init(@intFromEnum(arg));
-    switch (arg) {
-        .bytes => |x| h.update(x),
-        .symbol => |x| h.update(x),
-        .string => |x| h.update(x),
-        .keyword => |x| h.update(x),
-        .integer => |x| h.update(std.mem.asBytes(&x)),
-        .big_integer => |x| {
-            h.update(std.mem.asBytes(&x.negative));
-            h.update(x.digits);
-        },
-        .boolean => |x| h.update(std.mem.asBytes(&x)),
-        .float64 => |x| h.update(std.mem.asBytes(&float64Hash(x))),
-        .reference => |x| hashReference(&h, x),
-        .@"error" => |x| h.update(x.message),
-        .handoff => |x| hashHandoff(&h, x.*),
-        // `void` carries nothing to distinguish; its tag is the whole value.
-        .void => {},
-        .list => |items| for (items) |item| {
-            const child = argumentHashDepth(item, depth + 1);
-            h.update(std.mem.asBytes(&child));
-        },
-        .tagged => |tagged| {
-            h.update(tagged.tag);
-            for (tagged.value) |item| {
-                const child = argumentHashDepth(item, depth + 1);
-                h.update(std.mem.asBytes(&child));
-            }
-        },
-        .set => |items| {
-            var sum: u64 = 0;
-            for (items) |item| sum +%= argumentHashDepth(item, depth + 1);
-            h.update(std.mem.asBytes(&sum));
-        },
-        .@"struct" => |entries| {
-            var sum: u64 = 0;
-            for (entries) |entry| {
-                var eh = std.hash.Wyhash.init(0);
-                eh.update(entry.key);
-                const value_hash = argumentHashDepth(entry.value, depth + 1);
-                eh.update(std.mem.asBytes(&value_hash));
-                sum +%= eh.final();
-            }
-            h.update(std.mem.asBytes(&sum));
-        },
-    }
-    return h.final();
+    // Hashing never compares elements or materializes hints, so the only
+    // failure arms are the lazy-view ones an owned projection cannot reach.
+    return viewArgumentHash(.fromOwned(&arg)) catch unreachable;
 }
 
 /// Structural hash on a borrowed `view.Argument`, consistent with
@@ -533,7 +435,7 @@ fn viewHandoffsEqual(a: model.view.Handoff, b: model.view.Handoff, scratch: std.
             std.mem.eql(u8, x.receiving_side, b.receive.receiving_side) and
             x.handoff_count == b.receive.handoff_count and
             try viewGiveEqual(x.signed_give, b.receive.signed_give, scratch) and
-            std.mem.eql(u8, x.signature.raw, b.receive.signature.raw),
+            x.signature.eql(b.receive.signature),
     };
 }
 
@@ -545,7 +447,7 @@ fn viewGiveEqual(a: model.view.HandoffGive, b: model.view.HandoffGive, scratch: 
         std.mem.eql(u8, a.gifter_exporter_session, b.gifter_exporter_session) and
         std.mem.eql(u8, a.gifter_side, b.gifter_side) and
         std.mem.eql(u8, a.gift_id, b.gift_id) and
-        std.mem.eql(u8, a.signature.raw, b.signature.raw);
+        a.signature.eql(b.signature);
 }
 
 fn materializeBorrowedHints(
@@ -572,41 +474,7 @@ fn viewHintsEqual(
 
 /// Element-wise structural equality on two argument slices (order-sensitive).
 pub fn argumentSlicesEqual(a: []const model.Argument, b: []const model.Argument) bool {
-    return argumentSlicesEqualDepth(a, b, 0);
-}
-
-fn argumentSlicesEqualDepth(a: []const model.Argument, b: []const model.Argument, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    if (a.len != b.len) return false;
-    for (a, b) |x, y| {
-        if (!argumentsEqualDepth(x, y, depth)) return false;
-    }
-    return true;
-}
-
-/// Order-agnostic (multiset) equality for `set` arms. A set is unordered: both
-/// of pancake's encoders emit elements in canonical order, but a foreign encoder
-/// may order them freely, so comparing element-by-element would call equal sets
-/// unequal. Instead, two sets are equal when they have the same length
-/// and every element appears the same number of times in each. That count check
-/// is enough on its own: with equal lengths, if every element of `a` occurs as
-/// often in `b`, then `b` has no element `a` lacks. No allocation, O(n^2), which
-/// is fine for the small sets that cross the wire.
-fn setsEqualDepth(a: []const model.Argument, b: []const model.Argument, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    if (a.len != b.len) return false;
-    for (a) |elem| {
-        var count_a: usize = 0;
-        for (a) |x| {
-            if (argumentsEqualDepth(elem, x, depth)) count_a += 1;
-        }
-        var count_b: usize = 0;
-        for (b) |y| {
-            if (argumentsEqualDepth(elem, y, depth)) count_b += 1;
-        }
-        if (count_a != count_b) return false;
-    }
-    return true;
+    return argumentsEqual(.{ .list = a }, .{ .list = b });
 }
 
 /// Pass-Invariant `Float64` equality (Model.md § Pass Invariant Equality): the
@@ -622,49 +490,17 @@ fn float64Equal(x: f64, y: f64) bool {
     return @as(u64, @bitCast(x)) == @as(u64, @bitCast(y));
 }
 
-/// Threads the caller's depth through the promise-path cycle: a `call` step's
-/// arguments are one nesting level deeper, and those arguments can hold
-/// promise references whose paths recurse back here. Restarting the counter
-/// anywhere on this cycle would let an alternating promise/call tree recurse
-/// past `model.max_value_depth` and off the native stack.
-fn pipelinePathsEqualDepth(a: model.PipelinePath, b: model.PipelinePath, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    if (a.ops.len != b.ops.len) return false;
-    for (a.ops, b.ops) |x, y| {
-        switch (x) {
-            .field => |name| if (!(y == .field and std.mem.eql(u8, name, y.field))) return false,
-            .call => |args| if (!(y == .call and argumentSlicesEqualDepth(args, y.call, depth + 1))) return false,
-        }
-    }
-    return true;
-}
-
+/// Structural equality on two owned handoffs, over the same spine as the
+/// borrowed comparison.
 pub fn handoffsEqual(a: model.Handoff, b: model.Handoff) bool {
-    return switch (a) {
-        .give => |x| b == .give and giveEqual(x, b.give),
-        .receive => |x| b == .receive and
-            std.mem.eql(u8, x.receiving_session, b.receive.receiving_session) and
-            std.mem.eql(u8, x.receiving_side, b.receive.receiving_side) and
-            x.handoff_count == b.receive.handoff_count and
-            giveEqual(x.signed_give, b.receive.signed_give) and
-            std.mem.eql(u8, x.signature, b.receive.signature),
-    };
-}
-
-/// `raw_signed` is deliberately not compared: it caches the wire encoding the
-/// signature was produced over, so it is an encoding artifact, not part of the
-/// give's semantic identity. Exporter hints compare deeply (name + value),
-/// including empty-hint `wire_form`, because a give that differs only in dial
-/// advice is still a different gift payload.
-fn giveEqual(a: model.HandoffGive, b: model.HandoffGive) bool {
-    return std.mem.eql(u8, a.recipient_key, b.recipient_key) and
-        std.mem.eql(u8, a.exporter.transport, b.exporter.transport) and
-        std.mem.eql(u8, a.exporter.designator, b.exporter.designator) and
-        hintsEqual(a.exporter.hints, b.exporter.hints) and
-        std.mem.eql(u8, a.gifter_exporter_session, b.gifter_exporter_session) and
-        std.mem.eql(u8, a.gifter_side, b.gifter_side) and
-        std.mem.eql(u8, a.gift_id, b.gift_id) and
-        std.mem.eql(u8, a.signature, b.signature);
+    var budget = CompareBudget.init(unbounded_visits);
+    var no_scratch_buf: [0]u8 = .{};
+    var no_scratch = std.heap.FixedBufferAllocator.init(&no_scratch_buf);
+    return viewArgumentsEqualBounded(
+        .{ .handoff = .fromOwned(&a) },
+        .{ .handoff = .fromOwned(&b) },
+        .{ .scratch = no_scratch.allocator(), .budget = &budget },
+    ) catch unreachable;
 }
 
 fn hintsEqual(a: model.Hints, b: model.Hints) bool {

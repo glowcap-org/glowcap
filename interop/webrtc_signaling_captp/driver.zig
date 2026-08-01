@@ -42,7 +42,7 @@ const webrtc_common = @import("webrtc_common");
 /// A finite handshake budget for the signaling dial. Unbounded would turn a
 /// signaling host that accepts and then stalls into a hang rather than a
 /// failure.
-const handshake_budget_ms: i32 = 15_000;
+const handshake_budget: driver.Budget = .{ .ms = 15_000 };
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
@@ -54,9 +54,10 @@ const ip = std.Io.net;
 
 // The signaling inbox actor, the channel-bring-up client, and the SDP frame cap
 // are the shared WebRTC signaling core (interop/webrtc_common.zig), driven the
-// same way by webrtc-handoff.
+// same way by any future Host-integrated WebRTC handoff.
 const SignalingInbox = webrtc_common.SignalingInbox;
 const bringUpViaCapTP = webrtc_common.bringUpViaCapTP;
+const waitOpen = webrtc_common.waitOpen;
 const sig_frame_cap = webrtc_common.sig_frame_cap;
 
 const frame_cap: usize = 4096;
@@ -78,6 +79,7 @@ const Greeter = struct {
 fn exporterHalf(
     io: std.Io,
     listener: *tcp.Listener,
+    resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
     secret: crypto.SecretKey,
@@ -94,14 +96,14 @@ fn exporterHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf, handshake_budget_ms);
+        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf, handshake_budget);
         defer sig.deinit();
         _ = try sig.publish("signaling", SignalingInbox, .{ .peer = peer });
         try sig.serve();
     }
 
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
-    if (!peer.waitOpen(2000)) return error.ChannelNotOpen;
+    try waitOpen(resident, peer, 2000);
 
     var engine_peer = engine.Peer.initNegotiating(allocator);
     defer engine_peer.deinit();
@@ -133,6 +135,7 @@ fn exporterHalf(
 fn recipientHalf(
     address: ip.IpAddress,
     io: std.Io,
+    resident: *webrtc.Resident,
     offerer: *webrtc.Peer,
     allocator: std.mem.Allocator,
     secret: crypto.SecretKey,
@@ -149,10 +152,10 @@ fn recipientHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.connectTcp(allocator, io, &sig_peer, address, read_buf, write_buf, handshake_budget_ms);
+        var sig = try driver.connectTcp(allocator, io, &sig_peer, address, read_buf, write_buf, handshake_budget);
         defer sig.deinit();
         const inbox = try sig.fetch("signaling");
-        try bringUpViaCapTP(&sig, inbox, offerer, allocator);
+        try bringUpViaCapTP(&sig, inbox, resident, offerer, allocator);
     }
 
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
@@ -205,9 +208,13 @@ pub fn main(init: std.process.Init) !void {
     const exporter_designator = exporter_secret.publicKey().toDesignator();
 
     // The recipient offers (it initiates the reach); the exporter answers.
-    var offerer = try webrtc.Peer.init(true);
+    var offerer_resident = try webrtc.Resident.init();
+    defer offerer_resident.deinit();
+    var answerer_resident = try webrtc.Resident.init();
+    defer answerer_resident.deinit();
+    var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();
-    var answerer = try webrtc.Peer.init(false);
+    var answerer = try answerer_resident.newPeer(false);
     defer answerer.deinit();
 
     // The signaling capability listens on TCP loopback; the recipient dials it.
@@ -215,8 +222,8 @@ pub fn main(init: std.process.Init) !void {
     defer listener.deinit();
     const address = listener.localAddress();
 
-    var exporter_future = try io.concurrent(exporterHalf, .{ io, &listener, &answerer, allocator, exporter_secret });
-    const recipient_result = recipientHalf(address, io, &offerer, allocator, recipient_secret, exporter_designator[0..]);
+    var exporter_future = try io.concurrent(exporterHalf, .{ io, &listener, &answerer_resident, &answerer, allocator, exporter_secret });
+    const recipient_result = recipientHalf(address, io, &offerer_resident, &offerer, allocator, recipient_secret, exporter_designator[0..]);
     const exporter_result = exporter_future.await(io);
     try recipient_result;
     try exporter_result;

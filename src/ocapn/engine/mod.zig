@@ -29,34 +29,45 @@ pub const fetch = @import("fetch.zig");
 pub const handoff_gifter = @import("handoff_gifter.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
 pub const handoff_names = @import("handoff_names.zig");
+/// Asking the partner how a promise we hold settles (CapTP `op:listen`), the
+/// recipient half of a relayed resolution (ADR-0095).
+pub const listen = @import("listen.zig");
 /// Lowering node-local foreign-import tokens to their wire reference at the
 /// outbound chokepoint (ADR-0069). A node hands the application synthetic far
 /// tokens; the peer swaps each back to its wire reference in `send`, so a token
 /// never leaks onto the wire.
 pub const lower = @import("lower.zig");
+pub const node_services = @import("node_services.zig");
 /// A reference could not be lowered to a wire name on the connection it is being
 /// emitted on, re-exported so a `send` caller can catch it.
-pub const LoweringError = lower.LoweringError;
-/// The per-peer lowering hook a `Node` installs at registration.
-pub const Lowering = lower.Lowering;
+pub const LoweringError = node_services.LoweringError;
+/// The per-peer composition link a `Node` installs at registration.
+pub const NodeServices = node_services.NodeServices;
 pub const negotiation = @import("negotiation.zig");
 const outbound = @import("outbound.zig");
 const node = @import("node.zig");
 /// The sans-io cross-connection handoff router (ADR-0066): a tier above the
-/// per-connection `Peer` that owns the retained node identity, the shared gift
-/// registry, and the redeemed-token / foreign-home routing that makes
+/// per-connection `Peer` that owns the retained node identity, live-session
+/// directory, and redeemed-token / foreign-home routing that makes
 /// three-party handoff transparent. It lives in the engine core (not the
 /// I/O-bearing driver) because it is pure routing data, so the sans-io C ABI and
 /// native callers reach it without dragging in a transport.
 pub const Node = node.Node;
-pub const ActionFifo = @import("action_fifo.zig").ActionFifo;
+const fifo = @import("fifo.zig");
+/// The head-indexed FIFO spine shared by the peer's queues and the action
+/// queues, so their compaction and reclaim rules cannot drift apart.
+pub const ActionFifo = fifo.ActionFifo;
+/// The steady backing bound the per-connection queues shed to on a drain.
+/// Exposed so a test can size a burst past it rather than hardcoding the number.
+pub const fifo_steady_bytes = fifo.steady_fifo_bytes;
 /// A `Node` connection handle (ADR-0066), re-exported alongside `Node`.
-pub const PeerId = node.PeerId;
+pub const PeerId = @import("peer_id.zig").PeerId;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
 /// Outbound queue carriers and encode helpers; `FireTarget` is re-exported here
 /// for `pipeline` and binding docs that name `engine.FireTarget`.
 pub const FireTarget = outbound.FireTarget;
+pub const StoreTarget = outbound.StoreTarget;
 pub const sturdyref = @import("sturdyref.zig");
 pub const v1_0 = @import("v1_0.zig");
 
@@ -70,13 +81,13 @@ pub const Event = events.Event;
 /// URI projection reads that peer (`handoff_recipient.exporterLocatorUri`).
 /// Surfaced here so the C ABI builds a give location without reaching past the
 /// engine into the codec.
-pub const encodePeerLocatorRecord = codec.syrup.encodePeerLocatorRecord;
+pub const encodePeerLocatorRecord = codec.signed.encodeLocatorRecord;
 
 /// Parse a verbatim `<ocapn-peer …>` Syrup record into an owned `PeerLocator`.
 /// The matching decode of `encodePeerLocatorRecord`; the C ABI's
 /// `set_exporter_location` boundary uses this so a URI (or any non-record)
 /// fails loud instead of being spliced into a signed give.
-pub const readLocatorOwned = codec.syrup.readLocatorOwned;
+pub const readLocatorOwned = codec.signed.readLocatorOwned;
 
 /// The well-known bootstrap export position every OCapN peer answers `fetch` on,
 /// owned by the session and surfaced here so consumers above the engine name the
@@ -102,9 +113,6 @@ pub const EngineError = error{
     /// One resolution's drain produced more local deliveries than
     /// `SessionLimits.max_local_deliveries` admits (`pipeline.deliverDrainedCallLocally`).
     LocalDeliveryCapExceeded,
-    /// A V1.0 `op:resolve` reached encode with no resolver row recorded for its
-    /// answer (`v1_0.encodeResolveAsCallback`).
-    MissingV1_0Resolver,
     /// A `field` pipeline step reached the Syrup decomposer, which has no wire
     /// shape for it (`pipeline.decomposeOutboundDeliver`).
     UnsupportedPipelineOp,
@@ -170,35 +178,21 @@ fn Queue(comptime T: type) type {
         /// construction.
         const steady_queue_bytes = 4096;
 
-        /// Dequeue the front element, or null when drained, reclaiming the
-        /// backing slots at that point: rewind the head, retain steady capacity,
-        /// free burst capacity above `steady_queue_bytes` entirely. The reclaim
-        /// runs on every empty observation, not only when the head is ahead,
-        /// because the tail-slide below can consume the final element with the
-        /// head already rewound to zero — burst capacity must not survive that
-        /// path either.
-        /// Dequeue front; pub so `outbound.zig` can drain encoded frames.
+        /// Dequeue the front element, or null when drained. The rewind, the
+        /// dead-prefix slide, and the burst reclaim are `fifo.popHead`, shared
+        /// with the engine's action queues so the two cannot drift.
+        /// Pub so `outbound.zig` can drain encoded frames.
         pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
-            if (self.head == self.items.items.len) {
-                self.items.clearRetainingCapacity();
-                self.head = 0;
-                if (self.items.capacity * @sizeOf(T) > steady_queue_bytes) {
-                    self.items.clearAndFree(allocator);
-                }
-                return null;
-            }
-            const value = self.items.items[self.head];
-            self.head += 1;
-            // A queue kept non-empty under sustained load never reaches the
-            // drain-reset above, so the consumed prefix would grow without
-            // bound. Once the dead prefix dominates the backing, slide the live
-            // tail to the front, holding the backing to O(live depth).
-            if (self.head >= 64 and self.head * 2 >= self.items.items.len) {
-                const live = self.items.items[self.head..];
-                std.mem.copyForwards(T, self.items.items[0..live.len], live);
-                self.items.shrinkRetainingCapacity(live.len);
-                self.head = 0;
-            }
+            return fifo.popHead(T, &self.items, &self.head, allocator, steady_queue_bytes);
+        }
+
+        /// Commit removal of the borrowed front row after its fallible use
+        /// succeeds. The empty observation performs the queue's drain reset
+        /// immediately, because a peek-first consumer has no later failed pop
+        /// on which to hang that housekeeping.
+        pub fn consumeFront(self: *Self, allocator: std.mem.Allocator) T {
+            const value = self.pop(allocator) orelse unreachable;
+            if (self.isEmpty()) std.debug.assert(self.pop(allocator) == null);
             return value;
         }
 
@@ -226,7 +220,7 @@ fn Queue(comptime T: type) type {
         /// A borrowed pointer to the front element without dequeuing it, or null
         /// when drained. The pointer aliases the queued element and stays valid
         /// until the next queue mutation, read through it, do not own it.
-        fn peek(self: *Self) ?*const T {
+        pub fn peek(self: *const Self) ?*const T {
             if (self.isEmpty()) return null;
             return &self.items.items[self.head];
         }
@@ -270,12 +264,19 @@ pub const AbortInfo = struct {
     error_name: []const u8,
 };
 
-/// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0056).
+/// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0100).
 /// Owns `handoff` (always the `.receive` arm); freed when the withdraw settles
 /// or at `Peer.deinit`.
 const PendingWithdraw = struct {
-    handoff: model.Handoff,
+    receive: bootstrap.PendingReceive,
     answer: model.AnswerPosition,
+};
+
+/// All parked receives for one scheduler identity. The exact signed gift id
+/// remains in every owned handoff; the fixed-size key only selects the bounded
+/// group to retry after a deposit or gifter close.
+const PendingWithdrawGroup = struct {
+    rows: std.ArrayListUnmanaged(PendingWithdraw) = .empty,
 };
 
 /// The caller-owned CapTP engine: one peer per session, no I/O, no hidden
@@ -286,27 +287,37 @@ const PendingWithdraw = struct {
 pub const Peer = struct {
     allocator: std.mem.Allocator,
     session_state: session.Session,
+    /// How far the codec has got framing the partial frame at the front of
+    /// whatever pending buffer the consumer is feeding from. It lives on the
+    /// peer because every byte-stream consumer reaches the decoder through
+    /// `recvStreamPrefix`, so one scan serves the completion loop, the byte-fed
+    /// host, the blocking pump, and the C ABI alike, and no consumer has to
+    /// remember to keep one. Reset when a frame is consumed.
+    stream_scan: codec.framing.StreamScan = .{},
     inbound: Queue(foundation.Frame),
     pending_send: Queue(outbound.Outbound),
     outbound: Queue(foundation.Frame),
     events: Queue(Event),
-    /// The peer's private gift / handoff-count authority (ADR-0056), consulted
-    /// through `giftRegistry` unless a host shares one across peers via
-    /// `shared_gift_registry`. Owned: freed in `deinit`.
-    own_gift_registry: bootstrap.GiftRegistry = .{},
-    /// Inbound `withdraw-gift`s parked because their gift is not deposited yet
-    /// (ADR-0056): the deposit travels on a different session, so the withdraw
-    /// can arrive first. Each entry owns its handoff-receive; `step` retries
-    /// them against `giftRegistry()` and settles the answer once the gift
-    /// lands. Bounded by `SessionLimits.max_pending_withdraws`.
-    pending_withdraws: std.ArrayList(PendingWithdraw) = .empty,
-    /// Optional vat-scoped gift registry shared across direct sessions to the
-    /// same local vat — `deposit-gift` arrives on the gifter session, while
-    /// `withdraw-gift` arrives on the recipient session. Borrowed, never owned:
-    /// the host that wires several peers to one registry keeps it alive past
-    /// every peer's `deinit`, frees it itself, and owns any cross-thread locking
-    /// (the engine is externally synchronized).
-    shared_gift_registry: ?*bootstrap.GiftRegistry = null,
+    /// This session's gift and handoff-count authority. A cross-session
+    /// withdrawal reaches a sibling's deposits only through the live-session
+    /// resolver; the Vat does not own protocol transcript state.
+    gift_registry: bootstrap.GiftRegistry = .{},
+    /// Inbound `withdraw-gift`s grouped by exact scheduler dependency because
+    /// the deposit travels on a different session and can arrive second. The
+    /// grouping makes a deposit retry only its own waits, never all 4096 rows;
+    /// each row still owns the exact verified receive and its accepted replay
+    /// count. `pending_withdraw_count` is bounded by
+    /// `SessionLimits.max_pending_withdraws`.
+    pending_withdraws: std.AutoHashMapUnmanaged(node_services.HandoffDependency, PendingWithdrawGroup) = .empty,
+    pending_withdraw_count: usize = 0,
+    /// Variable bytes retained by parked receives. The fixed certificate subset
+    /// lives inline; only exact gift ids count here, and their aggregate may not
+    /// exceed this session's already-configured frame cap.
+    pending_withdraw_bytes: usize = 0,
+    /// One exact Node wake at a time. Host consumes scheduler changes one at a
+    /// time and drives this Peer before taking another, so no second queue or
+    /// allocation is needed after deposit authority commits.
+    pending_handoff_change: ?node_services.HandoffDependency = null,
     /// Bounds the chain of local deliveries a single resolution can trigger
     /// (a drained pipelined call resolving to a local export, whose own
     /// resolution drains more calls). Capped by `SessionLimits.max_local_deliveries`.
@@ -335,12 +346,11 @@ pub const Peer = struct {
     /// through `lastAbort`. Overwritten on each failure; never reset on
     /// success, so it stays readable after the error has propagated.
     last_abort: ?AbortInfo = null,
-    /// The node-installed hook that lowers a node-local foreign-import token to
-    /// its wire reference before an outbound message is encoded (ADR-0069). Set
-    /// only for a peer registered under a `Node` (`registerPeer` /
-    /// `registerPeerOver`); a standalone peer leaves it null and never lowers.
+    /// The node-installed composition link: outbound token lowering, exact
+    /// local-object projection, and live gifter-session resolution. Set only
+    /// for a peer registered under a `Node`; a standalone peer leaves it null.
     /// See `lower.zig`.
-    lowering: ?Lowering = null,
+    node_services: ?NodeServices = null,
 
     /// Peer over an already-open v1.0 session with default limits, no
     /// handshake will run. A real connection starts with `initNegotiating`
@@ -389,14 +399,17 @@ pub const Peer = struct {
     /// `features` (`negotiation.Negotiated`). The in-process driver
     /// (`pairing`) constructs both peers of a pair from one negotiated result.
     pub fn initNegotiatingWith(allocator: std.mem.Allocator, options: NegotiatingOptions) Peer {
-        var peer = initWithSession(allocator, session.Session.initWith(allocator, .{
-            .negotiating = true,
-            .codec = options.codec,
-            .captp_version = options.captp_version,
-            .features = options.features,
-            .limits = options.limits,
-        }));
-        peer.verify_partner_handshake = options.verify_partner_handshake;
+        // Build a blank negotiating peer and let `reposture` apply every knob,
+        // so the option set has exactly one applier. Spelling the fields out
+        // here as well is how a knob came to be honoured on one path and
+        // dropped on the other; a field added to `NegotiatingOptions` now
+        // reaches both paths or neither.
+        //
+        // The export range is deliberately not among these knobs. It is
+        // `engine.Node`'s to hand out at registration, so no posture can carry
+        // one and no later reposture can overwrite one.
+        var peer = initWithSession(allocator, session.Session.initWith(allocator, .{ .negotiating = true }));
+        peer.reposture(options);
         return peer;
     }
 
@@ -430,11 +443,11 @@ pub const Peer = struct {
     }
 
     /// Frees everything the peer still owns: queued inbound/outbound frames,
-    /// pending messages and events, parked withdraws, the private gift
-    /// registry, and the session with its tables. A shared gift registry
-    /// (`shared_gift_registry`) is the one thing not freed here, its owner
-    /// outlives every peer pointed at it.
+    /// pending messages and events, parked withdraws, the session-owned gift
+    /// registry, and the session with its tables.
     pub fn deinit(self: *Peer) void {
+        self.clearPendingWithdraws();
+        self.detachNodeServices();
         for (self.inbound.pending()) |*frame| {
             frame.deinit();
         }
@@ -455,18 +468,44 @@ pub const Peer = struct {
         }
         self.events.deinit(self.allocator);
 
-        for (self.pending_withdraws.items) |pending| {
-            model.freeHandoff(self.allocator, pending.handoff);
-        }
-        self.pending_withdraws.deinit(self.allocator);
-        self.own_gift_registry.deinit(self.allocator);
+        self.gift_registry.deinit(self.allocator);
         self.session_state.deinit();
     }
 
-    /// The gift / handoff-count authority this peer consults: the host-shared
-    /// registry when one is wired, otherwise the peer's own.
+    /// This CapTP session's gift and handoff-count authority.
     pub fn giftRegistry(self: *Peer) *bootstrap.GiftRegistry {
-        return self.shared_gift_registry orelse &self.own_gift_registry;
+        return &self.gift_registry;
+    }
+
+    /// The Host-wide exact-gift projection seam, when this Peer belongs to a
+    /// Node composition. Standalone peers deliberately have no such seam.
+    pub fn localObjectProjection(self: *const Peer) ?bootstrap.LocalObjectProjection {
+        const services = self.node_services orelse return null;
+        return services.localObjectProjection();
+    }
+
+    pub fn gifterSessionResolver(self: *const Peer) ?bootstrap.GifterSessionResolver {
+        const services = self.node_services orelse return null;
+        return services.gifterSessionResolver();
+    }
+
+    pub fn pendingWithdrawCount(self: *const Peer) usize {
+        return self.pending_withdraw_count;
+    }
+
+    pub fn pendingWithdrawCapacity(self: *const Peer) usize {
+        return self.pending_withdraws.capacity();
+    }
+
+    /// Remove every scheduler dependency this peer registered with its Node,
+    /// then sever the borrowed services pointer. Node removal calls this before
+    /// its own tables move; standalone peers and repeated teardown are no-ops.
+    pub fn detachNodeServices(self: *Peer) void {
+        const services = self.node_services orelse return;
+        var dependencies = self.pending_withdraws.keyIterator();
+        while (dependencies.next()) |dependency| services.pendingWithdrawRemoved(dependency.*);
+        self.pending_handoff_change = null;
+        self.node_services = null;
     }
 
     /// Pin the partner's session identity to `key` before the handshake runs:
@@ -573,16 +612,62 @@ pub const Peer = struct {
         return self.send(owned);
     }
 
-    /// Send a settled `withdraw-gift` outcome and reclaim the one owned arm it
-    /// may carry. `bootstrap.resolveForWithdraw` moves a verbatim gifted
-    /// capability into the message, so once `sendCopying` has copied it onto
-    /// the wire we free that owned reference. The free runs whether the send
-    /// succeeds or fails: `sendCopying` frees only its own clone on failure,
-    /// never the borrowed argument. The POD near arm and the static break arms
-    /// free as no-ops.
-    pub fn sendWithdrawSettled(self: *Peer, message: model.Message) !void {
-        defer bootstrap.freeSettledWithdrawOwned(self.allocator, message);
-        try self.sendCopying(message);
+    /// Commit a prepared `withdraw-gift` settlement. Preparation already owns
+    /// the one outbound clone and carries the accepted replay count. `send`
+    /// either owns the message or refuses before the
+    /// gift moves; only a successful enqueue is followed by the infallible gift
+    /// commit.
+    pub fn sendWithdrawSettled(self: *Peer, prepared_in: bootstrap.PreparedWithdraw) !void {
+        var prepared = prepared_in;
+        defer prepared.deinit(self.allocator);
+        try self.send(prepared.takeMessage());
+        prepared.apply(self.allocator, self.giftRegistry());
+    }
+
+    /// Admit one verified early withdraw without leaving replay authority or a
+    /// Node scheduler row half-installed on OOM. A new exact-gift group reserves
+    /// both its local row and its Node dependency before the replay count moves;
+    /// every operation after `acceptValidatedPendingWithdraw` is infallible.
+    pub fn parkPendingWithdraw(
+        self: *Peer,
+        receive: bootstrap.PendingReceive,
+        answer: model.AnswerPosition,
+        gifter_peer_id: PeerId,
+    ) !void {
+        if (receive.retainedBytes() > self.session_state.limits.max_frame_bytes -| self.pending_withdraw_bytes)
+            return session.Error.PendingWithdrawCapExceeded;
+        const dependency = node_services.HandoffDependency.init(
+            gifter_peer_id,
+            receive.gift_id,
+        );
+        if (self.pending_withdraws.getPtr(dependency)) |group| {
+            try group.rows.ensureUnusedCapacity(self.allocator, 1);
+            self.giftRegistry().acceptValidatedPendingWithdraw(receive.handoff_count);
+            group.rows.appendAssumeCapacity(.{ .receive = receive, .answer = answer });
+            self.pending_withdraw_count += 1;
+            self.pending_withdraw_bytes += receive.retainedBytes();
+            return;
+        }
+
+        var group: PendingWithdrawGroup = .{};
+        errdefer group.rows.deinit(self.allocator);
+        try group.rows.ensureUnusedCapacity(self.allocator, 1);
+        try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
+        if (self.node_services) |services| try services.pendingWithdrawAdded(dependency);
+        self.pending_withdraws.putAssumeCapacity(dependency, group);
+        const installed = self.pending_withdraws.getPtr(dependency).?;
+        self.giftRegistry().acceptValidatedPendingWithdraw(receive.handoff_count);
+        installed.rows.appendAssumeCapacity(.{ .receive = receive, .answer = answer });
+        self.pending_withdraw_count += 1;
+        self.pending_withdraw_bytes += receive.retainedBytes();
+    }
+
+    /// Record the exact scheduler wake the Host will drive next. The Host
+    /// consumes Node changes one at a time and reaches quiescence between them;
+    /// accepting a distinct second key here would violate that composition.
+    pub fn noteHandoffChange(self: *Peer, dependency: node_services.HandoffDependency) void {
+        std.debug.assert(self.pending_handoff_change == null or std.meta.eql(self.pending_handoff_change.?, dependency));
+        self.pending_handoff_change = dependency;
     }
 
     /// Queue a keyed `op:start-session` over `secret`'s Ed25519 key. The canonical
@@ -602,7 +687,7 @@ pub const Peer = struct {
         secret: foundation.crypto.SecretKey,
     ) !void {
         const pubkey = secret.publicKey();
-        const signed = try codec.syrup.canonicalLocationSignedBytes(self.allocator, locator);
+        const signed = try codec.signed.locationBytes(self.allocator, locator);
         defer self.allocator.free(signed);
         const sig = foundation.crypto.sign(&secret, signed);
         try self.sendCopying(.{ .start_session = .{
@@ -674,7 +759,7 @@ pub const Peer = struct {
     /// resolve-give shape; `Node.originateGive` and the C ABI both drive it.
     /// `give_bytes` is borrowed for the call.
     pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerPosition, give_bytes: []const u8) !void {
-        const give = try codec.syrup.decodeSignedHandoffGiveOwned(self.allocator, give_bytes);
+        const give = try codec.signed.decodeGiveOwned(self.allocator, give_bytes);
         defer model.freeHandoffGive(self.allocator, give);
         var handoff = model.Handoff{ .give = give };
         try self.sendCopying(.{ .resolve = .{
@@ -683,11 +768,56 @@ pub const Peer = struct {
         } });
     }
 
+    /// Store a signed `desc:handoff-give` as the relayed resolution of
+    /// `import_position`, the handoff sibling of `sendResolveHandoffGive`.
+    ///
+    /// A promise this node introduced to a third party can settle to a
+    /// capability the recipient has no way to name, and the answer to that is
+    /// a handoff rather than a break: the draft CapTP specification allows a
+    /// `desc:handoff-give` wherever a Passable value is allowed, and requires
+    /// a handoff when a message would carry a reference imported from another
+    /// session. The give is stored, not sent, because the recipient is waiting
+    /// on a promise the store fires — the same fan-out every relayed
+    /// resolution uses.
+    ///
+    /// `give_bytes` is borrowed. Ownership of the decoded handoff passes to
+    /// `applyRelayedResolution`, which consumes it on every outcome.
+    pub fn applyRelayedHandoffGive(
+        self: *Peer,
+        import_position: model.ImportPosition,
+        row_id: u64,
+        give_bytes: []const u8,
+    ) !void {
+        const give = try codec.signed.decodeGiveOwned(self.allocator, give_bytes);
+        const boxed = self.allocator.create(model.Handoff) catch |err| {
+            model.freeHandoffGive(self.allocator, give);
+            return err;
+        };
+        boxed.* = .{ .give = give };
+        return self.applyRelayedResolution(import_position, row_id, .{ .fulfill = .{ .handoff = boxed } });
+    }
+
     /// Whether the session has completed the `op:start-session` handshake and is
     /// open for traffic. An adapter pumps the handshake frames, then checks this
     /// before sending application messages.
     pub fn sessionIsOpen(self: *const Peer) bool {
         return self.session_state.state == .open;
+    }
+
+    /// Retire all CapTP handoff authority at the close transition, even when
+    /// the embedder retains the Peer shell to drain its final abort frame.
+    pub fn retireClosedSessionAuthority(self: *Peer) void {
+        std.debug.assert(self.session_state.state == .closed);
+        self.clearPendingWithdraws();
+        self.gift_registry.deinit(self.allocator);
+        self.gift_registry = .{};
+        if (self.node_services) |services| services.sessionClosed();
+    }
+
+    pub fn closeSession(self: *Peer) void {
+        if (self.session_state.state == .closed) return;
+        self.session_state.close();
+        self.retireClosedSessionAuthority();
     }
 
     /// The session's resource bounds (`session.SessionLimits`), fixed at
@@ -776,13 +906,6 @@ pub const Peer = struct {
         return self.session_state.allocateOutboundAnswer().int();
     }
 
-    /// Our outbound answer an inbound deliver to `resolver_export` resolves, if
-    /// that export is a known V1.0 resolver (ADR-0065). The driver's GC path
-    /// uses it to retire the answer when the partner drops the resolver.
-    pub fn answerForResolverExport(self: *const Peer, resolver_export: model.ExportPosition) ?model.AnswerPosition {
-        return self.session_state.answerForResolverExport(resolver_export);
-    }
-
     /// The inbound answer a V1.0 resolver import was installed for (ADR-0065).
     /// The vat uses it to route a resolver-only deliver's reply when the wire
     /// carried no answer position.
@@ -824,8 +947,8 @@ pub const Peer = struct {
     /// for the relayed path too.
     pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportPosition, row_id: u64, resolution_in: model.Resolution) !void {
         var resolution = resolution_in;
-        if (self.lowering) |lowering| {
-            if (lowering.active.*) lower.lowerResolution(lowering, &resolution) catch |err| {
+        if (self.node_services) |services| {
+            if (services.lowering_active.*) lower.lowerResolution(services, &resolution) catch |err| {
                 freeResolution(self.allocator, resolution);
                 return err;
             };
@@ -911,9 +1034,10 @@ pub const Peer = struct {
     }
 
     fn stepInner(self: *Peer) !StepOutcome {
-        // A parked `withdraw-gift` settles once its deposit arrives — possibly
-        // on another peer sharing this registry — so every step re-checks
-        // before other work. The empty-list fast path costs one length read.
+        // A parked `withdraw-gift` settles once its deposit arrives on the live
+        // Gifter–Exporter Peer. Node scheduling targets this receiver after
+        // that sibling changes, and every step re-checks before other work. The
+        // empty-list fast path costs one length read.
         try self.settlePendingWithdraws();
 
         // One unit of work per step: dispatch one inbound frame, else encode one
@@ -929,8 +1053,8 @@ pub const Peer = struct {
             return .progress;
         }
 
-        if (self.pending_send.pop(self.allocator)) |item| {
-            try outbound.stepPending(self, item);
+        if (self.pending_send.peek() != null) {
+            try outbound.stepPending(self);
             return .progress;
         }
         return .idle;
@@ -962,38 +1086,76 @@ pub const Peer = struct {
         disposition: abort_projection.AbortDisposition,
     ) !void {
         try self.pushEncoded(.{ .abort = abort });
-        if (disposition == .close) self.session_state.close();
+        if (disposition == .close) self.closeSession();
     }
 
-    /// Retry every parked `withdraw-gift` whose gift is already deposited: re-run
-    /// the verified withdraw responder and enqueue its answer. An entry whose
-    /// gift is still missing stays parked; a settled entry (fulfilled *or*
-    /// refused with a typed break) is freed here.
+    fn clearPendingWithdraws(self: *Peer) void {
+        const services = self.node_services;
+        var groups = self.pending_withdraws.iterator();
+        while (groups.next()) |entry| {
+            if (services) |link| link.pendingWithdrawRemoved(entry.key_ptr.*);
+            for (entry.value_ptr.rows.items) |*pending| pending.receive.deinit(self.allocator);
+            entry.value_ptr.rows.deinit(self.allocator);
+        }
+        self.pending_withdraws.deinit(self.allocator);
+        self.pending_withdraws = .empty;
+        self.pending_withdraw_count = 0;
+        self.pending_withdraw_bytes = 0;
+        self.pending_handoff_change = null;
+    }
+
+    /// Retry only the exact parked-withdraw group whose gift changed. A
+    /// standalone Peer with a custom resolver has no Node scheduler, so it
+    /// retains the explicit-drive fallback and checks each group; production
+    /// Node compositions never pay that broad scan.
     fn settlePendingWithdraws(self: *Peer) !void {
-        if (self.pending_withdraws.items.len == 0) return;
+        if (self.pending_withdraw_count == 0) {
+            self.pending_handoff_change = null;
+            return;
+        }
+        if (self.node_services != null) {
+            const dependency = self.pending_handoff_change orelse return;
+            try self.settlePendingWithdrawGroup(dependency);
+            self.pending_handoff_change = null;
+            return;
+        }
+
+        // Removing the iterator's current entry only tombstones that slot; it
+        // neither reallocates nor moves the backing, so the iterator can keep
+        // walking without an auxiliary attacker-sized key copy.
+        var it = self.pending_withdraws.iterator();
+        while (it.next()) |entry| try self.settlePendingWithdrawGroup(entry.key_ptr.*);
+    }
+
+    fn settlePendingWithdrawGroup(self: *Peer, dependency: node_services.HandoffDependency) !void {
+        const group = self.pending_withdraws.getPtr(dependency) orelse return;
         var index: usize = 0;
-        while (index < self.pending_withdraws.items.len) {
-            const entry = &self.pending_withdraws.items[index];
-            if (!self.giftRegistry().giftLive(entry.handoff.receive.signed_give.gift_id)) {
+        while (index < group.rows.items.len) {
+            const entry = &group.rows.items[index];
+            const scope = if (self.node_services) |services| services.peer_id else null;
+            const settled_withdraw = (try bootstrap.resolvePendingWithdraw(
+                self.allocator,
+                self.gifterSessionResolver(),
+                self.localObjectProjection(),
+                scope,
+                entry.receive,
+                entry.answer,
+            )) orelse {
                 index += 1;
                 continue;
-            }
-            const view_handoff = model.view.Handoff.fromOwned(&entry.handoff);
-            switch (try bootstrap.resolveForWithdraw(self.allocator, &self.session_state, self.giftRegistry(), .{
-                .receive = view_handoff.receive,
-                .answer = entry.answer,
-            })) {
-                .settled => |msg| try self.sendWithdrawSettled(msg),
-                // The row vanished between the deposited check and the resolve;
-                // leave the entry parked for the next step.
-                .awaiting_deposit => {
-                    index += 1;
-                    continue;
-                },
-            }
-            const settled = self.pending_withdraws.swapRemove(index);
-            model.freeHandoff(self.allocator, settled.handoff);
+            };
+            try self.sendWithdrawSettled(settled_withdraw);
+            var settled = group.rows.swapRemove(index);
+            self.pending_withdraw_bytes -= settled.receive.retainedBytes();
+            settled.receive.deinit(self.allocator);
+            self.pending_withdraw_count -= 1;
         }
+        if (group.rows.items.len != 0) return;
+
+        if (self.node_services) |services| services.pendingWithdrawRemoved(dependency);
+        const removed = self.pending_withdraws.fetchRemove(dependency).?;
+        var empty_group = removed.value;
+        empty_group.rows.deinit(self.allocator);
     }
 
     /// Dequeue the next encoded outbound frame, transferring ownership to the
@@ -1008,14 +1170,6 @@ pub const Peer = struct {
     /// popping.
     pub fn hasOutbound(self: *const Peer) bool {
         return !self.outbound.isEmpty();
-    }
-
-    /// Whether an inbound `withdraw-gift` is parked awaiting its deposit
-    /// (ADR-0056). A shared-registry owner reads this to track which sessions
-    /// need re-stepping when a sibling session's deposit lands; `step` settles
-    /// the parked withdraw against the shared registry on its next drive.
-    pub fn hasPendingWithdraws(self: *const Peer) bool {
-        return self.pending_withdraws.items.len > 0;
     }
 
     /// Dispatch a borrowed inbound frame. The borrowed bytes are transient, so
@@ -1040,20 +1194,43 @@ pub const Peer = struct {
     /// borrowed byte-stream `buffer`, reporting how many bytes it consumed — or
     /// that more bytes are needed. This is the byte-stream generalization of
     /// `recvBorrowed`: the active codec's decoder finds the frame boundary as
-    /// it decodes (one parse, no separate scanner), authority is applied through
+    /// it decodes, and nothing else reports one (the scan below only withholds
+    /// the question while no whole frame can be there yet), authority is applied through
     /// the same borrowed-validate path, and only then is the frame retained
     /// (the single intentional copy, as on `recvBorrowed`). `buffer` must stay
     /// valid for the call; afterwards the consumed bytes may be discarded.
+    ///
+    /// This is the only stream entry point, and it fails closed on a prefix
+    /// that has reached `max_frame_bytes` and is still open: such a frame can
+    /// never complete within the cap, so refusing it is what stops a partner
+    /// growing a consumer's buffer without end. That refusal used to live in a
+    /// second, wider entry point beside this one, which meant the safe reading
+    /// of the same bytes depended on which name a consumer happened to call.
+    ///
+    /// Successive calls describe one stream: `buffer` may grow, and a partial
+    /// frame may move into storage of the consumer's own, but its first byte
+    /// stays the first unconsumed byte of the stream. Framing progress is
+    /// carried on the peer, so re-pointing it at unrelated bytes mid-frame
+    /// makes it withhold frames that are in fact complete.
     ///
     /// A malformed frame or one exceeding `SessionLimits.max_frame_bytes`
     /// projects to a typed outbound `op:abort` and closes the session
     /// (`abort_projection`) before the error surfaces, exactly as the frame
     /// boundary does. `.incomplete` is not an error: no abort, no state change.
     pub fn recvStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
-        const prefix = codec.dispatch.decodePrefix(
+        const cap = self.session_state.limits.max_frame_bytes;
+        // A frame still arriving is asked about once per read, and the decoder
+        // answers by walking from its first byte every time, so a frame
+        // delivered in pieces is walked once per piece. The scan carries the
+        // codec's position across those asks and withholds the decoder only
+        // when every available byte is consumed with the frame still open —
+        // exactly when the decoder could only have answered `.incomplete`.
+        //
+        const prefix = codec.dispatch.framePrefix(
             self.session_state.codec,
             buffer,
-            self.session_state.limits.max_frame_bytes,
+            &self.stream_scan,
+            cap,
         );
         switch (prefix) {
             .incomplete => return .incomplete,
@@ -1087,28 +1264,6 @@ pub const Peer = struct {
                     return err;
                 };
                 return .{ .consumed = decoded.consumed };
-            },
-        }
-    }
-
-    /// Like `recvStreamPrefix`, plus the ADR-0029/0041 incomplete-at-cap
-    /// mirror: an incomplete prefix whose buffer is already at or past
-    /// `max_frame_bytes` can never complete within the cap, so this fails
-    /// closed with `error.FrameTooLarge` (and projects an abort) instead of
-    /// returning `.incomplete` for the caller to grow forever. Every
-    /// byte-stream consumer (`Host.feedBytes`, `Connection.pumpOver`,
-    /// `frame_stream.drainWholeFrames`, `pancake_peer_recv_stream`) must use
-    /// this rather than re-implementing the mirror beside `recvStreamPrefix`.
-    pub fn applyStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
-        const outcome = try self.recvStreamPrefix(buffer);
-        switch (outcome) {
-            .consumed => |n| return .{ .consumed = n },
-            .incomplete => {
-                if (buffer.len >= self.limits().max_frame_bytes) {
-                    inbound.emitAbortForError(self, error.FrameTooLarge);
-                    return error.FrameTooLarge;
-                }
-                return .incomplete;
             },
         }
     }
@@ -1149,7 +1304,36 @@ pub const Peer = struct {
 /// `test/engine/footprint_budget_test.zig`. Crossing this ceiling is not a build
 /// failure to route around; it is a design event that raises the budget here, in
 /// the ladder, and in the vision, together, with the bytes justified.
-pub const peer_session_struct_budget_bytes = 1024;
+///
+/// The most recent 24 of these bytes are two deliberate purchases. Sixteen are
+/// the stream scan, bought by giving two others back: Every byte-stream consumer reaches the decoder
+/// through `recvStreamPrefix`, so holding the scan here serves the completion
+/// loop, the byte-fed host, the blocking pump, and the C ABI from one place —
+/// where holding it per consumer served two of them and charged a Bridge
+/// connection twice, once in its `Conn` slot and again in its `HostSession`
+/// shell, for a frame only one of the two ever framed. The other eight are the
+/// end of the session's export range. The allocator is monotonic and counts
+/// positions ever minted rather than live ones, so without a far end a
+/// long-lived session that mints and releases walks into the next session's
+/// range and silently starts naming its objects — the whole hazard the ranges
+/// exist to remove. Eight bytes buys a typed refusal instead.
+///
+/// The most recent eight are the import table's enrolled-token side, one word
+/// for a map that is only allocated once a session actually enrolls a
+/// capability under a node-unique token (ADR-0069). Most sessions never do, so
+/// the ordinary session pays the word and nothing else. It is held on
+/// the import row rather than in a node-side memo so it is forgotten when the
+/// import is released; a token that outlived its row would name whatever
+/// capability the partner put at that position next.
+///
+/// The most recent eight are the low end of the session's export range. The
+/// high end alone stops the allocator being dragged past the range, which is
+/// the half that kills a session outright; it says nothing about a position
+/// from *below* the range, which names an object this session does not host
+/// just as surely. Half a check is what leaves a class of bug alive to be
+/// rediscovered, and this class — a name used in a namespace that is not its
+/// own — is the one this core has paid for most.
+pub const peer_session_struct_budget_bytes = 1064;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md step 2). " ++
@@ -1181,7 +1365,7 @@ pub fn verifyPartnerStartSession(allocator: std.mem.Allocator, ss: model.view.St
             return error.InvalidStartSessionSignature,
     };
     const signed = if (ss.acceptable_location_raw) |raw|
-        try codec.syrup.canonicalLocationSignedBytesRaw(allocator, raw)
+        try codec.signed.locationBytesRaw(allocator, raw)
     else signed: {
         // Borrow transport/designator (and projected hints); materialize only
         // the lazy arm. Signing must see full hint fidelity, not URI export.
@@ -1200,7 +1384,7 @@ pub fn verifyPartnerStartSession(allocator: std.mem.Allocator, ss: model.view.St
             .designator = ss.acceptable_location.designator,
             .hints = hints,
         };
-        break :signed try codec.syrup.canonicalLocationSignedBytes(allocator, location);
+        break :signed try codec.signed.locationBytes(allocator, location);
     };
     defer allocator.free(signed);
     crypto.verify(pubkey, signed, sig) catch return error.InvalidStartSessionSignature;

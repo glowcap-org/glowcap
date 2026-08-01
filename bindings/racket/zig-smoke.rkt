@@ -3,7 +3,7 @@
 ;; composable modules — the CapTP session surface in `pancake.rkt` plus one
 ;; module per transport archive (`pancake-tcp.rkt`, `pancake-inproc.rkt`),
 ;; composed à la carte exactly as a C consumer links the archives. Everything
-;; rides the byte-fed host archive (libpancake_driver, ADR-0072 / ADR-0079)
+;; rides the byte-fed host archive (libpancake_host, ADR-0072 / ADR-0079)
 ;; with native Racket values — no FFI in sight for an application; the
 ;; plumbing sections below reach the binding's own `private/` modules to
 ;; script wire faults and to shuttle host frames over the C transport
@@ -26,10 +26,11 @@
          "private/promise.rkt"
          "private/gc.rkt"
          "private/vat.rkt"
-         "private/ffi-driver.rkt"
+         "private/ffi-host.rkt"
          "private/ffi-shared.rkt"
          "private/errors.rkt"
          "private/codec.rkt"
+         (only-in "private/value.rkt" make-ref/internal)
          racket/tcp)
 
 ;; Line-buffer the OK lines so a failure can never swallow the progress that
@@ -81,14 +82,14 @@
 (define lv (make-vat))
 (define lv-counter (with-vat lv (spawn ^counter 10)))
 (bind-export! lv lv-counter 7)
-(expect (equal? (vat-resolve-target lv (near 7)) lv-counter)
-        "local export: vat-resolve-target maps a bound near-ref to its actor")
-(expect (equal? (vat-resolve-target lv (near 99)) (near 99))
-        "local export: an unbound near-ref comes back unchanged")
+(expect (equal? (vat-resolve-target lv (make-ref/internal 7)) lv-counter)
+        "local export: vat-resolve-target maps a bound Host ref to its actor")
+(expect (equal? (vat-resolve-target lv (make-ref/internal 99)) (make-ref/internal 99))
+        "local export: an unbound Host ref comes back unchanged")
 (with-vat lv
   (expect (= 15 ($ lv-counter 'add 5)) "local export: the bound actor still near-calls"))
 
-(printf "racket zig-smoke OK: bind-export! + vat-resolve-target self-route a near-ref\n")
+(printf "racket zig-smoke OK: bind-export! + vat-resolve-target self-route a Host ref\n")
 
 ;; ── The local|far seam: `<-` and `on` across a live session ────────────────
 ;; A host publishes a counter; the client reaches it through the vat verbs —
@@ -265,13 +266,17 @@
        (session-serve hsession)
        (channel-put en-ch 'served)))))
 
-(define en-session (connect (tcp-locator "127.0.0.1" (server-port en-server))))
+(define en-locator (tcp-locator "127.0.0.1" (server-port en-server)))
+(define en-session (connect en-locator))
 (semaphore-wait en-ready)
-;; The connection is already open; enliven keys on the sturdyref's swissnum,
-;; carried by the URI as `/s/greeter`.
-(define en-sturdyref "ocapn://greeter-host.tcp/s/greeter")
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (session-enliven en-session "ocapn://127.0.0.1%3A1.tcp/s/greeter")
+          #f)
+        "enliven: a sturdyref for another peer is refused")
+;; The complete sturdyref must name this selected session's peer.
+(define en-sturdyref (string-append en-locator "/s/greeter"))
 (define en-cap (session-enliven en-session en-sturdyref))
-(expect (far-ref? en-cap) "enliven: a sturdyref enlivened to a far capability")
+(expect (ref? en-cap) "enliven: a sturdyref enlivened to a capability")
 (expect (equal? (sym "alive") (session-send en-session en-cap 'hello)) "enliven: the live capability answers hello")
 ;; A repeat enliven hits the dedup cache: the same live reference, no wire fetch.
 (define en-again (session-enliven en-session en-sturdyref))
@@ -390,7 +395,7 @@
 ;; module-level binding would root it forever and never finalize).
 (define (gc-fetch-and-drop!)
   (define cap (session-fetch gc-session "svc"))
-  (expect (far-ref? cap) "gc: fetched a far import")
+  (expect (ref? cap) "gc: fetched a capability")
   (void))
 (gc-fetch-and-drop!)
 ;; Force collection, then re-fetch to drain the parked release, until the relay
@@ -507,10 +512,14 @@
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put cp-ch e))])
        (define hsession (accept cp-server))
-       (session-publish hsession "svc"
-                     (lambda (bcom)
-                       (methods
-                        [(boom) (error 'svc "deliberate failure")])))
+       (define published
+         (session-publish hsession "svc"
+                          (lambda (bcom)
+                            (methods
+                             [(boom) (error 'svc "deliberate failure")]))))
+       (define observed (session-published-ref hsession "svc"))
+       (expect (and (ref? observed) (= (ref-id observed) (ref-id published)))
+               "published-ref reuses the opaque Host identity")
        (semaphore-post cp-ready)
        (session-serve hsession)
        (channel-put cp-ch 'served)))))
@@ -521,7 +530,7 @@
 ;; Self-spawned send and tell: the client never runs a serve loop, so only an
 ;; in-process turn can settle these.
 (define cp-me (session-spawn cp-session ^counter 10))
-(expect (near-ref? cp-me) "self-spawn: session-spawn returns a near capability")
+(expect (ref? cp-me) "self-spawn: session-spawn returns a capability")
 (expect (= 15 (session-send cp-session cp-me 'add 5)) "self-spawn: session-send resolved in process")
 (session-tell cp-session cp-me 'add 100)
 (expect (= 115 (session-send cp-session cp-me 'get)) "self-spawn: session-tell ran the local turn")
@@ -1011,6 +1020,55 @@
 
 (printf "racket zig-smoke OK: a behavior closing its own connection mid-turn parks the release\n")
 
+;; Host teardown has the same callback latch. A request made by a behavior is
+;; pending—not optimistically "released"—until the feed unwinds; terminal
+;; teardown then clears the Host's strong callback/session tables.
+(define hr-server (listen "127.0.0.1" 0))
+(define hr-ready (make-semaphore 0))
+(define hr-during (make-channel))
+(define hr-state (make-channel))
+(define hr-acceptor
+  (thread
+   (lambda ()
+     (define hsession (accept hr-server))
+     (define sibling (accept hr-server))
+     (define m (session-host hsession))
+     (session-publish hsession "svc"
+                      (lambda (_bcom)
+                        (methods
+                         [(release-host)
+                          (host-release! m)
+                          (channel-put hr-during
+                                       (list (unbox (host-released? m))
+                                             (host-pending-release-count m)))
+                          (sym "closing")])))
+     (semaphore-post hr-ready)
+     (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))
+     (channel-put hr-state
+                  (list (unbox (host-released? m))
+                        (hash-count (host-keep m))
+                        (hash-count (host-sessions m)))))))
+(define hr-session (connect (tcp-locator "127.0.0.1" (server-port hr-server))))
+(define hr-sibling (connect (tcp-locator "127.0.0.1" (server-port hr-server))))
+(semaphore-wait hr-ready)
+(define hr-svc (session-fetch hr-session "svc"))
+(define hr-client
+  (thread
+   (lambda ()
+     (with-handlers ([exn:fail:pancake? void])
+       (session-send hr-session hr-svc 'release-host)))))
+(expect (equal? '(#f 1) (sync/timeout 10 hr-during))
+        "mid-turn host release parks one ordered Host teardown transaction")
+(thread-wait hr-client)
+(define hr-final (sync/timeout 10 hr-state))
+(expect (equal? '(#t 0 0) hr-final)
+        (format "terminal host release clears retained state (got ~a)" hr-final))
+(session-close! hr-session)
+(session-close! hr-sibling)
+(server-close! hr-server)
+
+(printf "racket zig-smoke OK: a mid-turn Host release parks then clears retained state\n")
+
 ;; ── Time-travel: restore retargets wire delivers ──────────────────────────────
 ;; The README's headline time-travel claim, pinned over the wire: snapshot a
 ;; served vat, mutate the actor through wire delivers, restore, and observe
@@ -1103,9 +1161,9 @@
 ;; gift originated by the gifter's host, deposited on the exporter, withdrawn
 ;; over a real DIAL, and the redeemed capability called directly.
 (define rd-e-server (listen "127.0.0.1" 0))
-;; Host-wide, not session-published: the withdraw arrives on the session the
-;; recipient's redeem dial opens later, and the exporter resolves the gifted
-;; swissnum against that session's own bootstrap registry.
+;; Host-wide, not session-published: deposit retains the actor before the
+;; recipient's redeem dial opens, and withdrawal projects that exact actor onto
+;; the new exporter session without resolving the alias again.
 (host-publish-giftable (server-host rd-e-server) "gifted" (methods [(use) 7]))
 (define rd-release-e (make-semaphore 0))
 (define rd-e-thread
@@ -1126,7 +1184,7 @@
 ;; (SessionPairExists). Same host, different partner — that is the lock pin.
 (define rd-ping-server (listen "127.0.0.1" 0))
 ;; The gifter dials the exporter on its server's host, so the tool it fetches
-;; and the introductions it serves share one identity and gift registry.
+;; and the introductions it serves share one identity and handoff router.
 (define rd-gc (connect (tcp-locator "127.0.0.1" (server-port rd-e-server))
                        #:host (server-host rd-g-server)))
 (define rd-tool (session-fetch rd-gc "gifted"))
@@ -1376,7 +1434,7 @@
   (expect (and (pair? (session-vow-state fetched)) (eq? 'ok (car (session-vow-state fetched))))
           "transport: the scripted fetch fulfilled")
   (define counter-ref (cdr (session-vow-state fetched)))
-  (expect (far-ref? counter-ref) "transport: fetched a far capability")
+  (expect (ref? counter-ref) "transport: fetched a capability")
   (define vow (session-far-send client-session counter-ref 'add '(5) #t))
   (drain-host! chost)                    ; the deliver leaves
   (feed-next! server-session server-read)   ; the served turn runs, the resolve leaves

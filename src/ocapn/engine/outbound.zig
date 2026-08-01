@@ -19,19 +19,24 @@ const v1_0 = @import("v1_0.zig");
 
 const freeMessage = model.freeMessage;
 
-/// Which payload a listener fire borrows at encode: an inbound answer's stored
-/// resolution, a handoff-imported third-party promise's stored resolution
-/// (ADR-0009), or a live object export's POD `fulfill(near)` (no store row —
-/// the export position in the carrier is the payload). Answer and import share
-/// the promise cell shape — `{ row_id, resolution, listeners }` — keyed on
-/// distinct wire position spaces, so one carrier and one `resolveFireStore`
-/// lookup serve both. The store-backed arms carry the row's identity stamp
-/// *inside* the arm: only the targets that have a store row can carry one, so
-/// no flat sentinel field rides beside `near_object`, which encodes from the
-/// position alone (export positions are never reused).
-pub const FireTarget = union(enum) {
+/// A fire payload that lives in a store: an inbound answer's stored
+/// resolution, or a handoff-imported third-party promise's stored resolution
+/// (ADR-0009). The two share the promise cell shape — `{ row_id, resolution,
+/// listeners }` — keyed on distinct wire position spaces, so one
+/// `resolveFireStore` lookup serves both, and each arm carries its row's
+/// identity stamp because only a store row has one. This is its own type so
+/// the store lookup's parameter admits exactly the targets it can answer.
+pub const StoreTarget = union(enum) {
     answer: struct { position: model.AnswerPosition, row_id: u64 },
     import: struct { position: model.ImportPosition, row_id: u64 },
+};
+
+/// Which payload a listener fire borrows at encode: a store-backed resolution
+/// (`StoreTarget` above), or a live object export's POD `fulfill(near)` — no
+/// store row, the export position in the carrier is the payload, and export
+/// positions are never reused so no stamp rides beside it.
+pub const FireTarget = union(enum) {
+    store: StoreTarget,
     near_object: model.ExportPosition,
 };
 
@@ -115,8 +120,8 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     // fetch — so a token cannot leak onto the wire in any position. A
     // `TokenNotLiftable` aborts the send with the message still owned here.
     var message = message_in;
-    if (self.lowering) |lowering| {
-        if (lowering.active.*) lower.lowerMessage(lowering, &message) catch |err| {
+    if (self.node_services) |services| {
+        if (services.lowering_active.*) lower.lowerMessage(services, &message) catch |err| {
             freeMessage(self.allocator, message);
             return err;
         };
@@ -160,14 +165,14 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     appended = false;
 }
 
-/// Encode one popped pending-send item during `step`. Borrows store-backed
-/// resolutions; the caller owns any `.message` arm before pop.
-pub fn stepPending(self: *Peer, item: Outbound) !void {
-    switch (item) {
-        .message => |message| {
-            defer freeMessage(self.allocator, message);
-            try emitOutboundMessage(self, message);
-        },
+/// Encode the front pending-send item during `step`. A store-backed
+/// `settled_answer` remains queued until encode succeeds because its POD
+/// carrier is retry-safe. The other arms transfer ownership before encode:
+/// their path may install session authority, so replay after a later failure
+/// is not generally safe.
+pub fn stepPending(self: *Peer) !void {
+    const front = self.pending_send.peek().?.*;
+    switch (front) {
         .settled_answer => |sa| {
             // The resolution lives in the answer store (it moved there at
             // record time); borrow it to encode and to drive the local
@@ -177,11 +182,30 @@ pub fn stepPending(self: *Peer, item: Outbound) !void {
             // the position was reused by a fresh answer whose `row_id` no
             // longer matches: `resolveStoreChecked` guards both, so the
             // reused row's payload is never resolved under this carrier.
-            const stored = resolveStoreChecked(self, .{ .answer = .{ .position = sa.position, .row_id = sa.row_id } }) orelse return;
+            const stored = resolveStoreChecked(self, .{ .answer = .{ .position = sa.position, .row_id = sa.row_id } }) orelse {
+                discardPendingFront(self);
+                return;
+            };
             const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
             try emitOutboundMessage(self, .{ .resolve = resolve });
+            // Once a frame exists, a consequence-drain failure must not retain
+            // the carrier or duplicate the already-queued resolve on retry.
+            discardPendingFront(self);
             // A sent `op:resolve` also settles one of our inbound answers locally.
             try settleSentResolve(self, resolve);
+        },
+        .message, .listener_fire => try stepConsumedPending(
+            self,
+            self.pending_send.consumeFront(self.allocator),
+        ),
+    }
+}
+
+fn stepConsumedPending(self: *Peer, item: Outbound) !void {
+    switch (item) {
+        .message => |message| {
+            defer freeMessage(self.allocator, message);
+            try emitOutboundMessage(self, message);
         },
         .listener_fire => |fire| {
             var args: [2]model.Argument = undefined;
@@ -210,14 +234,19 @@ pub fn stepPending(self: *Peer, item: Outbound) !void {
                 // emits. (The queue-time export retains of a dropped fire stay
                 // recorded until session end, the same stranded-retain posture a
                 // GC'd `settled_answer` ships.)
-                .answer, .import => blk: {
-                    const stored = resolveStoreChecked(self, fire.target) orelse return;
+                .store => |store_target| blk: {
+                    const stored = resolveStoreChecked(self, store_target) orelse return;
                     break :blk pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args);
                 },
             };
             try emitOutboundMessage(self, message);
         },
+        .settled_answer => unreachable,
     }
+}
+
+fn discardPendingFront(self: *Peer) void {
+    self.pending_send.consumeFront(self.allocator).deinit(self.allocator);
 }
 
 /// The current row id and borrowed stored resolution behind a fire target,
@@ -226,7 +255,7 @@ pub fn stepPending(self: *Peer, item: Outbound) !void {
 /// so the answer store and the imported-promise store are reached the same
 /// way. The returned resolution borrows the store; it is valid only until
 /// the store is next mutated.
-fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
+fn resolveFireStore(self: *Peer, target: StoreTarget) ?struct {
     row_id: u64,
     resolution: *const model.Resolution,
 } {
@@ -241,7 +270,6 @@ fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
             if (row.cell.resolution) |*resolution| return .{ .row_id = row.cell.row_id, .resolution = resolution };
             return null;
         },
-        .near_object => return null,
     }
 }
 
@@ -253,12 +281,11 @@ fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
 /// re-registered) fails to match, so the stale carrier emits nothing rather
 /// than the reused row's payload. `settled_answer` and `listener_fire` read
 /// the store through this one seam.
-pub fn resolveStoreChecked(self: *Peer, target: FireTarget) ?*const model.Resolution {
+pub fn resolveStoreChecked(self: *Peer, target: StoreTarget) ?*const model.Resolution {
     const found = resolveFireStore(self, target) orelse return null;
     const stamped = switch (target) {
         .answer => |answer| answer.row_id,
         .import => |import| import.row_id,
-        .near_object => return null,
     };
     if (found.row_id != stamped) return null;
     return found.resolution;
@@ -288,8 +315,13 @@ fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
     const needs_v1_0 = self.session_state.needsV1_0Translation();
 
     if (needs_v1_0 and message == .resolve) {
-        if (self.session_state.resolverForInboundAnswer(message.resolve.answer) != null) {
-            try v1_0.encodeResolveAsCallback(self, message.resolve);
+        // A V1.0 partner hears a resolution only through the resolver
+        // capability its own deliver carried (`resolve-me-desc`). A deliver
+        // that named an answer but advertised no resolver asked for no
+        // callback: there is nobody to notify, so the resolve emits nothing —
+        // V1.0 has no wire shape to invent for it.
+        if (self.session_state.resolverForInboundAnswer(message.resolve.answer)) |resolver_import| {
+            try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import);
         }
         return;
     }

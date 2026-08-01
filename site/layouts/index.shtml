@@ -8,7 +8,7 @@
 			<p class="hero-eyebrow">Object-capability RPC for OCapN, in Zig</p>
 			<h1>pancake</h1>
 			<p class="hero-tagline">Two programs hand each other references to live objects and call them across the network. The reference is the permission.</p>
-			<p class="hero-kicker">Because you can't have pancakes without syrup.</p>
+			<p class="hero-kicker">Because you can't have pancakes without <a href="https://github.com/ocapn/syrup">Syrup</a>.</p>
 			<div class="hero-actions">
 				<a class="btn btn-primary" href="$site.page('start').link()">Start building <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
 				<a class="btn btn-secondary" href="$site.page('why').link()">Why OCapN</a>

@@ -382,7 +382,13 @@ test "session forEach export import answer views" {
     try std.testing.expectEqual(@as(usize, 1), answer_seen);
 }
 
-test "select appendSelected joins character ranges" {
+/// Selection geometry is measured in cells, so a test says how wide the
+/// terminal it stands in for draws things. Here every character is one cell.
+fn oneCellWide(_: ?*const anyopaque, _: []const u8) u16 {
+    return 1;
+}
+
+test "select appendSelected joins cell ranges" {
     const S = cli.repl_select;
     const lines = [_][]const u8{ "abcdefghij", "12345678", "ABCDEFGHIJ" };
     var buf: std.ArrayList(u8) = .empty;
@@ -395,8 +401,42 @@ test "select appendSelected joins character ranges" {
         &lines,
         &buf,
         std.testing.allocator,
+        .{ .measure = oneCellWide },
     );
     try std.testing.expectEqualStrings("defghij\n12345678\nABC", buf.items);
+}
+
+/// The one grapheme these cases draw two cells wide, standing in for the
+/// terminal's width tables.
+fn hanTwoCells(_: ?*const anyopaque, character: []const u8) u16 {
+    return if (std.mem.eql(u8, "漢", character)) 2 else 1;
+}
+
+test "hover finds the link the underline was painted on" {
+    // The pointer names a cell; a scanned link is a byte range. A wide glyph
+    // ahead of the link moves the two apart, and comparing them raw pointed
+    // hover at whatever byte happened to share the number.
+    const S = cli.repl_select;
+    const L = cli.repl_links;
+    const cells = S.CellWidth{ .measure = hanTwoCells };
+    const line = "漢 ocapn://tcp.localhost/x";
+
+    // 漢 is three bytes drawn in two cells, so the link starts at cell 3 and
+    // byte 4.
+    try std.testing.expectEqual(@as(usize, 4), S.byteAtCell(line, 3, cells).?);
+    var spans: [4]L.Span = undefined;
+    const hit = L.atByte(line, S.byteAtCell(line, 3, cells).?, &spans) orelse
+        return error.TestUnexpectedResult;
+    try std.testing.expect(hit.kind == .ocapn);
+    try std.testing.expectEqualStrings("ocapn://tcp.localhost/x", hit.slice(line));
+
+    // The same cell read as a byte lands on the space and finds nothing, which
+    // is what the reader saw underlined but could not click.
+    try std.testing.expect(L.atByte(line, 3, &spans) == null);
+
+    // The glyph itself is not a link, and a cell past the end is nowhere.
+    try std.testing.expect(L.atByte(line, S.byteAtCell(line, 0, cells).?, &spans) == null);
+    try std.testing.expect(S.byteAtCell(line, 99, cells) == null);
 }
 
 test "select Selection phase is a sum" {

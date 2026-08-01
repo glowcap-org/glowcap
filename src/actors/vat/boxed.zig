@@ -294,7 +294,7 @@ pub fn promoteBecome(self: *Vat, pending: PendingBecome) void {
 /// `snapshot` and `restore` require it, so time-travel never captures or
 /// rewinds a half-mutated heap.
 fn quiescent(self: *const Vat) bool {
-    return self.turn_depth == 0 and self.drive_depth == 0 and self.queue.items.len == 0;
+    return self.turn_depth == 0 and self.drive_depth == 0 and self.runnable_head == null;
 }
 
 /// Capture the local actor heap: share every actor's `StateBox` (refcount up,

@@ -3,7 +3,7 @@ id: ADR-0029
 status: accepted
 date: 2026-06-05
 tags: [codec, runtime, net, framing, resilience]
-decision: "Stream frame boundaries are found by the active codec's own decoder (`decodePrefix`), not a separate length-prefix or delimiter scanner. The decoder distinguishes `incomplete` (need more bytes), `decoded` (whole frame + consumed length), `malformed` (structurally invalid), and `too_large` (would exceed `max_frame_bytes`). The engine (`recvStreamPrefix`) and the byte-stream adapter (`pumpOver`) consume that one verdict; there is no second parse."
+decision: "Stream frame boundaries are found by the active codec's own decoder (`decodePrefix`), not a separate length-prefix or delimiter scanner. The decoder distinguishes `incomplete` (need more bytes), `decoded` (whole frame + consumed length), `malformed` (structurally invalid), and `too_large` (would exceed `max_frame_bytes`). The engine (`recvStreamPrefix`) and the byte-stream adapter (`pumpOver`) consume that one verdict. A resumable scan sits in front of it so a frame arriving over many reads is walked once rather than once per read; it reports no boundary of its own, so the decoder stays the only source of that verdict."
 supersedes: []
 superseded_by: []
 ---
@@ -51,15 +51,30 @@ already-bounded sub-slices (peer-key, signature) remap an inner `incomplete` to
 region is corrupt, not that the stream needs more.
 
 `codec.dispatch.decodePrefix` routes to the session's active codec. The engine
-consumes exactly one verdict in `recvStreamPrefix` (`consumed` -> apply borrowed
+consumes exactly one verdict in `recvStreamPrefix`. A decoded frame is applied
+from the buffered bytes and its length reported; an incomplete one asks for more
+bytes; a malformed or over-cap one becomes a typed error projected to
+`op:abort`. The byte-stream adapter's `pumpOver`
+([`src/net/connection.zig`](../../../src/net/connection.zig)) and the peer-less
+`FrameStream`
+([`src/net/frame_stream.zig`](../../../src/net/frame_stream.zig)) both advance
+past a decoded frame and read more on `incomplete`. One parse, and the decoder
+alone decides where a frame ends.
 
-- report length; `incomplete` -> ask for more; `malformed`/`too_large` -> typed
-  error projected to `op:abort`), and the byte-stream adapter's `pumpOver`
-  ([`src/net/connection.zig`](../../../src/net/connection.zig)) and peer-less
-  `FrameStream`
-  ([`src/net/frame_stream.zig`](../../../src/net/frame_stream.zig)) both
-  `toss(consumed)` after a frame and `fillMore()` on `incomplete`. One parse,
-  zero-copy apply, no separate boundary scanner anywhere.
+That last point is about authority, not about how often the bytes are touched,
+and the difference matters once a frame arrives over many reads: asking the
+decoder again on each read re-walks the frame from its first byte, which costs
+work proportional to the square of its size. So a resumable scan now sits in
+front of `decodePrefix` (`codec.dispatch.scanStream`). It answers one question,
+whether a whole frame could be there yet, and it remembers where it stopped. It
+never reports a boundary, so it takes no authority from the decoder; when it
+says a frame may be complete, the decoder still decides.
+
+When the scan says a whole frame cannot be there yet, the decoder is not called
+at all. That withholds the decoder's `too_large` refusal along with its verdict,
+so whoever withholds owes the frame cap in its place.
+`codec.dispatch.framePrefix` is the one entry point a stream consumer calls for
+exactly that reason: it runs the scan, and it pays that debt.
 
 Because the decoder recurses lazily over nested containers, decode-time
 recursion is bounded by a fixed `max_decode_nesting` (512) in the Syrup decoder
@@ -90,15 +105,21 @@ overflow the native stack: the parse-stage analog of the session-level cap in
 
 ## Consequences
 
-- Each codec gains `decodePrefix`; `codec.dispatch` gains `decodePrefix` +
-  `frameShape`; the Syrup error set gains `Incomplete` (internal to the decoder,
-  never surfaced past a whole-frame boundary).
-- `engine.Peer.recvStreamPrefix` is the single stream-framing entry the adapters
-  drive.
+- Each codec gains `decodePrefix`; `codec.dispatch` gains `decodePrefix`,
+  `frameShape`, `scanStream`, and the `framePrefix` entry point that combines
+  them; the Syrup error set gains `Incomplete` (internal to the decoder, never
+  surfaced past a whole-frame boundary).
+- `engine.Peer.recvStreamPrefix` is the single stream-framing entry the
+  peer-backed adapters drive. A reader with no peer drives
+  `codec.dispatch.framePrefix` directly and carries its own scan.
 - Evidence: the differential prefix-decode property test
   [`test/codec/prefix_decode_test.zig`](../../../test/codec/prefix_decode_test.zig)
   (incompleteness on every prefix, exact consumption, concatenation,
-  malformation, oversize, and deep-nesting rejection) across both codecs.
+  malformation, oversize, and deep-nesting rejection) across both codecs; and
+  for the resumable scan,
+  [`test/net/frame_stream_test.zig`](../../../test/net/frame_stream_test.zig)
+  proves a dribbled frame is walked once rather than once per read, and that a
+  finished frame resets the scan so the next one still resumes.
 
 ## Notes
 

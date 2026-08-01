@@ -84,17 +84,17 @@ pub const default_settle_timeout_ms: i32 = 30_000;
 
 pub fn sessionOpts() driver.SessionOptions {
     return .{
-        .handshake_timeout_ms = default_handshake_timeout_ms,
-        .settle_timeout_ms = default_settle_timeout_ms,
+        .handshake = .{ .ms = default_handshake_timeout_ms },
+        .settle = .{ .ms = default_settle_timeout_ms },
     };
 }
 
 /// Dial with explicit session options (tests pass a short handshake budget).
 pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) !*driver.Session {
-    var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
-    const netlayers = [_]pancake.net.netlayer.Netlayer{tcp.netlayer()};
+    ctx.dial_resident = .{ .io = ctx.io };
+    ctx.dial_netlayers = .{ctx.dial_resident.netlayer()};
     const identity = try ctx.dialIdentity();
-    return driver.connectUriOwned(ctx.gpa, &netlayers, uri, identity, opts) catch |err| {
+    return driver.connectUriOwned(ctx.gpa, &ctx.dial_netlayers, uri, identity, opts) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
         return err;
     };
@@ -219,7 +219,7 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
     const accept_id = try ctx.acceptIdentity();
     var server = try driver.listen(ctx.gpa, tcp.netlayer(), .{ .designator = bind }, accept_id, sessionOpts());
-    defer server.close();
+    defer server.close() catch {};
 
     var addr_buf: [128]u8 = undefined;
     const designator = server.localDesignator(&addr_buf) catch {

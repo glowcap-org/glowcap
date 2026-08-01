@@ -1,22 +1,30 @@
 ---
 id: ADR-0066
-status: superseded
+status: accepted
 date: 2026-06-19
 tags: [driver, handoff, three-party, node, c-abi, bindings]
 decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted (ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as pancake_node_* in the sans-io `libpancake_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `pancake_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine`) the duplicated protocol tables sink into the node: leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`-to-command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
 supersedes: []
-superseded_by: [ADR-0079]
+superseded_by: []
+amends: []
+amended_by: [ADR-0079, ADR-0100]
 ---
 
 # ADR-0066 The cross-connection handoff router is a sans-io node
 
-> **C-projection supersession.** The Zig `engine.Node` router and its semantics
+> ADR-0100 removes the shared `GiftRegistry` from Node. Node keeps the live
+> session directory and authority-neutral dependencies keyed by
+> `(Gifter–Exporter PeerId, fixed-size gift tag)` to only the receiver Peers
+> parked on that exact gift; each Peer owns its session's gifts, scalar replay
+> counters, and exact-keyed pending groups.
+
+> **C-projection amendment.** The Zig `engine.Node` router and its semantics
 > remain accepted. The former pancake_node_* C projection in libpancake_ocapn
 > was deleted: CapTP multi-connection product work uses `pancake_host_*` only.
 > Historical Consequences text below that names that C family describes the
 > shape at acceptance time, not the current public C surface.
 >
-> **Vocabulary supersession (ADR-0079).** Living guidance no longer equates
+> **Vocabulary amendment (ADR-0079).** Living guidance no longer equates
 > binding `Node` with `engine.Node`. The multi-conn product is `Host` /
 > `PancakeHost` / binding `Host`; `engine.Node` is the router Host owns. Binding
 > CapTP partner is `Session`. Read historical “binding Node” / `driver.Node`
@@ -102,7 +110,8 @@ The router was projected through the C ABI as pancake_node_* in
 that C waist is deleted: see banner). The
 router is removed from each binding `Machine`: the redeemed-token table, the
 foreign-home table, the `next_token` counter, the retained-identity authority,
-and the shared gift registry sink into the node. What survives binding-side is a
+and the then-shared gift registry sink into the node. ADR-0100 later moves that
+registry into each Peer. What survives binding-side is a
 thin `Machine` over a node handle: host-idiom residue the sans-io core cannot
 hold: the dialed-exporter cache (I/O lifetime), the `conn_id`-to-command-channel map
 (how the host reaches the task that pumps a connection), the giftable factories
@@ -259,6 +268,7 @@ current public binding surface.
 
 ## Notes
 
-Builds on [ADR-0056](ADR-0056-vat-scoped-gift-registry.md) (the shared gift
-registry the node holds) and [ADR-0053](ADR-0053-blocking-pump-single-fiber.md)
-(the per-connection blocking pump the node multiplexes over).
+Builds on [ADR-0100](ADR-0100-session-owned-handoff-authority.md) (the
+session-owned gift authority the node's live-session directory resolves) and
+[ADR-0053](ADR-0053-blocking-pump-single-fiber.md) (the per-connection blocking
+pump the node multiplexes over).

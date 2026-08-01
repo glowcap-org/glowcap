@@ -3,8 +3,11 @@
 //! A CapTP transport is a stream of self-delimiting codec frames. The connection
 //! reads bytes into a buffer and hands the buffered prefix to the engine, and the
 //! active codec's own decoder finds the frame boundary as it decodes
-//! (`engine.Peer.recvStreamPrefix`). One parse does both jobs; there's no
-//! separate boundary scanner. A decoded frame is applied right away, the bytes it
+//! (`engine.Peer.recvStreamPrefix`). One parse does both jobs, and the decoder
+//! stays the only authority on where a frame ends. Ahead of it sits a cheap
+//! resumable scan that answers only "could a whole frame be there yet", so a
+//! frame arriving over many reads is walked once instead of once per read; it
+//! decides nothing the decoder then re-decides. A decoded frame is applied right away, the bytes it
 //! used are dropped, and the peer's outbound frames are streamed back. The read
 //! buffer sizes the steady state, not the largest admissible frame: a frame that
 //! outgrows it assembles in a bounded owned spill and is freed when it drains
@@ -135,6 +138,10 @@ pub const Connection = struct {
     /// Bounded overflow for an admissible frame larger than the read buffer
     /// (see `frame_stream.Spill`); inactive and allocation-free while frames
     /// fit the buffer. Allocates from the peer's allocator.
+    ///
+    /// The scan that walks this spill's frame is not here: it rides on the peer
+    /// (`engine.Peer.stream_scan`), which documents why. One connection pumps
+    /// one peer, so the two still name one stream.
     spill: frame_stream.Spill = .{},
 
     /// Weld `peer` to a transport's already-built reader/writer interfaces and a
@@ -202,6 +209,15 @@ pub const Connection = struct {
         return ready != 0;
     }
 
+    /// Whether a raw read on this connection's reader would make progress
+    /// right now: bytes already buffered on the reader. The byte-fed owning
+    /// host checks this before polling, because buffered bytes are progress
+    /// the OS poll cannot report. Distinct from `hasBufferedInbound`, which
+    /// also consults the parse spill this face never activates.
+    pub fn hasBufferedRaw(self: *const Connection) bool {
+        return self.r.bufferedLen() > 0;
+    }
+
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking
     /// convenience; the primitive it builds on is `pump`. Returns the last
     /// `Progress` (`.closed` if the stream ended first).
@@ -237,6 +253,42 @@ pub const Connection = struct {
     }
 };
 
+/// The index of a connection in `conns` with readable progress: reader-buffered
+/// bytes now, or the first fd the OS poll reports readable (or hung up, which a
+/// read will surface as closure) within `timeout_ms`. Null only on a poll
+/// timeout. The multi-connection wait a byte-fed owning host blocks through;
+/// `waitReadable` above is its one-connection sibling.
+///
+/// It reports the *first* ready index, so a caller multiplexing connections
+/// that must not starve each other rotates the slice it passes between waits:
+/// a partner that keeps its socket readable holds a fixed low index forever.
+///
+/// Every connection must have a pollable fd — the caller refused fd-less
+/// transports at open, because a blocking multiplex cannot wait on a stream
+/// that reports no readiness — and `pollfds` is caller-owned scratch at least
+/// `conns.len` long, so the wait itself allocates nothing. A negative
+/// `timeout_ms` waits forever (the OS poll convention); the caller's budget
+/// arithmetic keeps an expired deadline from reaching here.
+pub fn waitAnyReadable(
+    conns: []const *Connection,
+    pollfds: []std.posix.pollfd,
+    timeout_ms: i32,
+) error{ConnectionLost}!?usize {
+    std.debug.assert(pollfds.len >= conns.len);
+    for (conns, 0..) |conn, i| {
+        if (conn.hasBufferedRaw()) return i;
+        const handle = conn.socketHandle() orelse unreachable;
+        pollfds[i] = .{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 };
+    }
+    if (conns.len == 0) return null;
+    const ready = std.posix.poll(pollfds[0..conns.len], timeout_ms) catch return error.ConnectionLost;
+    if (ready == 0) return null;
+    for (pollfds[0..conns.len], 0..) |fd, i| {
+        if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
+    }
+    return null;
+}
+
 /// The framing core, decoupled from sockets: drive one step of progress over a
 /// type-erased `*std.Io.Reader` / `*std.Io.Writer`, with `spill` as the bounded
 /// overflow for a frame larger than the read buffer. Proven with `Reader.fixed`
@@ -271,7 +323,7 @@ pub fn pumpOver(
 
     const supply = if (spill.isActive()) spill.bytes() else r.buffered();
     if (supply.len > 0) {
-        const outcome = peer.applyStreamPrefix(supply) catch |err| {
+        const outcome = peer.recvStreamPrefix(supply) catch |err| {
             // The core projected an op:abort into outbound; flush it best-effort
             // so the partner sees the fail-loud close, then surface the cause.
             peer.stepToIdle() catch {};
@@ -280,7 +332,7 @@ pub fn pumpOver(
         };
         switch (outcome) {
             .consumed => |n| {
-                if (spill.isActive()) spill.consume(peer.allocator, n) else r.toss(n);
+                if (spill.isActive()) spill.consume(peer.allocator, n, frame_stream.spill_retain_bytes) else r.toss(n);
                 return .{ .received = n };
             },
             .incomplete => {},
@@ -315,7 +367,7 @@ fn drainOutbound(peer: *engine.Peer, w: *std.Io.Writer) std.Io.Writer.Error!usiz
 /// Map a recv-apply / encode error onto the pump's surface. Decode verdicts
 /// carry their own names; any other session authority rejection has already
 /// projected an abort, so it surfaces as `ProtocolAbort`.
-fn classifyApplyError(err: anyerror) PumpError {
+pub fn classifyApplyError(err: anyerror) PumpError {
     return switch (err) {
         error.MalformedFrame, error.InvalidFrameShape, error.MalformedView => error.MalformedFrame,
         error.FrameTooLarge => error.FrameTooLarge,

@@ -446,3 +446,56 @@ test "distinct values in a hashed arm do not collapse onto one hash" {
             model.equality.argumentHash(.{ .reference = .{ .far = .{ .import_position = .from(2) } } }),
     );
 }
+
+test "a borrowed handoff compares signatures in whichever shape its codec carried" {
+    // Syrup decodes a signature into `halves`, Cap'n Proto into `raw`, so a
+    // comparison that reads one arm unconditionally panics on the other. The
+    // inbound set-uniqueness fold reaches this with borrowed elements a partner
+    // chose: the handoff hash folds only `gift_id` and `recipient_key`, so two
+    // gives differing anywhere else collide, sort adjacent, and get confirmed
+    // field by field.
+    const locator: model.view.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9",
+        .hints = .{ .empty = .map },
+    };
+    const halves: model.view.Signature = .{ .halves = .{ .r = "r-half", .s = "s-half" } };
+    const other_halves: model.view.Signature = .{ .halves = .{ .r = "r-half", .s = "OTHER!" } };
+
+    var give_a: model.view.HandoffGive = .{
+        .recipient_key = "recipient",
+        .exporter = locator,
+        .gifter_exporter_session = "session",
+        .gifter_side = "side",
+        .gift_id = "gift",
+        .signature = halves,
+    };
+    var give_b = give_a;
+
+    var budget: model.equality.CompareBudget = .{ .remaining = 1024 };
+    const ctx: model.equality.CompareCtx = .{ .scratch = std.testing.allocator, .budget = &budget };
+
+    // Equal in every field, including both signature halves.
+    try std.testing.expect(try model.equality.viewArgumentsEqualBounded(
+        .{ .handoff = .{ .give = give_a } },
+        .{ .handoff = .{ .give = give_b } },
+        ctx,
+    ));
+
+    // One half differing is the whole difference, so these are not Equal.
+    give_b.signature = other_halves;
+    try std.testing.expect(!try model.equality.viewArgumentsEqualBounded(
+        .{ .handoff = .{ .give = give_a } },
+        .{ .handoff = .{ .give = give_b } },
+        ctx,
+    ));
+
+    // A raw signature never equals a split one it does not spell, and the
+    // comparison answers rather than reading the arm that is not there.
+    give_a.signature = .{ .raw = "r-halfs-half" };
+    try std.testing.expect(!try model.equality.viewArgumentsEqualBounded(
+        .{ .handoff = .{ .give = give_a } },
+        .{ .handoff = .{ .give = give_b } },
+        ctx,
+    ));
+}

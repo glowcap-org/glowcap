@@ -17,8 +17,23 @@
 
 const msg = "webrtc sidecar stub: build-time only (header generation); link libpancake_webrtc_sidecar.a to run";
 
-export fn pancake_webrtc_sidecar_peer_new(is_offerer: i32) ?*anyopaque {
-    _ = is_offerer;
+export fn pancake_webrtc_sidecar_endpoint_new() ?*anyopaque {
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const anyopaque) i32 {
+    _ = endpoint;
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const anyopaque, out: *anyopaque, out_cap: usize) isize {
+    _ = .{ endpoint, out, out_cap };
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_endpoint_free(endpoint: *anyopaque) void {
+    _ = endpoint;
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_peer_new(endpoint: *anyopaque, is_offerer: i32) ?*anyopaque {
+    _ = .{ endpoint, is_offerer };
     @panic(msg);
 }
 export fn pancake_webrtc_sidecar_peer_create_offer(peer: *anyopaque, out: [*]u8, cap: usize, out_len: *usize) i32 {
@@ -41,8 +56,12 @@ export fn pancake_webrtc_sidecar_peer_next_local_candidate(peer: *anyopaque, out
     _ = .{ peer, out, cap, out_len };
     @panic(msg);
 }
-export fn pancake_webrtc_sidecar_peer_wait_open(peer: *anyopaque, timeout_ms: u64) i32 {
-    _ = .{ peer, timeout_ms };
+export fn pancake_webrtc_sidecar_peer_id(peer: *const anyopaque) usize {
+    _ = peer;
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_peer_is_open(peer: *const anyopaque) i32 {
+    _ = peer;
     @panic(msg);
 }
 export fn pancake_webrtc_sidecar_conn_read(peer: *anyopaque, buf: [*]u8, len: usize) isize {
@@ -50,6 +69,14 @@ export fn pancake_webrtc_sidecar_conn_read(peer: *anyopaque, buf: [*]u8, len: us
     @panic(msg);
 }
 export fn pancake_webrtc_sidecar_conn_write(peer: *anyopaque, buf: [*]const u8, len: usize) isize {
+    _ = .{ peer, buf, len };
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_conn_try_read(peer: *anyopaque, buf: [*]u8, len: usize) isize {
+    _ = .{ peer, buf, len };
+    @panic(msg);
+}
+export fn pancake_webrtc_sidecar_conn_try_write(peer: *anyopaque, buf: [*]const u8, len: usize) isize {
     _ = .{ peer, buf, len };
     @panic(msg);
 }

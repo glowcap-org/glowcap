@@ -104,8 +104,9 @@ const CConn = opaque {};
 extern fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32, connect_timeout_ms: u64) ?*CEndpoint;
 extern fn pancake_iroh_sidecar_endpoint_node_id(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_endpoint_direct_addrs(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
-extern fn pancake_iroh_sidecar_connect(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize, out_code: *i32) ?*CConn;
+extern fn pancake_iroh_sidecar_connect_blocking(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize, out_code: *i32) ?*CConn;
 extern fn pancake_iroh_sidecar_accept(ep: *CEndpoint) ?*CConn;
+extern fn pancake_iroh_sidecar_accept_timeout(ep: *CEndpoint, timeout_ms: i32) ?*CConn;
 extern fn pancake_iroh_sidecar_conn_read(conn: *CConn, buf: [*]u8, len: usize) isize;
 extern fn pancake_iroh_sidecar_conn_write(conn: *CConn, buf: [*]const u8, len: usize) isize;
 extern fn pancake_iroh_sidecar_conn_flush(conn: *CConn) i32;
@@ -119,9 +120,13 @@ extern fn pancake_iroh_sidecar_endpoint_free(ep: *CEndpoint) void;
 // them to `completion.Loop`.
 extern fn pancake_iroh_sidecar_endpoint_readiness_fd(ep: *const CEndpoint) i32;
 extern fn pancake_iroh_sidecar_endpoint_drain_ready(ep: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
+extern fn pancake_iroh_sidecar_endpoint_start_connect(ep: *CEndpoint, request_id: usize, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize) i32;
+extern fn pancake_iroh_sidecar_endpoint_finish_connect(ep: *CEndpoint, request_id: usize, out_conn: *?*CConn) i32;
+extern fn pancake_iroh_sidecar_endpoint_cancel_connect(ep: *CEndpoint, request_id: usize) i32;
 extern fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *CEndpoint) i32;
 extern fn pancake_iroh_sidecar_endpoint_try_accept(ep: *CEndpoint) ?*CConn;
 extern fn pancake_iroh_sidecar_conn_set_nonblocking(ep: *CEndpoint, conn: *CConn) i32;
+extern fn pancake_iroh_sidecar_conn_id(conn: *const CConn) usize;
 extern fn pancake_iroh_sidecar_conn_try_read(conn: *CConn, buf: [*]u8, len: usize) isize;
 extern fn pancake_iroh_sidecar_conn_try_write(conn: *CConn, buf: [*]const u8, len: usize) isize;
 
@@ -136,6 +141,7 @@ const ev_readable: u32 = 1;
 const ev_writable: u32 = 2;
 const ev_closed: u32 = 4;
 const ev_accept: u32 = 8;
+const ev_connect: u32 = 16;
 
 /// One drained readiness record: the connection that became ready (its `*CConn`
 /// as an integer, or 0 for an `ev_accept` record) and the `ev_*` bitset. This is
@@ -143,7 +149,7 @@ const ev_accept: u32 = 8;
 /// the header's `pancake_iroh_sidecar_ready_event`; the three layouts are kept
 /// in lockstep.
 pub const ReadyEvent = extern struct {
-    conn: usize,
+    subject: usize,
     events: u32,
 };
 
@@ -266,7 +272,7 @@ pub const Resident = struct {
         // the network. A discovery endpoint resolves the partner by id.
         if (direct_addrs.len == 0 and !self.reachability.resolvesById()) return error.InvalidAddress;
         var code: i32 = 0;
-        if (pancake_iroh_sidecar_connect(
+        if (pancake_iroh_sidecar_connect_blocking(
             self.endpoint,
             designator.ptr,
             designator.len,
@@ -325,15 +331,16 @@ pub const Resident = struct {
         return pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) == 0;
     }
 
-    /// The endpoint's single OS-level readiness fd, registered once with the
-    /// host's poller. Readable whenever the ready-queue has fresh records.
+    /// The endpoint's single read-only OS-level readiness fd, registered once
+    /// with the host's poller. Readable whenever the ready queue has records.
     pub fn readinessFd(self: *Resident) i32 {
         return pancake_iroh_sidecar_endpoint_readiness_fd(self.endpoint);
     }
 
-    /// Drain pending readiness records into `out`, returning the count (0 when
-    /// the queue is empty, negative on a sidecar fault). Each record's `conn`
-    /// is a `*CConn` as an integer, or 0 for an accept record.
+    /// Clear the fd's coalesced wake bytes, then drain pending readiness records
+    /// into `out`, returning the count (0 when empty, negative on fault). Owning
+    /// that order here makes a lost-wakeup ordering error unavailable to callers.
+    /// Each record's `conn` is a `*CConn` as an integer, or 0 for an accept.
     pub fn drainReady(self: *Resident, out: []ReadyEvent) isize {
         return pancake_iroh_sidecar_endpoint_drain_ready(self.endpoint, out.ptr, out.len);
     }
@@ -370,6 +377,56 @@ pub const Resident = struct {
             return error.ConnectionLost;
         }
         return conn;
+    }
+
+    /// Admit one evented dial under a caller-owned request id. Accepted starts
+    /// produce exactly one `ev_connect`; rejected starts produce none.
+    pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!void {
+        if (request_id == 0) return error.InvalidAddress;
+        if (direct_addrs.len == 0 and !self.reachability.resolvesById()) return error.InvalidAddress;
+        return switch (pancake_iroh_sidecar_endpoint_start_connect(
+            self.endpoint,
+            request_id,
+            designator.ptr,
+            designator.len,
+            direct_addrs.ptr,
+            direct_addrs.len,
+        )) {
+            0 => {},
+            1 => error.InvalidAddress,
+            2 => error.TimedOut,
+            3 => error.NetworkUnreachable,
+            else => error.ConnectionLost,
+        };
+    }
+
+    /// Consume one terminal evented dial and move the connection onto the
+    /// readiness surface. The caller owns the returned handle.
+    pub fn loopFinishConnect(self: *Resident, request_id: usize) net.netlayer.DialError!*anyopaque {
+        var conn: ?*CConn = null;
+        return switch (pancake_iroh_sidecar_endpoint_finish_connect(self.endpoint, request_id, &conn)) {
+            0 => blk: {
+                const ready_conn = conn orelse return error.ConnectionLost;
+                if (pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, ready_conn) != 0) {
+                    pancake_iroh_sidecar_conn_free(ready_conn);
+                    return error.ConnectionLost;
+                }
+                break :blk ready_conn;
+            },
+            1 => error.InvalidAddress,
+            2 => error.TimedOut,
+            3 => error.NetworkUnreachable,
+            else => error.ConnectionLost,
+        };
+    }
+
+    pub fn loopCancelConnect(self: *Resident, request_id: usize) void {
+        _ = pancake_iroh_sidecar_endpoint_cancel_connect(self.endpoint, request_id);
+    }
+
+    pub fn loopConnId(self: *const Resident, conn: *const anyopaque) usize {
+        _ = self;
+        return pancake_iroh_sidecar_conn_id(@ptrCast(conn));
     }
 
     /// Non-blocking read of raw bytes from a loop connection into `buf`:
@@ -410,6 +467,7 @@ pub const loop_ev_readable: u32 = ev_readable;
 pub const loop_ev_writable: u32 = ev_writable;
 pub const loop_ev_closed: u32 = ev_closed;
 pub const loop_ev_accept: u32 = ev_accept;
+pub const loop_ev_connect: u32 = ev_connect;
 
 const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
@@ -418,7 +476,13 @@ const resident_vtable: Netlayer.VTable = .{
     .designator_scheme = .key,
     .dial = residentDial,
     .listen = residentListen,
+    .io = residentIo,
 };
+
+fn residentIo(ctx: *anyopaque) ?std.Io {
+    const self: *Resident = @ptrCast(@alignCast(ctx));
+    return self.io;
+}
 
 /// The canonical designator shape `Resident.nodeId` produces: exactly
 /// `node_id_len` lowercase hex digits. One spelling, owned by
@@ -479,7 +543,7 @@ pub const ConnectTarget = connect_target;
 
 /// OCapN locator mapped to an iroh `ConnectTarget` for `completion.Loop`.
 /// Canonical node-id shape is refused here so `dialLocator` / blocking dial
-/// fail before the network (or a connect worker) is touched.
+/// fail before the network or sidecar admission is touched.
 pub const DialResolver = struct {
     pub fn resolve(
         transport: []const u8,
@@ -518,15 +582,10 @@ const listener_vtable: Listener.VTable = .{
 fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     if (box.stashed != null) return true;
-    _ = pancake_iroh_sidecar_endpoint_set_nonblocking_accept(box.resident.endpoint);
-    const fd = pancake_iroh_sidecar_endpoint_readiness_fd(box.resident.endpoint);
-    if (fd < 0) return error.ConnectionLost;
-    var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
-    const ready = std.posix.poll(&fds, timeout_ms) catch return error.ConnectionLost;
-    if (ready == 0) return false;
-    // Claim without blocking; a readiness wake for a non-accept event leaves
-    // stashed null and the poll loop continues (stop latch can fire).
-    box.stashed = pancake_iroh_sidecar_endpoint_try_accept(box.resident.endpoint);
+    // The blocking listener owns no endpoint-readiness records. Waiting through
+    // the sidecar's direct accept path avoids consuming accept, dial, or stream
+    // events that belong to an evented backend sharing this resident.
+    box.stashed = pancake_iroh_sidecar_accept_timeout(box.resident.endpoint, timeout_ms);
     return box.stashed != null;
 }
 
@@ -567,9 +626,8 @@ fn listenerClose(ctx: *anyopaque) void {
 /// Construct with `initBound` over a `Resident`'s endpoint, then
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
 /// resolve OCapN locator parts through `DialResolver.resolve` into `ConnectTarget`,
-/// then `startDial` (worker-offloaded `Resident.loopConnectResolved`).
-/// Dial stays on a detached worker because `dialRawConn` blocks; wakeup +
-/// `harvestReadiness` keep accept/readiness from starving while workers finish.
+/// then `startDial`, which admits the request to the sidecar runtime and returns
+/// immediately. Dial completion shares the endpoint readiness fd.
 pub const Backend = struct {
     pub const Fd = i32;
     pub const ConnectTarget = connect_target;
@@ -577,10 +635,6 @@ pub const Backend = struct {
     /// Sentinel listen handle: not an OS fd; `openListener` returns it after
     /// arming non-blocking accept on the endpoint.
     pub const listen_fd: Fd = 0;
-
-    /// Slot fd while an outbound iroh dial is in flight — not a live synthetic
-    /// fd. `onConnect` replaces it with the allocFd result (or teardown ignores it).
-    pub const pending_dial_fd: Fd = -1;
 
     const Pending = struct {
         read_ud: ?u64 = null,
@@ -595,21 +649,11 @@ pub const Backend = struct {
         pending: Pending = .{},
     };
 
-    /// A finished worker dial, drained on the loop thread so `allocFd` stays
-    /// single-threaded over `conns` / `by_ptr`.
-    const ConnectDone = struct {
-        user_data: u64,
-        cconn: ?*CConn,
-    };
-
     allocator: std.mem.Allocator,
-    /// Borrowed; must outlive the backend. Dial workers call `loopConnectResolved` on it.
+    /// Borrowed; must outlive the backend.
     resident: *Resident,
     endpoint: *CEndpoint,
     readiness_fd: i32 = -1,
-    /// Wake the loop when a dial worker finishes (pipe — portable `std.posix`).
-    wakeup_r: i32 = -1,
-    wakeup_w: i32 = -1,
     /// Completions that need no further readiness (closes, immediate accepts
     /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
     ready: completion.ReadyQueue = .{},
@@ -619,19 +663,14 @@ pub const Backend = struct {
     accept_ud: ?u64 = null,
     /// Synthetic fd to sidecar connection. Fd 0 is the listen sentinel.
     conns: std.AutoHashMap(Fd, ConnEntry),
-    /// Sidecar `*CConn` identity to synthetic fd, for readiness records.
-    by_ptr: std.AutoHashMap(usize, Fd),
+    /// Sidecar stable connection identity to synthetic fd, for readiness records.
+    by_id: std.AutoHashMap(usize, Fd),
+    /// Reserved synthetic fd to connect completion user data. The fd is also the
+    /// sidecar request id, making cancellation and retirement addressable.
+    pending_dials: std.AutoHashMap(Fd, u64),
     next_fd: Fd = 1,
     scratch_pool: ScratchPool,
     poll_timeout_ms: i32 = 200,
-    /// Protects `connect_done` between dial workers and the loop thread.
-    /// Short critical sections only — spin, no Io (workers are OS threads).
-    /// Spin-lock for the short connect/accept critical sections reached from
-    /// backend callbacks. `net.sync.SpinLock` holds only across a map
-    /// insertion or sidecar-call — never across a wait.
-    connect_mutex: net.sync.SpinLock = .{},
-    connect_done: std.ArrayList(ConnectDone) = .empty,
-    connects_in_flight: std.atomic.Value(usize) = .init(0),
 
     /// Bind a backend to `resident`'s endpoint. The resident must outlive the
     /// loop and be driven by no other consumer for accept/connection I/O.
@@ -646,41 +685,28 @@ pub const Backend = struct {
         var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
         errdefer scratch_pool.deinit();
 
-        const wakeup = try openWakeup();
-        errdefer closeWakeup(wakeup.r, wakeup.w);
-
         return .{
             .allocator = allocator,
             .resident = resident,
             .endpoint = resident.endpoint,
-            .wakeup_r = wakeup.r,
-            .wakeup_w = wakeup.w,
             .conns = std.AutoHashMap(Fd, ConnEntry).init(allocator),
-            .by_ptr = std.AutoHashMap(usize, Fd).init(allocator),
+            .by_id = std.AutoHashMap(usize, Fd).init(allocator),
+            .pending_dials = std.AutoHashMap(Fd, u64).init(allocator),
             .scratch_pool = scratch_pool,
         };
     }
 
     pub fn deinit(self: *Backend) void {
-        while (self.connects_in_flight.load(.acquire) != 0) {
-            std.Thread.yield() catch {};
-        }
-        self.connect_mutex.lock();
-        for (self.connect_done.items) |done| {
-            if (done.cconn) |cconn| pancake_iroh_sidecar_conn_free(cconn);
-        }
-        self.connect_done.deinit(self.allocator);
-        self.connect_mutex.unlock();
-        closeWakeup(self.wakeup_r, self.wakeup_w);
-        self.wakeup_r = -1;
-        self.wakeup_w = -1;
+        var pending_it = self.pending_dials.keyIterator();
+        while (pending_it.next()) |fd| self.resident.loopCancelConnect(@intCast(fd.*));
+        self.pending_dials.deinit();
 
         var it = self.conns.iterator();
         while (it.next()) |entry| {
             pancake_iroh_sidecar_conn_free(entry.value_ptr.cconn);
         }
         self.conns.deinit();
-        self.by_ptr.deinit();
+        self.by_id.deinit();
         for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
         self.accept_stash.deinit(self.allocator);
         self.ready.deinit(self.allocator);
@@ -697,11 +723,14 @@ pub const Backend = struct {
         return listen_fd;
     }
 
-    /// Start an outbound iroh dial: spawn the connect worker and return the
-    /// pending-dial sentinel. The synthetic fd arrives on connect completion.
+    /// Start an outbound iroh dial and reserve its final synthetic fd. The same
+    /// value is the sidecar request id and remains valid through cancellation.
     pub fn startDial(self: *Backend, user_data: u64, target: connect_target) !Fd {
-        try self.submitConnect(user_data, target);
-        return pending_dial_fd;
+        const fd = try self.reserveFd();
+        try self.pending_dials.put(fd, user_data);
+        errdefer std.debug.assert(self.pending_dials.remove(fd));
+        try self.resident.loopStartConnectResolved(@intCast(fd), target.id, target.hints);
+        return fd;
     }
 
     pub fn boundPort(fd: Fd) !u16 {
@@ -710,9 +739,13 @@ pub const Backend = struct {
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
-        if (fd == listen_fd or fd == pending_dial_fd) return;
+        if (fd == listen_fd) return;
+        if (self.pending_dials.contains(fd)) {
+            self.resident.loopCancelConnect(@intCast(fd));
+            return;
+        }
         const entry = self.conns.fetchRemove(fd) orelse return;
-        std.debug.assert(self.by_ptr.remove(@intFromPtr(entry.value.cconn)));
+        std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.value.cconn)));
         pancake_iroh_sidecar_conn_free(entry.value.cconn);
     }
 
@@ -726,16 +759,27 @@ pub const Backend = struct {
         self.scratch_pool.release(@intCast(comp.recv_token));
     }
 
-    fn allocFd(self: *Backend, cconn: *CConn) !Fd {
+    fn reserveFd(self: *Backend) !Fd {
         const fd = self.next_fd;
         if (fd == std.math.maxInt(Fd)) return error.OutOfFds;
         self.next_fd += 1;
+        return fd;
+    }
+
+    fn bindFd(self: *Backend, fd: Fd, cconn: *CConn) !void {
         // Fresh connections are writable; seed the hint so the first hello
-        // send is not stranded if a writable edge fired before by_ptr
+        // send is not stranded if a writable edge fired before by_id
         // registration (edge-triggered readiness drops unknown conns).
         try self.conns.put(fd, .{ .cconn = cconn, .pending = .{ .writable_hint = true } });
         errdefer std.debug.assert(self.conns.remove(fd));
-        try self.by_ptr.put(@intFromPtr(cconn), fd);
+        const conn_id = self.resident.loopConnId(cconn);
+        if (conn_id == 0) return error.InvalidConnId;
+        try self.by_id.put(conn_id, fd);
+    }
+
+    fn allocFd(self: *Backend, cconn: *CConn) !Fd {
+        const fd = try self.reserveFd();
+        try self.bindFd(fd, cconn);
         return fd;
     }
 
@@ -771,77 +815,6 @@ pub const Backend = struct {
         self.accept_ud = user_data;
         self.stashAccepts();
         try self.takeAccept();
-    }
-
-    fn submitConnect(self: *Backend, user_data: u64, target: connect_target) !void {
-        const designator = target.id;
-        const hints = target.hints;
-        // Node-id shape was validated by `DialResolver.resolve` on the dialLocator path.
-        const designator_owned = try self.allocator.dupe(u8, designator);
-        errdefer self.allocator.free(designator_owned);
-        const hints_owned = try self.allocator.dupe(u8, hints);
-        errdefer self.allocator.free(hints_owned);
-
-        _ = self.connects_in_flight.fetchAdd(1, .acq_rel);
-        errdefer _ = self.connects_in_flight.fetchSub(1, .acq_rel);
-
-        const thread = try std.Thread.spawn(.{}, connectWorker, .{ self, user_data, designator_owned, hints_owned });
-        thread.detach();
-    }
-
-    fn connectWorker(self: *Backend, user_data: u64, designator: []u8, hints: []u8) void {
-        defer {
-            self.allocator.free(designator);
-            self.allocator.free(hints);
-            _ = self.connects_in_flight.fetchSub(1, .acq_rel);
-        }
-        const cconn: ?*CConn = blk: {
-            const opaque_conn = self.resident.loopConnectResolved(designator, hints) catch break :blk null;
-            break :blk @ptrCast(opaque_conn);
-        };
-
-        self.connect_mutex.lock();
-        const queued = blk: {
-            self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = cconn }) catch {
-                if (cconn) |c| pancake_iroh_sidecar_conn_free(c);
-                // Fallback failure marker so the dial fails observably. A second
-                // OOM here drops ConnectDone entirely (no further channel) —
-                // accepted residual under ADR-0081; the common single-OOM path
-                // already queues cconn=null and the dial fails closed.
-                self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = null }) catch break :blk false;
-                break :blk true;
-            };
-            break :blk true;
-        };
-        self.connect_mutex.unlock();
-        if (queued) self.wake();
-    }
-
-    fn wake(self: *Backend) void {
-        if (self.wakeup_w < 0) return;
-        const one: [1]u8 = .{1};
-        _ = posix.system.write(self.wakeup_w, &one, 1);
-    }
-
-    fn drainConnectDone(self: *Backend) !void {
-        self.connect_mutex.lock();
-        var batch = self.connect_done;
-        self.connect_done = .empty;
-        self.connect_mutex.unlock();
-        defer batch.deinit(self.allocator);
-
-        for (batch.items) |done| {
-            if (done.cconn) |cconn| {
-                const fd = self.allocFd(cconn) catch {
-                    pancake_iroh_sidecar_conn_free(cconn);
-                    try self.ready.append(self.allocator, .{ .user_data = done.user_data, .result = -1 });
-                    continue;
-                };
-                try self.ready.append(self.allocator, .{ .user_data = done.user_data, .result = fd });
-            } else {
-                try self.ready.append(self.allocator, .{ .user_data = done.user_data, .result = -1 });
-            }
-        }
     }
 
     fn entryPtr(self: *Backend, fd: Fd) !*ConnEntry {
@@ -932,11 +905,16 @@ pub const Backend = struct {
             self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
             return;
         }
+        if (self.pending_dials.contains(fd)) {
+            self.resident.loopCancelConnect(@intCast(fd));
+            self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
+            return;
+        }
         if (self.conns.getPtr(fd)) |entry| {
             if (entry.pending.read_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
             if (entry.pending.write_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
             entry.pending = .{};
-            std.debug.assert(self.by_ptr.remove(@intFromPtr(entry.cconn)));
+            std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.cconn)));
             pancake_iroh_sidecar_conn_free(entry.cconn);
             std.debug.assert(self.conns.remove(fd));
         }
@@ -949,7 +927,23 @@ pub const Backend = struct {
             try self.takeAccept();
             return;
         }
-        const fd = self.by_ptr.get(ev.conn) orelse return;
+        if (ev.events & ev_connect != 0) {
+            const fd: Fd = std.math.cast(Fd, ev.subject) orelse return;
+            const done = self.pending_dials.fetchRemove(fd) orelse return;
+            const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch {
+                try self.ready.append(self.allocator, .{ .user_data = done.value, .result = -1 });
+                return;
+            };
+            const cconn: *CConn = @ptrCast(opaque_conn);
+            self.bindFd(fd, cconn) catch {
+                pancake_iroh_sidecar_conn_free(cconn);
+                try self.ready.append(self.allocator, .{ .user_data = done.value, .result = -1 });
+                return;
+            };
+            try self.ready.append(self.allocator, .{ .user_data = done.value, .result = 0 });
+            return;
+        }
+        const fd = self.by_id.get(ev.subject) orelse return;
         const entry = self.conns.getPtr(fd) orelse return;
         if (ev.events & (ev_readable | ev_closed) != 0) {
             entry.pending.readable_hint = true;
@@ -966,43 +960,35 @@ pub const Backend = struct {
         return self.ready.drain(out);
     }
 
-    /// Non-blocking harvest of dial wakeups and sidecar readiness. Must run
+    /// Non-blocking harvest of sidecar readiness. Must run
     /// even when `ready` already has send/recv completions — otherwise an
     /// accept that arrived during a busy G-to-E exchange stays invisible until
     /// the queue drains, and a redeem dialer's CapTP hello is never answered.
     fn harvestReadiness(self: *Backend) !void {
-        try self.drainConnectDone();
         if (self.readiness_fd < 0) return;
 
-        var pfds = [_]posix.pollfd{
-            .{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 },
-            .{ .fd = self.wakeup_r, .events = posix.POLL.IN, .revents = 0 },
-        };
+        var pfds = [_]posix.pollfd{.{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 }};
         _ = posix.poll(&pfds, 0) catch 0;
 
-        if (pfds[1].revents & (posix.POLL.IN | posix.POLL.ERR | posix.POLL.HUP) != 0) {
-            var drain_buf: [64]u8 = undefined;
-            while (true) {
-                const drained = posix.read(self.wakeup_r, &drain_buf) catch break;
-                if (drained == 0) break;
-            }
-            try self.drainConnectDone();
-        }
-
         if (pfds[0].revents & (posix.POLL.IN | posix.POLL.ERR | posix.POLL.HUP) != 0) {
-            var readiness_buf: [256]u8 = undefined;
-            while (true) {
-                const drained = posix.read(self.readiness_fd, &readiness_buf) catch break;
-                if (drained == 0) break;
-            }
             var events_buf: [256]ReadyEvent = undefined;
+            // One readiness record can complete both a pending read and write.
+            // Reserve before consuming the wakeup or any sidecar record: once
+            // finish_connect transfers a terminal result, there is no second
+            // event from which to reconstruct a completion after allocation
+            // failure.
+            try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
             while (true) {
-                const n = pancake_iroh_sidecar_endpoint_drain_ready(self.endpoint, &events_buf, events_buf.len);
+                const n = self.resident.drainReady(&events_buf);
                 if (n < 0) return error.SidecarDrainFailed;
                 if (n == 0) break;
                 const count: usize = @intCast(n);
                 for (events_buf[0..count]) |ev| try self.dispatchReady(ev);
                 if (count < events_buf.len) break;
+                // A full drain means another batch may follow. The sidecar has
+                // re-nudged the fd for any backlog, so an allocation failure
+                // here leaves the unconsumed records observable on retry.
+                try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
             }
         }
     }
@@ -1015,10 +1001,7 @@ pub const Backend = struct {
         }
 
         if (self.readiness_fd < 0) return error.NotListening;
-        var pfds = [_]posix.pollfd{
-            .{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 },
-            .{ .fd = self.wakeup_r, .events = posix.POLL.IN, .revents = 0 },
-        };
+        var pfds = [_]posix.pollfd{.{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 }};
         const poll_ms: i32 = if (timeout_ms < 0) self.poll_timeout_ms else timeout_ms;
         _ = posix.poll(&pfds, poll_ms) catch 0;
 
@@ -1035,39 +1018,3 @@ pub const Backend = struct {
         return 0;
     }
 };
-
-/// Whether this platform can create a pipe with its flags already set.
-/// `posix.system.pipe2` is `void` where the call does not exist rather than
-/// absent,
-/// so the test is on the type, and it names no platform namespace
-/// (arch-check).
-const has_pipe2 = @TypeOf(posix.system.pipe2) != void;
-
-fn openWakeup() !struct { r: i32, w: i32 } {
-    var fds: [2]posix.fd_t = undefined;
-    if (comptime has_pipe2) {
-        // One syscall sets both flags, so no `fork` can inherit an fd this
-        // process has not finished configuring. Taking this arm also keeps the
-        // Linux build off libc, which several compile-only checks require.
-        switch (posix.errno(posix.system.pipe2(&fds, .{ .CLOEXEC = true, .NONBLOCK = true }))) {
-            .SUCCESS => {},
-            else => return error.WakeupFailed,
-        }
-        return .{ .r = fds[0], .w = fds[1] };
-    }
-    // Darwin: create the pipe, then apply both flags before publishing either
-    // fd. On any failure, close the pair.
-    if (std.c.pipe(&fds) < 0) return error.WakeupFailed;
-    errdefer closeWakeup(fds[0], fds[1]);
-    for (fds) |fd| {
-        if (!net.socket.setNonblocking(fd)) return error.WakeupFailed;
-        if (std.c.fcntl(fd, std.c.F.SETFD, @as(c_int, std.c.FD_CLOEXEC)) < 0)
-            return error.WakeupFailed;
-    }
-    return .{ .r = fds[0], .w = fds[1] };
-}
-
-fn closeWakeup(r: i32, w: i32) void {
-    if (r >= 0) _ = posix.system.close(r);
-    if (w >= 0 and w != r) _ = posix.system.close(w);
-}

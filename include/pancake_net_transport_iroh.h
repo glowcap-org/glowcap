@@ -15,7 +15,7 @@
    pancake_iroh_last_error rather than pancake_ocapn's pancake_last_error.
 
    This is NOT transports/iroh/include/pancake_iroh_sidecar.h, which is
-   the sidecar's internal byte-level seam (pancake_iroh_sidecar_connect,
+   the sidecar's internal byte-level seam (pancake_iroh_sidecar_connect_blocking,
    pancake_iroh_sidecar_conn_read, ...). This is the frame-level public
    surface (pancake_iroh_netlayer_*, pancake_iroh_conn_try_read, ...). */
 #ifndef PANCAKE_NET_TRANSPORT_IROH_H
@@ -38,7 +38,7 @@ extern "C" {
    pancake_iroh_netlayer_drain_ready, claim accepts with
    pancake_iroh_netlayer_try_accept, and move raw bytes with the
    non-blocking pancake_iroh_conn_try_read / _try_write. You frame those
-   bytes yourself, feeding a PancakePeer's stream input and writing its
+   bytes yourself, feeding a PancakeHost session and writing its
    outbound frames back — the same shape the TCP consumer uses. No call ever
    parks on a specific connection, so releasing one never races a read.
 
@@ -52,6 +52,15 @@ extern "C" {
    OCapN locator a peer signs (transport "iroh", the id as designator, the
    hints under "direct-addresses").
 
+   Those same calls are the raw byte channel a byte-transparent relay
+   needs for an iroh leg (ADR-0086). One leg composes
+   pancake_iroh_netlayer_new, its readiness_fd and drain_ready, the
+   _start_connect / _finish_connect lifecycle, _conn_try_read /
+   _conn_try_write, then _conn_release and
+   pancake_iroh_netlayer_release. There is no channel object over them,
+   because the wait a channel needs is your own reactor's, and only the
+   caller can hold it.
+
    Lifetime: release every connection before the netlayer that minted it.
    Threading: a connection is single-owner like a peer; serialize calls on
    one onto one thread. Run the netlayer's readiness wait (your poll on the
@@ -63,7 +72,7 @@ extern "C" {
    pancake_iroh_netlayer_release after every connection is released. */
 typedef struct PancakeIrohNetlayer PancakeIrohNetlayer;
 /* One QUIC connection carrying one OCapN session. Created by
-   pancake_iroh_netlayer_try_connect or claimed with
+   pancake_iroh_netlayer_finish_connect or claimed with
    pancake_iroh_netlayer_try_accept; released by
    pancake_iroh_conn_release. */
 typedef struct PancakeIrohConn PancakeIrohConn;
@@ -98,21 +107,20 @@ typedef struct PancakeIrohConn PancakeIrohConn;
    with pancake_iroh_netlayer_drain_ready, claim accepts with
    pancake_iroh_netlayer_try_accept, and drive each ready connection with
    the non-blocking pancake_iroh_conn_try_read / _try_write (raw bytes you
-   frame with a PancakePeer, as for TCP). No call parks on a specific
+   frame with a PancakeHost session, as for TCP). No call parks on a specific
    connection, so releasing one never races a read. The would-block code
    is the shared PANCAKE_ERR_WOULD_BLOCK from pancake_ocapn.h. */
 #define PANCAKE_IROH_EV_READABLE 1u
 #define PANCAKE_IROH_EV_WRITABLE 2u
 #define PANCAKE_IROH_EV_CLOSED 4u
 #define PANCAKE_IROH_EV_ACCEPT 8u
+#define PANCAKE_IROH_EV_CONNECT 16u
 
-/* One readiness record from pancake_iroh_netlayer_drain_ready: the
-   connection that became ready and the PANCAKE_IROH_EV_* bitset. conn is
-   NULL for an accept record (claim it with
-   pancake_iroh_netlayer_try_accept) and otherwise the PancakeIrohConn to
-   drive. */
+/* One readiness record from pancake_iroh_netlayer_drain_ready. subject
+   is zero for accept, the caller request id for EV_CONNECT, and otherwise
+   the stable identity returned by pancake_iroh_conn_id. */
 typedef struct PancakeIrohReadyEvent {
-  PancakeIrohConn *conn;
+  uintptr_t subject;
   uint32_t events;
 } PancakeIrohReadyEvent;
 
@@ -157,50 +165,59 @@ void pancake_iroh_netlayer_release(PancakeIrohNetlayer *netlayer);
    terminator is written. */
 int32_t pancake_iroh_netlayer_node_id(PancakeIrohNetlayer *netlayer, uint8_t *out, size_t cap, size_t *out_len);
 /* Write this endpoint's comma-separated direct socket addresses into out (the
-   hint string a partner passes to pancake_iroh_netlayer_try_connect) and the byte
-   count into out_len. A buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL; an
+   hint string a partner passes to pancake_iroh_netlayer_start_connect) and the
+   byte count into out_len. A buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL; an
    endpoint with no direct addresses writes zero bytes and returns PANCAKE_OK. No
    terminator is written. */
 int32_t pancake_iroh_netlayer_direct_addrs(PancakeIrohNetlayer *netlayer, uint8_t *out, size_t cap, size_t *out_len);
-/* Close the connection and free the handle; do not use conn afterward. The
-   connection also prunes itself from its netlayer's readiness routing so a later
-   record naming it routes to nothing. No call parks on the connection, so this
-   free cannot race a read. */
+/* Close the connection and free the handle; do not use conn afterward. A later
+   readiness record may still carry its stable id; the host drops it after removing
+   its own id-to-connection row. No call parks on the connection, so this free
+   cannot race a read. */
 void pancake_iroh_conn_release(PancakeIrohConn *conn);
-/* The netlayer's single OS readiness fd — the borrowed read end of the sidecar's
-   wakeup channel, readable whenever fresh readiness records are pending. Register
-   it once with your poller (poll/epoll/kqueue, or a runtime's reactor); when it
-   signals, call pancake_iroh_netlayer_drain_ready. The fd is owned by the netlayer
-   and valid until pancake_iroh_netlayer_release — do not close it; dup it if your
-   runtime needs its own copy. Negative only for a null handle. */
+/* Return this connection's stable readiness identity, unique for the netlayer's
+   lifetime and never derived from the handle allocation address. Returns 0 for a
+   NULL handle. */
+size_t pancake_iroh_conn_id(PancakeIrohConn *conn);
+/* The netlayer's single read-only OS readiness fd — the borrowed read end of the
+   sidecar's wakeup channel, readable whenever fresh readiness records are pending.
+   Register it once with your poller (poll/epoll/kqueue, or a runtime's reactor);
+   when it signals, call pancake_iroh_netlayer_drain_ready. The fd is owned by the
+   netlayer and valid until pancake_iroh_netlayer_release — do not close it; dup it
+   if your runtime needs its own copy. Negative only for a null handle. */
 int32_t pancake_iroh_netlayer_readiness_fd(PancakeIrohNetlayer *netlayer);
-/* Drain the pending readiness records into out_events (out_cap entries,
-   caller-owned) without blocking: PANCAKE_OK with the drained count (0 when none)
-   in out_count, or a PANCAKE_ERR_* on fault (out_count untouched). Call it when
-   readiness_fd signals, then again until it drains fewer than out_cap records
-   (more may be queued than one call drains), before re-parking on the fd. Records
-   for connections already released are skipped, so a host may release a connection
-   at any time without racing this call — the drain touches only the endpoint,
-   never a per-connection buffer. Run it on one thread per netlayer, serialized
-   against pancake_iroh_netlayer_release. */
+/* Clear the fd's coalesced wake bytes, then drain pending readiness records into
+   out_events (out_cap entries, caller-owned) without blocking: PANCAKE_OK with the
+   drained count (0 when none) in out_count, or a PANCAKE_ERR_* on fault (out_count
+   untouched). Call it when readiness_fd signals, then again until it drains fewer
+   than out_cap records (more may be queued than one call drains), before re-parking
+   on the fd. A record for a connection already released still carries only its
+   stable id, so the host can discard it without dereferencing freed storage. The
+   drain touches only the endpoint, never a per-connection buffer. Run it on one
+   thread per netlayer, serialized against pancake_iroh_netlayer_release. */
 int32_t pancake_iroh_netlayer_drain_ready(PancakeIrohNetlayer *netlayer, PancakeIrohReadyEvent *out_events, size_t out_cap, size_t *out_count);
 /* Claim one accepted connection (already non-blocking) into out_conn, returning
    PANCAKE_OK, or PANCAKE_ERR_WOULD_BLOCK when none is pending. Drive it after
    drain_ready reports an accept record. Release with pancake_iroh_conn_release. */
 int32_t pancake_iroh_netlayer_try_accept(PancakeIrohNetlayer *netlayer, PancakeIrohConn **out_conn);
-/* Dial a partner by endpoint id and return a connection driven by this netlayer's
-   readiness loop. node_id is the partner's canonical id; addr_hints is its
-   comma-separated direct-address list (empty cannot dial a DIRECT netlayer, which
-   runs no lookup service, but suffices for a discovery posture); both are borrowed.
-   The dial itself blocks the calling thread (run it off your event loop);
-   subsequent conn_try_read / conn_try_write are non-blocking. Release with
+/* Admit one outbound dial without blocking. request_id is nonzero and unique among
+   this netlayer's live requests. PANCAKE_OK promises exactly one EV_CONNECT record
+   carrying request_id; a synchronous error promises no event. The borrowed target
+   bytes are parsed before return. */
+int32_t pancake_iroh_netlayer_start_connect(PancakeIrohNetlayer *netlayer, size_t request_id, const uint8_t *node_id, size_t node_id_len, const uint8_t *addr_hints, size_t addr_hints_len);
+/* Consume one terminal dial after EV_CONNECT. PANCAKE_OK transfers the owned
+   connection to out_conn; a failure returns its PANCAKE_ERR_* classification. The
+   result can be consumed only once. Release a successful connection with
    pancake_iroh_conn_release. */
-int32_t pancake_iroh_netlayer_try_connect(PancakeIrohNetlayer *netlayer, const uint8_t *node_id, size_t node_id_len, const uint8_t *addr_hints, size_t addr_hints_len, PancakeIrohConn **out_conn);
+int32_t pancake_iroh_netlayer_finish_connect(PancakeIrohNetlayer *netlayer, size_t request_id, PancakeIrohConn **out_conn);
+/* Cancel one admitted dial. Its sole EV_CONNECT still arrives and must be finished,
+   which consumes the endpoint-owned terminal result. */
+int32_t pancake_iroh_netlayer_cancel_connect(PancakeIrohNetlayer *netlayer, size_t request_id);
 /* Non-blocking read of raw inbound bytes into buf: PANCAKE_OK with the byte count
    in out_read, PANCAKE_ERR_WOULD_BLOCK when nothing is buffered yet,
    PANCAKE_ERR_CLOSED on a clean end of stream, or PANCAKE_ERR_IO on a fault
-   (out_read untouched on any non-OK return). You frame these bytes yourself (feed
-   them to a PancakePeer's stream input), the same shape the TCP path uses. */
+   (out_read untouched on any non-OK return). Feed these bytes to a PancakeHost
+   session, the same shape the TCP path uses. */
 int32_t pancake_iroh_conn_try_read(PancakeIrohConn *conn, uint8_t *buf, size_t len, size_t *out_read);
 /* Non-blocking write of len raw bytes from buf: PANCAKE_OK with the count written
    (the whole slice, all-or-nothing) in out_written, PANCAKE_ERR_WOULD_BLOCK when

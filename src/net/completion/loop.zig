@@ -57,9 +57,9 @@
 //!   * `pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd;`
 //!     — start one outbound dial and return the connection handle for the Loop
 //!     slot. The Backend owns the whole start (mint a socket or a pending
-//!     sentinel, submit the connect, clean up on failure). Connect completions
-//!     for a userspace dial may return a synthetic fd as `result` (>0) rather
-//!     than TCP's 0-on-success.
+//!     synthetic handle, submit the connect, clean up on failure). Every backend
+//!     reports terminal connect success as result 0; the returned `Fd` already
+//!     belongs to the slot before that completion arrives.
 //!   * `pub fn boundPort(fd: Fd) !u16;` — the kernel-chosen port for `port = 0`.
 //!   * `pub fn closeFd(self: *Backend, fd: Fd) void;` — release a handle.
 //!     Instance method so a userspace backend can free transport state keyed by
@@ -620,7 +620,9 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             peer: engine.Peer = undefined,
             /// Bounded overflow for a frame that does not complete within one
             /// recv completion's borrowed pool buffer; inactive (and
-            /// allocation-free) while whole frames arrive per completion.
+            /// allocation-free) while whole frames arrive per completion. The
+            /// scan that walks its frame rides on the `peer` above
+            /// (`engine.Peer.stream_scan`), which documents why.
             spill: frame_stream.Spill = .{},
             /// The frozen half of the outbound queue. A submitted write borrows
             /// `front.items[front_off..]` until the backend reports it complete,
@@ -1194,19 +1196,11 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         }
 
         fn onConnect(self: *Self, slot: usize, res: i32) void {
-            const c = self.liveConn(slot) orelse {
-                // Iroh success returns the synthetic fd as `result`; if the
-                // slot was torn down before this completion, free that fd.
-                if (res > 0) self.backend.closeFd(res);
-                return;
-            };
+            const c = self.liveConn(slot) orelse return;
             if (res < 0) {
                 self.closeConn(slot, c);
                 return;
             }
-            // TCP connect succeeds with result 0 and `c.fd` already set.
-            // Iroh connect succeeds with result = synthetic fd (>= 1).
-            if (res > 0) c.fd = res;
             c.opened = true;
             self.finishConnected(slot, c);
         }

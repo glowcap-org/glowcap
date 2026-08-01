@@ -20,11 +20,74 @@ const HostAction = host_action.HostAction;
 /// `pending_flush` is the encode worklist (sessions that need
 /// `Served.driveFed`). `HostAction.flush` is a different queue by design:
 /// the embedder signal that outbound frames are ready to write.
-fn markDirty(self: *Host, peer_id: engine.PeerId) !void {
-    for (self.pending_flush.items) |queued| {
-        if (queued == peer_id) return;
+fn markDirty(self: *Host, peer_id: engine.PeerId) void {
+    const session = self.sessions.get(peer_id) orelse return;
+    if (session.flush_pending) return;
+    // `Host.mint` reserves one FIFO slot per live session. Intrusive
+    // membership keeps the queue at or below that count, so scheduling after
+    // protocol authority moves is infallible.
+    if (self.pending_flush.items.len == self.pending_flush.capacity) compactDirtyPrefix(self);
+    std.debug.assert(self.pending_flush.items.len < self.pending_flush.capacity);
+    self.pending_flush.appendAssumeCapacity(peer_id);
+    session.flush_pending = true;
+}
+
+/// Test seam for staging already-owned deferred encode work.
+pub fn testingMarkDirty(self: *Host, peer_id: engine.PeerId) void {
+    markDirty(self, peer_id);
+}
+
+fn compactDirtyPrefix(self: *Host) void {
+    std.debug.assert(self.pending_flush_head > 0);
+    const remaining = self.pending_flush.items.len - self.pending_flush_head;
+    std.mem.copyForwards(
+        engine.PeerId,
+        self.pending_flush.items[0..remaining],
+        self.pending_flush.items[self.pending_flush_head..],
+    );
+    self.pending_flush.shrinkRetainingCapacity(remaining);
+    self.pending_flush_head = 0;
+}
+
+fn takeDirty(self: *Host) ?engine.PeerId {
+    if (self.pending_flush_head >= self.pending_flush.items.len) {
+        self.pending_flush.clearRetainingCapacity();
+        self.pending_flush_head = 0;
+        return null;
     }
-    try self.pending_flush.append(self.allocator, peer_id);
+    const peer_id = self.pending_flush.items[self.pending_flush_head];
+    self.pending_flush_head += 1;
+    if (self.sessions.get(peer_id)) |session| session.flush_pending = false;
+
+    const remaining = self.pending_flush.items.len - self.pending_flush_head;
+    if (remaining == 0) {
+        self.pending_flush.clearRetainingCapacity();
+        self.pending_flush_head = 0;
+    } else if (self.pending_flush_head >= remaining and self.pending_flush_head >= 64) {
+        std.mem.copyForwards(
+            engine.PeerId,
+            self.pending_flush.items[0..remaining],
+            self.pending_flush.items[self.pending_flush_head..],
+        );
+        self.pending_flush.shrinkRetainingCapacity(remaining);
+        self.pending_flush_head = 0;
+    }
+    return peer_id;
+}
+
+/// Remove a dying shell's queued encode row before its intrusive membership
+/// bit disappears. Release is uncommon; the linear removal keeps steady-state
+/// insertion O(1) without a second index and preserves `queue.len <= sessions`.
+pub fn removeDirtySession(self: *Host, session: *HostSession) void {
+    if (!session.flush_pending) return;
+    var index = self.pending_flush_head;
+    while (index < self.pending_flush.items.len) : (index += 1) {
+        if (self.pending_flush.items[index] != session.peer_id) continue;
+        _ = self.pending_flush.orderedRemove(index);
+        session.flush_pending = false;
+        return;
+    }
+    unreachable;
 }
 
 /// The tail of every top-level verb: encode and pump until quiescent. A
@@ -54,27 +117,32 @@ pub fn finishVerb(self: *Host) !void {
 fn drainWork(self: *Host) !void {
     while (true) {
         var progressed = false;
-        while (self.pending_flush.items.len > 0) {
+        while (takeDirty(self)) |peer_id| {
             progressed = true;
-            const peer_id = self.pending_flush.orderedRemove(0);
             const session = self.sessions.get(peer_id) orelse continue;
             if (session.condemned) {
-                // A condemned session's vat is never driven again — its
-                // queued turns died with the verdict. Encode what is
+                // A condemned Port's ingress is never driven again; its queued
+                // turns died with the verdict. Encode what is
                 // already queued (the typed abort) so the embedder writes
                 // it before closing; best-effort, the session is ending.
-                session.served.peer.stepToIdle() catch {};
-                if (session.served.hasOutbound()) try queueUniqueSessionAction(self, .flush, peer_id);
+                session.served.port.peer.stepToIdle() catch {};
+                if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
                 continue;
             }
             // Backstop: any path that skipped the condemned branch above
             // and still reached a drive on a condemned session panics loud.
             std.debug.assert(!session.condemned);
-            session.served.driveFed() catch |err| switch (err) {
+            session.served.driveFed(&self.vat) catch |err| switch (err) {
                 error.LocalTurnLimitExceeded => {
                     try condemn(self, session, .resource_exhausted, "local turn budget exceeded");
-                    try queueUniqueSessionAction(self, .close, peer_id);
                     continue;
+                },
+                error.OutOfMemory => {
+                    // A handoff change may already have been consumed into
+                    // this intrusive row. Requeue before propagating so a
+                    // release-side catch cannot strand the accepted withdraw.
+                    markDirty(self, peer_id);
+                    return error.OutOfMemory;
                 },
                 else => {
                     // `Peer.step` projects aborts itself; failures from
@@ -82,69 +150,43 @@ fn drainWork(self: *Host) !void {
                     // refused as `UnexpectedMessage`) do not. Record and
                     // project here so `last_abort` and the partner see the
                     // same typed cause the feed path already promises.
-                    if (session.served.peer.lastAbort() == null) {
-                        session.served.peer.emitFailure(err);
+                    if (session.served.port.peer.lastAbort() == null) {
+                        session.served.port.peer.emitFailure(err);
                     }
                     return err;
                 },
             };
             // Tell the embedder only when a frame is actually queued: a
             // feed that encoded nothing must not cost a flush round-trip.
-            if (session.served.hasOutbound()) try queueUniqueSessionAction(self, .flush, peer_id);
-            try noteParkedWithdraws(self, session);
+            if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
         }
-        while (self.node.nextAction()) |action| {
+        while (self.node.hasAction()) {
+            // Reserve the largest Host-side consequence, then execute through
+            // the Node's peek/commit seam. A fulfilled settle may still need a
+            // fallible Vat clone; if it fails, the listener and Node action
+            // both remain parked for the next action drain.
+            try self.actions.reserve(self.allocator, self.vows.count() + 2 * self.sessions.count() + 1);
+            const action = self.node.peekAction().?;
             progressed = true;
             try execNodeAction(self, action);
+            self.node.consumePeekedAction();
         }
-        // A deposit landed on the shared gift registry since the last drive: a
-        // `withdraw-gift` parked on a *sibling* session (its gift lands on the
-        // gifter's session, the withdraw on the recipient's — ADR-0056) may now
-        // be satisfiable, so re-drive every session holding one. `Peer.step`
-        // settles the parked withdraw against the shared registry. Fires once
-        // per deposit generation, never a per-frame sweep, and only over the
-        // small set of handoff exporters actually holding a parked withdraw —
-        // the single-thread host's replacement for the thread-per-connection
-        // driver's continuous per-session step.
-        if (self.node.gifts.deposits != self.last_deposit_gen and
-            self.parked_withdraw_sessions.items.len > 0)
-        {
-            self.last_deposit_gen = self.node.gifts.deposits;
-            var i: usize = 0;
-            while (i < self.parked_withdraw_sessions.items.len) {
-                const peer_id = self.parked_withdraw_sessions.items[i];
-                const session = self.sessions.get(peer_id);
-                if (session == null or session.?.condemned) {
-                    // tolerant: a released or condemned session drops out of the
-                    // parked set; swapRemove hands back the entry we discard.
-                    _ = self.parked_withdraw_sessions.swapRemove(i);
-                    continue;
-                }
-                progressed = true;
-                try markDirty(self, peer_id);
-                i += 1;
+        if (self.node.nextHandoffChange()) |dependency| {
+            var waiters = self.node.handoffWaiters(dependency);
+            while (waiters.next()) |receiver| {
+                const session = self.sessions.get(receiver) orelse continue;
+                if (session.condemned) continue;
+                session.served.port.peer.noteHandoffChange(dependency);
+                markDirty(self, receiver);
             }
+            self.node.consumeHandoffChange(dependency);
+            // Reach receiver quiescence before accepting another exact wake.
+            // That makes one scalar wake on each Peer sufficient and gives an
+            // OOM retry ownership: the receiver keeps the key until it settles.
+            continue;
         }
         if (!progressed) return;
     }
-}
-
-/// Track whether `session` holds a parked `withdraw-gift` so the deposit-gen
-/// retry in `drainWork` re-drives exactly the sessions that need it. Called
-/// after every drive: a fresh park adds the session, a drive that settled the
-/// last parked withdraw drops it.
-fn noteParkedWithdraws(self: *Host, session: *HostSession) !void {
-    const parked = session.served.peer.hasPendingWithdraws();
-    const items = &self.parked_withdraw_sessions;
-    for (items.items, 0..) |peer_id, i| {
-        if (peer_id == session.peer_id) {
-            // tolerant: a session that settled its last parked withdraw leaves
-            // the set; swapRemove hands back the entry we discard.
-            if (!parked) _ = items.swapRemove(i);
-            return;
-        }
-    }
-    if (parked) try items.append(self.allocator, session.peer_id);
 }
 
 /// The non-blocking executor of node serve-step actions: settles and
@@ -168,27 +210,27 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
             }
             try queueHostAction(self, .{ .dial = .{ .ticket = d.pending } });
         },
-        .flush => |peer_id| try markDirty(self, peer_id),
+        .flush => |peer_id| markDirty(self, peer_id),
         .settle => |s| {
             const session = self.sessions.get(s.peer_id) orelse return;
-            try session.served.vat.settleFar(
+            try session.served.port.settleFar(
+                &self.vat,
                 model.AnswerPosition.from(s.answer),
                 .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(s.token) } } },
             );
         },
         .fail => |f| {
             const session = self.sessions.get(f.peer_id) orelse return;
-            try session.served.vat.settleFar(model.AnswerPosition.from(f.answer), .{ .broken = f.reason });
+            try session.served.port.settleFar(&self.vat, model.AnswerPosition.from(f.answer), .{ .broken = f.reason.bytes() });
         },
         .need_gift_id => |n| try queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
     }
 }
 
 pub fn queueHostAction(self: *Host, action: HostAction) !void {
-    // Keep one spare completion slot per live vow on top of this append,
-    // so a vow fire's `appendAssumeCapacity` can never fail (see
-    // `queueCompletion`).
-    try self.actions.reserve(self.allocator, self.vows.count() + 1);
+    // Preserve one completion slot per live vow and one flush plus one close
+    // notification per live session on top of this ordinary append.
+    try self.actions.reserve(self.allocator, self.vows.count() + 2 * self.sessions.count() + 1);
     self.actions.pushReserved(action);
 }
 
@@ -197,7 +239,7 @@ pub fn queueHostAction(self: *Host, action: HostAction) !void {
 /// embedder (best-effort — the session is closing either way) and the
 /// dispatch error passes through.
 pub fn failDispatch(self: *Host, peer_id: engine.PeerId, err: anyerror) anyerror {
-    queueUniqueSessionAction(self, .flush, peer_id) catch {};
+    queueUniqueSessionAction(self, .flush, peer_id);
     return err;
 }
 
@@ -207,22 +249,23 @@ pub const UniqueSessionActionTag = enum { flush, close };
 
 /// One concept for session-tagged embedder actions: at most one pending
 /// `.flush` / `.close` per `peer_id` in the unpopped FIFO.
-fn queueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, peer_id: engine.PeerId) !void {
-    for (self.actions.unpopped()) |queued| {
-        switch (tag) {
-            .flush => if (queued == .flush and queued.flush == peer_id) return,
-            .close => if (queued == .close and queued.close == peer_id) return,
-        }
-    }
-    try queueHostAction(self, switch (tag) {
+fn queueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, peer_id: engine.PeerId) void {
+    const session = self.sessions.get(peer_id) orelse return;
+    const pending = switch (tag) {
+        .flush => &session.flush_action_pending,
+        .close => &session.close_action_pending,
+    };
+    if (pending.*) return;
+    self.actions.pushReserved(switch (tag) {
         .flush => .{ .flush = peer_id },
         .close => .{ .close = peer_id },
     });
+    pending.* = true;
 }
 
 /// Test seam for the private FIFO dedupe (flush/close). Not a production API.
 pub fn testingQueueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, peer_id: engine.PeerId) !void {
-    try queueUniqueSessionAction(self, tag, peer_id);
+    queueUniqueSessionAction(self, tag, peer_id);
 }
 
 /// Whole-frame inbound spine: latch, body, fail projection, finishDispatch.
@@ -230,7 +273,11 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
     try enterCallback(self, session);
     {
         defer leaveCallback(self);
-        body.call() catch |err| return failDispatch(self, session.peer_id, err);
+        body.call() catch |err| {
+            if (!session.sessionOpen()) self.unindexSession(session);
+            return failDispatch(self, session.peer_id, err);
+        };
+        if (!session.sessionOpen()) self.unindexSession(session);
     }
     try finishDispatch(self, session);
 }
@@ -241,7 +288,7 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
 /// `dispatchUnderLatch`.
 fn enterCallback(self: *Host, session: *HostSession) !void {
     try self.refuseReentry();
-    try Host.checkLive(session);
+    try self.checkSession(session);
     self.in_callback = true;
 }
 
@@ -251,7 +298,7 @@ fn leaveCallback(self: *Host) void {
 
 /// Outbound verb tail: note encode work, then pump to quiescence.
 pub fn dirtyThenPump(self: *Host, peer_id: engine.PeerId) !void {
-    try markDirty(self, peer_id);
+    markDirty(self, peer_id);
     try finishVerb(self);
 }
 
@@ -270,6 +317,30 @@ pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, messag
     // Drop uniqueness-index rows immediately so a condemned session cannot
     // squat dial / partner-key slots while its abort drains (ADR-0012).
     self.unindexSession(session);
-    try session.served.peer.sendCopying(.{ .abort = .{ .kind = kind, .message = message } });
-    try markDirty(self, session.peer_id);
+    // Encode the terminal frame and close the Peer in one operation. If encode
+    // fails, close explicitly: authority retirement cannot depend on whether
+    // the partner receives the diagnostic.
+    var first_error: ?anyerror = null;
+    session.served.port.peer.commitAbortOutbound(.{
+        .kind = kind,
+        .message = message,
+    }, .close) catch |err| {
+        session.served.port.peer.closeSession();
+        first_error = err;
+    };
+    // Queued turns/listeners cannot survive until an embedder observes CLOSE.
+    self.cancelSessionIngress(session, message) catch |err| if (first_error == null) {
+        first_error = err;
+    };
+    markDirty(self, session.peer_id);
+    queueUniqueSessionAction(self, .close, session.peer_id);
+    if (first_error) |err| return err;
+}
+
+/// Fail closed when cleanup itself cannot preserve protocol ownership. The
+/// session is condemned before either best-effort enqueue, so it cannot accept
+/// more authority even when allocation pressure also prevents the abort or
+/// close notification from being queued.
+pub fn condemnAndClose(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) void {
+    condemn(self, session, kind, message) catch {};
 }

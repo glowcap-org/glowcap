@@ -68,6 +68,71 @@ pub const ImportPosition = enum(u64) {
     }
 };
 
+/// The base of the reserved band inside the import space (ADR-0069). At and
+/// above this, an id is one this node minted for a capability reached through
+/// a redeemed handoff; below it, the partner named it on the wire.
+///
+/// It lives here, beside the space it partitions, rather than with the first
+/// layer that needed it. Both `session` and `engine` hold ids from this band,
+/// and `session` cannot import `engine`, so neither of them can own the
+/// boundary the other reads.
+pub const REDEEMED_TOKEN_BASE: u64 = 1 << 60;
+
+/// An id this node minted above `REDEEMED_TOKEN_BASE` for a capability reached
+/// through a redeemed handoff (ADR-0069). It routes to the session that
+/// exported the capability, not to the one that named it.
+pub const RedeemedToken = enum(u64) {
+    _,
+
+    pub fn int(self: RedeemedToken) u64 {
+        return @intFromEnum(self);
+    }
+
+    /// The wire spelling, for the one place a token is lowered onto a session
+    /// that can name it. Named rather than `int()` so the sites that put a
+    /// token near the wire are greppable.
+    pub fn wirePosition(self: RedeemedToken) ImportPosition {
+        return ImportPosition.from(self.int());
+    }
+};
+
+/// What an id in the import space names: a position the partner chose, or a
+/// token this node minted.
+///
+/// The distinction decides where a message routes, so it is the type's job
+/// rather than each reader's. `classify` is the only way to hold one, which
+/// means a consumer cannot forget to ask; the switch is exhaustive, so the
+/// compiler asks at every site; and a band carved later becomes a compile
+/// error rather than a silent fallthrough (ADR-0091).
+pub const ImportName = union(enum) {
+    wire: ImportPosition,
+    token: RedeemedToken,
+
+    /// The single seam. An integer becomes a name here or nowhere.
+    pub fn classify(id: u64) ImportName {
+        return if (id >= REDEEMED_TOKEN_BASE)
+            .{ .token = @enumFromInt(id) }
+        else
+            .{ .wire = ImportPosition.from(id) };
+    }
+
+    /// Classify the import an arbitrary reference names, or null when it names
+    /// no import at all (a near, a promise, a sturdyref).
+    pub fn of(reference: anytype) ?ImportName {
+        return switch (reference) {
+            .far => |far| classify(far.import_position.int()),
+            else => null,
+        };
+    }
+
+    pub fn int(self: ImportName) u64 {
+        return switch (self) {
+            .wire => |w| w.int(),
+            .token => |t| t.int(),
+        };
+    }
+};
+
 /// A position in the answer space, the eventual result of a delivery, named by
 /// the `answer` field of `op:deliver`/`op:resolve` and by `desc:answer`.
 pub const AnswerPosition = enum(u64) {

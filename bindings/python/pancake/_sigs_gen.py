@@ -33,8 +33,8 @@ def ocapn_sigs(_Allocator, _ManagedFrame):
         "pancake_context_new_with_allocator": ([ctypes.POINTER(_Allocator), ctypes.POINTER(P)], i32),
         "pancake_context_release": ([P], None),
         "pancake_managed_frame_release": ([ctypes.POINTER(_ManagedFrame)], None),
-        "pancake_encode_peer_locator": ([P, size, P, size, P, size, ctypes.POINTER(P), size_p], i32),
-        "pancake_peer_locator_bytes_release": ([P, size], None),
+        "pancake_locator_record_encode": ([P, size, P, size, P, size, ctypes.POINTER(P), size_p], i32),
+        "pancake_locator_record_bytes_release": ([P, size], None),
         "pancake_uri_parse_peer": ([P, size, ctypes.POINTER(P)], i32),
         "pancake_uri_parse_sturdyref": ([P, size, ctypes.POINTER(P)], i32),
         "pancake_uri_format_peer": ([P, size, P, size, P, P, P, P, size, P, size, size_p], i32),
@@ -54,14 +54,14 @@ def driver_sigs(
     _Reference,
     _ManagedFrame,
     _LastAbort,
-    _HostAction,
     _DialPlan,
     _AcceptPlan,
     _PendingDial,
     _HostPumpHooks,
     _HostBehavior,
+    _PartnerIdentity,
 ):
-    """``libpancake_driver`` signatures, in the inventory's order."""
+    """``libpancake_host`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
     u32 = ctypes.c_uint32
@@ -86,13 +86,12 @@ def driver_sigs(
         "pancake_host_session_is_open": ([P], i32),
         "pancake_host_session_feed_bytes": ([P, P, size], i32),
         "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], i32),
-        "pancake_host_next_action": ([P, ctypes.POINTER(_HostAction)], i32),
         "pancake_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), u32_p], i32),
         "pancake_host_dialed": ([P, u64, P], i32),
         "pancake_host_dial_failed": ([P, u64, P, size], i32),
         "pancake_host_provide_gift_id": ([P, u64, P, size], i32),
-        "pancake_host_session_publish": ([P, P, size, _HostBehavior, P, P, u64_p], i32),
-        "pancake_host_session_spawn": ([P, _HostBehavior, P, P, u64_p], i32),
+        "pancake_host_session_publish": ([P, P, size, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
+        "pancake_host_session_spawn": ([P, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
         "pancake_host_publish": ([P, P, size, _HostBehavior, P, P], i32),
         "pancake_host_session_fetch": ([P, P, size, u64_p], i32),
         "pancake_host_session_enliven": ([P, P, size, u64_p], i32),
@@ -103,12 +102,15 @@ def driver_sigs(
         "pancake_host_vow_untag": ([P, u64, P, size, u64_p], i32),
         "pancake_host_vow_get": ([P, u64, P, size, u64_p], i32),
         "pancake_host_turn_forward": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size, ctypes.POINTER(_Argument)], i32),
-        "pancake_host_turn_spawn": ([P, _HostBehavior, P, P, u64_p], i32),
+        "pancake_host_turn_spawn": ([P, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
         "pancake_host_turn_break": ([P, P, size], i32),
-        "pancake_host_gc_release": ([P, u64, u64], i32),
+        "pancake_host_ref_release": ([P, ctypes.POINTER(_Reference), u64], i32),
+        "pancake_host_session_published_ref": ([P, P, size, ctypes.POINTER(_Reference)], i32),
         "pancake_host_session_break_far_vows": ([P, P, size], i32),
         "pancake_host_session_set_exporter_location": ([P, P, size], i32),
         "pancake_host_session_last_abort": ([P, ctypes.POINTER(_LastAbort)], i32),
+        "pancake_host_session_partner_identity": ([P, ctypes.POINTER(_PartnerIdentity)], i32),
+        "pancake_host_session_partner_designator_is_key": ([P, u32_p], i32),
         "pancake_host_last_error": ([P, size], size),
     }
 
@@ -170,34 +172,41 @@ def iroh_sigs(_IrohReadyEvent, _IrohConfig):
         "pancake_iroh_netlayer_node_id": ([P, P, size, size_p], i32),
         "pancake_iroh_netlayer_direct_addrs": ([P, P, size, size_p], i32),
         "pancake_iroh_conn_release": ([P], None),
+        "pancake_iroh_conn_id": ([P], size),
         "pancake_iroh_netlayer_readiness_fd": ([P], i32),
         "pancake_iroh_netlayer_drain_ready": ([P, ctypes.POINTER(_IrohReadyEvent), size, size_p], i32),
         "pancake_iroh_netlayer_try_accept": ([P, ctypes.POINTER(P)], i32),
-        "pancake_iroh_netlayer_try_connect": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
+        "pancake_iroh_netlayer_start_connect": ([P, size, P, size, P, size], i32),
+        "pancake_iroh_netlayer_finish_connect": ([P, size, ctypes.POINTER(P)], i32),
+        "pancake_iroh_netlayer_cancel_connect": ([P, size], i32),
         "pancake_iroh_conn_try_read": ([P, P, size, size_p], i32),
         "pancake_iroh_conn_try_write": ([P, P, size, size_p], i32),
     }
 
 
-def webrtc_sigs():
+def webrtc_sigs(_WebrtcReadyEvent):
     """``libpancake_net_transport_webrtc`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
-    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
     size_p = ctypes.POINTER(size)
     return {
         "pancake_webrtc_last_error": ([P, size], size),
-        "pancake_webrtc_peer_new": ([i32, ctypes.POINTER(P)], i32),
+        "pancake_webrtc_netlayer_new": ([ctypes.POINTER(P)], i32),
+        "pancake_webrtc_netlayer_readiness_fd": ([P], i32),
+        "pancake_webrtc_netlayer_drain_ready": ([P, ctypes.POINTER(_WebrtcReadyEvent), size, size_p], i32),
+        "pancake_webrtc_netlayer_release": ([P], None),
+        "pancake_webrtc_peer_new": ([P, i32, ctypes.POINTER(P)], i32),
         "pancake_webrtc_peer_create_offer": ([P, P, size, size_p], i32),
         "pancake_webrtc_peer_create_answer": ([P, P, size, size_p], i32),
         "pancake_webrtc_peer_set_remote_offer": ([P, P, size], i32),
         "pancake_webrtc_peer_set_remote_answer": ([P, P, size], i32),
         "pancake_webrtc_peer_add_remote_candidate": ([P, P, size], i32),
         "pancake_webrtc_peer_next_local_candidate": ([P, P, size, size_p], i32),
-        "pancake_webrtc_peer_wait_open": ([P, u64], i32),
-        "pancake_webrtc_peer_read": ([P, P, size, size_p], i32),
-        "pancake_webrtc_peer_write": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_id": ([P], size),
+        "pancake_webrtc_peer_is_open": ([P], i32),
+        "pancake_webrtc_peer_try_read": ([P, P, size, size_p], i32),
+        "pancake_webrtc_peer_try_write": ([P, P, size, size_p], i32),
         "pancake_webrtc_peer_close": ([P], None),
         "pancake_webrtc_peer_release": ([P], None),
     }

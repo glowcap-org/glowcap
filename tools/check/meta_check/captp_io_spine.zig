@@ -209,21 +209,6 @@ pub fn check(
             .needle = "host_three_party_test",
             .reason = "byte-fed three-party is `test/driver/core_host_test.zig`; loop-fed is `test/driver/bridge_test.zig`",
         },
-        // retire-by: the next rewrite of a ghost_docs page that carried these
-        // names — retire the two `loop_bridge*` rows and `blocking tier` in
-        // that same diff.
-        .{
-            .needle = "loop_bridge.zig",
-            .reason = "the Bridge file is `src/driver/bridge.zig`",
-        },
-        .{
-            .needle = "loop_bridge_test.zig",
-            .reason = "the Bridge test is `test/driver/bridge_test.zig`",
-        },
-        .{
-            .needle = "blocking tier",
-            .reason = "`BlockingHost` is deleted; crossed hellos lives in `driver_core.Host`, ridden by `BlockingSession` / `driver.Bridge`",
-        },
         .{
             .needle = "three real residents",
             .reason = "do not recite a fixed resident count in prose; the roster is `tcp`, `keyed-tcp`, `inproc`, `iroh`, and `webrtc`, pinned per doc by `checkResidentRoster`",
@@ -365,42 +350,42 @@ pub fn check(
         banned: []const []const u8,
     }{
         .{
-            .path = "apps/rooms/deno/lib/locator.ts",
+            .path = "apps/rooms/lib/locator.ts",
             .required = "designatorHostPort",
             .banned = &.{ "lastIndexOf(\":\")", "`127.0.0.1:${token}`", "`127.0.0.1:${port}`" },
         },
         .{
-            .path = "apps/rooms/dm_demo.ts",
+            .path = "apps/rooms/demos/dm_demo.ts",
             .required = "loopbackTcpDesignator",
             .banned = &.{"`127.0.0.1:${"},
         },
         .{
-            .path = "apps/rooms/deno/web.ts",
+            .path = "apps/rooms/web/serve.ts",
             .required = "loopbackTcpDesignator",
             .banned = &.{"`127.0.0.1:${"},
         },
         .{
-            .path = "apps/rooms/demo.ts",
+            .path = "apps/rooms/demos/demo.ts",
             .required = "loopbackTcpDesignator",
             .banned = &.{"`127.0.0.1:${"},
         },
         .{
-            .path = "apps/rooms/deno/server.ts",
+            .path = "apps/rooms/server/main.ts",
             .required = "designatorHostPort",
             .banned = &.{"lastIndexOf(\":\")"},
         },
         .{
-            .path = "apps/rooms/python/room_client.py",
+            .path = "apps/rooms/clients/python/room_client.py",
             .required = "designator_host_port",
             .banned = &.{"rfind(\":\")"},
         },
         .{
-            .path = "apps/rooms/rust/room.rs",
+            .path = "apps/rooms/clients/rust/room.rs",
             .required = "designator_host_port",
             .banned = &.{"rsplit_once(':')"},
         },
         .{
-            .path = "apps/rooms/racket/room-client.rkt",
+            .path = "apps/rooms/clients/racket/room-client.rkt",
             .required = "designator-host-port",
             .banned = &.{"(char=? (string-ref locator i) #\\:)"},
         },
@@ -500,7 +485,7 @@ pub fn check(
         .{ .path = "test/driver/core_host_test.zig", .banned = &.{".openDialed("} },
         .{ .path = "test/driver/core_host_budget_test.zig", .banned = &.{".openDialed("} },
         .{ .path = "test/driver/core_host_adopt_test.zig", .banned = &.{".openDialed("} },
-        .{ .path = "apps/rooms/zig/client.zig", .banned = &.{"fn dialTcp("} },
+        .{ .path = "apps/rooms/clients/zig/client.zig", .banned = &.{"fn dialTcp("} },
     };
     for (open_dialed_ban) |entry| {
         const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
@@ -570,11 +555,11 @@ pub fn check(
             },
         },
         .{
-            .path = "apps/rooms/dm_demo.ts",
+            .path = "apps/rooms/demos/dm_demo.ts",
             .banned = &.{"Connection.connect("},
         },
         .{
-            .path = "apps/rooms/deno/lib/locator.ts",
+            .path = "apps/rooms/lib/locator.ts",
             .banned = &.{"Connection.connect("},
         },
         .{
@@ -592,11 +577,11 @@ pub fn check(
             },
         },
         .{
-            .path = "bindings/racket/private/ffi-driver.rkt",
+            .path = "bindings/racket/private/ffi-host.rkt",
             .banned = &.{"(define-driver pancake_host_session_open_dialed\n"},
         },
         .{
-            .path = "src/c_abi/driver/mod.zig",
+            .path = "src/c_abi/host/mod.zig",
             .banned = &.{"pub export fn pancake_host_session_open_dialed("},
         },
     };
@@ -824,11 +809,11 @@ pub fn check(
                 }
             }
             // Only the C ABI source row: the generated header and binding
-            // mirrors are held in lockstep by `gen-header-driver-check`,
+            // mirrors are held in lockstep by `gen-header-host-check`,
             // `gen-ts-abi-check`, and `gen-binding-constants-check`, so
             // per-mirror rows here were redundant.
             const shape_peer = [_]struct { path: []const u8, required: []const u8, banned: []const u8 }{
-                .{ .path = "src/c_abi/driver/mod.zig", .required = "PANCAKE_DIAL_SHAPE_PEER_ID", .banned = "PANCAKE_DIAL_SHAPE_IROH" },
+                .{ .path = "src/c_abi/host/mod.zig", .required = "PANCAKE_DIAL_SHAPE_PEER_ID", .banned = "PANCAKE_DIAL_SHAPE_IROH" },
             };
             for (shape_peer) |entry| {
                 const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
@@ -1021,10 +1006,10 @@ pub fn check(
         // file's `IROH fills` prose needle in that same diff.
         {
             const peer_id_vocab = [_]struct { path: []const u8, banned: []const []const u8 }{
-                .{ .path = "src/c_abi/driver/host.zig", .banned = &.{"an iroh locator requires a reachability posture"} },
-                .{ .path = "bindings/python/pancake/_ffi_driver.py", .banned = &.{"IROH fills"} },
-                .{ .path = "bindings/racket/private/ffi-driver.rkt", .banned = &.{"IROH fills"} },
-                .{ .path = "bindings/rust/src/sys/driver.rs", .banned = &.{"IROH fills"} },
+                .{ .path = "src/c_abi/host/host.zig", .banned = &.{"an iroh locator requires a reachability posture"} },
+                .{ .path = "bindings/python/pancake/_ffi_host.py", .banned = &.{"IROH fills"} },
+                .{ .path = "bindings/racket/private/ffi-host.rkt", .banned = &.{"IROH fills"} },
+                .{ .path = "bindings/rust/src/sys/host.rs", .banned = &.{"IROH fills"} },
             };
             for (peer_id_vocab) |entry| {
                 const contents = root.readFileAlloc(io, entry.path, gpa, .limited(2 << 20)) catch |err| {
@@ -1088,32 +1073,32 @@ pub fn check(
             banned: []const []const u8,
         }{
             .{
-                .path = "apps/rooms/deno/lib/locator.ts",
+                .path = "apps/rooms/lib/locator.ts",
                 .required = "connect(locator,",
                 .banned = &.{ "connectIroh(", "import { connectIroh" },
             },
             .{
-                .path = "apps/rooms/python/room_client.py",
+                .path = "apps/rooms/clients/python/room_client.py",
                 .required = "await connect(locator, reach)",
                 .banned = &.{"connect_iroh("},
             },
             .{
-                .path = "apps/rooms/racket/room-client.rkt",
+                .path = "apps/rooms/clients/racket/room-client.rkt",
                 .required = "(connect locator reach)",
                 .banned = &.{"(connect-iroh "},
             },
             .{
-                .path = "apps/rooms/rust/room.rs",
+                .path = "apps/rooms/clients/rust/room.rs",
                 .required = "connect(locator, Some(reachability)",
                 .banned = &.{"connect_iroh("},
             },
             .{
-                .path = "apps/rooms/zig/client.zig",
+                .path = "apps/rooms/clients/zig/client.zig",
                 .required = "parsePeer",
                 .banned = &.{"init(io, null, .direct)"},
             },
             .{
-                .path = "apps/rooms/deno/server_test.ts",
+                .path = "apps/rooms/test/server_test.ts",
                 .required = "await dial(uri)",
                 .banned = &.{ "connect(uri, Reachability.Direct)", "Reachability.Direct)" },
             },
@@ -1181,9 +1166,9 @@ pub fn check(
             .{ .path = "interop/iroh_handoff/deno_client.ts", .banned = &.{ "connectIroh(", "_connectIroh(" } },
             .{ .path = "interop/iroh_handoff/python_client.py", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
             .{ .path = "interop/iroh_handoff/racket_client.rkt", .banned = &.{ "(connect-iroh ", "(connect-iroh/node " } },
-            .{ .path = "interop/iroh_redeem_posture/python_client.py", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
-            .{ .path = "interop/iroh_redeem_posture/racket_client.rkt", .banned = &.{ "(connect-iroh ", "(connect-iroh/node " } },
-            .{ .path = "interop/iroh_redeem_posture/deno_client.ts", .banned = &.{ "connectIroh(", "_connectIroh(" } },
+            .{ .path = "bindings/proofs/iroh_redeem_posture/python_client.py", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
+            .{ .path = "bindings/proofs/iroh_redeem_posture/racket_client.rkt", .banned = &.{ "(connect-iroh ", "(connect-iroh/node " } },
+            .{ .path = "bindings/proofs/iroh_redeem_posture/deno_client.ts", .banned = &.{ "connectIroh(", "_connectIroh(" } },
             .{ .path = "bindings/rust/examples/iroh_loop.rs", .banned = &.{"connect_iroh("} },
             .{ .path = "bindings/rust/examples/iroh_reachability.rs", .banned = &.{"connect_iroh("} },
             .{ .path = "bindings/rust/examples/iroh_handoff.rs", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },

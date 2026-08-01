@@ -188,12 +188,41 @@ pub fn spawnHostAwaitSwiss(
     ready_what: []const u8,
     argv_tail: []const []const u8,
 ) !SpawnedHost {
+    return spawnHostAwaitSwissStdio(io, allocator, environ_map, prefix, ready_what, argv_tail, .inherit);
+}
+
+/// The same bracket, with the child's stdin a pipe the caller writes to. A host
+/// that waits for a line before doing something — settling a promise it
+/// published unresolved — lets the driver choose the moment, so the scenario's
+/// ordering is the driver's to state rather than a sleep's to guess. The caller
+/// writes through `child.stdin.?` and owns the child exactly as above.
+pub fn spawnHostAwaitSwissWithStdin(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    environ_map: *std.process.Environ.Map,
+    prefix: []const u8,
+    ready_what: []const u8,
+    argv_tail: []const []const u8,
+) !SpawnedHost {
+    return spawnHostAwaitSwissStdio(io, allocator, environ_map, prefix, ready_what, argv_tail, .pipe);
+}
+
+fn spawnHostAwaitSwissStdio(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    environ_map: *std.process.Environ.Map,
+    prefix: []const u8,
+    ready_what: []const u8,
+    argv_tail: []const []const u8,
+    stdin: std.process.SpawnOptions.StdIo,
+) !SpawnedHost {
     var argv_buf: [8][]const u8 = undefined;
     argv_buf[0] = racket_path;
     for (argv_tail, 0..) |arg, i| argv_buf[i + 1] = arg;
     var child = try std.process.spawn(io, .{
         .argv = argv_buf[0 .. argv_tail.len + 1],
         .environ_map = environ_map,
+        .stdin = stdin,
         .stdout = .pipe,
         .stderr = .pipe,
     });

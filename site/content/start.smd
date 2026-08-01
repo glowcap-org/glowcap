@@ -7,19 +7,29 @@
 .draft = false,
 ---
 
-The quickest way to get a feel for pancake is to watch one program call another.
-So let us write the calling half, look at every line, and then point you at the
-[surface]($link.page('surfaces')) that matches your language. The C, Rust,
-TypeScript, Python, and Racket entry points sit just below the Zig walkthrough.
+Choose your entry point:
+
+- <a href="#in-zig">Zig</a>
+- <a href="#from-c-or-any-ffi-host">C or another FFI host</a>
+- [Rust]($link.page('bindings/rust'))
+- [TypeScript]($link.page('bindings/ts'))
+- [Python]($link.page('bindings/python'))
+- [Racket]($link.page('bindings/racket'))
+- [Browser WebAssembly]($link.page('bindings/browser'))
+
+pancake is not released yet. Pin a commit when you add it to a project; the
+public API can still change.
 
 ## In Zig
 
-pancake is a [Zig](https://ziglang.org/) package, so the first step is to fetch it
-into your build:
+pancake is a [Zig](https://ziglang.org/) package. Add a pinned checkout to
+your build:
 
 ```sh
-zig fetch --save git+https://codeberg.org/jimisaacs/pancake
+zig fetch --save git+https://github.com/jimisaacs/pancake#COMMIT_SHA
 ```
+
+Replace `COMMIT_SHA` with the revision you want to pin.
 
 ```zig
 const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimize });
@@ -35,9 +45,7 @@ round-trip:
 > const std = @import("std");
 > const pancake = @import("pancake");
 >
-> // tcp: the peer is a place. Its name, a cleartext `host:port`, is called the
-> // "designator", and `tcp.at` wraps that name as a dialable locator. The slice
-> // names the transports this client can reach.
+> // Plain TCP uses a cleartext `host:port` locator.
 > var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 > const partner = pancake.net.tcp.at(designator);
 >
@@ -46,10 +54,8 @@ round-trip:
 >     &.{tcp_resident.netlayer()},
 >     partner,
 >     .ephemeral,
->     // Both budgets default to 0, which means "wait forever". A silent or
->     // unreachable peer would park this program with no way out, so a
->     // client always passes finite ones.
->     .{ .handshake_timeout_ms = 10_000, .settle_timeout_ms = 10_000 },
+>     // Never leave a network wait unbounded.
+>     .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
 > );
 > defer session.deinit();
 >
@@ -63,9 +69,8 @@ round-trip:
 > switch (settled) {
 >     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
->     // The third outcome: an introduction to a capability on another peer.
->     // A Host presents it there and hands you the live result. This greeter never sends one.
->     .give => {},
+>     // `driver.Session` redeems handoffs before returning.
+>     .give => unreachable,
 > }
 > ```
 > **iroh**
@@ -76,8 +81,7 @@ round-trip:
 > // From C and the bindings this transport is `libpancake_net_transport_iroh`.
 > const iroh = @import("iroh");
 >
-> // iroh reachability: the peer is a key, not a place. `.discovery` resolves
-> // the bare node id over the open internet; no address in hand.
+> // Discovery resolves a bare iroh node ID without an address hint.
 > var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
 > defer iroh_resident.deinit();
 > const partner = "ocapn://3b6a…da29.iroh";
@@ -101,88 +105,68 @@ round-trip:
 > switch (settled) {
 >     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
->     // The third outcome: an introduction to a capability on another peer.
->     // A Host presents it there and hands you the live result. This greeter never sends one.
->     .give => {},
+>     // `driver.Session` redeems handoffs before returning.
+>     .give => unreachable,
 > }
 > ```
 
-What the snippet does not spell out:
+`io` is a `std.Io` instance. Create it from `std.Io.Threaded`:
 
-- A **netlayer** is pancake's word for a transport
-  ([Transports]($link.page('transports'))).
-- A **locator** is the dialable `ocapn://` address, and the **designator** is
-  the peer's name inside it: a `host:port` for `tcp`, a public key for a keyed
-  transport ([Concepts]($link.page('concepts')) defines both).
-- **`io`** is your `std.Io` instance. The checked example constructs it with
-  `var threaded = std.Io.Threaded.init(allocator, .{});` and then
-  `const io = threaded.io();`.
-- **`designator`** in the snippet is just the address string, for example
-  `const designator = "127.0.0.1:9099";`.
-- **`.ephemeral`** is the session identity, a throwaway keypair minted for this
-  connection. A stable identity would go here instead; the
-  [CLI]($link.page('cli'))'s `init` mints and stores one, and the keyed
-  transports on [Transports]($link.page('transports')) are where a stable key
-  earns its keep.
-- The **arena** owns reply allocations; drop it to free them.
-- The third settle arm, **`give`**, is an introduction a Host + `driver.Bridge`
-  redeems ([Concepts]($link.page('concepts')) explains it). This greeter never
-  sends one.
-- The tcp snippet dials with `connect`; the iroh snippet uses `connectUriOwned` on the
-  same `Session` path.
+```zig
+var threaded = std.Io.Threaded.init(allocator, .{});
+const io = threaded.io();
+```
 
-The tcp snippet is the checked contract:
-[`readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig)
-carries it verbatim, `zig build examples` runs it, and `zig build meta-check`
-holds this page to those lines. The iroh snippet is illustrative. It follows the
-[rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/zig/client.zig):
-the same reachability posture, a bare node id, and the same fetch, call, and
-switch. The id still arrives out of band. Discovery turns a name you were given
-into a route; it does not browse for peers. The
-[iroh]($link.page('transports/iroh')) page covers dial-by-id in full.
+`designator` is the address string, such as `"127.0.0.1:9099"`. The two
+timeout values keep network waits finite.
 
-Both halves together:
-[`01_connect_and_serve.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig).
+`.ephemeral` is the session identity, a throwaway keypair minted for this
+connection. The arena owns reply allocations; dropping it frees them. This
+owning `Session` also redeems three-party handoffs before returning, so a call
+settles with the introduced capability rather than handoff bytes.
 
-Want a live partner to dial while you write this? `zig build` puts the
-[CapTP CLI]($link.page('cli')) on your path, and
-`pancake ocapn listen --publish greeter` prints a locator serving the same
-greeter this client fetches.
+See the complete client and server in
+[`01_connect_and_serve.zig`](https://github.com/jimisaacs/pancake/blob/main/examples/zig/01_connect_and_serve.zig).
+The iroh tab uses the same session calls with a node-id locator; the
+[iroh guide]($link.page('transports/iroh')) covers discovery and deployment.
+
+For a live partner to dial while you write this, build the
+[CapTP CLI]($link.page('cli')), then run:
+
+```sh
+zig-out/bin/pancake ocapn listen --publish greeter
+```
+
+It prints a locator serving the same greeter this client fetches.
 
 ## From C, or any FFI host
 
-The same library is a plain C ABI in two shapes. To dial, fetch, and call in one
-thread, use the owning session (`pancake_tcp_session_connect` through
-`pancake_tcp_session_release`). Connect takes the same two budgets the Zig
-snippet above passes, and for the same reason: zero means wait forever, so a
-client that dials the network gives them finite values. When your program already owns the event loop,
-drive the sans-io peer instead: `pancake_peer_recv_stream` in,
-`pancake_peer_next_event` and `pancake_peer_take_outbound` out. Either way the
-surface is opaque handles, fixed-width return codes, `ptr + len` views, and
-explicit release. That is the shape every binding wraps. Build, ownership, and a
-first program:
-[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
+The same library is a plain C ABI centered on `PancakeHost`. Your runtime owns
+the event loop and transport connection; it feeds bytes into a Host session,
+drains Host actions, and writes the resulting frames. Capabilities are one
+opaque Host-scoped `PancakeReference`, regardless of which session projects
+them. The surface uses opaque handles, fixed-width return codes, `ptr + len`
+views, and explicit release. That is the shape every binding wraps. Build,
+ownership, and a first program:
+[consuming pancake from C](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md).
 
 ## In Rust, TypeScript, Python, or Racket
 
-If you write one of these four, a binding already did the wrapping for you. Each one
-is a genuine foreign-language consumer of the C ABI and presents an
-idiomatic API on top, so you write the language you already know instead of foreign
-function calls. Start at the [bindings overview]($link.page('bindings')) for the
-shape they share, then jump to your language:
+Each binding wraps the same C ABI with an idiomatic API. Start with the
+[bindings overview]($link.page('bindings')), then choose:
 [Rust]($link.page('bindings/rust')),
 [TypeScript]($link.page('bindings/ts')),
 [Python]($link.page('bindings/python')), or
 [Racket]($link.page('bindings/racket')).
 
-Writing for the browser instead of a server? The TypeScript binding also
-compiles to WebAssembly as `@pancake/web`; the page always dials rather than
-listens. Start at [In the browser]($link.page('bindings/browser')).
+For the browser rather than a server, the TypeScript binding also compiles to
+WebAssembly as `@pancake/web`; the page always dials rather than listens.
+Start at [In the browser]($link.page('bindings/browser')).
 
 ## Then go deeper
 
-New to capabilities, locators, pipelining, or three-party handoff? Read
-[Concepts]($link.page('concepts')) first. Those are the hard ideas, once.
+If capabilities, locators, pipelining, or three-party handoff are new to you,
+read [Concepts]($link.page('concepts')) first. Those are the hard ideas, once.
 When the layer names blur (`Session`, `Host`, `Peer`),
 [modules]($link.page('modules')) sorts them out, and
 [Surfaces]($link.page('surfaces')) lists every way to hold the library.

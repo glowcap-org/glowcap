@@ -13,7 +13,9 @@ bindings/rust/target/
 bindings/rust/relay/Cargo.lock
 bindings/rust/relay/target/
 apps/*/rust/Cargo.lock
+apps/rooms/clients/rust/Cargo.lock
 apps/*/rust/target/
+apps/rooms/clients/rust/target/
 bench/langs/clients/rust_bench/Cargo.lock
 bench/langs/clients/rust_bench/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
@@ -26,6 +28,11 @@ transports/webrtc/target/
 # binding consumer caches
 **/__pycache__/
 **/*.pyc
+# `bindings-fmt-check` runs ruff and mypy through `uv`, which resolves the
+# binding's own dependencies into a lock and an editable-install stub. Both are
+# generated, never committed.
+bindings/python/uv.lock
+bindings/python/pancake_python.egg-info/
 bindings/ts/node_modules/
 # Deno resolves npm/jsr specifiers (e.g. the rooms app's zod) into a deno.lock. The
 # specifiers are version-pinned, so the lock is generated, never committed.
@@ -40,11 +47,17 @@ deno.lock
 # accountability-on-pancake writes its durable Episode log + transparency root
 # here at run time; generated state, never committed.
 apps/accountability-on-pancake/.data/
+# The Goblins-side kernel and three-vat demos write the same shape, including
+# per-AID KERI key files. Twenty of those were committed in the initial commit
+# before this rule existed; they are named in that app's README and hold
+# authority over nothing outside the demo.
+conformance/accountability-on-goblins/.data/
+conformance/accountability-on-goblins/racket/tests/.data/
 
 # The rooms browser UI is authored as ui/page.ts and bundled to ui/page.js (on the
-# fly by web.ts in dev, or pre-built with `deno bundle` for the network-free deploy).
+# fly by serve.ts in dev, or pre-built with `deno bundle` for the network-free deploy).
 # Generated, never committed.
-apps/rooms/deno/ui/page.js
+apps/rooms/web/ui/page.js
 
 # local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)
 .local/

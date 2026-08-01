@@ -9,7 +9,7 @@
 
 (require "constants.rkt"
          "ffi-ocapn.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "value.rkt")
 
 (provide (all-defined-out))
@@ -65,7 +65,7 @@
 (define (check code) (check-with code last-error))
 
 ;; (host-last-error) -> the calling thread's last error message from the
-;; byte-fed host archive (libpancake_driver), or #f. The host family keeps its
+;; byte-fed host archive (libpancake_host), or #f. The host family keeps its
 ;; own thread-local slot (`pancake_host_last_error`), symbol-disjoint from the
 ;; ocapn family's `last-error`.
 (define (host-last-error) (read-last-error pancake_host_last_error))

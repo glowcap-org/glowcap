@@ -744,7 +744,7 @@ fn renderMarkdown(ctx: *Ctx, rows: []const Row, mode: []const u8, stamp: i64) ![
     const a = ctx.arena;
     try s.appendSlice(a, "# pancake per-language consumer cost\n\n");
     try s.print(a, "Mode **{s}** \u{b7} latency n={d} \u{b7} throughput n={d} \u{b7} connections={d} \u{b7} cold-start samples={d} \u{b7} local n={d}. One native Zig host, the client language swapped per row, over real loopback TCP.\n\n", .{ mode, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
-    try s.appendSlice(a, "> This is **not** a language leaderboard. Each row is a whole consumer stack — runtime, that language's binding, the app rewritten in it, and its garbage collector — over one pancake host. A faster row does not mean pancake's wire is faster in that language; it means that whole stack was faster on this one machine on this one day. Reproduce with `zig build bench-langs`, and read [`bench/langs/README.md`](README.md) for the fairness model and caveats.\n\n");
+    try s.appendSlice(a, "> This is **not** a language leaderboard. Each row is a whole consumer stack — runtime, that language's binding, the app rewritten in it, and its garbage collector — over one pancake host. A faster row does not mean pancake's wire is faster in that language; it means that whole stack was faster on this one machine on this one day. Reproduce with `zig build bench-langs`, then read the [benchmark guide](../../bench/langs/README.md) and [methodology](../../bench/langs/methodology.md).\n\n");
     try s.appendSlice(a, "## Results\n\n");
     try s.appendSlice(a, "| client | runtime | p50 ms | p99 ms | p999 ms | mean ms | req/s | setup ms/conn | mem kB/conn | cold ms | local ns/turn | local p99 ns | via-host ns/turn | via-host p99 ns | via/local |\n");
     try s.appendSlice(a, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
@@ -753,7 +753,7 @@ fn renderMarkdown(ctx: *Ctx, rows: []const Row, mode: []const u8, stamp: i64) ![
     }
     try s.print(a, "\n## Latency — p50, milliseconds (lower is better)\n\n![latency p50](langs-compare-{d}-latency.svg)\n", .{stamp});
     try s.print(a, "\n## Throughput — requests/second (higher is better)\n\n![throughput](langs-compare-{d}-throughput.svg)\n", .{stamp});
-    try s.print(a, "\n## Cold start — milliseconds, spawn to first settled call (lower is better)\n\n![cold start](langs-compare-{d}-cold.svg)\n\n", .{stamp});
+    try s.print(a, "\n## Cold start — milliseconds, spawn through one completed task-board unit (lower is better)\n\n![cold start](langs-compare-{d}-cold.svg)\n\n", .{stamp});
     return s.items;
 }
 

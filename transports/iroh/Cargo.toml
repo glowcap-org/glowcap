@@ -1,5 +1,5 @@
 # The iroh netlayer sidecar (ADR-0055): a staticlib wrapping the iroh endpoint
-# behind the narrow blocking C ABI in include/pancake_iroh_sidecar.h. libpancake stays
+# behind the narrow C ABI in include/pancake_iroh_sidecar.h. libpancake stays
 # pure Zig; only the `iroh-*` build steps need cargo on PATH.
 #
 # Cargo.lock is committed, unlike bindings/rust's: this crate pulls an external

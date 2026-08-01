@@ -11,8 +11,8 @@
 // binding still speaks directly: the ABI version, the core last-error slot, the
 // allocation context, managed-frame release, the exporter-locator encoder, and
 // the OCapN URI grammar. The peer itself is driven through the byte-fed host
-// archive (`driver.ts`, `libpancake_driver`, ADR-0072), never through raw
-// `pancake_peer_*` calls. Each transport archive has its own sibling loader
+// archive (`driver.ts`, `libpancake_host`, ADR-0072), never through raw
+// raw per-session engine calls. Each transport archive has its own sibling loader
 // here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
 //
 // The one-letter type shorthands (`P`/`B`/`U`/`I`/`V`) let a symbol's whole
@@ -36,12 +36,12 @@ export const ocapnS = lazySymbols(() => libPath("pancake_ocapn"), {
 	pancake_context_new_with_allocator: { parameters: [B, B], result: I, outBuffers: [1] },
 	pancake_context_release: { parameters: [P], result: V },
 	pancake_managed_frame_release: { parameters: [B], result: V, outBuffers: [] },
-	pancake_encode_peer_locator: {
+	pancake_locator_record_encode: {
 		parameters: [B, U, B, U, B, U, B, B],
 		result: I,
 		outBuffers: [6, 7],
 	},
-	pancake_peer_locator_bytes_release: { parameters: [P, U], result: V },
+	pancake_locator_record_bytes_release: { parameters: [P, U], result: V },
 	// OCapN locator URIs — core vocabulary in libpancake_ocapn, so a consumer
 	// reaches them without any transport archive. The one grammar every binding
 	// shares.

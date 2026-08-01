@@ -120,6 +120,59 @@ test "raw-open fixture records v1.0 resolver callback imports" {
     try std.testing.expect(std.mem.indexOf(u8, out.storage, "fulfill") != null);
 }
 
+test "settled-answer encode OOM leaves its carrier queued and emits exactly once" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = engine.Peer.initRawOpenFixture(failing.allocator());
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // Queue 130 store-backed carriers, then consume 64. The next encode runs
+    // with a long dead prefix, proving the borrowed-front path does not need to
+    // mutate or compact the FIFO before its fallible consequence succeeds.
+    for (0..130) |offset| {
+        const answer = 1_000 + offset;
+        const wire = try std.fmt.allocPrint(
+            std.testing.allocator,
+            "<10'op:deliver<11'desc:export7+>[]{d}+<19'desc:import-promise{d}+>>",
+            .{ answer, 2_000 + offset },
+        );
+        defer std.testing.allocator.free(wire);
+        try peer.recvBorrowed(.{ .bytes = wire, .shape = .byte });
+        var event = peer.pollEvent().?;
+        event.deinit();
+        try peer.sendCopying(.{ .resolve = .{
+            .answer = .from(answer),
+            .resolution = .{ .fulfill = .{ .integer = @intCast(offset) } },
+        } });
+    }
+    for (0..64) |_| {
+        try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+        var outbound = peer.takeOutbound().?;
+        outbound.deinit();
+    }
+
+    // Fail before the 65th POD carrier is consumed. The answer store still
+    // owns the resolution, and the FIFO must still own the same front carrier.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, peer.step());
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    failing.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var outbound = peer.takeOutbound() orelse return error.MissingRetriedResolve;
+    outbound.deinit();
+
+    // Drain the suffix and prove the retained carrier neither duplicated nor
+    // displaced anything after the retry.
+    var remaining: usize = 65;
+    while (remaining != 0) : (remaining -= 1) {
+        try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+        var next = peer.takeOutbound() orelse return error.MissingQueuedResolve;
+        next.deinit();
+    }
+    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+}
+
 test "raw-open v1.0 fixture rejects raw inbound op:resolve" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.initRawOpenFixture(allocator);
@@ -273,6 +326,33 @@ test "V1_0 runtime translation synthesizes resolve-me-desc for answered deliver"
     );
     try std.testing.expect(peer.session_state.hasExport(.from(1)));
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(42)), peer.session_state.answerForResolverExport(.from(1)));
+}
+
+test "V1_0 resolve for an answer whose deliver carried no resolver emits nothing" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+    peer.session_state.captp_version = model.CaptpVersion.v1_0;
+    try peer.session_state.registerExport(.from(7));
+
+    // Inbound V1.0 deliver naming answer 11 with `f` where a resolve-me-desc
+    // would ride: the partner asked for no callback.
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]11+f>", .shape = .byte });
+    var event = peer.pollEvent().?;
+    event.deinit();
+
+    // The application answers anyway. V1.0 has no `op:resolve` wire shape,
+    // and no resolver was advertised, so there is nobody to notify: the
+    // resolve settles the answer locally and puts nothing on the wire. The
+    // drop is the contract (the guard in `outbound.emitOutboundMessage`),
+    // pinned here so it stays a decision rather than an accident.
+    try peer.sendCopying(.{ .resolve = .{
+        .answer = .from(11),
+        .resolution = .{ .fulfill = .{ .integer = 1 } },
+    } });
+    _ = try peer.step();
+    try std.testing.expect(peer.takeOutbound() == null);
+    try std.testing.expect(peer.pollEvent() == null);
 }
 
 test "V1_0 resolver-callback resolving to a container registers the introduced import" {
@@ -1370,7 +1450,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 
     // The partner releases the one wire mention. The local reference keeps the
     // export row alive, without the encode-time retain this gc would drive the
-    // count to zero and remove the row while `v1_0_outbound_resolver_link` still
+    // count to zero and remove the row while `outbound_resolver_link` still
     // points at it.
     {
         const positions = [_]u64{resolver_export};
@@ -1412,7 +1492,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 
 test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     // The outbound resolver link map is pruned per released answer through its
-    // answer side of the `v1_0_outbound_resolver_link` BiMap, two O(1) keyed
+    // answer side of the `outbound_resolver_link` BiMap, two O(1) keyed
     // removals per position instead of a scan of every outstanding link. This
     // pins the correctness half of that shape: after a full release wave every
     // link — and only the released links — is gone, and both map directions

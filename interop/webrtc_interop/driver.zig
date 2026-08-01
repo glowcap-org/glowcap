@@ -8,13 +8,13 @@
 //! place of the OCapN signaling capability phase 5 adds). On loopback the two
 //! reach each other on host candidates alone, with no STUN or TURN.
 //!
-//! Once the channel opens, each peer's connection is presented as an ordinary
-//! `net.Connection`, and the two run the same keyed handshake, bootstrap fetch,
-//! and deliver/resolve every other transport runs: the answerer publishes a
-//! Greeter and serves; the offerer completes the keyed handshake, pins the
-//! answerer's key, fetches the Greeter, and calls it. The bytes on the wire are
-//! DTLS-encrypted SCTP over the DataChannel; the keyed handshake proves each
-//! peer's Ed25519 identity end to end on top of it.
+//! Channel establishment is driven from each resident's readiness fd and checked
+//! with non-blocking open calls. Before CapTP starts, the peers exchange raw bytes
+//! in both directions through try-I/O. The same channels are then presented as
+//! ordinary `net.Connection`s for the keyed handshake, bootstrap fetch, and
+//! deliver/resolve conversation every other transport runs. The bytes on the
+//! wire are DTLS-encrypted SCTP; the keyed handshake proves each peer's Ed25519
+//! identity end to end on top of it.
 //!
 //! Goblins ships no WebRTC netlayer, so this is pancake-to-pancake by
 //! construction, exactly like `iroh-interop`: it proves the netlayer contract
@@ -53,7 +53,45 @@ const Greeter = struct {
 /// process: exchange the offer and answer, then trickle ICE candidates both ways
 /// until each peer reports its channel open. Bounded so a stuck ICE or DTLS
 /// negotiation fails the gate instead of hanging it.
-fn bringUpChannel(offerer: *webrtc.Peer, answerer: *webrtc.Peer) !void {
+fn drainReady(resident: *webrtc.Resident, peer: *webrtc.Peer) !u32 {
+    var flags: u32 = 0;
+    var events: [16]webrtc.ReadyEvent = undefined;
+    while (true) {
+        const count = try resident.drainReady(&events);
+        for (events[0..count]) |event| {
+            if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+            flags |= event.events;
+        }
+        if (count < events.len) return flags;
+    }
+}
+
+fn pollReady(resident: *webrtc.Resident, peer: *webrtc.Peer, timeout_ms: i32) !u32 {
+    var events: [16]webrtc.ReadyEvent = undefined;
+    const count = try resident.pollReady(&events, timeout_ms);
+    var flags: u32 = 0;
+    for (events[0..count]) |event| {
+        if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+        flags |= event.events;
+    }
+    if (count == events.len) flags |= try drainReady(resident, peer);
+    return flags;
+}
+
+fn checkOpen(peer: *webrtc.Peer) !bool {
+    peer.checkOpen() catch |err| return switch (err) {
+        error.WouldBlock => false,
+        error.Closed => error.ChannelClosed,
+    };
+    return true;
+}
+
+fn bringUpChannel(
+    offerer_resident: *webrtc.Resident,
+    offerer: *webrtc.Peer,
+    answerer_resident: *webrtc.Resident,
+    answerer: *webrtc.Peer,
+) !void {
     var sdp_buf: [16 * 1024]u8 = undefined;
     var cand_buf: [4 * 1024]u8 = undefined;
     var len: usize = 0;
@@ -63,19 +101,74 @@ fn bringUpChannel(offerer: *webrtc.Peer, answerer: *webrtc.Peer) !void {
     const answer = try answerer.createAnswer(&sdp_buf, &len);
     try offerer.setRemoteAnswer(answer);
 
-    // Up to ~30s of 100ms poll windows: on loopback the channel opens in well
+    // Up to ~30s of readiness polling: on loopback the channel opens in well
     // under a second, so this bounds only a failure.
     var rounds: usize = 0;
     while (rounds < 300) : (rounds += 1) {
+        _ = try pollReady(offerer_resident, offerer, 50);
+        _ = try pollReady(answerer_resident, answerer, 50);
         while (try offerer.nextLocalCandidate(&cand_buf, &len)) |candidate| {
             try answerer.addRemoteCandidate(candidate);
         }
         while (try answerer.nextLocalCandidate(&cand_buf, &len)) |candidate| {
             try offerer.addRemoteCandidate(candidate);
         }
-        if (offerer.waitOpen(50) and answerer.waitOpen(50)) return;
+        if (try checkOpen(offerer) and try checkOpen(answerer)) return;
     }
     return error.ChannelBringUpTimeout;
+}
+
+fn trySend(resident: *webrtc.Resident, peer: *webrtc.Peer, bytes: []const u8) !void {
+    var offset: usize = 0;
+    var rounds: usize = 0;
+    while (offset < bytes.len and rounds < 300) : (rounds += 1) {
+        const count = peer.tryWrite(bytes[offset..]) catch |err| switch (err) {
+            error.WouldBlock => {
+                _ = try pollReady(resident, peer, 100);
+                continue;
+            },
+            error.Closed => return error.ChannelClosed,
+            error.Failed => return error.ChannelWriteFailed,
+        };
+        if (count == 0) return error.WriteMadeNoProgress;
+        offset += count;
+    }
+    if (offset != bytes.len) return error.ChannelWriteTimeout;
+}
+
+fn tryReceive(resident: *webrtc.Resident, peer: *webrtc.Peer, expected: []const u8) !void {
+    var received: [128]u8 = undefined;
+    if (expected.len > received.len) return error.ProbeTooLarge;
+    var offset: usize = 0;
+    var rounds: usize = 0;
+    while (offset < expected.len and rounds < 300) : (rounds += 1) {
+        const count = peer.tryRead(received[offset..expected.len]) catch |err| switch (err) {
+            error.WouldBlock => {
+                _ = try pollReady(resident, peer, 100);
+                continue;
+            },
+            error.Closed => return error.ChannelClosed,
+            error.Failed => return error.ChannelReadFailed,
+        };
+        offset += count;
+    }
+    if (offset != expected.len) return error.ChannelReadTimeout;
+    if (!std.mem.eql(u8, received[0..offset], expected)) return error.WrongProbeBytes;
+}
+
+fn proveReadinessBytes(
+    offerer_resident: *webrtc.Resident,
+    offerer: *webrtc.Peer,
+    answerer_resident: *webrtc.Resident,
+    answerer: *webrtc.Peer,
+) !void {
+    const to_answerer = "offerer readiness probe";
+    try trySend(offerer_resident, offerer, to_answerer);
+    try tryReceive(answerer_resident, answerer, to_answerer);
+
+    const to_offerer = "answerer readiness probe";
+    try trySend(answerer_resident, answerer, to_offerer);
+    try tryReceive(offerer_resident, offerer, to_offerer);
 }
 
 /// The answerer half: run the responder keyed handshake over the open channel
@@ -173,12 +266,17 @@ pub fn main(init: std.process.Init) !void {
     const offerer_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES);
     const answerer_designator = answerer_secret.publicKey().toDesignator();
 
-    var offerer = try webrtc.Peer.init(true);
+    var offerer_resident = try webrtc.Resident.init();
+    defer offerer_resident.deinit();
+    var answerer_resident = try webrtc.Resident.init();
+    defer answerer_resident.deinit();
+    var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();
-    var answerer = try webrtc.Peer.init(false);
+    var answerer = try answerer_resident.newPeer(false);
     defer answerer.deinit();
 
-    try bringUpChannel(&offerer, &answerer);
+    try bringUpChannel(&offerer_resident, &offerer, &answerer_resident, &answerer);
+    try proveReadinessBytes(&offerer_resident, &offerer, &answerer_resident, &answerer);
 
     // The answerer serves on its own thread; the offerer drives the conversation
     // on this one. Each peer handle is used by exactly one thread past bring-up.
@@ -188,5 +286,5 @@ pub fn main(init: std.process.Init) !void {
     try offerer_result;
     try answerer_result;
 
-    std.debug.print("webrtc-interop: keyed OCapN session opened and greet round-tripped over a real DataChannel\n", .{});
+    std.debug.print("webrtc-interop: readiness-driven try-I/O and keyed OCapN round-tripped over a real DataChannel\n", .{});
 }

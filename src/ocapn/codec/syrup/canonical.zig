@@ -64,6 +64,43 @@ pub fn canonicalHandoffGiveSignedBytes(
     return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecord, .{ allocator, give });
 }
 
+/// Canonical signed bytes for a borrowed handoff give. The view remains
+/// borrowed throughout; only a lazy hint list, when present, is materialized as
+/// canonical-encoding scratch and freed before return. A Syrup-forwarded give
+/// carries its exact signed envelope, so that path reads no typed hints at all.
+pub fn canonicalHandoffGiveViewSignedBytes(
+    allocator: std.mem.Allocator,
+    give: model.view.HandoffGive,
+) ![]u8 {
+    if (give.raw_signed) |raw| {
+        return handoffGiveSignedPayloadBytes(allocator, raw);
+    }
+    var owned_hints: ?model.Hints = null;
+    defer if (owned_hints) |hints| model.freeHints(allocator, hints);
+    const hints = switch (give.exporter.hints) {
+        .empty => |wire_form| model.Hints{ .wire_form = wire_form },
+        .projected => |projected| projected,
+        .lazy => blk: {
+            const materialized = try give.exporter.hints.toOwned(allocator);
+            owned_hints = materialized;
+            break :blk materialized;
+        },
+    };
+    const projected: model.HandoffGive = .{
+        .recipient_key = give.recipient_key,
+        .exporter = .{
+            .transport = give.exporter.transport,
+            .designator = give.exporter.designator,
+            .hints = hints,
+        },
+        .gifter_exporter_session = give.gifter_exporter_session,
+        .gifter_side = give.gifter_side,
+        .gift_id = give.gift_id,
+        .signature = "",
+    };
+    return canonicalHandoffGiveSignedBytes(allocator, projected);
+}
+
 /// Build the inner `<desc:handoff-give …>` record taking the exporter location as
 /// verbatim Syrup bytes (see `encode.writeHandoffGiveRecordRawLocation`). The
 /// returned bytes are the signing domain (caller owns them) and feed
@@ -107,6 +144,62 @@ pub fn canonicalHandoffReceiveSignedBytes(
     receive: model.HandoffReceive,
 ) ![]u8 {
     return encode.renderRecordExact(allocator, encode.writeHandoffReceiveRecord, .{ allocator, receive });
+}
+
+/// Canonical signed bytes for a borrowed handoff receive. The signed give is
+/// projected only for the duration of the encoder call; no owned receive is
+/// built. Syrup's split signature is joined in a fixed stack buffer. A Syrup
+/// receive also carries the give's exact signed envelope; when present, the
+/// encoder uses it verbatim and typed give hints/signature are not materialized.
+pub fn canonicalHandoffReceiveViewSignedBytes(
+    allocator: std.mem.Allocator,
+    receive: model.view.HandoffReceive,
+) ![]u8 {
+    var owned_hints: ?model.Hints = null;
+    defer if (owned_hints) |hints| model.freeHints(allocator, hints);
+    const hints = if (receive.signed_give.raw_signed != null)
+        model.Hints.emptyFalse()
+    else switch (receive.signed_give.exporter.hints) {
+        .empty => |wire_form| model.Hints{ .wire_form = wire_form },
+        .projected => |projected| projected,
+        .lazy => blk: {
+            const materialized = try receive.signed_give.exporter.hints.toOwned(allocator);
+            owned_hints = materialized;
+            break :blk materialized;
+        },
+    };
+    var signature_buffer: [64]u8 = undefined;
+    const give_signature = if (receive.signed_give.raw_signed != null)
+        ""
+    else switch (receive.signed_give.signature) {
+        .raw => |raw| raw,
+        .halves => |halves| blk: {
+            if (halves.r.len + halves.s.len != signature_buffer.len) return Error.MalformedFrame;
+            @memcpy(signature_buffer[0..halves.r.len], halves.r);
+            @memcpy(signature_buffer[halves.r.len..], halves.s);
+            break :blk signature_buffer[0..];
+        },
+    };
+    const projected: model.HandoffReceive = .{
+        .receiving_session = receive.receiving_session,
+        .receiving_side = receive.receiving_side,
+        .handoff_count = receive.handoff_count,
+        .signed_give = .{
+            .recipient_key = receive.signed_give.recipient_key,
+            .exporter = .{
+                .transport = receive.signed_give.exporter.transport,
+                .designator = receive.signed_give.exporter.designator,
+                .hints = hints,
+            },
+            .gifter_exporter_session = receive.signed_give.gifter_exporter_session,
+            .gifter_side = receive.signed_give.gifter_side,
+            .gift_id = receive.signed_give.gift_id,
+            .signature = give_signature,
+            .raw_signed = receive.signed_give.raw_signed,
+        },
+        .signature = "",
+    };
+    return canonicalHandoffReceiveSignedBytes(allocator, projected);
 }
 
 /// Recover the inner `<desc:handoff-give …>` payload bytes from a verbatim signed

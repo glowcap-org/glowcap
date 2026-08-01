@@ -3,8 +3,8 @@ observation, promise pipelining target, and ``index``/``untag``/``get``
 projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
 mint→await→classify path (``_await_minted`` / ``_fetch_like``), the far-send
 mint→``_promise_for`` path (``_send_far``), and RemotePromise construction.
-Session owns CapTP verb wrappers; trampoline owns near/far send·tell
-dispatch and local arms; this module owns the handle type, far-send /
+Session owns CapTP verb wrappers; trampoline owns Host-reference send·tell
+dispatch and local arms; this module owns the handle type, remote-send /
 post-mint choreography, and the projection FFI.
 """
 
@@ -18,9 +18,9 @@ from typing import Optional, Union
 from . import _constants as _abi
 from ._codec import _args_to_c, _ref_to_c
 from ._errors import FetchFailed, PancakeError, _check_host
-from ._ffi_driver import _host
+from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf
-from ._value import Far, Near, Ref, _lift_value, _lower_value
+from ._value import Ref
 
 _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
 
@@ -39,9 +39,8 @@ async def _await_minted(session, vow: int):
 async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> Ref:
     # The one mint/await/classify body under `fetch` and `enliven`: mint
     # the host vow with `mint`, await its drain-routed completion, and
-    # classify — only a near/far reference is a live capability this
-    # surface can hand out; anything else would leak a half-supported
-    # kind, so the call fails instead. `track` marks the Far arm for
+    # classify — only an opaque Host reference is a live capability this
+    # surface can hand out. `track` marks fetched capabilities for
     # distributed GC: a fetch's import is finalizer-tracked, an enliven's
     # is owned by the ADR-0012 dedup cache instead (ADR-0063).
     session.guard_open()
@@ -50,12 +49,9 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     out = ctypes.c_uint64()
     _check_host(mint(session.raw, ptr, len(swiss), ctypes.byref(out)))
     result = await _await_minted(session, out.value)
-    if isinstance(result, Near):
-        return Ref(result)
-    if not isinstance(result, Far):
+    if not isinstance(result, Ref):
         raise FetchFailed(label)
-    ref = Ref(result)
-    return session.gc.track_import(ref) if track else ref
+    return session.gc.track_import(result) if track and session.gc_enabled else result
 
 
 def _promise_for(session, vow: int) -> RemotePromise:
@@ -67,7 +63,7 @@ def _promise_for(session, vow: int) -> RemotePromise:
         session.serve()  # the settle's bytes arrive on the inbound loop
         settled = session.host.await_vow(vow)
         await session.host.kick_actions()
-        return _lift_value(await settled)
+        return await settled
 
     def project(op: str, key) -> RemotePromise:
         out = ctypes.c_uint64()
@@ -296,7 +292,7 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)
     keepalive: list = []
-    arr, count = _args_to_c([_lower_value(a) for a in args], keepalive)
+    arr, count = _args_to_c(args, keepalive)
     out = ctypes.c_uint64()
     if isinstance(target, RemotePromise):
         # Promise pipelining: eventual-send to the unresolved answer. A
@@ -306,7 +302,7 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
             session.host.raw, source_vow, vptr, len(verb_bytes), arr, count, ctypes.byref(out),
         ))
     else:
-        ref = _ref_to_c(target._wire())
+        ref = _ref_to_c(target._live())
         _check_host(_host.pancake_host_session_send(
             session.raw, ctypes.byref(ref), vptr, len(verb_bytes), arr, count, ctypes.byref(out),
         ))

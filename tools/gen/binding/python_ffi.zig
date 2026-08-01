@@ -21,7 +21,7 @@ comptime {
 }
 
 const c = @import("c_abi");
-const cd = @import("c_abi_driver");
+const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
@@ -250,9 +250,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try renderArchive(gpa, &out, c, "ocapn_sigs", &.{ "_Allocator", "_ManagedFrame" }, "``libpancake_ocapn`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
-        "_Argument", "_Reference",  "_ManagedFrame", "_LastAbort",     "_HostAction",
-        "_DialPlan", "_AcceptPlan", "_PendingDial",  "_HostPumpHooks", "_HostBehavior",
-    }, "``libpancake_driver`` signatures, in the inventory's order.", &.{
+        "_Argument",     "_Reference",       "_ManagedFrame", "_LastAbort",
+        "_DialPlan",     "_AcceptPlan",      "_PendingDial",  "_HostPumpHooks",
+        "_HostBehavior", "_PartnerIdentity",
+    }, "``libpancake_host`` signatures, in the inventory's order.", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "_HostBehavior" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "P" },
     });
@@ -263,6 +264,6 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig" }, "``libpancake_net_transport_iroh`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{}, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{"_WebrtcReadyEvent"}, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

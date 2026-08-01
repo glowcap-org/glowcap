@@ -55,7 +55,7 @@ const Board = struct {
     pub fn handle(self: *Board, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
         if (!std.mem.eql(u8, msg.verb, "create")) return error.NoSuchMethod;
-        const cap = try driver.spawnAt(turn.vat, Task, .{});
+        const cap = try driver.spawnAt(turn, Task, .{});
         return cap.arg();
     }
 };
@@ -83,8 +83,8 @@ pub fn main(init: std.process.Init) !void {
     const bind_designator = tcp.locator(&designator_buf, bind_addr).designator;
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind_designator }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind_designator }, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    defer server.close() catch {};
 
     var addr_buf: [64]u8 = undefined;
     const local = try server.localDesignator(&addr_buf);

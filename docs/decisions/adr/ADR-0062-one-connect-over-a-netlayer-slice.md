@@ -3,12 +3,19 @@ id: ADR-0062
 status: accepted
 date: 2026-06-15
 tags: [net, driver, transport, c-abi, public-surface, vocabulary]
-decision: "One dialer per layer, and it takes a locator, never a host and port. In Zig the transport set is a bare `[]const net.netlayer.Netlayer` the driver dials and hosts against, not a `Registry` struct, and the runtime-vtable transport type is renamed `Contract` -> `Netlayer`; a free `net.netlayer.resolve(netlayers, symbol)` replaces `Registry.resolve`. A transport builds its own locator with no ritual: `tcp.at(designator)` builds a `tcp` locator from a `host:port` string the caller already holds, owning the empty-hints wire form so `.emptyFalse()` never reaches a call site and the signed handshake bytes are unchanged. The dial/host functions (`driver.connect`, `connectVia`, `connectUri`, `connectUriOwned`, `acceptVia`, `listen`) take the slice instead of the `Registry`; the ownership tiers (owning `Session`/`Server`, borrowing buffer-explicit `connectVia`/`acceptVia`/`connectTcp`/`acceptTcp`) are kept, because collapsing them would delete the explicit-allocation surface the project requires. In the bindings the one dialer is `connect(locator)` over an `ocapn://` URI with `tcp_locator(host, port)` as the only literal-address helper; the per-transport dial twins are gone. The C ABI gets the same front door per transport: `libpancake_net_transport_tcp` grows an owning `PancakeTcpSession` (`pancake_tcp_session_connect`/`_fetch`/`_call`/`_release`) (the C spelling of `driver.Session`) that embeds the actor runtime and pairs with a runtime host, with the bare sans-io peer kept for a host that owns its own loop."
+decision: "One dialer per application layer, and it takes a locator, never a host and port. Zig keeps its owning and borrowing Session tiers; bindings dial through `connect(locator)`. In C, ADR-0096 retires the transport-owned session: callers open transport connections and drive the one locator-aware `PancakeHost` application surface."
 supersedes: [ADR-0043]
 superseded_by: []
+amends: []
+amended_by: [ADR-0096]
 ---
 
 # ADR-0062 The connection front door: one `connect`, Zig and C
+
+> **Amendment (ADR-0096).** The locator front door and Zig ownership tiers
+> stand. The C `PancakeTcpSession` and raw peer described below are retired:
+> transport archives expose byte connections/listeners, and `PancakeHost` owns
+> CapTP state for every transport.
 
 ## Context
 

@@ -76,13 +76,13 @@ pub fn fillParsed(
         switch (f.kind) {
             .bool_flag => {
                 if (v) |val| switch (val) {
-                    .bool => |b| if (b) try parsed.bools.put(gpa, f.long, true),
+                    .bool => |b| if (b) try parsed.setBool(f.long, true),
                     else => {},
                 };
             },
             .string_flag => {
                 if (v) |val| switch (val) {
-                    .string => |s| try parsed.strings.put(gpa, f.long, s),
+                    .string => |s| try parsed.setString(f.long, s),
                     else => {},
                 };
             },

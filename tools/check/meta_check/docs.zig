@@ -13,6 +13,191 @@ const util = @import("util.zig");
 
 const appendViolation = util.appendViolation;
 
+const AdrRecord = struct {
+    id: []const u8,
+    path: []const u8,
+    body: []const u8,
+};
+
+/// ADR replacement and amendment links are graph edges, not independent prose.
+/// A one-sided edge makes the older record lie about whether its substance is
+/// still living guidance, which is how vocabulary-only amendments were
+/// previously mislabeled as full supersessions.
+pub fn checkAdrRelations(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "docs/decisions/adr", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "docs/decisions/adr: failed to open for ADR relation check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var records: std.ArrayList(AdrRecord) = .empty;
+    defer {
+        for (records.items) |record| {
+            gpa.free(record.id);
+            gpa.free(record.path);
+            gpa.free(record.body);
+        }
+        records.deinit(gpa);
+    }
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.startsWith(u8, entry.path, "ADR-")) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+
+        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "docs/decisions/adr/{s}: failed to read for ADR relation check with {s}", .{ entry.path, @errorName(err) });
+            continue;
+        };
+        const id = adrFrontmatterValue(body, "id") orelse {
+            // Older records without canonical frontmatter have no relation
+            // edges. They remain readable history until touched; a relation
+            // target must be migrated before it can participate in this graph.
+            gpa.free(body);
+            continue;
+        };
+        try records.append(gpa, .{
+            .id = try gpa.dupe(u8, id),
+            .path = try std.fmt.allocPrint(gpa, "docs/decisions/adr/{s}", .{entry.path}),
+            .body = body,
+        });
+    }
+
+    for (records.items, 0..) |record, i| {
+        for (records.items[i + 1 ..]) |other| {
+            if (std.mem.eql(u8, record.id, other.id)) {
+                try appendViolation(gpa, violations, "{s}: ADR id `{s}` is duplicated by {s}", .{ record.path, record.id, other.path });
+            }
+        }
+    }
+
+    const relations = [_]struct { field: []const u8, reciprocal: []const u8 }{
+        .{ .field = "supersedes", .reciprocal = "superseded_by" },
+        .{ .field = "superseded_by", .reciprocal = "supersedes" },
+        .{ .field = "amends", .reciprocal = "amended_by" },
+        .{ .field = "amended_by", .reciprocal = "amends" },
+    };
+    for (records.items) |record| {
+        for (relations) |relation| {
+            try checkAdrRelationField(gpa, violations, records.items, record, relation.field, relation.reciprocal);
+        }
+    }
+}
+
+/// An ADR may list aspirational acceptance scenarios without implemented
+/// evidence. Once it is accepted, or once a partial migration records its
+/// standing, prose alone is no longer enough: cite at least one in-tree test.
+/// `checkMarkdownLinks` separately proves that the cited path resolves.
+pub fn checkAdrEvidenceLinks(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const dir_path = "docs/decisions/adr";
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for ADR evidence check with {s}", .{ dir_path, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.startsWith(u8, entry.path, "ADR-") or !std.mem.endsWith(u8, entry.path, ".md")) continue;
+        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}/{s}: failed to read for ADR evidence check with {s}", .{ dir_path, entry.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(body);
+
+        if (std.mem.indexOf(u8, body, "\n## Required evidence\n") == null) continue;
+        const accepted = if (adrFrontmatterValue(body, "status")) |status|
+            std.mem.eql(u8, status, "accepted")
+        else
+            false;
+        const records_standing = std.mem.indexOf(u8, body, "Migration standing") != null;
+        if (!accepted and !records_standing) continue;
+        if (std.mem.indexOf(u8, body, "](../../../test/") == null) {
+            try appendViolation(gpa, violations, "{s}/{s}: accepted or migration-standing required evidence must cite an in-tree `test/` path with a Markdown link", .{ dir_path, entry.path });
+        }
+    }
+}
+
+fn checkAdrRelationField(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    records: []const AdrRecord,
+    source: AdrRecord,
+    field: []const u8,
+    reciprocal: []const u8,
+) !void {
+    const raw = adrFrontmatterValue(source.body, field) orelse return;
+    const inner = adrListInner(raw) orelse {
+        try appendViolation(gpa, violations, "{s}: `{s}` must be a one-line YAML list", .{ source.path, field });
+        return;
+    };
+    var targets = std.mem.splitScalar(u8, inner, ',');
+    while (targets.next()) |part| {
+        const target_id = std.mem.trim(u8, part, " \t");
+        if (target_id.len == 0) continue;
+        if (std.mem.eql(u8, target_id, source.id)) {
+            try appendViolation(gpa, violations, "{s}: `{s}` contains a self-reference to {s}", .{ source.path, field, source.id });
+            continue;
+        }
+        const target = findAdrRecord(records, target_id) orelse {
+            try appendViolation(gpa, violations, "{s}: `{s}` names missing or non-frontmatter ADR `{s}`", .{ source.path, field, target_id });
+            continue;
+        };
+        if (!adrListFieldContains(target.body, reciprocal, source.id)) {
+            try appendViolation(gpa, violations, "{s}: `{s}: [{s}]` requires `{s}: [{s}]` in {s}", .{ source.path, field, target_id, reciprocal, source.id, target.path });
+        }
+    }
+}
+
+fn findAdrRecord(records: []const AdrRecord, id: []const u8) ?AdrRecord {
+    for (records) |record| {
+        if (std.mem.eql(u8, record.id, id)) return record;
+    }
+    return null;
+}
+
+fn adrListFieldContains(body: []const u8, field: []const u8, wanted: []const u8) bool {
+    const raw = adrFrontmatterValue(body, field) orelse return false;
+    const inner = adrListInner(raw) orelse return false;
+    var values = std.mem.splitScalar(u8, inner, ',');
+    while (values.next()) |part| {
+        if (std.mem.eql(u8, std.mem.trim(u8, part, " \t"), wanted)) return true;
+    }
+    return false;
+}
+
+fn adrListInner(raw: []const u8) ?[]const u8 {
+    const value = std.mem.trim(u8, raw, " \t");
+    if (value.len < 2 or value[0] != '[' or value[value.len - 1] != ']') return null;
+    return value[1 .. value.len - 1];
+}
+
+fn adrFrontmatterValue(body: []const u8, field: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, body, "---\n")) return null;
+    const end = std.mem.indexOfPos(u8, body, 4, "\n---") orelse return null;
+    var lines = std.mem.splitScalar(u8, body[4..end], '\n');
+    while (lines.next()) |line| {
+        if (line.len <= field.len) continue;
+        if (!std.mem.startsWith(u8, line, field)) continue;
+        if (line[field.len] != ':') continue;
+        return std.mem.trim(u8, line[field.len + 1 ..], " \t");
+    }
+    return null;
+}
+
 pub fn checkMarkdownLinks(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -32,6 +217,8 @@ pub fn checkMarkdownLinks(
         "PROVENANCE.md",
         "SECURITY.md",
         "bindings/README.md",
+        "bindings/DEVELOPING.md",
+        "bindings/PACKAGING.md",
         "bindings/rust/README.md",
         "bindings/ts/README.md",
         "bindings/python/README.md",
@@ -42,6 +229,7 @@ pub fn checkMarkdownLinks(
         try checkMarkdownLinksInFile(io, gpa, root, violations, path);
     }
     try checkMarkdownLinksUnder(io, gpa, root, violations, ".agents");
+    try checkMarkdownLinksUnder(io, gpa, root, violations, ".devcontainer");
     try checkMarkdownLinksUnder(io, gpa, root, violations, "docs");
 }
 
@@ -144,6 +332,53 @@ pub fn checkSiteContentLinks(
         const path = try std.fmt.allocPrint(gpa, "site/content/{s}", .{entry.path});
         defer gpa.free(path);
         try checkSiteContentLinksInFile(io, gpa, root, violations, path);
+    }
+}
+
+/// The first-call examples deliberately show TCP and iroh side by side. Keep
+/// those examples intact when tightening site prose: removing the SuperMD tab
+/// wrapper silently turns the page into a TCP-only example.
+pub fn checkSiteTransportTabs(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const pages = [_]struct {
+        path: []const u8,
+        groups: usize,
+    }{
+        .{ .path = "site/content/start.smd", .groups = 1 },
+        .{ .path = "site/content/bindings/python.smd", .groups = 1 },
+        .{ .path = "site/content/bindings/racket.smd", .groups = 1 },
+        .{ .path = "site/content/bindings/rust.smd", .groups = 1 },
+        .{ .path = "site/content/bindings/ts.smd", .groups = 2 },
+    };
+    const markers = [_][]const u8{
+        "> []($block.attrs('code-tabs'))",
+        "> **tcp**",
+        "> **iroh**",
+    };
+
+    for (pages) |page| {
+        const contents = root.readFileAlloc(io, page.path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for transport-tab check with {s}", .{ page.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+
+        for (markers) |marker| {
+            const count = std.mem.count(u8, contents, marker);
+            if (count != page.groups) {
+                try appendViolation(gpa, violations, "{s}: expected {d} `{s}` marker{s}, found {d}; keep the TCP and iroh examples in their tab groups", .{
+                    page.path,
+                    page.groups,
+                    marker,
+                    if (page.groups == 1) "" else "s",
+                    count,
+                });
+            }
+        }
     }
 }
 
@@ -369,6 +604,68 @@ pub fn checkQuickStartSnippet(
 
     try compareQuickStartDoc(io, gpa, root, violations, "README.md", expected.items, false);
     try compareQuickStartDoc(io, gpa, root, violations, "site/content/start.smd", expected.items, true);
+    try compareAbridgedQuickStart(io, gpa, root, violations, "site/content/index.smd", expected.items);
+}
+
+/// The front page abridges the same quick start: it drops lines the teaser does
+/// not need, so it cannot be held identical the way the two full copies are.
+/// Hold it to the weaker claim it actually makes instead. Every line it keeps
+/// must be a line the example carries, in the example's own order. Dropping a
+/// line stays legal and rewording one does not, which is the drift a shortened
+/// copy invites, because there is no verbatim twin to catch it.
+fn compareAbridgedQuickStart(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    expected: []const []const u8,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the abridged quick-start check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var fence: std.ArrayList([]const u8) = .empty;
+    defer fence.deinit(gpa);
+
+    var capturing = false;
+    var found = false;
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, " \t\r");
+        if (!capturing) {
+            if (std.mem.eql(u8, line, "```zig")) capturing = true;
+            continue;
+        }
+        if (std.mem.eql(u8, line, "```")) {
+            found = true;
+            break;
+        }
+        try fence.append(gpa, line);
+    }
+    if (!found) {
+        try appendViolation(gpa, violations, "{s}: no ```zig fence to hold against examples/zig/readme_quick_start.zig", .{path});
+        return;
+    }
+
+    var cursor: usize = 0;
+    for (fence.items) |got| {
+        if (got.len == 0) continue;
+        var matched = false;
+        while (cursor < expected.len) : (cursor += 1) {
+            if (std.mem.eql(u8, got, expected[cursor])) {
+                matched = true;
+                cursor += 1;
+                break;
+            }
+        }
+        if (!matched) {
+            try appendViolation(gpa, violations, "{s}: abridged quick-start line `{s}` is not one examples/zig/readme_quick_start.zig carries from here on; the front page may drop lines but never reword them", .{ path, got });
+            return;
+        }
+    }
 }
 
 /// Find the doc's tcp quick-start fence (the one ```zig block carrying the
@@ -382,7 +679,7 @@ fn compareQuickStartDoc(
     expected: []const []const u8,
     blockquoted: bool,
 ) !void {
-    const marker = "// tcp: the peer is a place";
+    const marker = "// Plain TCP uses a cleartext `host:port` locator.";
     const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for the quick-start check with {s}", .{ path, @errorName(err) });
         return;
@@ -454,7 +751,7 @@ pub fn checkDanglingReferenceLinks(
 ) !void {
     // `bindings/rust/README.md` is excluded: rustdoc resolves the bracketed
     // code-span form, so it is a real link there (see the doc-voice rule).
-    const markdown_files = [_][]const u8{ "AGENTS.md", "README.md", "CONTRIBUTING.md", "bindings/README.md", "bindings/ts/README.md", "bindings/python/README.md", "bindings/racket/README.md" };
+    const markdown_files = [_][]const u8{ "AGENTS.md", "README.md", "CONTRIBUTING.md", "bindings/README.md", "bindings/DEVELOPING.md", "bindings/PACKAGING.md", "bindings/ts/README.md", "bindings/python/README.md", "bindings/racket/README.md" };
     for (markdown_files) |path| {
         try checkDanglingRefsInMarkdownFile(io, gpa, root, violations, path);
     }
@@ -1269,13 +1566,10 @@ test "mermaidBlockKind recognizes supported diagram heads" {
     try std.testing.expect(try mermaidBlockKind("notMermaid\n    A\n") == null);
 }
 
-/// The stability page scores every pluggable surface by what proves it, and
-/// the strongest tier means "proved on every push". That claim rests on one
-/// list of build steps, which is only true while it matches the sequence
-/// `ci/gates.sh` actually runs. So the two are compared in both directions:
-/// a step added to CI and not listed leaves a row under-scored, and a step
-/// removed from CI but still listed leaves a row claiming a proof that no
-/// longer runs. The second is the dangerous one, because it was believed.
+/// The stability page says which evidence runs on every push. That claim is
+/// only true while its build-step list matches `ci/gates.sh`, so compare the
+/// two in both directions. A removed CI step must not remain documented as
+/// recurring evidence.
 pub fn checkStabilityGateList(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -1290,7 +1584,7 @@ pub fn checkStabilityGateList(
     const arena = arena_state.allocator();
 
     const doc = root.readFileAlloc(io, doc_path, arena, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: missing, but the stability tiers are scored against it", .{doc_path});
+        try appendViolation(gpa, violations, "{s}: missing, but recurring evidence is documented there", .{doc_path});
         return;
     };
     const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch {
@@ -1320,12 +1614,12 @@ pub fn checkStabilityGateList(
 
     for (running.items) |step| {
         if (!containsStep(listed.items, step)) {
-            try appendViolation(gpa, violations, "{s}: `{s}` runs in {s} but is not listed; a row may be under-scored", .{ doc_path, step, ci_path });
+            try appendViolation(gpa, violations, "{s}: `{s}` runs in {s} but is not listed as recurring evidence", .{ doc_path, step, ci_path });
         }
     }
     for (listed.items) |step| {
         if (!containsStep(running.items, step)) {
-            try appendViolation(gpa, violations, "{s}: lists `{s}`, which {s} no longer runs; the tiers that cite it are stale", .{ doc_path, step, ci_path });
+            try appendViolation(gpa, violations, "{s}: lists `{s}`, which {s} no longer runs; the evidence claim is stale", .{ doc_path, step, ci_path });
         }
     }
 }
@@ -1469,7 +1763,16 @@ fn collectBuildSteps(
     while (std.mem.indexOfPos(u8, haystack, at, prefix)) |hit| {
         const start = hit + prefix.len;
         var stop = start;
-        while (stop < haystack.len and haystack[stop] != '`' and haystack[stop] != '\n') stop += 1;
+        // A space ends the name as surely as a backtick or a newline does: a
+        // build step never contains one, so anything past it is arguments. A
+        // gate that passes an option (`zig build fuzz -Dfuzz-runs=25K`) is
+        // still running that step, and a doc row saying CI runs `fuzz` is
+        // still true — without this the option becomes part of the name and
+        // every such row reads as stale.
+        while (stop < haystack.len and
+            haystack[stop] != '`' and
+            haystack[stop] != '\n' and
+            haystack[stop] != ' ') stop += 1;
         const name = std.mem.trim(u8, haystack[start..stop], " \t\r");
         if (name.len > 0) try out.append(arena, name);
         at = stop;
@@ -1542,10 +1845,10 @@ const max_prose_sentence = 250;
 ///
 /// Fenced code, tables, and link-heavy lines are skipped: a table row is not
 /// prose, and a long URL is not a long sentence.
-/// The site's stability page repeats docs/stability.md's tier summary table.
-/// Hold the two `| Piece | Tier |` tables identical so the public copy cannot
-/// drift from the canonical one.
-pub fn checkStabilityTierParity(
+/// The site's stability page repeats docs/stability.md's evidence table.
+/// Hold the two tables identical so the public copy cannot drift from the
+/// canonical one.
+pub fn checkStabilityEvidenceParity(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
@@ -1566,35 +1869,35 @@ pub fn checkStabilityTierParity(
 
     var doc_rows: std.ArrayList([]const u8) = .empty;
     defer doc_rows.deinit(gpa);
-    try collectTierRows(gpa, doc, &doc_rows);
+    try collectEvidenceRows(gpa, doc, &doc_rows);
     var site_rows: std.ArrayList([]const u8) = .empty;
     defer site_rows.deinit(gpa);
-    try collectTierRows(gpa, site, &site_rows);
+    try collectEvidenceRows(gpa, site, &site_rows);
 
     if (doc_rows.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no `| Piece | Tier |` table found for the tier-parity check", .{doc_path});
+        try appendViolation(gpa, violations, "{s}: no stability evidence table found for the parity check", .{doc_path});
         return;
     }
     if (site_rows.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: no `| Piece | Tier |` table found for the tier-parity check", .{site_path});
+        try appendViolation(gpa, violations, "{s}: no stability evidence table found for the parity check", .{site_path});
         return;
     }
     const shared = @min(doc_rows.items.len, site_rows.items.len);
     var i: usize = 0;
     while (i < shared) : (i += 1) {
         if (!std.mem.eql(u8, doc_rows.items[i], site_rows.items[i])) {
-            try appendViolation(gpa, violations, "stability tier tables differ at row {d}: docs has `{s}`, site has `{s}`", .{ i + 1, doc_rows.items[i], site_rows.items[i] });
+            try appendViolation(gpa, violations, "stability evidence tables differ at row {d}: docs has `{s}`, site has `{s}`", .{ i + 1, doc_rows.items[i], site_rows.items[i] });
             return;
         }
     }
     if (doc_rows.items.len != site_rows.items.len) {
-        try appendViolation(gpa, violations, "stability tier tables differ in length: {s} has {d} rows, {s} has {d}", .{ doc_path, doc_rows.items.len, site_path, site_rows.items.len });
+        try appendViolation(gpa, violations, "stability evidence tables differ in length: {s} has {d} rows, {s} has {d}", .{ doc_path, doc_rows.items.len, site_path, site_rows.items.len });
     }
 }
 
-/// Collect the rows of the first `| Piece | Tier |` table in `contents`,
+/// Collect the rows of the first stability evidence table in `contents`,
 /// excluding the header and its separator line.
-fn collectTierRows(
+fn collectEvidenceRows(
     gpa: std.mem.Allocator,
     contents: []const u8,
     rows: *std.ArrayList([]const u8),
@@ -1605,7 +1908,7 @@ fn collectTierRows(
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (!in_table) {
-            if (std.mem.eql(u8, line, "| Piece | Tier |")) in_table = true;
+            if (std.mem.eql(u8, line, "| Surface | Evidence on every push | What remains |")) in_table = true;
             continue;
         }
         if (!past_separator) {

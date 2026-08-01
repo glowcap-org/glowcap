@@ -11,9 +11,9 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use crate::host::check_host;
-use crate::session_shared::{Ref, SessionShared};
-use crate::sys::driver as ffi;
-use crate::{sys, Argument, Error, Reference, Result, SendArena};
+use crate::session_shared::SessionShared;
+use crate::sys::host as ffi;
+use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
 /// Shared fetch/enliven wait: the mint already registered the vow; kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
@@ -26,15 +26,15 @@ pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result
 
 /// The one mint/await/classify body under `fetch` and `enliven`: mint the
 /// host vow with `mint`, await its drain-routed completion, and classify —
-/// only a live near/far reference is a capability this surface can hand out.
-/// `track` marks the Far arm for distributed GC via `track_import`.
+/// only an opaque Host reference is a capability this surface can hand out.
+/// `track` marks fetched capabilities for distributed GC via `track_import`.
 pub(crate) async fn fetch_like(
 	shared: &Rc<SessionShared>,
 	swiss: &[u8],
 	label: &str,
 	mint: unsafe extern "C" fn(*mut ffi::PancakeHostSession, *const u8, usize, *mut u64) -> i32,
 	track: bool,
-	track_import: impl FnOnce(crate::LiveRef) -> Ref,
+	track_import: impl FnOnce(Ref) -> Ref,
 ) -> Result<Ref> {
 	shared.guard_open()?;
 	shared.drain_gc();
@@ -42,15 +42,8 @@ pub(crate) async fn fetch_like(
 	check_host(unsafe { mint(shared.ptr.get(), swiss.as_ptr(), swiss.len(), &mut vow) })?;
 	let value = await_minted(shared, vow).await?;
 	match value {
-		Argument::Reference(Reference::Near { id, promise }) => {
-			Ok(Ref::bare(crate::LiveRef::Near { id, promise }))
-		}
-		Argument::Reference(Reference::Far { id, promise }) if track => {
-			Ok(track_import(crate::LiveRef::Far { id, promise }))
-		}
-		Argument::Reference(Reference::Far { id, promise }) => {
-			Ok(Ref::bare(crate::LiveRef::Far { id, promise }))
-		}
+		Argument::Reference(reference) if track => Ok(track_import(reference)),
+		Argument::Reference(reference) => Ok(reference),
 		_ => Err(Error::broken(format!(
 			"{label:?} did not resolve to a capability"
 		))),
@@ -75,9 +68,14 @@ pub(crate) fn send_promise(
 	// A send to an object this side hosts runs its behavior in process — a
 	// proxy over a *far* target then defers onto the wire reply, the same
 	// forward semantics a partner's delivery gets (ADR-0064).
-	if let CmdTarget::Ref(Reference::Near { id, .. }) = &target {
-		if shared.hosted_cell(*id).is_some() {
-			return RemotePromise::local(*id, verb.to_string(), args.to_vec(), Rc::clone(shared));
+	if let CmdTarget::Ref(reference) = &target {
+		if shared.hosted_cell(reference.id()).is_some() {
+			return RemotePromise::local(
+				reference.id(),
+				verb.to_string(),
+				args.to_vec(),
+				Rc::clone(shared),
+			);
 		}
 	}
 	let mut arena = SendArena::default();
@@ -147,7 +145,7 @@ pub(crate) fn send_promise(
 /// hidden from docs and not meant to be named by applications.
 #[doc(hidden)]
 pub enum CmdTarget {
-	Ref(Reference),
+	Ref(Ref),
 	Pipeline(Option<u64>),
 }
 
@@ -167,7 +165,7 @@ impl AsSendTarget for &RemotePromise {
 
 impl AsSendTarget for &Ref {
 	fn as_send_target(&self) -> CmdTarget {
-		CmdTarget::Ref(self.reference().clone())
+		CmdTarget::Ref((*self).clone())
 	}
 }
 
@@ -178,7 +176,7 @@ impl AsSendTarget for &Ref {
 pub(crate) enum PromiseState {
 	Far(u64),
 	Local {
-		position: u64,
+		ref_id: u64,
 		verb: String,
 		args: Vec<Argument>,
 	},
@@ -228,17 +226,13 @@ impl RemotePromise {
 	}
 
 	pub(crate) fn local(
-		position: u64,
+		ref_id: u64,
 		verb: String,
 		args: Vec<Argument>,
 		conn: Rc<SessionShared>,
 	) -> Self {
 		Self {
-			state: PromiseState::Local {
-				position,
-				verb,
-				args,
-			},
+			state: PromiseState::Local { ref_id, verb, args },
 			conn,
 		}
 	}
@@ -352,11 +346,9 @@ impl IntoFuture for RemotePromise {
 					self.conn.host.kick_actions().await;
 					settled.await
 				}
-				PromiseState::Local {
-					position,
-					verb,
-					args,
-				} => crate::trampoline::run_local_send(self.conn, position, verb, args).await,
+				PromiseState::Local { ref_id, verb, args } => {
+					crate::trampoline::run_local_send(self.conn, ref_id, verb, args).await
+				}
 			}
 		})
 	}

@@ -21,9 +21,16 @@ comptime {
     std.debug.assert(syrup.decode.max_decode_nesting == capnp.decode.max_charge_depth);
     std.debug.assert(syrup.decode.max_decode_nesting > model.max_value_depth);
 }
+/// The verdicts a codec gives a byte-stream framer, and the resumable scan
+/// that keeps a frame arriving in pieces from being re-walked per piece.
+pub const framing = @import("framing");
 /// Codec-neutral set/struct sort + adjacent-dupe refusal (ADR-0003).
 pub const order = @import("codec_order");
 pub const dispatch = @import("dispatch.zig");
+
+/// The byte form OCapN signatures are defined over: Syrup, whatever codec the
+/// session negotiated. The engine reaches signature bytes only through here.
+pub const signed = @import("signed.zig");
 /// The open set of codecs this build speaks. Declare `pub const pancake_codecs`
 /// in your root source file to add your own (see `registry.Spec`).
 pub const registry = @import("registry.zig");

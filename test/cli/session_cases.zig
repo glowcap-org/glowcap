@@ -88,10 +88,12 @@ test "signals stop latch is set by requestStop" {
 
 test "CLI session opts refuse unbounded CapTP waits" {
     const opts = cli.ocapn.sessionOpts();
-    try std.testing.expectEqual(cli.ocapn.default_handshake_timeout_ms, opts.handshake_timeout_ms);
-    try std.testing.expectEqual(cli.ocapn.default_settle_timeout_ms, opts.settle_timeout_ms);
-    try std.testing.expect(opts.handshake_timeout_ms > 0);
-    try std.testing.expect(opts.settle_timeout_ms > 0);
+    try std.testing.expectEqual(pancake.driver.Budget{ .ms = cli.ocapn.default_handshake_timeout_ms }, opts.handshake);
+    try std.testing.expectEqual(pancake.driver.Budget{ .ms = cli.ocapn.default_settle_timeout_ms }, opts.settle);
+    // Not merely non-zero: the product front must name a bound, and `unbounded`
+    // is now a thing it has to say out loud rather than inherit.
+    try std.testing.expect(opts.handshake == .ms and opts.handshake.ms > 0);
+    try std.testing.expect(opts.settle == .ms and opts.settle.ms > 0);
 }
 
 test "dial against silent partner times out (no hang)" {
@@ -120,7 +122,7 @@ test "dial against silent partner times out (no hang)" {
     defer c.deinit();
 
     // 200ms budget: an unbounded dial would hang until the outer build timeout.
-    const dial_err = cli.ocapn.dialUriWithOpts(&c, uri, .{ .handshake_timeout_ms = 200 });
+    const dial_err = cli.ocapn.dialUriWithOpts(&c, uri, .{ .handshake = .{ .ms = 200 }, .settle = .{ .ms = 200 } });
     try std.testing.expectError(error.HandshakeTimedOut, dial_err);
     try std.testing.expectEqual(cli.exit_codes.timeout, cli.ocapn.mapDialErr(error.HandshakeTimedOut));
     try std.testing.expectEqual(cli.exit_codes.timeout, cli.ocapn.mapDialErr(error.WaitTimedOut));

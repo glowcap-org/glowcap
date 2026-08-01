@@ -24,3 +24,20 @@ only if it survives that wider derivation, and then it is named in the open,
 never hidden. This is the [Release Bar](project-values.md)'s "no half measures
 on touched surfaces," pointed at its most common escape hatch: deferring a
 structural fix on a cost prerelease has already waived.
+
+## A bug is not a verdict on the design
+
+A defect found while a design is landing is evidence about the implementation
+far more often than about the design. Before reverting, name which one it is:
+
+- **A missing prerequisite** the design assumed and nothing provides yet: an
+  idempotent verb, a durable owner, a reset boundary. Build it. It is usually
+  smaller than the revert, and the revert leaves the hole for the next session
+  to rediscover.
+- **A contradiction in the design's own terms**, where holding one invariant it
+  needs breaks another. Only this earns a retreat, and it is rare.
+
+Reverting on the first is the deferral above wearing a bug report as its excuse,
+and the follow-up task naming the prerequisite is the tell. Nor does losing
+confidence change the answer: work that was not trusted needs more verification,
+not smaller changes.

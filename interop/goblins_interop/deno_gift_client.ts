@@ -6,7 +6,8 @@
 //
 // Topology (all TCP loopback):
 //   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-//   Gifter (pancake)           fetches Bob's greeter, publishes an "introducer"
+//   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+//                              publishes an "introducer"
 //                              that returns it, and listens for the recipient.
 //   Carol  (Goblins recipient) dials the pancake introducer, asks for the
 //                              greeter, transparently redeems pancake's give, and
@@ -21,7 +22,7 @@
 // Needs `deno` + `racket` + the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-gift`.
 
-import { connect, listen, socketAddrDesignator, tcpLocator } from "@pancake/stack";
+import { connect, listen, Ref, socketAddrDesignator, tcpLocator } from "@pancake/stack";
 import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -35,6 +36,7 @@ const RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt";
 // pancake hardcodes the same swiss the exporter host registers, the way the
 // interop clients fix the echo swiss.
 const GREETER_SWISS = "pancakeGiftGreeterSwissnum000001";
+const VENDOR_SWISS = "pancakeGiftVendorSwissnum0000001";
 const INTRODUCER_SWISS = "introducer";
 
 const children: Deno.ChildProcess[] = [];
@@ -84,12 +86,15 @@ try {
 	const gifterAccept = acceptLoop(gifter);
 	const gifterPort = await gifter.ready();
 
-	// Dial Bob and fetch his greeter. The fetched ref's home is this gifter↔Bob
-	// connection, which is what lets pancake re-gift it across to the recipient.
+	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. That
+	// reply ref's home is the gifter↔Bob connection, which is what lets pancake
+	// re-gift it across to the recipient without an enrollment verb.
 	const toBob = await connect(tcpLocator(HOST, PORT), undefined, gifter.host);
 	toBob.serve().catch(() => {});
-	const greeter = await toBob.fetch(GREETER_SWISS);
-	console.log("deno-goblins-gift: fetched goblins-bob's greeter");
+	const vendor = await toBob.fetch(VENDOR_SWISS);
+	const greeter = await toBob.send(vendor, "", []);
+	if (!(greeter instanceof Ref)) giftFail("the vendor reply was not a capability");
+	console.log("deno-goblins-gift: lifted goblins-bob's greeter from a reply");
 
 	// Publish the introducer host-wide. Returning Bob's greeter (home = the Bob
 	// connection) to the recipient's connection trips the transparent gifter,

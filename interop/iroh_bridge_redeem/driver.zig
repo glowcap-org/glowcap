@@ -116,7 +116,7 @@ fn exporterOnOpen(ctx: ?*anyopaque, bridge: *IrohBridge, conn: *IrohBridge.Slot)
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
     if (state.g_conn != null) return;
     state.g_conn = conn.session;
-    _ = try conn.session.served.publish("target", Widget, .{});
+    _ = try conn.session.served.publish(&conn.session.host.vat, "target", Widget, .{});
     const desk = try state.host.fetch(conn.session, "desk");
     try state.host.vowOn(desk, .{ .ctx = state, .func = onGifterDesk });
     try bridge.drainActions();
@@ -239,9 +239,9 @@ const Introducer = struct {
     }
 };
 
-fn publishGifterDesk(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishGifterDesk(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish("desk", RedeemDesk, .{ .state = state });
+    _ = try served.publish(vat, "desk", RedeemDesk, .{ .state = state });
 }
 
 fn gifterMaybeDialRecipient(state: *GifterState) void {
@@ -290,7 +290,7 @@ fn gifterOnOpen(ctx: ?*anyopaque, bridge: *IrohBridge, conn: *IrohBridge.Slot) a
     if (state.r_conn != null) return;
     const widget = state.widget orelse return;
     state.r_conn = conn.session;
-    _ = try conn.session.served.publish("desk", Introducer, .{ .widget = widget });
+    _ = try conn.session.served.publish(&conn.session.host.vat, "desk", Introducer, .{ .widget = widget });
     const inbox = try state.host.fetch(conn.session, "inbox");
     try state.host.vowOn(inbox, .{ .ctx = state, .func = onInbox });
     try bridge.drainActions();
@@ -382,9 +382,9 @@ const ReadyInbox = struct {
     }
 };
 
-fn publishReadyInbox(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishReadyInbox(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const state: *RecipientState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish("inbox", ReadyInbox, .{ .state = state });
+    _ = try served.publish(vat, "inbox", ReadyInbox, .{ .state = state });
 }
 
 fn recipientServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {

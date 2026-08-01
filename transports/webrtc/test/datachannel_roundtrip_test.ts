@@ -3,11 +3,11 @@
 // A real headless Chromium is the browser peer (the offerer). It creates a
 // reliable, ordered RTCDataChannel to the native Rust peer
 // (`pancake-webrtc-datachannel-probe`, the answerer over the `webrtc` crate),
-// and this harness ferries the signaling — the SDP offer/answer and trickled
-// ICE candidates — between the two out of band, over the probe's stdio. That
-// out-of-band exchange stands in for the OCapN signaling capability that ADR-0089
-// phase 5 will carry; here it exists only to bring the channel up so the byte
-// path itself can be proven.
+// and this focused phase-1 harness ferries the signaling — the SDP offer/answer
+// and trickled ICE candidates — between the two out of band, over the probe's
+// stdio. The capability-routed signaling shape is covered by
+// `webrtc-signaling-captp`; stdio exists here only to bring the channel up so
+// the byte path itself can be proven.
 //
 // Once the DataChannel opens, the browser sends bytes and the native peer
 // replies. The proof asserts BOTH directions: the native peer reports it

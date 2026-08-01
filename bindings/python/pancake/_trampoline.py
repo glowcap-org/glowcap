@@ -1,7 +1,7 @@
 """Internal: the behavior trampoline, the ONE native callback in the binding.
 
 Every hosted object — a :meth:`Session.spawn` / :meth:`Session.publish`
-actor, a caretaker or attenuator proxy, a host-wide giftable — registers here
+actor, a caretaker or attenuator proxy, or a host-wide giftable registers here
 and shares a single process-lifetime ``PancakeHostBehavior`` whose ctx is the
 entry's registry id packed as a pointer-sized integer (``free`` = NULL: the
 registry owns the Python side, so there is nothing for the library to free).
@@ -17,49 +17,45 @@ raise — an attenuator's ``Attenuated``, a revoked caretaker's ``Revoked``, an
 unknown-method error — crosses as ``pancake_host_turn_break`` carrying the
 exception's own words; a bare non-OK return would flatten them into a generic
 reason. A :class:`Forward` return maps onto ``pancake_host_turn_forward`` (the
-caretaker/attenuator primitive): a target hosted by the same session
-composes in process, a far target defers the answer onto the forwarded send's
-vow.
+caretaker/attenuator primitive): a target hosted by the same Host composes in
+process, and a far target defers the answer onto the forwarded send's vow.
 """
 
 from __future__ import annotations
 
 import ctypes
 from dataclasses import dataclass
+import threading
 from typing import Callable, Optional
 
 from . import _constants as _abi
 from ._codec import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
 from ._errors import _check_host, _host_last_error, PancakeException, VowBroken
-from ._ffi_driver import _host, _HostBehavior
-from ._ffi_ocapn import _Argument, _byte_buf
+from ._ffi_host import _host, _HostBehavior
+from ._ffi_ocapn import _Argument, _byte_buf, _Reference
 from ._promise import RemotePromise, _send_far
-from ._value import Forward, Near, Ref, _lift_value, _lower_value
+from ._value import Forward, Ref, _ref_from_id
 
 _OK = _abi.OK
 
 @dataclass
 class _BehaviorEntry:
-    """One hosted object: its behavior, and — for an actor bound to a
-    connection — how to resolve a near export position on that connection to
-    another hosted entry, so a :class:`Forward` chain (a caretaker over an
-    attenuator) composes in process. A host-wide giftable carries neither: its
-    forwards always go through the host."""
+    """One hosted object's behavior and its Host-local reference resolver.
+
+    The resolver lets a :class:`Forward` chain, such as a caretaker over an
+    attenuator, compose in process. A giftable has no resolver until a session
+    projects it and records that Host identity in the shared hosted index.
+    """
 
     run: "Callable"
-    # The connection this entry serves (identity only, for turn-ownership
-    # checks), or None for a host-wide giftable.
-    session: Optional[object]
-    # Resolve a near export position hosted by this entry's own connection to
-    # its entry, or None when this side does not host it / for a giftable.
+    # Resolve a local Host capability id to its entry, or None when the entry
+    # has not joined the Host's local-composition index.
     resolve_local: "Optional[Callable[[int], Optional[_BehaviorEntry]]]"
 
 
-# The registry: ctx id -> entry. Entries live as long as the host may deliver
-# to them (free = NULL means no teardown callback): a connection-bound entry is
-# unregistered when its connection closes (`Session.close_transport` drops
-# its hosted ids), a host-wide giftable lives for its host's lifetime, the same
-# posture as the other bindings' keep tables.
+# The registry: ctx id -> entry. Entries live as long as their Host may deliver
+# to them. The C callback has free = NULL, so Host.release sweeps every hosted
+# id after releasing the core Host.
 _registry: "dict[int, _BehaviorEntry]" = {}
 _next_id = 1
 
@@ -75,11 +71,8 @@ def _register_behavior(entry: _BehaviorEntry) -> int:
 
 
 def _unregister_behavior(ctx_id: int) -> None:
-    """Drop a hosted object's registry entry once the host can never deliver to
-    it again — a closing connection sweeps its own hosted ids, and a released
-    host sweeps its giftable ids (``Host.release``), so the registry does not
-    pin dead behaviors. Idempotent."""
-    _registry.pop(ctx_id, None)  # tolerant: a close may sweep an id twice
+    """Drop a hosted object's registry entry after its Host is released."""
+    _registry.pop(ctx_id, None)
 
 
 def _entry_for(ctx_id: Optional[int]) -> Optional[_BehaviorEntry]:
@@ -107,8 +100,8 @@ def _chase_local_forwards(entry: _BehaviorEntry, result):
             raise RuntimeError(_abi.FORWARD_CYCLE_MESSAGE)
         target = result.target
         inner = None
-        if target.near is not None and entry.resolve_local is not None:
-            inner = entry.resolve_local(target.near.id)
+        if entry.resolve_local is not None:
+            inner = entry.resolve_local(target.id)
         if inner is None:
             return result
         entry = inner
@@ -122,13 +115,13 @@ def _run_hosted(entry: _BehaviorEntry, verb: str, args: list, turn=None):
     local send/tell omit the latch."""
     if turn is None:
         return _chase_local_forwards(entry, entry.run(verb, args))
-    global _current_turn
-    prev = _current_turn
-    _current_turn = (turn, entry.session)
+    prev = getattr(_turn_state, "current_turn", None)
+    arriving = getattr(_turn_state, "active_deliver_session", None)
+    _turn_state.current_turn = (turn, arriving.host if arriving is not None else None)
     try:
         return _chase_local_forwards(entry, entry.run(verb, args))
     finally:
-        _current_turn = prev
+        _turn_state.current_turn = prev
 
 
 def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
@@ -169,19 +162,32 @@ async def _tell_local(session, ctx: int, verb: str, args: list) -> None:
 
 
 # The turn context while a hosted object's trampoline runs: the opaque
-# PancakeHostTurn* and the connection the turn arrived on (None for a
-# giftable), or None outside any turn. `Session.spawn` reads it to pick the
+# PancakeHostTurn* and the Host that owns the turn, or None outside any turn.
+# `Session.spawn` reads it to pick the
 # turn-time spawn over the top-level one (which the host refuses inside a
 # callback); the action drain reads it to defer to the enclosing verb's
-# unwind. A plain module variable is enough: behaviors are synchronous, so no
-# task switch can happen between the set and the read.
-_current_turn: "Optional[tuple[int, Optional[object]]]" = None
+# unwind. Behaviors are synchronous, so no task switch can happen between the
+# set and read; thread-local state keeps distinct Hosts driven on separate
+# threads independent.
+_turn_state = threading.local()
+
+
+def _enter_deliver(session: object) -> Optional[object]:
+    """Bracket the synchronous C feed whose callback may run an actor."""
+    prior = getattr(_turn_state, "active_deliver_session", None)
+    _turn_state.active_deliver_session = session
+    return prior
+
+
+def _exit_deliver(prior: Optional[object]) -> None:
+    _turn_state.active_deliver_session = prior
 
 
 def _current_turn_for(session: object) -> Optional[int]:
-    """The current turn pointer when it belongs to connection ``conn``."""
-    if _current_turn is not None and _current_turn[1] is session:
-        return _current_turn[0]
+    """The current turn pointer when it belongs to ``session``'s Host."""
+    current_turn = getattr(_turn_state, "current_turn", None)
+    if current_turn is not None and current_turn[1] is session.host:
+        return current_turn[0]
     return None
 
 
@@ -189,14 +195,14 @@ def _inside_turn() -> bool:
     """Whether ANY hosted turn is running — the drain defers while one is (the
     host refuses the driving verbs inside a callback; everything enqueued pumps
     when the enclosing call unwinds)."""
-    return _current_turn is not None
+    return getattr(_turn_state, "current_turn", None) is not None
 
 
 # The most recent reply's marshalled argument and its pinned buffers, retained
 # across the trampoline's return so the host's immediate copy reads live
 # memory. One slot suffices: the host copies before any other Python code can
 # run, so by the time this is overwritten the previous reply is long copied.
-_last_reply_keep: "Optional[tuple]" = None
+_reply_state = threading.local()
 
 
 def _turn_break(turn: int, message: str) -> int:
@@ -212,16 +218,15 @@ def _settle_reply(turn: int, result, out_reply) -> int:
     # Resolve a behavior's already-chased result into the turn's answer: a
     # plain value (None is the void ack) marshals into the reply slot; a
     # surviving `Forward` defers through the host's turn-forward.
-    global _last_reply_keep
     if isinstance(result, Forward):
         # The host forwards: the real answer rides the forwarded send's vow and
         # out_reply gets a void placeholder. Buffers stay pinned by `keep`
         # until the synchronous call returns.
         keep: list = []
-        ref = _ref_to_c(result.target._wire())
+        ref = _ref_to_c(result.target)
         verb_bytes = result.verb.encode()
         vbuf, vptr = _byte_buf(verb_bytes)
-        arr, count = _args_to_c([_lower_value(a) for a in result.args], keep)
+        arr, count = _args_to_c(result.args, keep)
         rc = _host.pancake_host_turn_forward(
             turn, ctypes.byref(ref), vptr, len(verb_bytes), arr, count, out_reply,
         )
@@ -231,9 +236,9 @@ def _settle_reply(turn: int, result, out_reply) -> int:
     # A plain value (None marshals as the void ack). The keep slot pins the
     # marshalled struct and every child buffer it points at across the return.
     keep = []
-    c_arg = _arg_to_c(_lower_value(result), keep)
+    c_arg = _arg_to_c(result, keep)
     ctypes.memmove(out_reply, ctypes.byref(c_arg), ctypes.sizeof(_Argument))
-    _last_reply_keep = (c_arg, keep)
+    _reply_state.last_reply_keep = (c_arg, keep)
     return _OK
 
 
@@ -246,7 +251,7 @@ def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_repl
         return _turn_break(turn, "no such hosted object")
     try:
         verb = ctypes.string_at(verb_ptr, verb_len).decode(errors="replace") if verb_len else ""
-        args = [_lift_value(_arg_from_c(args_ptr[i])) for i in range(args_len)]
+        args = [_arg_from_c(args_ptr[i]) for i in range(args_len)]
         return _settle_reply(turn, _run_hosted(entry, verb, args, turn=turn), out_reply)
     except BaseException as error:  # noqa: BLE001 — nothing crosses the C frame
         return _turn_break(turn, str(error) or type(error).__name__)
@@ -259,14 +264,13 @@ _TRAMPOLINE = _HostBehavior(_trampoline_body)
 
 
 def _turn_spawn(turn: int, ctx_id: int) -> int:
-    """Spawn a hosted object at a fresh export position from INSIDE a turn —
-    the turn-time form the host allows where the top-level spawn is refused.
-    Returns the export position."""
-    out = ctypes.c_uint64()
+    """Spawn a hosted object from INSIDE a turn — the turn-time form the host
+    allows where the top-level spawn is refused. Returns its opaque Host id."""
+    out = _Reference()
     _check_host(_host.pancake_host_turn_spawn(
         turn, _TRAMPOLINE, ctypes.c_void_p(ctx_id), None, ctypes.byref(out)
     ))
-    return out.value
+    return out.id
 
 
 def _caretaker_proxy(spawn, target: Ref) -> "Caretaker":
@@ -301,8 +305,8 @@ async def _tell_far(session, target: Ref, verb: str, args: list) -> None:
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)
     keepalive: list = []
-    arr, count = _args_to_c([_lower_value(a) for a in args], keepalive)
-    ref = _ref_to_c(target._wire())
+    arr, count = _args_to_c(args, keepalive)
+    ref = _ref_to_c(target)
     _check_host(_host.pancake_host_session_tell(
         session.raw, ctypes.byref(ref), vptr, len(verb_bytes), arr, count,
     ))
@@ -313,8 +317,8 @@ def _dispatch_send(session, target, verb: str, args: list) -> RemotePromise:
     # Near-hosted vs far send dispatch: a self-hosted near runs _send_local,
     # everything else mints through _send_far. Session keeps guard/drain + the
     # CapTP verb; this owns the routing if.
-    if isinstance(target, Ref) and target.near is not None:
-        ctx = session.hosted.get(target.near.id)
+    if isinstance(target, Ref):
+        ctx = session.hosted.get(target.id)
         if ctx is not None:
             return _send_local(session, ctx, verb, args)
     return _send_far(session, target, verb, args)
@@ -323,8 +327,8 @@ def _dispatch_send(session, target, verb: str, args: list) -> RemotePromise:
 async def _dispatch_tell(session, target: Ref, verb: str, args: list) -> None:
     # Near-hosted vs far tell dispatch: a self-hosted near runs _tell_local,
     # everything else mints through _tell_far.
-    if target.near is not None:
-        ctx = session.hosted.get(target.near.id)
+    if target is not None:
+        ctx = session.hosted.get(target.id)
         if ctx is not None:
             await _tell_local(session, ctx, verb, args)
             return
@@ -332,47 +336,47 @@ async def _dispatch_tell(session, target: Ref, verb: str, args: list) -> None:
 
 
 def _register_actor(session, behavior) -> int:
-    # Register `behavior` in the trampoline registry as an actor of this
-    # connection, so a Forward whose target this side hosts composes in
-    # process and a turn it runs can spawn turn-time.
+    # Register `behavior` in the Host-owned trampoline index so local Forward
+    # chains compose in process and an arriving Port can run it in a turn.
+    hosted = session.hosted
     return _register_behavior(_BehaviorEntry(
         run=behavior,
-        session=session,
-        resolve_local=lambda position: _entry_for(session.hosted.get(position)),
+        resolve_local=lambda ref_id: _entry_for(hosted.get(ref_id)),
     ))
 
 
 def _spawn_hosted(session, behavior) -> Ref:
-    # Register + mint a top-level or turn-time spawn; records the export so
+    # Register + mint a top-level or turn-time spawn; records the Host id so
     # local Forward composition finds it.
-    session.guard_open()
+    turn = _current_turn_for(session)
+    if turn is None:
+        session.guard_open()
     ctx = _register_actor(session, behavior)
     try:
-        turn = _current_turn_for(session)
         if turn is not None:
-            position = _turn_spawn(turn, ctx)
+            ref_id = _turn_spawn(turn, ctx)
         else:
-            out = ctypes.c_uint64()
+            out = _Reference()
             _check_host(_host.pancake_host_session_spawn(
                 session.raw, _TRAMPOLINE, ctypes.c_void_p(ctx), None, ctypes.byref(out),
             ))
-            position = out.value
+            ref_id = out.id
     except BaseException:
         # free = NULL: the C tier never owns the row, so a refused mint must
         # drop it here or the registry pins the behavior forever.
         _unregister_behavior(ctx)
         raise
-    session.hosted[position] = ctx
-    return Ref(Near(position))
+    session.hosted[ref_id] = ctx
+    return _ref_from_id(ref_id)
 
 
 def _publish_hosted(session, name: str, behavior) -> Ref:
-    # Register + publish by swiss name; records the export in hosted.
+    # Register + publish by swiss name; records the Host id in hosted.
     session.guard_open()
     ctx = _register_actor(session, behavior)
     swiss = name.encode()
     buf, ptr = _byte_buf(swiss)
-    out = ctypes.c_uint64()
+    out = _Reference()
     try:
         _check_host(_host.pancake_host_session_publish(
             session.raw, ptr, len(swiss),
@@ -383,9 +387,9 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
         # must drop it here or the registry pins the behavior forever.
         _unregister_behavior(ctx)
         raise
-    position = out.value
-    session.hosted[position] = ctx
-    return Ref(Near(position))
+    ref_id = out.id
+    session.hosted[ref_id] = ctx
+    return _ref_from_id(ref_id)
 
 
 class Caretaker:

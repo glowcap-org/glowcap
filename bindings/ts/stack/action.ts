@@ -10,7 +10,7 @@
 // exactly one callback seam (the behavior trampoline), so a hooks-buffer drain
 // could never run there.
 
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
 import { ab } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";

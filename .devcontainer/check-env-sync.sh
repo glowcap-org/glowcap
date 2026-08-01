@@ -43,3 +43,40 @@ require_literal "${devcontainer_json}" "\"PIP_CACHE_DIR\": \"${PIP_CACHE_DIR}\""
 require_literal "${dockerfile}" "npm_config_cache=${NPM_CACHE_DIR}" "Dockerfile npm_config_cache"
 require_literal "${dockerfile}" "PIP_CACHE_DIR=${PIP_CACHE_DIR}" "Dockerfile PIP_CACHE_DIR"
 require_literal "${devcontainer_json}" "target=${CARGO_HOME_RUNTIME},type=volume" "devcontainer.json cargo volume"
+
+# Every mount target under the container's home must have its parents created,
+# owned by vscode, in the image. Docker creates a missing mount path as root,
+# and it creates the missing *parents* the same way — so a bind two levels deep
+# into a directory the image never made leaves that directory root-owned, and
+# the first tool that writes beside it fails with EACCES. That is invisible
+# until someone opens a fresh container, which is the worst place to find it.
+#
+# The check reads the mount targets out of devcontainer.json and asserts the
+# Dockerfile's user-space `mkdir -p` covers each one's parent directory.
+home_dir="/home/vscode"
+mkdir_targets="$(sed -n 's|^ *&& *mkdir -p \(.*\) *\\$|\1|p; s|^ *\('"${home_dir}"'/[^ ]*\) *\\$|\1|p' "${dockerfile}")"
+
+covered() {
+    local needed="$1" made
+    for made in ${mkdir_targets}; do
+        case "${needed}" in
+            "${made}" | "${made}"/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+while read -r target; do
+    [ -n "${target}" ] || continue
+    parent="$(dirname "${target}")"
+    # A direct child of home needs nothing: the image creates home itself.
+    [ "${parent}" != "${home_dir}" ] || continue
+    if ! covered "${parent}"; then
+        echo "devcontainer.json mounts ${target}, but ${dockerfile} never creates ${parent}." >&2
+        echo "  Docker would create it as root and the container's own user could not write beside it." >&2
+        echo "  Add ${parent} to the vscode user-space 'mkdir -p' in the Dockerfile." >&2
+        exit 1
+    fi
+done <<EOF
+$(sed -n "s|.*target=\(${home_dir}[^,]*\),.*|\1|p" "${devcontainer_json}")
+EOF

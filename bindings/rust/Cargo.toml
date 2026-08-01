@@ -47,8 +47,8 @@ iroh = ["async"]
 # (`libpancake_net_transport_webrtc`, built by `zig build webrtc-abi`, needs
 # cargo) alongside the static core archive; it exports only `pancake_webrtc_*`,
 # so core symbols still come from `libpancake_ocapn` (ADR-0089). Compiles
-# `pub mod webrtc`, the blocking peer surface (offer/answer/candidate signaling
-# plus the byte-fed read/write) a consumer drives from its own thread.
+# `pub mod webrtc`, the raw endpoint-readiness and peer try-I/O family. Signaling
+# submissions are synchronous control operations; no call parks the runtime.
 webrtc = []
 
 [dependencies]

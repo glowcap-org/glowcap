@@ -27,7 +27,7 @@ const pancake = @import("pancake");
 
 /// A finite handshake budget. A benchmark that hangs reports nothing; one that
 /// fails reports what broke.
-const handshake_budget_ms: i32 = 30_000;
+const handshake_budget: driver.Budget = .{ .ms = 30_000 };
 
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
@@ -178,14 +178,17 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     const holds_vat = scenarioHoldsVat(scenario);
 
     // The arrays of peers (and, for the loop-driven scenario, serve cores) are
-    // held in untracked memory so only each connection's own session and vat heap
-    // counts toward the footprint, never these bookkeeping slices. Stable
+    // held in untracked memory so only each connection's session heap and the
+    // scenario's one shared Vat count toward the footprint, never these
+    // bookkeeping slices. Stable
     // addresses also let each serve core borrow its peer
     // (`Served.over(&peers[i])`).
     const peers = try backing.alloc(engine.Peer, sample);
     defer backing.free(peers);
     const serveds: []driver.Served = if (holds_vat) try backing.alloc(driver.Served, sample) else &.{};
     defer if (holds_vat) backing.free(serveds);
+    var shared_vat = actors.Vat.init(tracked);
+    defer shared_vat.deinit();
 
     const before = tracker.liveBytes();
     var created: u64 = 0;
@@ -201,7 +204,7 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
         try warmPeer(&peers[created], scenario);
         if (holds_vat) {
             serveds[created] = driver.Served.over(tracked, &peers[created]);
-            _ = try serveds[created].publish("greeter", BenchGreeter, .{});
+            _ = try serveds[created].publish(&shared_vat, "greeter", BenchGreeter, .{});
         }
     }
     const after = tracker.liveBytes();
@@ -257,9 +260,9 @@ const LiveGreeter = struct {
     }
 };
 
-fn livePublishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn livePublishGreeter(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     _ = ctx;
-    _ = try served.publish("greeter", LiveGreeter, .{});
+    _ = try served.publish(vat, "greeter", LiveGreeter, .{});
 }
 
 fn liveRssKb(io: std.Io) u64 {
@@ -305,7 +308,7 @@ fn liveClientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerror!
     defer allocator.free(write_buf);
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

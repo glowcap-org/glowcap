@@ -6,6 +6,8 @@ tags: [actors, vat, layer, sans-io]
 decision: "pancake provides a Goblins-shaped actor layer (`src/actors/`) as a new sync, no-I/O layer above the engine. A `Vat` is a turn loop over local actors: typed `spawn`, synchronous near-call (`$`), eventual-send (`<-`) returning a `Vow` with one-shot listeners, and 'become' expressed as mutating an actor's own `self`. A peer-bound vat also binds actors to wire exports and meets the OCapN engine at one location-transparent seam, with a per-turn reply arena. It owns no I/O and adds no CapTP semantics the engine lacks."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0099]
 ---
 
 # ADR-0036 Actor layer

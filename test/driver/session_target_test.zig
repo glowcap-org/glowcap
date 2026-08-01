@@ -1,13 +1,12 @@
 //! Eventual-send target refusal: the owning `driver.Session` reference-keyed
-//! verbs (`callReference` / `sendReference`, the C surface's
-//! `pancake_tcp_session_call` / `_send`, ADR-0062) admit only an _object_
+//! verbs (`callReference` / `sendReference`) admit only an _object_
 //! near/far reference. A promise-kind near/far (an unresolved import/export
 //! promise) must be refused with `Error.UncallableTarget`, not silently
 //! coerced into an object turn: pipelining rides the answer vow
 //! (`sendToAnswer`), never a promise-kind target.
 //!
-//! Driven over the in-process netlayer, so the refusal is proven on a real,
-//! keyed, handshaken session with no socket. The positive control is a genuine
+//! Driven over TCP loopback — the owning tier multiplexes its blocking waits
+//! with poll, so it binds fd-backed transports only (ADR-0090). The positive control is a genuine
 //! far object that still calls and settles. That shows the gate refuses on _kind_, not
 //! by over-rejecting every reference.
 
@@ -20,13 +19,22 @@ const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
-const inproc = net.inproc;
+const tcp = net.tcp;
+const ip = std.Io.net;
 
-const node_designator = "target-node";
 const frame_cap = 4096;
 
+/// Session options for a real loopback dial. The budgets are finite on purpose:
+/// an unbounded CapTP wait against a partner that goes quiet does not fail the
+/// suite, it wedges the test binary, which reads as a hang rather than a bug.
+const dial_opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+};
+
 /// The published actor the positive control calls.
-const Greeter = support_actors.StaticReplyActor("greet", "hello over inproc");
+const Greeter = support_actors.StaticReplyActor("greet", "hello over loopback");
 
 /// Accept one partner over the bound listener, publish the greeter, and serve
 /// until the client leaves. Mirrors the owning `Server` accept the bindings ride.
@@ -44,35 +52,37 @@ test "session reference targets: promise-kind near/far is refused, an object sti
     defer threaded.deinit();
     const io = threaded.io();
 
-    var network = inproc.Network.init(allocator, io);
-    defer network.deinit();
-
+    var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
         allocator,
-        network.netlayer(),
-        .{ .designator = node_designator },
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
         .ephemeral,
-        .{ .frame_cap = frame_cap },
+        dial_opts,
     );
-    defer server.close();
+    defer server.close() catch {};
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(hostOnce, .{&server});
 
-    const client_result = clientAsserts(allocator, &network);
+    const client_result = clientAsserts(allocator, io, address);
 
     const host_result = host_future.await(io);
     try client_result;
     try host_result;
 }
 
-fn clientAsserts(allocator: std.mem.Allocator, network: *inproc.Network) !void {
-    const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
+fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
     const client = try driver.connect(
         allocator,
         &netlayers,
-        .{ .transport = inproc.transport_name, .designator = node_designator, .hints = model.Hints.emptyFalse() },
+        tcp.locator(&designator_buf, address),
         .ephemeral,
-        .{ .frame_cap = frame_cap },
+        dial_opts,
     );
     defer client.deinit();
 
@@ -85,7 +95,7 @@ fn clientAsserts(allocator: std.mem.Allocator, network: *inproc.Network) !void {
     try std.testing.expect(greeter == .far and greeter.far.kind == .object);
     const settled = try client.callReference(greeter, "greet", &.{}, arena.allocator());
     try std.testing.expect(settled == .fulfilled and settled.fulfilled == .string);
-    try std.testing.expectEqualStrings("hello over inproc", settled.fulfilled.string);
+    try std.testing.expectEqualStrings("hello over loopback", settled.fulfilled.string);
 
     // The promise-kind twin of that same far reference: an unresolved import
     // promise. Both reference-keyed verbs must refuse it, never coerce it into

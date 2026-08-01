@@ -6,6 +6,8 @@ tags: [actors, vat, time-travel, snapshot, memory]
 decision: "The Vat gains opt-in, local-only time-travel. Actor state moves behind a non-atomic refcounted StateBox; Vat.snapshot shares state pointers (O(objects), no byte copy) and Vat.restore swaps them back, both only at quiescence. Mutable actors opt in with a `clone` method and are copied-on-write before a shared turn runs; persistent actors opt in with `snapshot_persistent` plus Turn.become and need no copy-on-write. Off by default: a non-snapshotting actor's box stays refs==1 and pays only one indirection per turn."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0096]
 ---
 
 # ADR-0060 Vat local time-travel

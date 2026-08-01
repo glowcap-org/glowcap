@@ -65,7 +65,7 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, 0);
+    var cv = try driver.connectVia(allocator, &entries, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

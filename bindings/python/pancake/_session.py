@@ -1,13 +1,13 @@
 """Internal: the application surface over the byte-fed host
-(``libpancake_driver``, ADR-0072).
+(``libpancake_host``, ADR-0072).
 
 This is what an application holds: :class:`Session` and its verbs
 (``fetch``/``send``/``tell``/``spawn``/``publish``/``enliven``/``serve``/
 ``close``), plus mint/handshake (``establish_*``). The dial executor
 (plan + channel open + :func:`connect`) lives in :mod:`pancake._dial`;
 Server/:func:`listen` live in :mod:`pancake._listen`. The
-:class:`RemotePromise` handle, far-send mint, and fetch/enliven wait live
-in :mod:`pancake._promise`. Spawn/publish hosting, local send/tell, near/far
+:class:`RemotePromise` handle, remote-send mint, and fetch/enliven wait live
+in :mod:`pancake._promise`. Spawn/publish hosting, local send/tell, Host-ref
 dispatch, and ADR-0064 proxy factories live in :mod:`pancake._trampoline`. The
 byte-fed embedder pump — read raw bytes off the transport, hand them to the
 core's stream delimiter ``pancake_host_session_feed_bytes``, drain the host's
@@ -22,6 +22,7 @@ package.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
 import ctypes
@@ -34,12 +35,11 @@ from ._errors import (
     PancakeException,
     _check_host,
 )
-from ._ffi_driver import _AcceptPlan, _host
-from ._ffi_ocapn import _byte_buf
+from ._ffi_host import _AcceptPlan, _PartnerIdentity, _host
+from ._ffi_ocapn import _byte_buf, _Reference
 from ._host import Host
-from ._locator import parse_locator
 from ._promise import RemotePromise, _fetch_like
-from ._gc import ConnGc, bind_session
+from ._gc import release_ref
 from ._trampoline import (
     Caretaker,
     _attenuate_proxy,
@@ -51,7 +51,7 @@ from ._trampoline import (
     _publish_hosted,
     _unregister_behavior,
 )
-from ._value import Behavior, Ref, Value
+from ._value import Behavior, Ref, Argument, _ref_from_id
 
 _ERR_CLOSED = _abi.ERR_CLOSED
 _ERR_TIMEOUT = _abi.ERR_TIMEOUT
@@ -69,8 +69,28 @@ class RedeemedReply(NamedTuple):
         reply, via = await session.send_redeeming(directory, "introduce", [nick])
     """
 
-    reply: Value
+    reply: Argument
     via: Optional["Session"]
+
+
+@dataclass(frozen=True)
+class PartnerIdentity:
+    """The identity :meth:`Session.partner_identity` proves about the peer on
+    the other end of a session.
+
+    ``session_key`` is the partner's session public key. ``designator`` is the
+    location designator it signed, which is text such as a hex key or a
+    ``host:port`` pair, and it is empty when the partner's location carried
+    none. ``locator_record`` is the verbatim location record those two came
+    from, empty when the session captured none.
+
+    The partner signs its whole location record, so the designator is bound to
+    the session key by that one signature.
+    """
+
+    session_key: bytes
+    designator: str
+    locator_record: bytes
 
 
 class Session:
@@ -99,20 +119,24 @@ class Session:
         # drain, the feed-failure choreography, and teardown, and each frame
         # must land whole and in submission order.
         self._write_lock = asyncio.Lock()
-        # Export position -> trampoline ctx id for the objects this session
+        # Opaque Host capability id -> trampoline ctx id for objects this session
         # hosts, so a `Forward` whose target this side hosts composes in
         # process (and a send to a self-spawned Ref runs in process).
-        self._hosted: "dict[int, int]" = {}
-        # True for an exporter connection the Host's action drain dialed to
-        # redeem a handoff, so `close()` can sweep it.
-        self.host_dialed = False
+        # Capability ids and their actors are Host-scoped. Closing this Port
+        # must not erase a trampoline a sibling Port can still call.
+        self._hosted = host._hosted
+        # Set when this session created the Host it runs on, which
+        # :func:`connect` does when the caller supplies none. Such a Host has
+        # no other reachable owner, so closing the session releases it; a
+        # caller-supplied Host is never released here, because sibling
+        # sessions may still be using it.
+        self.owns_host = False
         # Distributed GC (ADR-0063), opt-in and off by default — see `_gc`.
-        self._gc = ConnGc()
+        self._gc_enabled = False
         try:
             self._loop: "Optional[asyncio.AbstractEventLoop]" = asyncio.get_running_loop()
         except RuntimeError:
             self._loop = None
-        bind_session(self._gc, self)
         # Join the Host's registry so a FLUSH action can find the transport and
         # a dialed exporter stays reachable for teardown.
         host.register_session(self._key, self)
@@ -251,11 +275,13 @@ class Session:
 
     @property
     def host(self) -> Host:
-        """The session's shared Host, its retained identity and gift
-        registry, shared by every session of one Host so the gifter half of
-        a handoff can reach a sibling session's keys. An application
-        reads it to publish host-giftables (:meth:`Host.publish_giftable`),
-        share one identity across dials, or set the redeem posture."""
+        """The Host shared by this session and its sibling sessions.
+
+        The Host owns the actor runtime and live-session directory; each
+        session owns its own gifts and replay state. An application reads this
+        property to publish host giftables (:meth:`Host.publish_giftable`),
+        share Host configuration across dials, or set the redeem posture.
+        """
         return self._host
 
     @property
@@ -298,12 +324,16 @@ class Session:
 
     @property
     def gc(self):
-        """Per-session GC state. Binding-internal seam for promise fetch track."""
-        return self._gc
+        """Host-owned GC state. Binding-internal seam for promise fetch track."""
+        return self._host.gc
+
+    @property
+    def gc_enabled(self) -> bool:
+        return self._gc_enabled
 
     @property
     def hosted(self) -> "dict[int, int]":
-        """Export position → trampoline ctx. Binding-internal seam for trampoline."""
+        """Opaque Host capability id → trampoline ctx. Binding-internal seam."""
         return self._hosted
 
     def schedule_on_loop(self, run) -> None:
@@ -352,12 +382,26 @@ class Session:
     # ── Teardown ────────────────────────────────────────────────────────────────
 
     async def close(self) -> None:
-        """Close the session and every exporter connection its Host dialed
-        for handoffs. A running :meth:`serve` completes cleanly; pending vows
-        settle with the typed ERR_CLOSED."""
+        """Close this session's connection and nothing else. A running
+        :meth:`serve` completes cleanly; pending vows settle with the typed
+        ERR_CLOSED.
+
+        It does not reach a sibling session, and it does not reach the
+        connections the Host opened by itself to redeem a handoff -- the
+        ``via`` from :meth:`send_redeeming` is one of those.
+        :meth:`Host.release` ends those.
+
+        A session that had to make its own Host -- :func:`connect` with no
+        ``host`` passed, the ordinary case -- closes that Host with it, so
+        single-session code needs no Host call."""
         self._closing = True
-        self._host.close_exporters()
         self.close_transport()
+        # A Host this session created has no other owner, so it goes too, and
+        # with it every connection it dialed for redeems. A caller-supplied
+        # Host stays: sibling sessions on it are still running, and closing
+        # their exporters from here is not this session's call to make.
+        if self.owns_host:
+            self._host.release()
         task = self._serve_task
         if task is not None and task is not asyncio.current_task():
             try:
@@ -383,12 +427,9 @@ class Session:
             return
         self._released = True
         self._host.unregister_session(self._key)
-        # The host can never deliver to this session's hosted objects again;
-        # drop their trampoline entries so the registry does not pin dead
-        # behaviors. Host-wide giftables live on the host, untouched here.
-        for ctx in self._hosted.values():
-            _unregister_behavior(ctx)
-        self._hosted.clear()
+        # Hosted actors belong to the Host Vat. This Port closes, but sibling
+        # Ports may still carry capabilities to them; Host.release owns the
+        # trampoline sweep.
         ptr = self._ptr
         self._ptr = None
         if _inside_turn():
@@ -410,9 +451,9 @@ class Session:
     def spawn(self, behavior: Behavior) -> Ref:
         """Spawn a local actor and return a capability to it. Pass the returned
         :class:`Ref` as a ``send`` argument to hand a partner a callback. The
-        position comes from the session's one export allocator, so it can never
-        alias a bootstrap or resolver export. Callable from inside a served
-        turn (a factory's ``create`` minting the task it replies with)."""
+        returned identity is opaque and Host-scoped; wire export positions stay
+        inside pancake. Callable from inside a served turn (a factory's
+        ``create`` minting the task it replies with)."""
         return _spawn_hosted(self, behavior)
 
     def publish(self, name: str, behavior: Behavior) -> Ref:
@@ -457,19 +498,18 @@ class Session:
         )
 
     async def enliven(self, sturdyref: str) -> Ref:
-        """Enliven a sturdyref against this session (ADR-0012): bring the
-        durable ``(peer, swissnum)`` to life as a live :class:`Ref`. Parses
-        ``sturdyref`` for its swissnum, then fetches it through the host's
-        dedup cache -- a repeat enliven of the same swissnum on this session
+        """Enliven a sturdyref against this session (ADR-0098): bring the
+        durable ``(peer, swissnum)`` to life as a live :class:`Ref`. The host
+        verifies the complete locator against this session before consulting
+        its dedup cache -- a repeat enliven of the same swissnum on this session
         short-circuits with no wire traffic (its completion is queued before
         the minting call returns). The session must already be open to the
-        sturdyref's peer; the sans-io core tracks no remote locator and never
-        dials. Raises :class:`VowBroken` when the partner breaks the enliven,
+        sturdyref's peer; this session-level call never dials. Raises
+        :class:`VowBroken` when the partner breaks the enliven,
         and :class:`FetchFailed` when it fulfills with something that is not a
         capability."""
-        swiss = parse_locator(sturdyref, sturdyref=True).swissnum.encode()
         return await _fetch_like(
-            self, swiss, sturdyref, _host.pancake_host_session_enliven, track=False,
+            self, sturdyref.encode(), sturdyref, _host.pancake_host_session_enliven, track=False,
         )
 
     def send(self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None) -> RemotePromise:
@@ -497,7 +537,7 @@ class Session:
         # raises inside the comprehension, before `gather` is ever entered.
         try:
             self.guard_open()
-            self._gc.drain_gc()
+            self._host.gc.drain_gc()
             args = list(args or [])
             return _dispatch_send(self, target, verb, args)
         except Exception as err:  # noqa: BLE001 - reported through the handle
@@ -539,6 +579,8 @@ class Session:
         self.guard_open()
         reply = await self.send(target, verb, args)
         via = self._host.exporter_for(reply) if isinstance(reply, Ref) else None
+        if via is self:
+            via = None
         return RedeemedReply(reply, via)
 
     async def tell(self, target: Ref, verb: str, args: "Optional[list]" = None) -> None:
@@ -546,7 +588,7 @@ class Session:
         allocated and no reply comes back, so a notification or broadcast costs
         one deliver rather than a deliver plus a reply. Flushes immediately."""
         self.guard_open()
-        self._gc.drain_gc()
+        self._host.gc.drain_gc()
         args = list(args or [])
         await _dispatch_tell(self, target, verb, args)
 
@@ -565,6 +607,63 @@ class Session:
             self._ptr, ptr, len(raw_locator),
         ))
 
+    # ── Who the partner is, as the handshake proved it ─────────────────────────
+
+    def partner_identity(self) -> PartnerIdentity:
+        """Who this session is talking to, as the handshake proved it rather
+        than as the partner claims it.
+
+        A partner opens a keyed session by signing its own location record, and
+        the engine verifies that signature before the session opens. So a value
+        returned here always means the signature was checked, and because the
+        signed record covers the whole location, the designator is bound to the
+        session key by that same signature. This is how a server refuses a
+        caller that claims a locator it does not own: read the identity, then
+        compare what the caller says about itself against what it proved.
+
+        The byte views the library hands back belong to the session, so they
+        are copied into Python-owned values before this returns.
+
+        Raises when the partner's ``op:start-session`` has not arrived with a
+        key yet, and raises as well when the session was opened without partner
+        verification, because then there is no proved identity to read.
+        """
+        self.guard_open()
+        info = _PartnerIdentity()
+        _check_host(_host.pancake_host_session_partner_identity(
+            self._ptr, ctypes.byref(info),
+        ))
+
+        def owned(ptr, length) -> bytes:
+            return ctypes.string_at(ptr, length) if ptr and length else b""
+
+        return PartnerIdentity(
+            session_key=owned(info.session_key, info.session_key_len),
+            designator=owned(info.designator, info.designator_len).decode(errors="replace"),
+            locator_record=owned(info.locator_record, info.locator_record_len),
+        )
+
+    def partner_designator_is_key(self) -> bool:
+        """Whether the partner proved it owns the designator it advertised,
+        meaning that designator is exactly its verified session key written in
+        canonical hex.
+
+        The library answers this so no binding has to re-derive the comparison.
+        It is meaningful only for a transport whose designator is a key, which
+        is ``keyed-tcp``, ``iroh``, ``webrtc``, and ``keyed-relay``. An address
+        transport such as ``tcp`` names a socket address the key does not
+        determine, so the answer there is ``False``, and ``False`` is the
+        correct answer rather than a failure.
+
+        Raises on the same two conditions :meth:`partner_identity` does.
+        """
+        self.guard_open()
+        matches = ctypes.c_uint32(0)
+        _check_host(_host.pancake_host_session_partner_designator_is_key(
+            self._ptr, ctypes.byref(matches),
+        ))
+        return matches.value != 0
+
     # ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 
     def with_gc(self) -> "Session":
@@ -577,5 +676,67 @@ class Session:
         ``del``. Capabilities lifted elsewhere (a ``send`` reply, a delivered
         argument, an ``enliven`` result the dedup cache owns) are outside this
         seam. Returns ``self`` for chaining."""
-        self._gc.enable()
+        self._gc_enabled = True
         return self
+
+    def published_ref(self, name: str) -> "Ref | None":
+        """A :class:`Ref` for the object published under ``name`` on this
+        session, or ``None`` when nothing is published there.
+
+        :meth:`publish` returns its own ``Ref``, so this is for the other
+        publisher: :meth:`Host.publish_giftable` hosts one actor under a
+        Host-wide alias and returns nothing. Reading its Host identity lazily
+        projects it onto this session so an application can pass it as an
+        ordinary capability argument; no enrollment step exists.
+
+        A :meth:`send` to the returned ``Ref`` runs the behavior in process rather
+        than over the wire, and a giftable registered no session, so
+        ``current_session()`` inside it is ``None``. Pass it on as a capability
+        argument; a behavior written to answer over the connection
+        its call arrived on will not answer a local send.
+        """
+        self.guard_open()
+        data = name.encode()
+        buf, ptr = _byte_buf(data)
+        out = _Reference()
+        try:
+            rc = _host.pancake_host_session_published_ref(
+                self._ptr, ptr, len(data), ctypes.byref(out)
+            )
+        finally:
+            del buf
+        if rc == _abi.ERR_NOT_FOUND:
+            return None
+        _check_host(rc)
+        ref = _ref_from_id(out.id)
+        # Join the host's giftable to the identity this session surfaced, so a
+        # later local send to the returned Ref composes in process.
+        if ref.id not in self._hosted:
+            ctx = self._host._giftables.get(name)
+            if ctx is not None:
+                self._hosted[ref.id] = ctx
+        return ref
+
+    def release(self, ref: Ref) -> None:
+        """Give a capability back to the partner, now, because this
+        application is done holding it.
+
+        Releases one application retain. For a remote capability the Host emits
+        any required ``op:gc-exports``; a local capability needs no wire
+        message. :meth:`with_gc` does this too, but only for a
+        :meth:`fetch` result and only when the runtime reclaims the handle;
+        this is deterministic and works for any far capability this session
+        holds, including one lifted from a delivered argument or a reply.
+
+        ``ref`` is spent afterwards and every use of it raises. The Host
+        generation makes the stale id fail closed; the binding rejects it before
+        crossing the ABI.
+
+        A capability from another Host, or one already released, is a caller
+        error and raises ``ValueError``.
+        """
+        if ref.released:
+            raise ValueError("capability already released")
+        release_ref(self._host.raw, ref)
+        self._host.gc.disarm(ref)
+        ref._mark_released()

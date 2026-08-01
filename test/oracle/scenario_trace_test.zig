@@ -158,10 +158,10 @@ test "driven handoff parks the early withdraw, settles it on deposit, and the re
 
     try std.testing.expectEqualStrings(
         "scenario=driven_handoff\n" ++
-            "exporter=registered:swissnum=thermostat:gifter_session=1:recipient_session=1\n" ++
+            "exporter=registered:swissnum=thermostat:gifter_session=84776744564817920\n" ++
             "gifter=sent:fetch\n" ++
             "exporter=event:deliver\n" ++
-            "gifter=fetched:thermostat:import=1\n" ++
+            "gifter=fetched:thermostat:import=84776744564817920\n" ++
             "recipient=sent:deliver:answer=42\n" ++
             "gifter=event:deliver\n" ++
             "gifter=sent:deposit_gift\n" ++
@@ -178,7 +178,7 @@ test "driven handoff parks the early withdraw, settles it on deposit, and the re
             // Settling consumes the gift row; replay stays blocked by the
             // monotonic handoff count, not a retained row.
             "exporter=withdraw_settled:parked=0:gift_live=false\n" ++
-            "recipient=event:resolve:answer=1:fulfill=import=1\n" ++
+            "recipient=event:resolve:answer=1:fulfill=import=84776744581595136\n" ++
             "recipient=sent:deliver:answer=2:direct\n" ++
             "exporter=event:deliver\n" ++
             "exporter=sent:resolve:answer=2\n" ++

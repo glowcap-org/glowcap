@@ -9,9 +9,10 @@
 
 The Python binding gives you `Session` and `Host` with native Python values over
 `ctypes`
-([`pancake`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake)).
+([`pancake`](https://github.com/jimisaacs/pancake/blob/main/bindings/python/pancake)).
 The transport modules are `pancake.tcp`, `pancake.inproc`, and lazy
-`pancake.iroh`, and the [Bindings]($link.page('bindings')) page covers install.
+`pancake.iroh`. The package is not published yet; start from the
+[checkout instructions]($link.page('bindings')).
 
 ## The same round-trip
 
@@ -25,7 +26,7 @@ can skip the explicit call.
 > ```python
 > from pancake import connect, tcp_locator
 >
-> # tcp: the peer is a place, a cleartext host and port.
+> # Plain TCP uses a cleartext host and port.
 > partner = tcp_locator("127.0.0.1", 9099)
 >
 > session = await connect(partner)
@@ -45,8 +46,7 @@ can skip the explicit call.
 > from pancake import connect
 > from pancake.iroh import Reachability
 >
-> # iroh reachability: the peer is a key, not a place. DISCOVERY resolves
-> # the bare node id over the open internet; no address in hand.
+> # DISCOVERY resolves a bare iroh node ID without an address hint.
 > partner = "ocapn://3b6a…da29.iroh"
 >
 > session = await connect(partner, Reachability.DISCOVERY)
@@ -62,9 +62,8 @@ can skip the explicit call.
 > await session.close()
 > ```
 
-The iroh snippet changes only the locator: a bare node id plus the reachability
-posture. `fetch` and `send` are unchanged. For dial-by-id and discovery, see
-[iroh]($link.page('transports/iroh')).
+The iroh tab needs the optional transport library and a discovery-reachable
+node id. The session calls stay the same.
 
 Hosting works from Python too: `listen` binds a port and accepts sessions that
 publish and serve, and `listen_keyed_tcp` is the restart-stable keyed flavor.
@@ -83,14 +82,8 @@ the inbound loop as a background task until the session closes.
 raise breaks the answer with the exception's own words, and each deliver
 crosses into Python once, through one trampoline.
 
-## Binding check and example
-
-```sh
-zig build python-dogfood    # the Python consumer against the pancake archives
-```
-
 The full surface lives in the
-[Python binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/README.md),
+[Python binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/python/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/python/room_client.py)
+[rooms chat client](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/clients/python/room_client.py)
 shows the rest.

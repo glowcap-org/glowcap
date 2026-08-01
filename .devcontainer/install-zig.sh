@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The one checksummed Zig install: the devcontainer image build and every CI
-# job (Codeberg hosted runners, the GitHub release legs) install the pinned
+# job (the checks sequence, the release legs) installs the pinned
 # compiler through this script, so the version and SHA-256 authority stays in
 # pins.sh + checksums.sh. ZIG_INSTALL_DIR overrides the /opt/zig prefix for
 # runners without root; the /usr/local/bin symlink is laid only for the

@@ -6,7 +6,8 @@ ADR-0009 against a real cross-implementation peer, the mirror of
 
 Topology (all TCP loopback):
   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
-  Gifter (pancake)           fetches Bob's greeter, publishes an "introducer"
+  Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
+                             publishes an "introducer"
                              that returns it, and listens for the recipient.
   Carol  (Goblins recipient) dials the pancake introducer, asks for the
                              greeter, transparently redeems pancake's give, and
@@ -49,6 +50,7 @@ RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt"
 # pancake hardcodes the same swiss the exporter host registers, the way the
 # interop clients fix the echo swiss.
 GREETER_SWISS = "pancakeGiftGreeterSwissnum000001"
+VENDOR_SWISS = "pancakeGiftVendorSwissnum0000001"
 INTRODUCER_SWISS = "introducer"
 
 
@@ -94,14 +96,16 @@ async def run() -> None:
         accept_task = asyncio.ensure_future(accept_loop())
         gifter_port = gifter.port
 
-        # Dial Bob and fetch his greeter. The fetched ref's home is this
-        # gifter<->Bob connection, which is what lets pancake re-gift it.
+        # Fetch a vendor, then lift Bob's greeter from an ordinary call reply.
+        # The reply ref's home is this gifter<->Bob connection, so pancake can
+        # re-gift it without an enrollment verb.
         to_bob = await connect(tcp_locator(HOST, PORT), host=gifter.host)
         to_bob.serve()
-        greeter = await to_bob.fetch(GREETER_SWISS)
+        vendor = await to_bob.fetch(VENDOR_SWISS)
+        greeter = await to_bob.send(vendor, "", [])
         if not isinstance(greeter, Ref):
-            fail("python-goblins-gift", "could not fetch goblins-bob's greeter")
-        print("python-goblins-gift: fetched goblins-bob's greeter")
+            fail("python-goblins-gift", "the vendor reply was not a capability")
+        print("python-goblins-gift: lifted goblins-bob's greeter from a reply")
 
         # Publish the introducer host-wide. Returning Bob's greeter (home = the
         # Bob connection) to the recipient's connection trips the transparent

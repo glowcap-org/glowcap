@@ -273,9 +273,9 @@ pub fn pairedWithKeys(
     const p1_loc = defaultLocator("p1");
     const p2_loc = defaultLocator("p2");
 
-    const p1_signed = try codec.syrup.canonicalLocationSignedBytes(allocator, p1_loc);
+    const p1_signed = try codec.signed.locationBytes(allocator, p1_loc);
     defer allocator.free(p1_signed);
-    const p2_signed = try codec.syrup.canonicalLocationSignedBytes(allocator, p2_loc);
+    const p2_signed = try codec.signed.locationBytes(allocator, p2_loc);
     defer allocator.free(p2_signed);
 
     const p1_sig = crypto.sign(&p1_secret, p1_signed);

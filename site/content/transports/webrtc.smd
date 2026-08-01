@@ -1,14 +1,14 @@
 ---
 .title = "WebRTC: peer-to-peer for the browser",
-.description = "WebRTC carries a session between two peers that cannot open a socket to each other — two browsers, or two hosts behind NATs — over an encrypted DataChannel.",
+.description = "WebRTC carries a pancake session over an encrypted DataChannel, with direct browser-to-browser channels after signaling.",
 .date = @date("2026-07-22T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-WebRTC is pancake's transport for two peers that cannot open a socket to each
-other: two browsers, or two hosts each behind a NAT. A session's bytes ride a
+WebRTC carries pancake between browsers over a direct DataChannel. A session's
+bytes ride a
 [WebRTC](https://www.w3.org/TR/webrtc/) DataChannel, encrypted with DTLS, and the
 channel opens directly between the two peers with no server on the byte path.
 Everything above the wire stays the same OCapN, the object-capability network
@@ -30,17 +30,15 @@ session.
 Once the candidates pair, the DataChannel opens directly between the two peers and
 the keyed `op:start-session` handshake runs over it end to end. From that point
 the signaling host is out of the byte path entirely: it saw the setup strings, not
-the session, and the DTLS channel and the keyed handshake both run above it.
-`zig build webrtc-signaling-captp` proves the signaling half as a real capability
-over a keyed CapTP session, and `zig build webrtc-interop` proves the whole thing
-between two native peers on a real DataChannel.
+the session, and the DTLS channel and keyed handshake both run above it.
 
 This is also why a bare `webrtc` locator does not dial. pancake's dial
 classifier recognizes the transport and validates its designator (the peer
 name inside the locator, here a public key), but with
 no signaling reference there is nowhere to send an offer. A WebRTC peer is
-reached through a signaling exchange the application arranges, or by redeeming
-a handoff give that carries one, which the handoff section below covers.
+reached through a signaling exchange the application arranges. The generic Host
+does not yet turn a handoff give into that exchange; the handoff section below
+separates the channel pancake ships from that missing composition.
 
 ## One key, pinned by the handshake
 
@@ -56,26 +54,26 @@ complete the keyed handshake for a key it does not hold.
 
 Same deal as [iroh]($link.page('transports/iroh')): the stack is Rust, so it
 ships as its own sidecar staticlib, `libpancake_net_transport_webrtc`
-([ADR-0089](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)),
-and the base archives stay pure Zig. `zig build webrtc-abi` builds it; needs
-`cargo`. Worth knowing before you commit: a native WebRTC session runs on the
-blocking pump, with no completion-loop tier for DataChannels, so the
-many-connections scale path stays iroh's. And the proofs on this page exist
-but do not run on every push;
-[What you can depend on]($link.page('stability')) has the tier.
+([ADR-0089](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)),
+and the base archives stay pure Zig. Building it requires `cargo`. A native
+endpoint gives one readiness descriptor and stable peer ids for many
+DataChannels. Peer creation and signaling are control operations; channel
+events and byte I/O are non-blocking readiness events. The explicit blocking
+connection is still available for one-session use. What is missing is the
+adapter that adopts those readiness-driven peers into the generic Host loop.
+[What you can depend on]($link.page('stability')) says which WebRTC checks run
+in CI and which are still manual.
 
 ## The browser arm
 
 The browser is where WebRTC earns its place. `@pancake/webrtc` drives an
 `RTCPeerConnection` and presents the open DataChannel as the same byte channel the
 wasm Host runs a keyed session over, the WebRTC sibling of the relay's WebSocket
-channel. Two end states are proven in a real headless Chromium:
+channel. The browser path supports two useful shapes:
 
-- a browser and a native peer hold a keyed session over a DataChannel
-  (`zig build webrtc-browser-peer`), and
+- a browser and a native peer hold a keyed session over a DataChannel, and
 - two browsers, introduced by a signaling host, bring up a direct DataChannel and
-  hold a keyed session over it with the host out of the byte path
-  (`zig build webrtc-browser-to-browser`).
+  hold a keyed session with the host out of the byte path.
 
 ## STUN, TURN, and staying direct
 
@@ -88,35 +86,23 @@ no ICE infrastructure. A browser deployment that must cross NAT hands
 deployment opts into discovery. The native sidecar gathers host candidates
 only, so a native peer today pairs on loopback or a LAN. A TURN relay, where a
 deployment configures one, carries bytes only when ICE finds no direct path at
-all, and even then it sits under the DTLS channel, so it sees timing and volume
-but never the keyed session.
+all. Even then it sits under the DTLS channel, so it sees timing and volume but
+never the keyed session.
 
-## Three-party handoff over WebRTC
+## What three-party handoff still needs
 
 A three-party handoff is this: peer A, already talking to B, hands B a working
 reference to a third peer C that B has never contacted, and B ends up talking to C
-directly. pancake does it the same way on WebRTC as on TCP
-([Concepts]($link.page('concepts')) covers the general shape). A signs a *give*
-naming C by its WebRTC designator. B redeems it by opening a DataChannel to C
-through C's signaling inbox, running the keyed handshake, and presenting a
-`withdraw-gift` that C's engine verifies before handing the capability over.
-The result is a gifted capability reached over a channel that never had an
-address.
-`zig build webrtc-handoff` proves it, WebRTC's answer to `iroh-mesh`.
+directly ([Concepts]($link.page('concepts')) covers the general shape).
 
-## See it run
-
-Every claim here is a runnable check step (each needs `cargo`, and the browser
-ones need `deno` and a Playwright Chromium):
-
-```sh
-zig build webrtc-interop            # keyed conversation between two native peers over a real DataChannel
-zig build webrtc-signaling-captp    # the signaling verbs as a real OCapN capability over a keyed CapTP session
-zig build webrtc-browser-peer       # a real Chromium greets a native peer over a DataChannel
-zig build webrtc-browser-to-browser # two Chromium peers hold a keyed session over a direct DataChannel
-zig build webrtc-handoff            # a webrtc give redeemed by signaling-then-handshake
-zig build webrtc-abi                # build libpancake_net_transport_webrtc and its header
-```
+pancake has the pieces on either side of a WebRTC handoff: the engine can redeem
+a signed give once a session to C exists, and the WebRTC packages can open a
+keyed session after an application supplies signaling. It does not yet have the
+generic Host adapter that takes the give, finds signaling authority, adopts the
+new DataChannel, and continues withdrawal on that session. The shipped signaling
+scenarios therefore prove direct channels and keyed sessions, not WebRTC handoff
+redemption. [What you can depend on]($link.page('stability')) owns the current
+evidence boundary.
 
 If you got here wondering whether you actually want
 [iroh]($link.page('transports/iroh')) instead: for native peers you probably

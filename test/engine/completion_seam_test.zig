@@ -3,7 +3,7 @@
 //! A completion loop (io_uring / kqueue / IOCP) owns a bounded per-connection
 //! byte buffer, receives reads of *arbitrary* size, and must apply whole frames
 //! out of that buffer without a `std.Io.Reader` underneath it. The Peer seam for
-//! that is `applyStreamPrefix` (apply one frame off a borrowed prefix, report
+//! that is `recvStreamPrefix` (apply one frame off a borrowed prefix, report
 //! bytes consumed or `.incomplete`, fail closed on incomplete-at-cap), `step`
 //! (encode queued sends), and `takeOutbound` (pull owned outbound frames). These
 //! tests drive that seam with no `std.Io` and no socket, the way the loop will,
@@ -32,7 +32,7 @@ fn drainBuffered(peer: *engine.Peer, buf: []u8, valid_in: usize) !struct { appli
     var valid = valid_in;
     var applied: usize = 0;
     while (valid > 0) {
-        switch (try peer.applyStreamPrefix(buf[0..valid])) {
+        switch (try peer.recvStreamPrefix(buf[0..valid])) {
             .incomplete => break,
             .consumed => |n| {
                 applied += 1;
@@ -129,14 +129,136 @@ test "completion seam: a frame plus a partial next frame leaves the tail buffere
     try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
 }
 
-test "completion seam: applyStreamPrefix fails closed on incomplete-at-cap" {
+test "completion seam: recvStreamPrefix fails closed on incomplete-at-cap" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = 8;
 
-    // Eight bytes that are not a complete syrup frame: under the raw
-    // recvStreamPrefix this is `.incomplete`, but applyStreamPrefix mirrors
-    // the cap-during-scan contract and refuses to grow forever.
+    // Eight bytes opening a record whose symbol declares ten, so the frame it
+    // begins cannot fit an eight-byte budget however many more bytes arrive.
+    // The codec refuses that during decode, from the declared length alone.
     const junk = [_]u8{ '<', '1', '0', '\'', 'o', 'p', ':', 'd' };
-    try std.testing.expectError(error.FrameTooLarge, peer.applyStreamPrefix(&junk));
+    try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(&junk));
+}
+
+const model = pancake.ocapn.model;
+const codec = pancake.ocapn.codec;
+
+/// A real `op:start-session` grown past the scan threshold by its designator,
+/// with only its closing bracket removed. Every element is whole and the record
+/// is still open, so the scan walks to the very end of the buffer and parks
+/// there with nothing outstanding but the bracket.
+///
+/// That last part is what makes the fixture: cutting into an element instead
+/// would leave the scan waiting on a leaf whose declared length it can compare
+/// against the cap, and it hands such a frame straight to the decoder rather
+/// than parking. Parking at a boundary is the state in which the buffer can
+/// have reached the cap while the scan still says it needs more, which is the
+/// only way into the branch under test. Hand-building a record does not reach
+/// the scan at all: the decoder refuses a frame whose label is not a known op.
+fn truncatedStartSession(allocator: std.mem.Allocator, designator: []const u8) ![]u8 {
+    const zero_pubkey = [_]u8{0} ** 32;
+    const zero_sig = [_]u8{0} ** 64;
+    var frame = try codec.dispatch.encodeMessageForProfile(.syrup, allocator, model.CaptpVersion.v1_0, .{
+        .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = &zero_pubkey },
+            .acceptable_location = .{
+                .transport = "memory",
+                .designator = designator,
+                .hints = model.Hints.emptyMap(),
+            },
+            .acceptable_location_sig = .{ .bytes = &zero_sig },
+        },
+    });
+    defer frame.deinit();
+    const whole = frame.bytes();
+    return allocator.dupe(u8, whole[0 .. whole.len - 1]);
+}
+
+test "the scan branch reports incomplete while a stalled frame is still under the cap" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = 1 << 20;
+
+    // Past the scan threshold, so the scan is consulted at all. Every test in
+    // this tree that reaches `FrameTooLarge` uses a cap of 8 or 64 bytes, far
+    // under that threshold, so none of them enters this branch.
+    const bytes = try truncatedStartSession(allocator, &([_]u8{'a'} ** 6000));
+    defer allocator.free(bytes);
+    try std.testing.expect(bytes.len > codec.framing.scan_threshold_bytes);
+
+    try std.testing.expectEqual(engine.Peer.RecvStream.incomplete, try peer.recvStreamPrefix(bytes));
+    // The decoder would also have said `incomplete`, so the outcome alone does
+    // not show the scan ran. What shows it is the peer's own cursor: it walked
+    // the prefix and kept its place, which is what makes the next read cheap.
+    try std.testing.expect(peer.stream_scan.cursor > codec.framing.scan_threshold_bytes);
+    // Withholding the decoder is not the same as refusing: nothing was aborted.
+    try std.testing.expect(peer.lastAbort() == null);
+}
+
+test "the scan branch refuses at the cap with a typed abort, not a silent stall" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+
+    const bytes = try truncatedStartSession(allocator, &([_]u8{'a'} ** 6000));
+    defer allocator.free(bytes);
+    // The buffer has arrived exactly at the cap with the frame still open, so
+    // it can never complete within it. The cap has to sit at or above where the
+    // scan parks: past that point the scan hands the question to the decoder
+    // instead, and this branch never runs.
+    peer.session_state.limits.max_frame_bytes = bytes.len;
+    try std.testing.expect(peer.session_state.limits.max_frame_bytes > codec.framing.scan_threshold_bytes);
+
+    // A prefix already at the cap can never complete within it. Refusing is
+    // what stops a partner growing a consumer's pending buffer without end.
+    try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(bytes));
+
+    // And the partner is told. This branch returned bare for one commit, which
+    // left the peer's own contract — a refusal projects a typed abort — broken
+    // with nothing in the tree to notice it.
+    const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
+    try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.kind);
+    // Committed straight to outbound rather than queued for `step`: the session
+    // is being refused, so the abort bypasses send accounting.
+    var out = peer.takeOutbound() orelse return error.NoAbortFrameQueued;
+    defer out.deinit();
+    try std.testing.expect(out.bytes().len > 0);
+}
+
+test "completion seam: a prefix that is exactly the cap and still open is refused" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+
+    // The boundary byte that used to justify a second entry point. A codec
+    // refuses a prefix *longer* than the cap, so one that is exactly the cap
+    // and still open came back `incomplete`, and a consumer that believed it
+    // would read past its own limit. The sibling test above is refused a step
+    // earlier, by the declared length inside its bytes, so it never reaches
+    // this case.
+    //
+    // Small enough to stay under the scan threshold, so this is the decoder's
+    // answer being corrected rather than the withheld-scan arm.
+    // `truncatedStartSession` already drops the closing bracket, leaving every
+    // element whole and the record open.
+    const open = try truncatedStartSession(allocator, "remote");
+    defer allocator.free(open);
+    try std.testing.expect(open.len < codec.framing.scan_threshold_bytes);
+
+    peer.session_state.limits.max_frame_bytes = open.len;
+    try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(open));
+
+    // And the partner is told, the same as any other refusal here.
+    const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
+    try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.kind);
+
+    // One byte of headroom and the same bytes are simply incomplete, which is
+    // what stops this from refusing frames that could still arrive.
+    var roomy = engine.Peer.init(allocator);
+    defer roomy.deinit();
+    roomy.session_state.limits.max_frame_bytes = open.len + 1;
+    try std.testing.expectEqual(engine.Peer.RecvStream.incomplete, try roomy.recvStreamPrefix(open));
 }

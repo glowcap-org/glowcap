@@ -38,11 +38,11 @@ pub const HostAction = union(enum) {
     /// A host vow with no in-process listener settled fulfilled: `value` is a
     /// deep clone the host owns, valid until the next `nextAction` call,
     /// which frees it. Route it to whatever awaits the vow.
-    settled: struct { vow_id: u64, value: model.Argument },
+    settled: struct { peer_id: engine.PeerId, vow_id: u64, value: model.Argument },
     /// A host vow with no in-process listener settled broken: `message` is
     /// host-owned with the same until-next-`nextAction` lifetime (empty when
     /// the break carried no reason, or when retaining one failed).
-    failed: struct { vow_id: u64, message: []const u8 },
+    failed: struct { peer_id: engine.PeerId, vow_id: u64, message: []const u8 },
 };
 
 /// Free every owned byte view a `HostAction` may carry. POD arms are no-ops.

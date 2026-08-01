@@ -388,6 +388,68 @@ test "session records inbound answers and settles on resolve" {
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, s.inboundAnswer(.from(11)).?.status);
 }
 
+test "a resolve fulfilling with an unheld far is refused, while a near still exports" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+    try s.registerImport(.from(3));
+
+    // Two inbound answers to settle, so each half of the rule gets a pending
+    // row of its own.
+    try s.recordRecv(.{
+        .deliver = .{
+            .target = .{ .near = .{ .export_position = .from(7) } },
+            .args = &.{.{ .bytes = "hello" }},
+            .answer = .from(11),
+        },
+    });
+    try s.recordRecv(.{
+        .deliver = .{
+            .target = .{ .near = .{ .export_position = .from(7) } },
+            .args = &.{.{ .bytes = "hello" }},
+            .answer = .from(12),
+        },
+    });
+
+    // An import position names the partner's export on *this* session and
+    // nowhere else. Import 3 is held here; import 4 is not, so a fulfill
+    // naming it would put `<desc:export 4>` on the wire for an export this
+    // partner never made. A partner that numbers its exports low — as Goblins
+    // does — is liable to hold a live, unrelated object at that number, so the
+    // reference designates the wrong capability rather than failing. Refuse it
+    // here, the same rule the deliver path already holds for its arguments.
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{
+        .resolve = .{
+            .answer = .from(11),
+            .resolution = .{ .fulfill = .{ .reference = .{ .far = .{ .import_position = .from(4) } } } },
+        },
+    }));
+    // Refused pre-commit: the answer is still pending, so the session can
+    // settle it properly afterwards.
+    try std.testing.expectEqual(session.AnswerStatus.pending, s.inboundAnswer(.from(11)).?.status);
+
+    // The held far is accepted, so the rule refuses the unheld position rather
+    // than every far in a fulfill.
+    try s.recordSend(.{
+        .resolve = .{
+            .answer = .from(11),
+            .resolution = .{ .fulfill = .{ .reference = .{ .far = .{ .import_position = .from(3) } } } },
+        },
+    });
+
+    // The export-on-resolve asymmetry survives: a `near` naming an export that
+    // has no row yet is how the application exports that object for the first
+    // time, and it is still accepted.
+    try s.recordSend(.{
+        .resolve = .{
+            .answer = .from(12),
+            .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(8) } } } },
+        },
+    });
+    try std.testing.expect(s.exports.contains(.from(8)));
+}
+
 test "inbound deliver to an unheld far target is rejected on both recv paths" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -1135,6 +1197,47 @@ test "v1.0 session records and queries resolver-callback links" {
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(99)), s.answerForResolverImport(.from(3)));
 }
 
+test "nominateResolverExport installs the answer it hands back, so no caller can order it after the send" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{ .features = model.FeatureSet.full() });
+    defer s.deinit();
+
+    const nomination = try s.nominateResolverExport();
+
+    // All three rows are live before the verb returns: the export, the answer,
+    // and both directions of the link binding them.
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(nomination.resolver_export));
+    try std.testing.expect(s.outbound_answers.contains(nomination.answer));
+    try std.testing.expectEqual(
+        @as(?model.AnswerPosition, nomination.answer),
+        s.answerForResolverExport(nomination.resolver_export),
+    );
+    try std.testing.expectEqual(
+        @as(?model.ExportPosition, nomination.resolver_export),
+        s.outbound_resolver_link.getByValue(nomination.answer),
+    );
+
+    // A second nomination shares nothing with the first.
+    const second = try s.nominateResolverExport();
+    try std.testing.expect(second.resolver_export != nomination.resolver_export);
+    try std.testing.expect(second.answer != nomination.answer);
+
+    // And abandoning one takes its export, its link, and its answer row away,
+    // leaving the other nomination whole.
+    s.abandonResolverNomination(nomination);
+    try std.testing.expectEqual(@as(u64, 0), s.exportRefcount(nomination.resolver_export));
+    try std.testing.expect(!s.outbound_answers.contains(nomination.answer));
+    try std.testing.expectEqual(
+        @as(?model.AnswerPosition, null),
+        s.answerForResolverExport(nomination.resolver_export),
+    );
+    try std.testing.expectEqual(
+        @as(?model.AnswerPosition, second.answer),
+        s.answerForResolverExport(second.resolver_export),
+    );
+    try std.testing.expect(s.outbound_answers.contains(second.answer));
+}
+
 test "v1.0 gc-answers drops both directions of the inbound resolver link" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
@@ -1598,6 +1701,51 @@ test "an inbound answer-pos in the reserved virtual range is refused on both rec
     } });
 }
 
+test "a session that exhausts its export range refuses rather than naming a neighbour's object" {
+    const allocator = std.testing.allocator;
+    // The export allocator is monotonic and counts positions ever minted, not
+    // live ones, so a long-lived session that mints and releases would walk
+    // past the range its host gave it and start naming positions that belong to
+    // the next session along — the exact aliasing the ranges exist to prevent.
+    var s = session.Session.initWith(allocator, .{ .export_base = 1000, .export_span = 3 });
+    defer s.deinit();
+
+    try std.testing.expectEqual(@as(u64, 1000), (try s.allocateExport()).int());
+    try std.testing.expectEqual(@as(u64, 1001), (try s.allocateExport()).int());
+    try std.testing.expectEqual(@as(u64, 1002), (try s.allocateExport()).int());
+    try std.testing.expectError(session.Error.ExportRangeExhausted, s.allocateExport());
+}
+
+test "a projection op answers to the same inbound answer-pos rules as a deliver" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(1));
+
+    // `op:get` / `op:index` / `op:untag` each name an answer of their own and
+    // install a row exactly as a deliver does, so a partner reaching into the
+    // engine's virtual range through one of them would fuse its question with
+    // an answer the session allocated for itself.
+    const receiver = model.Reference{ .near = .{ .export_position = .from(1) } };
+    const reserved = model.AnswerPosition.from(session.VIRTUAL_INBOUND_ANSWER_BASE);
+    const get = model.Message{ .get = .{ .receiver = receiver, .field = "field", .answer = reserved } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(get));
+    const index = model.Message{ .index = .{ .receiver = receiver, .index = 0, .answer = reserved } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(index));
+    const untag = model.Message{ .untag = .{ .receiver = receiver, .tag = "t", .answer = reserved } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(untag));
+
+    // And an answer already naming a live question is not free to reuse.
+    const ordinary = model.AnswerPosition.from(7);
+    try s.recordRecv(.{ .deliver = .{
+        .target = receiver,
+        .args = &.{},
+        .answer = ordinary,
+    } });
+    const reuse = model.Message{ .get = .{ .receiver = receiver, .field = "field", .answer = ordinary } };
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(reuse));
+}
+
 test "inbound gc-exports naming the pinned bootstrap position is a no-op" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -1921,4 +2069,45 @@ test "a V1.0 resolver cannot claim an import in the node's reserved range" {
         @as(?model.ImportPosition, .from(session.REDEEMED_TOKEN_BASE - 1)),
         s.resolverForInboundAnswer(.from(99)),
     );
+}
+
+test "an export position from outside this session's range is refused at every door" {
+    const allocator = std.testing.allocator;
+    // A host gives each session a disjoint slice of the export numbers, so a
+    // position outside this session's slice is a name in some other
+    // conversation. Three doors let one in from outside the allocator — an
+    // explicit grant, a reservation, and the first marshal of a sent resolve —
+    // and each used to mint a row for it. Above the range that also dragged
+    // the allocator past its own end, after which the session could export
+    // nothing at all.
+    var s = session.Session.initWith(allocator, .{ .export_base = 1000, .export_span = 100 });
+    defer s.deinit();
+
+    // Inside the range: all three doors admit.
+    try s.registerExport(.from(1000));
+    try s.reserveExport(.from(1050));
+    try s.retainSentExportRef(.{ .near = .{ .export_position = .from(1060) } });
+
+    // Above it — another session's numbers, and the half that kills this one.
+    try std.testing.expectError(error.InvalidReference, s.registerExport(.from(1100)));
+    try std.testing.expectError(error.InvalidReference, s.reserveExport(.from(5000)));
+    try std.testing.expectError(
+        error.InvalidReference,
+        s.retainSentExportRef(.{ .near = .{ .export_position = .from(9999) } }),
+    );
+
+    // Below it names an object this session does not host just as surely, and
+    // is the half a high-end-only check would have let through.
+    try std.testing.expectError(error.InvalidReference, s.registerExport(.from(999)));
+    try std.testing.expectError(error.InvalidReference, s.reserveExport(.from(1)));
+    try std.testing.expectError(
+        error.InvalidReference,
+        s.retainSentExportRef(.{ .near = .{ .export_position = .from(500) } }),
+    );
+
+    // The allocator is untouched by every refusal, which is the damage the
+    // range exists to prevent.
+    try std.testing.expect(s.next_export_position <= 1061);
+    const fresh = try s.allocateExport();
+    try std.testing.expect(fresh.int() >= 1000 and fresh.int() < 1100);
 }

@@ -108,11 +108,11 @@ fn pump(from: *pancake.ocapn.engine.Peer, to: *pancake.ocapn.engine.Peer) !void 
     try cross_peer.pumpAll(from, to);
 }
 
-fn serveAll(vat: *actors.Vat, peer: *pancake.ocapn.engine.Peer) void {
+fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *pancake.ocapn.engine.Peer) void {
     while (peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = vat.serve(&e) catch {};
+        _ = port.serve(vat, &e) catch {};
     }
 }
 
@@ -125,43 +125,47 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
 
     // The coordinator hosts a local target and a caretaker proxy over it; the
     // proxy is the only thing the agent can reach (export 7).
-    var coord_vat = actors.Vat.initOver(allocator, coord_peer);
+    var coord_vat = actors.Vat.init(allocator);
     defer coord_vat.deinit();
+    var coord_port = actors.Port.init(allocator, coord_peer);
+    defer coord_port.deinit();
     const target = try coord_vat.spawn(Counter, .{ .n = 0 });
     const care = try actors.caretaker(&coord_vat, target);
-    try coord_vat.bindExport(care.proxy, 7);
+    try coord_port.bindExport(care.proxy, 7);
     // Hand-wired pairing: the agent addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try coord_peer.exportObject(7);
 
     try agent_peer.importObject(7);
-    var agent_vat = actors.Vat.initOver(allocator, agent_peer);
+    var agent_vat = actors.Vat.init(allocator);
     defer agent_vat.deinit();
+    var agent_port = actors.Port.init(allocator, agent_peer);
+    defer agent_port.deinit();
 
     // Live: the agent calls the proxy; the coordinator forwards to its local
     // target and the forwarded send's result settles the agent's far answer.
-    const promise = try agent_vat.send(.{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const promise = try agent_port.send(&agent_vat, .{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var result: i64 = 0;
-    try agent_vat.on(promise, .{ .ctx = &result, .func = capture.captureInt });
+    try agent_port.on(&agent_vat, promise, .{ .ctx = &result, .func = capture.captureInt });
 
     try pump(agent_peer, coord_peer);
-    serveAll(&coord_vat, coord_peer); // proxy forwards: queues the local send
+    serveAll(&coord_vat, &coord_port, coord_peer); // proxy forwards: queues the local send
     try coord_vat.drive(); // settles the forwarded send, resolving the agent's answer
     try pump(coord_peer, agent_peer);
-    serveAll(&agent_vat, agent_peer);
+    serveAll(&agent_vat, &agent_port, agent_peer);
     try std.testing.expectEqual(@as(i64, 5), result);
 
     // Revoked: the same call now breaks the agent's answer, and the forward
     // never reaches the target (its total stays 5).
     care.revoke();
-    const broken_promise = try agent_vat.send(.{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 100 }} });
+    const broken_promise = try agent_port.send(&agent_vat, .{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 100 }} });
     var broke = false;
-    try agent_vat.on(broken_promise, .{ .ctx = &broke, .func = capture.captureBroken });
+    try agent_port.on(&agent_vat, broken_promise, .{ .ctx = &broke, .func = capture.captureBroken });
 
     try pump(agent_peer, coord_peer);
-    serveAll(&coord_vat, coord_peer); // proxy refuses: breaks the answer in place
+    serveAll(&coord_vat, &coord_port, coord_peer); // proxy refuses: breaks the answer in place
     try pump(coord_peer, agent_peer);
-    serveAll(&agent_vat, agent_peer);
+    serveAll(&agent_vat, &agent_port, agent_peer);
     try std.testing.expect(broke);
     try std.testing.expectEqual(@as(i64, 5), (try coord_vat.near(target, .{ .verb = "get" })).integer);
 }

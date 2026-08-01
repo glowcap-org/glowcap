@@ -1,188 +1,127 @@
-# pancake: Remaining Work
+# Remaining work
 
-The [ladder](ladder.md) explains which steps on the ladder are held.
-[shipped.md](shipped.md) inventories what already runs. This file names only the
-concrete work that remains. When an item ships, update this file to match.
+This page contains unfinished work only. [What ships](shipped.md) covers the
+present, [known limitations](boundaries.md) covers their consequences, and
+[the ladder](ladder.md) tracks progress toward 1.0.
 
-## How this is ordered
+The sections follow dependency rather than priority. Work waiting on another
+project comes first; work pancake can finish by itself comes later.
 
-Sections follow dependency, not priority.
+## Capability identity closure
 
-1. **Watch items** wait on upstream.
-2. **Platform reach** waits on hardware or toolchains this repository does not
-   yet have.
-3. **Scale, packaging, and external blocks** rest on shipped substrates, or on
-   release work beyond the in-tree code.
+The order below is a dependency, not a menu. ADR-0099, ADR-0098 steps 1–2,
+one Vat per Host, exact-target gifts, and the capability-handle ABI migration are
+green.
 
-Items in sections 1 and 2 are backlogged big rocks, not near-term
-implementation. Each names a blocker and a flip condition, and what a
-Linux-plus-bindings 1.0 audit may omit until that flip. When a flip condition
-trips, promote the rock into a dedicated execution plan.
+- **Finish the native owning capability facade.** The C ABI, Wasm, and language
+  bindings expose only opaque Host-scoped identities. Several native
+  `driver.Session` convenience verbs still accept actor or wire references.
+  Finish ADR-0096 by moving those verbs onto the same Host identity boundary.
+- **Unpublish host-wide aliases.** A Host can publish or replace an alias but
+  cannot remove it. Add the alias-removal API first: removal changes discovery
+  only, while issued references and deposited gifts keep the exact actor. Its
+  scenario is a prerequisite for the evidence item below.
+- **Define actor roots and reclaim unreachable Host actors.** Local actor boxes
+  currently live until Host teardown even after their last opaque capability
+  row disappears. Specify roots across aliases, exact gifts, Port projections,
+  queued turns, and application retains; then collect without letting session
+  closure impersonate actor ownership.
+- **Close the exact-gift evidence matrix.** The production Host proves that a
+  mutated deposited actor survives alias replacement and withdrawal over a
+  second exporter Port, including state changed through the first Port and
+  observed through the second. Add the remaining unnamed-target, cross-Port
+  `become`, unpublish, binding, and live Goblins mutation cases required by
+  ADR-0096.
+- **Durable publication namespace.** Finish
+  [ADR-0098](decisions/adr/ADR-0098-sturdyref-peer-authority.md): retain the
+  authority checks above, then split mutable aliases from randomly minted
+  durable swiss names with a reserved versioned namespace.
+- **Per-session CapTP identity, after upstream alignment.** Follow
+  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md) last.
+  Draw a fresh signing key for every connection and keep durable peer identity
+  separate. Expose iroh's authenticated endpoint id and WebRTC's
+  capability-authorized DTLS binding. Replace the equality pin for keyed-TCP
+  and keyed-relay only after the locator-hints shape has an upstream proposal
+  and the live foreign decode evidence can pass.
 
-## 1. Watch items (upstream)
+## Waiting on upstream
 
-Status: backlogged. These wait on upstream OCapN or Goblins. They are not a
-craft failure for the current Linux-plus-bindings bar while the in-tree answers
-hold. Inventing that wire ahead of upstream would produce frames no partner
-can read.
+- **OCapN Null.** Goblins does not marshal Null, and its upstream encoding is
+  unsettled. Once those agree, add the model arm, codec round trips, and a live
+  Goblins check. Until then, unknown Syrup records remain tagged values.
+- **Live `op:untag`.** The responder and fixtures ship, but Goblins has no live
+  marshaller for the operation. Add the outside-peer check when it does.
+- **`op:listen` arity.** The draft shows two operands; Goblins and the upstream
+  suite use a third, `wants_partial`. pancake follows the working
+  implementations. The checked discrepancy lives in
+  [the findings corpus](../conformance/ocapn-findings/README.md).
+- **Locator hints type.** The draft describes hints as a mapping, while the
+  pinned Goblins constructor accepts only false or a string. The checked
+  discrepancy lives beside the `op:listen` finding. Resolve that boundary
+  before a credential-bearing locator is an interoperability claim.
+- **Settlement encoding.** Draft discussion sometimes names a separate
+  `op:break`. Goblins CapTP 1.0 uses resolver-callback fulfill and break, while
+  the pancake-native profile carries both under `op:resolve`. Revisit the
+  native profile when the specification and Goblins converge.
+- **Goblins over iroh.** The pancake iroh transport is complete enough for
+  native peers and bindings, but Goblins ships no iroh netlayer. Extend the
+  live interop checks if that changes.
+- **Native Zig QUIC.** pancake uses iroh rather than implementing QUIC. The
+  decision reopens when iroh's protocols stabilize and a production Zig QUIC
+  stack exists ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
 
-- **OCapN Null.**
-  - **Blocker:** Goblins has no Null marshalling, and the upstream encoding is
-    unsettled.
-  - **Flip condition:** a settled upstream encoding plus Goblins marshalling, or
-    an explicit OCapN decision that Null is out of scope.
-  - **When flipped:** add a `model.Argument` arm (or document Null as forever
-    out of scope), codec round-trips, and a Goblins live proof if marshalling
-    exists. Until then unknown Syrup records stay `Tagged` (not a Null refuse).
-  - **Depends on:** nothing in-tree. Integer is arbitrary-precision (ADR-0049);
-    Struct and Undefined ship (ADR-0046).
-- **Live `op:untag` against Goblins.**
-  - **Blocker:** Goblins has not shipped the op's marshaller on the live wire.
-  - **Flip condition:** Goblins ships `op:untag` marshalling; then add a live
-    check step beside the existing pipelined `op:index` / `op:get` exercises in
-    `goblins-interop`.
-  - **When flipped:** extend the client bracket so pancake asks Goblins to
-    untag (or Goblins asks pancake) and asserts settlement.
-  - **Depends on:** in-tree projection answers already ship (ADR-0050,
-    ADR-0052).
-- **Draft CapTP `op:listen` arity.**
-  - **Blocker:** the draft CapTP text sketches a 2-operand listen; Goblins and
-    the upstream suite speak 3-operand (`wants_partial`). pancake follows the
-    suite ([community-review](community-review.md)).
-  - **Flip condition:** the draft text and suite agree on arity; then drop the
-    invite asterisk if nothing else drifts.
-  - **Depends on:** nothing in-tree.
-- **Settlement encoding (`op:break` vs resolver-callback / `op:resolve`).**
-  - **Blocker:** draft CapTP discussion sometimes names a separate `op:break`;
-    Goblins CapTP v1.0 uses resolver-callback fulfill/break; `pancake-next`
-    folds fulfill/break under `op:resolve`.
-  - **Flip condition:** a settled CapTP settlement encoding that Goblins also
-    speaks; then revisit the `pancake-next` fold and the invite brief.
-  - **Depends on:** nothing in-tree for the Goblins path (already correct).
+## Platforms and reachability
 
-## 2. Platform reach
+- **Windows and IOCP.** There is no Windows runtime check or IOCP backend.
+  Windows support needs the backend behind the existing completion-loop
+  contract, then live tests and release artifacts.
+- **macOS runtime CI.** The kqueue path is cross-compiled on every push but
+  never executed. A macOS runner closes this gap.
+- **Cold-dialing browsers.** Browser-to-browser dial works through one shared
+  relay. Native-to-browser dial needs a native rendezvous adapter. Cross-relay
+  dial needs locators that carry a usable route as well as the peer identity
+  ([ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+- **Standalone WebRTC dial.** WebRTC works after signaling has opened a
+  DataChannel. A bare `webrtc` locator still has nowhere to send its offer.
+  Closing that gap needs a rendezvous the Host can reach without already
+  holding a signaling capability. The endpoint already multiplexes peers through
+  one readiness fd; what remains is the generic Host adapter which consumes those
+  events and owns signaling-aware session adoption. Until that adapter exists,
+  pancake does not claim WebRTC handoff redemption: the existing live checks
+  prove signaling and an ordinary keyed session after the channel opens
+  ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
 
-Status: backlogged. These wait on hardware, runners, or toolchains this
-repository does not yet have. A top-tier 1.0 audit on Linux and bindings does
-not require them; it does require this file to say so plainly. Ladder step 5
-names Windows completion as open work. Full-N live-socket measurement is
-machine work on that step too ([ladder](ladder.md)).
+## Scale and release
 
-- **Windows / IOCP backend.**
-  - **Blocker:** no Windows machine or IOCP backend in-tree.
-  - **Flip condition:** a Windows host is available, and an IOCP backend lands
-    behind the existing OS-neutral completion loop (io_uring and kqueue already
-    ship; kqueue is compile-gated by `cross-check`).
-  - **Depends on:** the publishable C ABI cascade matching the published archives
-    on platforms that already pack
-    ([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)). Do not
-    claim portable 500k across OS before live-scale evidence exists on Linux.
-- **macOS runtime CI.**
-  - **Blocker:** no macOS runner in CI. kqueue is compile-gated on every
-    `check` but never executed.
-  - **Flip condition:** a macOS runner is available and a runtime proof step is
-    wired.
-  - **Until then:** the kqueue compile path stays covered by `cross-check`.
-- **Browser binding via WebAssembly (ADR-0070).**
-  - **Landed:** Milestone 1, and the full browser-peer surface over the
-    byte-transparent relay. The browser dials, hosts objects, and redeems
-    handoffs. It answers a caller that is not itself listening, over the
-    connection that call arrived on. And another browser can cold-dial it
-    through the relay's rendezvous, using a `keyed-relay` transport that has no
-    resident of its own and is keyed by identity (ADR-0088; `zig build
-    rooms-web-dm-tabs`). [shipped.md](shipped.md) inventories it with the checks
-    that hold it.
-  - **Next:** two gaps in cold dialing. A *native* peer cannot do it, because
-    no native runtime carries a rendezvous adapter. And it cannot cross relays,
-    because a `keyed-relay` locator names an identity rather than a relay
-    (ADR-0088). After that, Milestone 2: the WebRTC DataChannel netlayer, with
-    signaling carried by an OCapN capability, and the browser-to-browser
-    handoff
-    ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
-    [shipped.md](shipped.md) inventories what webrtc already does and the checks
-    that hold it. What remains is a bare `webrtc` locator that dials: the
-    classifier recognizes the transport and validates its key designator, but the
-    resident is not registered as a netlayer, because a peer with no signaling
-    reference has nowhere to send its offer. That needs a signaling rendezvous the
-    Host can reach on its own, and a completion-loop tier to carry channels at
-    scale; both have their check steps named in the ADR.
-  - **Depends on:** nothing upstream; the remaining work is in-tree.
-    See [ADR-0070](decisions/adr/ADR-0070-browser-binding-via-wasm.md),
-    [ADR-0088](decisions/adr/ADR-0088-fully-functioning-browser-peer.md), and
-    [ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md).
+- **A live 500,000-session measurement.** The core and host have checked memory
+  budgets, and the TCP and iroh loops serve many connections. The target is not
+  achieved until a live run at that scale records its machine, command, memory,
+  and result in [the ladder](ladder.md).
+- **Published C archives.** `zig build release-pack` and the release workflow
+  exist, but no versioned assets are live. Publication requires green packages
+  for every target, the `releases_published` switch in
+  [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json), and a
+  cold-cache smoke against the real release URL. The full checklist is in the
+  [packaging guide](../bindings/PACKAGING.md#publishing-c-archives-flip-checklist).
 
-## 3. Scale, packaging, and external blocks
+## Product work
 
-The iroh substrate is shipped (channel, discovery postures, key unification,
-durable identity, mesh, loop scale path). See [shipped.md](shipped.md). What
-remains:
+- **griddle and ocapnviz.** `pancake griddle` reserves the command name, but the
+  deterministic simulator does not exist. ocapnviz, the browser viewer for its
+  protocol timeline, is also unbuilt. They should share one timeline schema
+  rather than grow a second CapTP stack
+  ([plan](planning/observability-family.md)).
+- **A2A over CapTP.** The proposed agent-to-agent facade composes the existing
+  Host and session verbs; it adds no new wire semantics. It remains a design,
+  not a product surface
+  ([plan](planning/pancake-a2a-on-captp-design.md)).
 
-- **Live-socket ~500k measurement.** iroh scale (ADR-0057) rides
-  `completion.Loop(iroh.Backend, iroh.DialResolver)` + `driver.Bridge` +
-  `driver_core.Host`, verified by `iroh-loop` and `bindings-iroh-loop`.
-  `bench-peer-scaling`'s `served` row extrapolates in-process;
-  `zig build tcp-loop` prints TCP bridge footprint. Opt-in Phase 2 of
-  `bench-peer-scaling` (`--live`) measures TCP loopback under
-  `completion.Loop` + `driver.Bridge` at stepped N. It is not part of
-  `zig build check`. Never call 500k an achievement until a printed live-N run
-  updates [ladder](ladder.md) and [shipped](shipped.md) with the step name and
-  measured figures.
-- **A hosted, versioned C release of the archives.** `zig build release-pack`
-  and the `v*` GitHub release workflow exist. Bindings resolve archives through
-  the publishable cascade in [`bindings/README.md`](../bindings/README.md)
-  ([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)).
-  `release-pack` dereferences soname symlinks so staged `lib/` has only regular
-  files. What remains is work on a maintainer's own machine, in order. Cut
-  `v{abi_version}` once `release-pack` is green on every published target.
-  Flip `releases_published` in the same change that puts the assets live. Then
-  smoke-test from a cold cache, using the checklist in `bindings/README.md`.
-  Never flip that switch before the assets exist.
-- **Byte-transparent relay: the open legs.** The relay is a first-class
-  capability, `@pancake/relay`, governed by
-  [ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md)'s contract and
-  proven across every binding runtime; [shipped.md](shipped.md) inventories the
-  runtimes and the checks that hold them. What remains:
-  - **A named `PancakeRelayChannel` C-ABI shape.** iroh's connection and its
-    readiness signal already meet the byte-channel contract in everything but
-    name. Naming them as one documented channel, and giving `inproc` the same,
-    would make relay conformance look the same on every transport. The shape is
-    a readiness descriptor, a pump, non-blocking read and write, close, and
-    release.
-  - **A live Goblins-through-relay proof.** Byte transparency against a real
-    Goblins peer through the relay has no build step yet.
-- **Goblins interop over iroh.**
-  - **Status:** backlogged (upstream).
-  - **Blocker:** upstream Goblins ships no iroh netlayer.
-  - **Flip condition:** a Goblins vat that speaks the iroh seam; then extend the
-    existing `goblins-interop` / `goblins-handoff` / `goblins-gift` (and binding
-    siblings) over iroh on the pancake side.
-  - **When flipped:** keep Cap'n Proto out of the Goblins story; the proof is
-    Syrup CapTP over the iroh netlayer the same way TCP is today.
-  - **Depends on:** the pancake iroh substrate already shipped.
-- **A native Zig QUIC** stays rejected until iroh's protocols stabilize and a
-  production Zig QUIC stack exists (ADR-0055's flip condition).
-- **Protocol-timeline observability: griddle and ocapnviz.** The message-flight
-  plane of the observability family
-  ([plan](planning/observability-family.md),
-  [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md)).
-  - **griddle** is a deterministic simulator and TCP tap that emits a CapTP
-    protocol timeline as NDJSON: the topology and the message flight a
-    conversation produced. Today only the brand is reserved.
-    `pancake griddle status|help` is a placeholder subtree under the product
-    CLI, and the sim runtime is not built.
-  - **ocapnviz** is the browser topology visualizer (Deno and Pixi) that draws
-    that timeline. pancake is a timeline producer, not ocapnviz's server: a
-    render-bridge relays the NDJSON to the browser over a websocket, so ocapnviz
-    lives beside pancake rather than inside it.
-  - **Status:** deferred. Neither the griddle runtime nor ocapnviz is shipped.
-  - **Flip condition:** a dedicated plan lands the sim runtime and the shared
-    timeline schema on the existing installable CLI, with an optional
-    `pancake ocapn trace --ws` as a second producer of that schema for live
-    CapTP. It stays one control plane, never a second CapTP stack.
-  - **Until then:** agents read live session state through `pancake` argv/REPL
-    and the project MCP front; timeline visualization waits.
-- **A2A-on-CapTP facade.** An agent-to-agent surface layered on the shipped Host
-  and session verbs, deferred to its own plan
-  ([design](planning/pancake-a2a-on-captp-design.md)). It composes the existing
-  CapTP substrate and adds no wire semantics the engine lacks; `host` and
-  `listen` stay argv-only and oracle evidence stays in Zig gates until it lands.
+## Protocol cleanup
+
+- **Typed reserved position ranges.** Import and answer positions are distinct
+  types, but two sub-ranges inside them are still separated by arithmetic:
+  imports at and above 2^60 are reserved for handoff tokens, and answers at and
+  above 2^63 for engine-generated answers. Inbound values in either band are
+  refused, so this fails closed today. ADR-0091 proposes classifying each range
+  once where a wire integer becomes a position; the migration is not scheduled
+  ([ADR-0091](decisions/adr/ADR-0091-reserved-position-bands.md)).

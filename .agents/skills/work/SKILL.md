@@ -68,6 +68,36 @@ per [serena-mcp rule](../../rules/serena-mcp.md).
   Zig-native control, protocol vocabulary, and tests.
 - Match surrounding code. Minimal correct diff beats a wide cosmetic sweep.
 
+### Three questions before "done"
+
+A review of finished-looking work finds the same three classes every time, and
+each is a question that was never asked rather than a skill that was missing.
+Ask them while the work is open, not after a reviewer finds them.
+
+**Does the other half do this?** A capability built and proven on one side is
+half-built. Name the symmetric cases explicitly — dial and accept, the near
+and the far target, each transport whose designator or hint is load-bearing,
+each tier that shares the surface — and write the test for the side you did
+*not* build first. Every memory-safety and wire defect found in the owning
+host face lived on the untested half: the accept path's unwind, the listening
+half's dial table, the keyed transport's hint. The happy-path proof is the one
+that cannot see them. Treat "not in this phase" as a deferral, never a
+contract: name the living owner of the remaining work and still inventory every
+sibling surface the changed contract governs.
+
+**Who believed the old contract?** When what a function owns, retains,
+borrows, or refuses changes, the compiler checks types, not lifetimes.
+Enumerate every caller and ask what each assumed. A slice that used to be
+borrowed for one call and is now retained for a session dangles in every
+caller that built it on a frame — and it compiles, links, and runs until the
+retained path fires.
+
+**What did this change make untrue?** Sweep referrers in the same diff, before
+declaring done: rules, ADRs, living-state docs, generated headers, examples,
+comments naming an owner or a tier. A claim that outlives the code it
+described is worse than no claim, and the agent rules are the worst place for
+one because the next session acts on them without checking.
+
 ## 4. Verify
 
 ```sh

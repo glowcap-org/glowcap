@@ -7,15 +7,15 @@
 //
 // `add` returns the new task's ID as a real reply — request-response, not
 // fire-and-forget. When any client mutates the board, every watcher is called
-// back with the full current state through the capability it handed us. The
-// capability the watcher arrives on is the identity: you cannot watch as someone
-// else, because you only hold your own.
+// back with the full current state through the capability it handed us. That
+// capability is a return address, not caller identity or authorization: every
+// holder of the shared board capability has the same board access.
 //
 // Run it with a port:  deno run --allow-ffi --allow-net --allow-read server.ts 9099
 // With port 0 it binds an ephemeral port and prints it, which the demo harness
 // reads to point clients at the right place.
 
-import { type AppValue, listen, Ref, Session } from "@pancake/stack";
+import { type Argument, listen, Ref, Session } from "@pancake/stack";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 interface Task {
@@ -33,7 +33,7 @@ const tasks: Task[] = [];
 const watchers: Watcher[] = [];
 let nextId = 1;
 
-function snapshot(): AppValue {
+function snapshot(): Argument {
 	return tasks.map((t) => [BigInt(t.id), t.text, t.completed]);
 }
 
@@ -53,7 +53,7 @@ function notifyAll(): void {
 }
 
 function boardBehavior(session: Session) {
-	return (verb: string, args: AppValue[]): AppValue => {
+	return (verb: string, args: Argument[]): Argument => {
 		if (verb === ADD) {
 			const text = typeof args[0] === "string" ? args[0] : "";
 			if (text.length === 0) throw new Error("add needs a non-empty text");

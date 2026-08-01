@@ -84,7 +84,7 @@ fn lessThanU64(_: void, a: u64, b: u64) bool {
 
 fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Session {
     var tcp_resident = tcp.Resident{ .io = io };
-    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
+    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
 }
 
 fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, n: usize) !void {
@@ -251,8 +251,8 @@ fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
 /// host/port arguments are unused; the pair is self-contained.
 fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    defer server.close() catch {};
     var addr_buf: [64]u8 = undefined;
     const local_designator = try server.localDesignator(&addr_buf);
 

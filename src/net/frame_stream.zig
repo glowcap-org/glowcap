@@ -35,16 +35,18 @@ const Stream = std.Io.net.Stream;
 /// Capacity past this is burst from a slow-reader episode and frees on drain, so
 /// one episode never pins its high-water bytes for the connection's life;
 /// capacity at or under it is steady reply traffic and stays, so the steady state
-/// never reallocates. Both readiness loops — the TCP completion `Loop` and the
-/// iroh completion `Backend` — honor the same bound, so it lives here in one place: it is a
-/// per-connection footprint number the ladder's 500k-connection budget owns, and
-/// a divergence between the two loops would silently split that budget.
+/// never reallocates. One `completion.Loop` honors it for every backend it is
+/// instantiated over, so there is no second Zig spelling to drift from. The
+/// mirror that can drift is across languages: the iroh sidecar keeps its own
+/// per-direction bound in Rust (`NB_STEADY_BYTES`), and `meta-check` pins the
+/// two literals together, because this is a per-connection footprint number the
+/// ladder's 500k-connection budget owns.
 pub const steady_outbound_bytes: usize = 16 * 1024;
 
 /// Append every encoded outbound frame `peer` holds onto `list`, freeing each
 /// frame as its bytes are copied — the one take-outbound drain shape both
-/// readiness loops ride. It lives here beside `steady_outbound_bytes` for the
-/// same reason that bound does: forked copies in the two loops would drift.
+/// readiness loops ride. It lives here beside `steady_outbound_bytes` because
+/// the bound and the drain it bounds belong together.
 /// On an append failure the current frame is still freed and the remaining
 /// frames stay on the peer (freed with it), so the caller only decides what
 /// the failed connection does next.
@@ -64,7 +66,7 @@ pub fn queueOutboundBytes(
 /// slow-reader episode must not pin its high-water bytes for the connection's
 /// life, the ADR-0041/0042 posture), capacity at or under it stays so steady
 /// reply traffic never reallocates. The one spelling of the drain-point
-/// reclaim both loops honor.
+/// reclaim.
 pub fn reclaimBurst(list: *std.ArrayList(u8), allocator: std.mem.Allocator, bound: usize) void {
     if (list.capacity > bound) {
         list.clearAndFree(allocator);
@@ -118,85 +120,38 @@ fn fillStep(r: *std.Io.Reader) FillError!Fill {
     return .filled;
 }
 
-/// The bounded owned accumulation behind a small read buffer. The steady state
-/// is inactive: frames that fit the read buffer decode as borrowed prefixes and
-/// the spill costs nothing. When one admissible frame outgrows the buffer, its
-/// bytes move here so the prefix stays contiguous while the buffer keeps
-/// reading; the frame decodes from the spill, and the spill frees itself the
-/// moment it drains, steady per-connection memory is the read buffer again,
-/// not `max_frame_bytes`.
+/// The waiting room for stream bytes that have arrived but do not yet make a
+/// whole frame, shared with every other tier that reads a stream
+/// (`foundation.Spill`).
 ///
-/// Boundedness is the codec's cap-during-scan verdict (ADR-0029): a frame whose
-/// scanned length crosses `max_frame_bytes` is refused `too_large` while it is
-/// still arriving, so an `incomplete` verdict implies the scanned prefix is
-/// under the cap and the spill never holds more than `max_frame_bytes` plus one
-/// read buffer of not-yet-scanned tail. The frame readers keep a defensive
-/// mirror of that contract (`incomplete` at or past the cap fails as
-/// `FrameTooLarge`) so a codec regression fails closed here instead of growing
-/// the spill.
+/// At this tier it is the bounded overflow behind a small read buffer. The
+/// steady state is inactive: frames that fit the read buffer decode as borrowed
+/// prefixes and the spill costs nothing. When one admissible frame outgrows the
+/// buffer, its bytes move here so the prefix stays contiguous while the buffer
+/// keeps reading. That is rare, so the readers here drain with
+/// `spill_retain_bytes` and the burst is returned outright; steady
+/// per-connection memory is the read buffer again, not `max_frame_bytes`.
 ///
 /// The spill path costs one extra bounded copy per oversize frame (read buffer
 /// into spill); the fast path stays a zero-copy borrow. That copy is a named
 /// design event (ADR-0041).
-pub const Spill = struct {
-    buf: []u8 = &.{},
-    len: usize = 0,
+pub const Spill = foundation.Spill;
 
-    /// Whether a frame is currently accumulating here. While active, the spill
-    /// (not the read buffer) is the prefix the one parser decodes.
-    pub fn isActive(self: *const Spill) bool {
-        return self.len > 0;
-    }
+/// What a drained spill keeps at this tier: nothing. A stream reader spills only
+/// for a frame too large for its read buffer, which is the exception rather than
+/// the traffic, so the burst is freed outright and the next oversize frame pays
+/// one fresh allocation. The byte-fed host tier straddles frame boundaries on
+/// ordinary traffic and names a steady size instead.
+pub const spill_retain_bytes: usize = 0;
 
-    /// The contiguous buffered prefix awaiting the one parser.
-    pub fn bytes(self: *const Spill) []const u8 {
-        return self.buf[0..self.len];
-    }
-
-    /// Move every byte the reader holds into the spill (the reader is left
-    /// empty, free to read on). Grows geometrically; the caller's
-    /// incomplete-at-cap check is what bounds the growth.
-    pub fn absorb(self: *Spill, allocator: std.mem.Allocator, r: *std.Io.Reader) std.mem.Allocator.Error!void {
-        try self.absorbBytes(allocator, r.buffered());
-        r.toss(r.bufferedLen());
-    }
-
-    /// As `absorb`, for a caller that manages a raw receive buffer instead of
-    /// a `std.Io.Reader` (the completion loop). `incoming` is borrowed for the
-    /// call; the caller resets its own buffer after.
-    pub fn absorbBytes(self: *Spill, allocator: std.mem.Allocator, incoming: []const u8) std.mem.Allocator.Error!void {
-        if (incoming.len == 0) return;
-        if (self.buf.len < self.len + incoming.len) {
-            var new_cap: usize = @max(self.buf.len, 4096);
-            while (new_cap < self.len + incoming.len) new_cap *= 2;
-            self.buf = try allocator.realloc(self.buf, new_cap);
-        }
-        @memcpy(self.buf[self.len..][0..incoming.len], incoming);
-        self.len += incoming.len;
-    }
-
-    /// Drop `n` consumed bytes (one decoded frame) off the front. Leftover bytes
-    /// — the start of the next frame — compact forward and keep the spill
-    /// active; a drained spill frees its storage so the steady state returns to
-    /// the read buffer alone.
-    pub fn consume(self: *Spill, allocator: std.mem.Allocator, n: usize) void {
-        std.debug.assert(n <= self.len);
-        const remaining = self.len - n;
-        if (remaining == 0) {
-            allocator.free(self.buf);
-            self.buf = &.{};
-            self.len = 0;
-            return;
-        }
-        std.mem.copyForwards(u8, self.buf[0..remaining], self.buf[n .. n + remaining]);
-        self.len = remaining;
-    }
-
-    pub fn deinit(self: *Spill, allocator: std.mem.Allocator) void {
-        allocator.free(self.buf);
-        self.* = .{};
-    }
-};
+/// Move every byte the reader holds into the spill (the reader is left empty,
+/// free to read on). The reader-shaped half of `Spill.absorbBytes`: it lives
+/// here rather than on the type because `foundation` is core and holds no
+/// `std.Io`.
+pub fn absorbFrom(spill: *Spill, allocator: std.mem.Allocator, r: *std.Io.Reader) std.mem.Allocator.Error!void {
+    try spill.absorbBytes(allocator, r.buffered());
+    r.toss(r.bufferedLen());
+}
 
 /// Get more inbound bytes for the one parser, spilling instead of refusing when
 /// the read buffer is the only limit: with the spill inactive and the buffer not
@@ -216,11 +171,11 @@ pub fn fillThroughSpill(
                 .closed => return error.TruncatedFrame,
             }
         }
-        try spill.absorb(allocator, r);
+        try absorbFrom(spill, allocator, r);
         return .filled;
     }
     if (r.buffer.len > 0 and r.bufferedLen() == r.buffer.len) {
-        try spill.absorb(allocator, r);
+        try absorbFrom(spill, allocator, r);
         return .filled;
     }
     return fillStep(r);
@@ -237,13 +192,19 @@ pub fn readFrameFrom(
     codec_id: model.CodecId,
     max_frame_bytes: usize,
     spill: *Spill,
+    scan: *codec.framing.StreamScan,
 ) FrameError!foundation.Frame {
     while (true) {
         const supply = if (spill.isActive()) spill.bytes() else r.buffered();
+        // `framePrefix` carries the scan across reads, so a frame arriving in
+        // pieces is walked once rather than once per read, and it owns the
+        // refusal that withholding the decoder would otherwise hide. The spill
+        // takes over the prefix unchanged when it activates, so the cursor
+        // stays valid across that handover.
         if (supply.len > 0) {
-            switch (codec.dispatch.decodePrefix(codec_id, supply, max_frame_bytes)) {
+            switch (codec.dispatch.framePrefix(codec_id, supply, scan, max_frame_bytes)) {
                 .decoded => |decoded| {
-                    // `decodePrefix` above already accepted this codec, so its
+                    // `framePrefix` above already accepted this codec, so its
                     // shape is registered; a null here would mean the two
                     // dispatchers disagree, which we classify as malformed.
                     const shape = codec.dispatch.frameShape(codec_id) orelse return error.MalformedFrame;
@@ -258,16 +219,10 @@ pub fn readFrameFrom(
                         // violation cannot occur; classify defensively.
                         error.InvalidFrameShape => return error.MalformedFrame,
                     };
-                    if (spill.isActive()) spill.consume(allocator, decoded.consumed) else r.toss(decoded.consumed);
+                    if (spill.isActive()) spill.consume(allocator, decoded.consumed, spill_retain_bytes) else r.toss(decoded.consumed);
                     return frame;
                 },
-                .incomplete => {
-                    // Defensive mirror of the codec's cap-during-scan contract
-                    // (ADR-0029): an incomplete prefix at or past the cap can
-                    // never complete within it, so a codec that failed to refuse
-                    // it fails closed here instead of growing the spill.
-                    if (supply.len >= max_frame_bytes) return error.FrameTooLarge;
-                },
+                .incomplete => {},
                 .malformed => return error.MalformedFrame,
                 .too_large => return error.FrameTooLarge,
             }
@@ -286,8 +241,9 @@ const DrainVerdict = enum {
     ok,
     /// The stream is unrecoverable. When the codec refused the frame, the
     /// peer has already queued an `op:abort` to flush before the connection
-    /// closes; the incomplete-at-cap defensive mirror closes without one
-    /// (nothing was refused, the frame simply cannot complete).
+    /// closes, and the incomplete-at-cap refusal queues one too: it runs
+    /// through `recvStreamPrefix`, which projects the same typed abort a
+    /// decoder refusal does.
     fail,
     /// A spill allocation failed; close the connection.
     close,
@@ -321,11 +277,11 @@ pub fn drainWholeFrames(
     while (true) {
         const supply = if (from_spill) spill.bytes() else chunk[offset..];
         if (supply.len == 0) break;
-        const outcome = peer.applyStreamPrefix(supply) catch return .fail;
+        const outcome = peer.recvStreamPrefix(supply) catch return .fail;
         switch (outcome) {
             .incomplete => break,
             .consumed => |used| {
-                if (from_spill) spill.consume(allocator, used) else offset += used;
+                if (from_spill) spill.consume(allocator, used, spill_retain_bytes) else offset += used;
             },
         }
     }
@@ -361,6 +317,10 @@ pub const FrameStream = struct {
     /// Bounded overflow for frames larger than the read buffer; inactive (and
     /// allocation-free) while frames fit the buffer.
     spill: Spill = .{},
+    /// How far the codec has got framing the partial frame at the front of the
+    /// supply, so a frame arriving over several reads is walked once rather
+    /// than once per read.
+    scan: codec.framing.StreamScan = .{},
 
     pub fn initStream(
         io: std.Io,
@@ -389,7 +349,7 @@ pub const FrameStream = struct {
     /// Block for one whole frame as an owned `Frame` (allocated, like the spill,
     /// from the stream's own allocator); `Closed` on graceful EOF.
     pub fn readFrame(self: *FrameStream) FrameError!foundation.Frame {
-        return readFrameFrom(&self.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill);
+        return readFrameFrom(&self.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill, &self.scan);
     }
 
     /// Write one frame's borrowed bytes and flush.

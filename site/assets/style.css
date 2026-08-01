@@ -4,7 +4,22 @@
 
 :root {
   --code-bg: light-dark(#f5e6ce, #191309);
-  --shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
+  /* Two shadows, because one cannot serve both themes and both jobs. A shadow
+     is cast in the colour of the ink, and in the dark theme the ink is cream —
+     so the same declaration that puts a soft shadow under a card on paper puts
+     a halo of light around it in the dark.
+
+     That halo is right for a code block and wrong for a card, which is what a
+     reader notices without being able to name it. A code block is a well cut
+     into the page, darker than what surrounds it, and a faint light rim reads
+     as its edge catching the light. A card is raised, lighter than the page,
+     and a light halo around a light panel leaves no edge to see at all: the
+     card blooms into fog. What reads as lift under a raised surface is
+     darkness, so that is what --shadow carries and --shadow-well does not. */
+  --shadow: 0 1px 2px var(--shadow-near), 0 10px 26px var(--shadow-far);
+  --shadow-near: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), rgba(0, 0, 0, 0.4));
+  --shadow-far: light-dark(color-mix(in srgb, var(--ink) 8%, transparent), rgba(0, 0, 0, 0.36));
+  --shadow-well: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
     0 8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
   --sidebar-w: 16rem;
   --content-max: 60rem;
@@ -685,7 +700,7 @@ pre {
   border-radius: 9px;
   overflow-x: auto;
   border: 1px solid var(--rule);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-well);
   /* The TypeScript examples are tab-indented, matching deno fmt; render the
      tab four columns wide like every editor here, not the browser's eight. */
   tab-size: 4;
@@ -1077,6 +1092,29 @@ hr {
   margin: 1.5rem 0;
   padding: 0;
   list-style: none;
+}
+
+/* A card left on its own under a full row is the visual equivalent of a widow
+   in a paragraph: the eye reads the gap beside it as something missing rather
+   than as the end of the set. The two shapes below are the only ones a grid of
+   these sizes produces, and each is fixed where the fix is honest.
+
+   Four cards in three columns become two rows of two. The rule can only take
+   columns away, so at a width where the grid had already dropped to two it
+   changes nothing, and the media query only keeps it clear of the one-column
+   stack. */
+@media (min-width: 46rem) {
+  .cards:has(> .card:nth-child(4):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The landing grid runs a full-width lead card and then seven more, so whatever
+   the column count, the last one starts a row it does not fill. It takes the
+   whole row instead of a third of it. At one column that is already true, so
+   the rule needs no width guard. */
+.cards:has(> .card-lead) > .card:last-child:nth-child(3n + 2) {
+  grid-column: 1 / -1;
 }
 
 .card {

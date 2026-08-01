@@ -52,6 +52,15 @@ const InboundListenClass = union(enum) {
 /// export position that is also an inbound answer follows the answer path; a
 /// third-party-backed promise export follows the import path; every other export
 /// is a live-object listen. A `.far` on a non-third-party import is ignored.
+///
+/// One integer is probed against three namespaces in table order, so a partner
+/// that allocates an answer position equal to one of our export positions has
+/// its `desc:export N` listen anchored on that answer instead. Both numbers
+/// are its own to pick, so what it reaches that way is its own answer, and the
+/// listen it asked for does not happen. The order is deliberate: ADR-0010's
+/// promise-resolver leaves an export position that *is* an answer position,
+/// and the answer is the right reading there. Making the two spaces disjoint
+/// instead would settle it, and would take that coincidence with it.
 fn classifyInboundListenTarget(peer: *Peer, listen: model.view.Listen) InboundListenClass {
     switch (listen.target) {
         .promise => |promise| return .{ .answer = promise.answer_position },
@@ -135,7 +144,7 @@ fn installThirdPartyImportListener(peer: *Peer, import_position: model.ImportPos
         try enqueueFire(
             peer,
             listener_entry.listener.import_position.int(),
-            .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } },
+            .{ .store = .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } } },
             resolution.*,
         );
     } else {
@@ -313,6 +322,14 @@ pub fn respondToProjection(
     kind: session.ProjectionKind,
     new_answer: model.AnswerPosition,
 ) !void {
+    // The projected answer's row is live here: apply installed it just above,
+    // and validation refused a position already in use. Capturing its stamp
+    // now is what lets the settle below tell this question from a later one
+    // wearing the same number. A zero stamp cannot match a live row, so if
+    // that invariant ever broke the projection would go quiet rather than
+    // answer somebody else's question.
+    const answer_row_id = peer.session_state.inboundAnswerRowId(new_answer) orelse 0;
+    std.debug.assert(answer_row_id != 0);
     const projection: session.Projection = .{
         .kind = switch (kind) {
             .field => |field| .{ .field = try peer.allocator.dupe(u8, field) },
@@ -320,6 +337,7 @@ pub fn respondToProjection(
             .untag => |tag| .{ .untag = try peer.allocator.dupe(u8, tag) },
         },
         .answer = new_answer,
+        .answer_row_id = answer_row_id,
     };
     // A `.near` receiver is one of our exports whose position is also an inbound
     // answer (the same flip `installAnswerListener` handles); the reinterpret to
@@ -407,14 +425,25 @@ fn anchorProjection(peer: *Peer, source: model.AnswerPosition, projection: sessi
 /// settled is left as it is.
 fn resolveProjection(peer: *Peer, projection: session.Projection, projected: model.Resolution) !void {
     defer session.deinitProjection(peer.allocator, projection);
+    if (!projectionStillAsked(peer, projection)) return;
     if (peer.session_state.answerResolved(projection.answer)) return;
     try peer.sendCopying(.{ .resolve = .{ .answer = projection.answer, .resolution = projected } });
+}
+
+/// Whether the question this projection was asked is still the one at its
+/// answer position. A partner that releases the position and asks something
+/// else there gets a row with a fresh stamp, and this projection is moot:
+/// settling it would answer the new question with the old one's value.
+fn projectionStillAsked(peer: *Peer, projection: session.Projection) bool {
+    const live = peer.session_state.inboundAnswerRowId(projection.answer) orelse return false;
+    return live == projection.answer_row_id;
 }
 
 /// Break one projection's answer (taking ownership of the projection) with
 /// a static reason.
 fn breakProjection(peer: *Peer, projection: session.Projection, reason: []const u8) !void {
     defer session.deinitProjection(peer.allocator, projection);
+    if (!projectionStillAsked(peer, projection)) return;
     if (peer.session_state.answerResolved(projection.answer)) return;
     try peer.sendCopying(.{ .resolve = .{
         .answer = projection.answer,
@@ -562,7 +591,7 @@ const FireTakenPolicy = enum { always_fire, classify };
 
 fn fireTakenListeners(
     peer: *Peer,
-    target: engine.FireTarget,
+    target: engine.StoreTarget,
     resolution: model.Resolution,
     listeners: []const session.ListenerEntry,
     policy: FireTakenPolicy,
@@ -572,7 +601,7 @@ fn fireTakenListeners(
             .always_fire => try enqueueFire(
                 peer,
                 entry.listener.import_position.int(),
-                target,
+                .{ .store = target },
                 resolution,
             ),
             .classify => try applyListenerDrain(
@@ -621,7 +650,7 @@ fn enqueueFire(
 /// the fire but still reinstalls.
 fn applyListenerDrain(
     peer: *Peer,
-    target: engine.FireTarget,
+    target: engine.StoreTarget,
     resolution: model.Resolution,
     action: ListenerDrainAction,
 ) !void {
@@ -638,10 +667,10 @@ fn applyListenerDrain(
 fn enqueueDrainFire(
     peer: *Peer,
     listener_position: u64,
-    target: engine.FireTarget,
+    target: engine.StoreTarget,
     resolution: model.Resolution,
 ) !void {
-    const stamped: engine.FireTarget = switch (target) {
+    const stamped: engine.StoreTarget = switch (target) {
         // Re-stamp from the live row: a GC'd answer mid-drain skips the fire
         // (the reinstall arms above still run).
         .answer => |answer| .{ .answer = .{
@@ -649,7 +678,6 @@ fn enqueueDrainFire(
             .row_id = peer.session_state.inboundAnswerRowId(answer.position) orelse return,
         } },
         .import => target,
-        .near_object => unreachable, // live-object export listens fire immediately, never through a drain
     };
-    try enqueueFire(peer, listener_position, stamped, resolution);
+    try enqueueFire(peer, listener_position, .{ .store = stamped }, resolution);
 }

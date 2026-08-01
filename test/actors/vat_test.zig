@@ -342,6 +342,37 @@ test "spawnHosted whose box allocation fails still runs the hosted free" {
     failing.fail_index = std.math.maxInt(usize);
 }
 
+test "a failed export bind can discard the freshly spawned hosted actor" {
+    var pair = try pancake.ocapn.engine.pairing.paired(std.testing.allocator);
+    defer pair.deinit();
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+    var port = actors.Port.init(failing.allocator(), &pair.p1);
+    defer port.deinit();
+
+    var freed = false;
+    const F = struct {
+        fn handle(_: *anyopaque, _: *Turn, _: Message) anyerror!model.Argument {
+            return .{ .void = {} };
+        }
+        fn free(ctx: *anyopaque) void {
+            const flag: *bool = @ptrCast(@alignCast(ctx));
+            flag.* = true;
+        }
+    };
+    const actor = try vat.spawnHosted(.{ .ctx = &freed, .handle = F.handle, .free = F.free });
+
+    // The next allocation is the first export-binding map. This is the exact
+    // post-spawn failure `publishHosted` unwinds through `discardFreshActor`.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, port.bindExport(actor, 7));
+    vat.discardFreshActor(actor);
+    try std.testing.expect(freed);
+    try std.testing.expectError(actors.Error.NoSuchActor, vat.near(actor, .{ .verb = "poke" }));
+    failing.fail_index = std.math.maxInt(usize);
+}
+
 test "Turn.breakWith breaks a served answer with the handler's own words and refuses a local frame" {
     const allocator = std.testing.allocator;
     var pair = try pancake.ocapn.engine.pairing.paired(allocator);
@@ -349,8 +380,10 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    var host_vat = actors.Vat.initOver(allocator, host_peer);
+    var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
+    var host_port = actors.Port.init(allocator, host_peer);
+    defer host_port.deinit();
 
     // A gate that refuses every call with its own diagnostic, then returns
     // normally: the staged break must win over the void return value.
@@ -364,7 +397,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     };
     var unused: u8 = 0;
     const gate = try host_vat.spawnHosted(.{ .ctx = &unused, .handle = Gate.handle, .free = null });
-    try host_vat.bindExport(gate, 5);
+    try host_port.bindExport(gate, 5);
     // Hand-wired pairing: the caller addresses position 5 out-of-band, so the
     // bound position takes an explicit grant.
     try host_peer.exportObject(5);
@@ -374,8 +407,10 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     try std.testing.expectError(actors.Error.NotLocal, host_vat.near(gate, .{ .verb = "poke" }));
 
     try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.initOver(allocator, caller_peer);
+    var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit();
 
     const BreakCapture = struct {
         broke: bool = false,
@@ -393,9 +428,9 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
             }
         }
     };
-    const vow = try caller_vat.send(.{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
+    const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
     var captured = BreakCapture{};
-    try caller_vat.on(vow, .{ .ctx = &captured, .func = BreakCapture.listener });
+    try caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = BreakCapture.listener });
 
     _ = try caller_peer.step();
     while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
@@ -403,7 +438,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = try host_vat.serve(&e);
+        _ = try host_port.serve(&host_vat, &e);
     }
     _ = try host_peer.step();
     while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
@@ -411,7 +446,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = try caller_vat.serve(&e);
+        _ = try caller_port.serve(&caller_vat, &e);
     }
 
     // The break carries the handler's own diagnostic, not a generic reason.
@@ -442,6 +477,267 @@ test "driveBudgeted runs at most N queued turns then yields the rest to the next
     try std.testing.expectEqual(actors.Vat.DriveProgress.drained, try vat.driveBudgeted(2));
 }
 
+const OrderActor = struct {
+    order: [16]u8 = undefined,
+    len: usize = 0,
+
+    pub fn handle(self: *OrderActor, turn: *Turn, msg: Message) !model.Argument {
+        _ = turn;
+        if (std.mem.eql(u8, msg.verb, "record")) {
+            self.order[self.len] = @intCast(try msg.argInt(0));
+            self.len += 1;
+            return .{ .void = {} };
+        }
+        if (std.mem.eql(u8, msg.verb, "order")) return .{ .bytes = self.order[0..self.len] };
+        return error.NoSuchMethod;
+    }
+};
+
+test "ingress scheduling rotates fairly and preserves FIFO within each ingress" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const a = try vat.openIngress();
+    const b = try vat.openIngress();
+    defer vat.closeIngress(a) catch unreachable;
+    defer vat.closeIngress(b) catch unreachable;
+    const recorder = try vat.spawn(OrderActor, .{});
+
+    for ([_]i64{ 1, 2, 3 }) |value| {
+        try vat.tellFromIngress(a, recorder, .{ .verb = "record", .args = &.{.{ .integer = value }} });
+    }
+    for ([_]i64{ 10, 11, 12 }) |value| {
+        try vat.tellFromIngress(b, recorder, .{ .verb = "record", .args = &.{.{ .integer = value }} });
+    }
+
+    try std.testing.expectEqual(actors.Vat.DriveProgress.drained, try vat.driveBudgeted(6));
+    const order = (try vat.near(recorder, .{ .verb = "order" })).bytes;
+    try std.testing.expectEqualSlices(u8, &.{ 1, 10, 2, 11, 3, 12 }, order);
+}
+
+test "a Port cannot attribute work to a sibling ingress" {
+    const allocator = std.testing.allocator;
+    var pair = try pancake.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const own = try vat.openIngress();
+    const sibling = try vat.openIngress();
+    defer vat.closeIngress(own) catch unreachable;
+    defer vat.closeIngress(sibling) catch unreachable;
+    var port = actors.Port.init(allocator, &pair.p1);
+    defer port.deinit();
+    port.ingress = own;
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+
+    try std.testing.expectError(
+        actors.Error.UnknownIngress,
+        port.tellFromIngress(&vat, sibling, counter, .{ .verb = "increment" }),
+    );
+    try port.tellFromIngress(&vat, own, counter, .{ .verb = "increment" });
+    try vat.drive();
+    try std.testing.expectEqual(@as(i64, 1), (try vat.near(counter, .{ .verb = "get" })).integer);
+}
+
+test "ingress turn and byte admission refuse atomically" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.initWithOptions(allocator, .{ .queue_limits = .{
+        .max_pending_turns = 2,
+        .max_pending_bytes = 256,
+        .max_chunk_bytes = 256,
+    } });
+    defer vat.deinit();
+    const ingress = try vat.openIngress();
+    defer vat.closeIngress(ingress) catch unreachable;
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+
+    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment" });
+    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment" });
+    try std.testing.expectError(
+        actors.Error.ResourceExhausted,
+        vat.tellFromIngress(ingress, counter, .{ .verb = "increment" }),
+    );
+    try std.testing.expectEqual(@as(usize, 2), vat.ingresses.get(ingress).?.pending_turns);
+    try vat.drive();
+    try std.testing.expectEqual(@as(i64, 2), (try vat.near(counter, .{ .verb = "get" })).integer);
+
+    // Exercise the cumulative byte cap independently of the single-chunk cap:
+    // one message fits, while a second identical message would cross only the
+    // per-ingress pending-byte total.
+    const payload = [_]u8{0xaa} ** 64;
+    vat.queue_limits = .{
+        .max_pending_turns = 8,
+        .max_pending_bytes = 4096,
+        .max_chunk_bytes = 4096,
+    };
+    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });
+    const one_turn_bytes = vat.ingresses.get(ingress).?.pending_bytes;
+    vat.queue_limits.max_pending_bytes = one_turn_bytes * 2 - 1;
+    try std.testing.expectError(
+        actors.Error.ResourceExhausted,
+        vat.tellFromIngress(ingress, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} }),
+    );
+    try std.testing.expectEqual(@as(usize, 1), vat.ingresses.get(ingress).?.pending_turns);
+    try std.testing.expectEqual(one_turn_bytes, vat.ingresses.get(ingress).?.pending_bytes);
+    try vat.drive();
+    try std.testing.expectEqual(@as(i64, 3), (try vat.near(counter, .{ .verb = "get" })).integer);
+
+    // The orthogonal single-message chunk cap also refuses before mutation.
+    vat.queue_limits.max_pending_bytes = 4096;
+    vat.queue_limits.max_chunk_bytes = one_turn_bytes - 1;
+    try std.testing.expectError(
+        actors.Error.ResourceExhausted,
+        vat.tellFromIngress(ingress, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), vat.ingresses.get(ingress).?.pending_turns);
+    try std.testing.expectEqual(@as(usize, 0), vat.ingresses.get(ingress).?.pending_bytes);
+    try std.testing.expectEqual(@as(i64, 3), (try vat.near(counter, .{ .verb = "get" })).integer);
+}
+
+test "an ingress closes only after its queued work drains" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const ingress = try vat.openIngress();
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+
+    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment" });
+    try std.testing.expectError(actors.Error.IngressBusy, vat.closeIngress(ingress));
+    try vat.drive();
+    try vat.closeIngress(ingress);
+    try std.testing.expectError(actors.Error.UnknownIngress, vat.closeIngress(ingress));
+    try std.testing.expectError(
+        actors.Error.UnknownIngress,
+        vat.tellFromIngress(ingress, counter, .{ .verb = "increment" }),
+    );
+}
+
+const CloseDuringTurn = struct {
+    ingress: actors.IngressId,
+    saw_busy: bool = false,
+
+    pub fn handle(self: *CloseDuringTurn, turn: *Turn, msg: Message) !model.Argument {
+        _ = msg;
+        turn.vat.closeIngress(self.ingress) catch |err| {
+            if (err != actors.Error.IngressBusy) return err;
+            self.saw_busy = true;
+            return .{ .void = {} };
+        };
+        return error.ClosedActiveIngress;
+    }
+};
+
+test "an ingress cannot close during its synchronous turn" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const ingress = try vat.openIngress();
+    const actor = try vat.spawn(CloseDuringTurn, .{ .ingress = ingress });
+
+    _ = try vat.nearFromIngress(ingress, actor, .{ .verb = "close" });
+    const state: *CloseDuringTurn = @ptrCast(@alignCast(vat.actors.get(actor.local).?.box.ptr));
+    try std.testing.expect(state.saw_busy);
+    try vat.closeIngress(ingress);
+}
+
+const CausalFanout = struct {
+    sink: actors.Ref,
+    refused: bool = false,
+
+    pub fn handle(self: *CausalFanout, turn: *Turn, msg: Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "fan")) {
+            _ = try turn.send(self.sink, .{ .verb = "increment" });
+            _ = turn.send(self.sink, .{ .verb = "increment" }) catch |err| {
+                if (err != actors.Error.ResourceExhausted) return err;
+                self.refused = true;
+                return .{ .void = {} };
+            };
+            return .{ .void = {} };
+        }
+        if (std.mem.eql(u8, msg.verb, "refused")) return .{ .boolean = self.refused };
+        return error.NoSuchMethod;
+    }
+};
+
+test "causal sends stay charged to the turn ingress" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.initWithOptions(allocator, .{ .queue_limits = .{ .max_pending_turns = 1 } });
+    defer vat.deinit();
+    const ingress = try vat.openIngress();
+    defer vat.closeIngress(ingress) catch unreachable;
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+    const fanout = try vat.spawn(CausalFanout, .{ .sink = counter });
+
+    try vat.tellFromIngress(ingress, fanout, .{ .verb = "fan" });
+    try std.testing.expectEqual(actors.Vat.DriveProgress.more_pending, try vat.driveBudgeted(1));
+    try std.testing.expect((try vat.near(fanout, .{ .verb = "refused" })).boolean);
+    try std.testing.expectEqual(@as(usize, 1), vat.ingresses.get(ingress).?.pending_turns);
+    try std.testing.expectEqual(@as(usize, 0), vat.local_ingress.pending_turns);
+    try vat.drive();
+    try std.testing.expectEqual(@as(i64, 1), (try vat.near(counter, .{ .verb = "get" })).integer);
+}
+
+test "a completed ingress chunk is reclaimed while another ingress remains runnable" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.initWithOptions(allocator, .{ .queue_limits = .{
+        .max_pending_turns = 8,
+        .max_pending_bytes = 4096,
+        .max_chunk_bytes = 240,
+    } });
+    defer vat.deinit();
+    const a = try vat.openIngress();
+    const b = try vat.openIngress();
+    defer vat.closeIngress(a) catch unreachable;
+    defer vat.closeIngress(b) catch unreachable;
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+    const payload = [_]u8{0x5a} ** 96;
+
+    try vat.tellFromIngress(a, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });
+    try vat.tellFromIngress(b, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });
+    try vat.tellFromIngress(b, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });
+    try std.testing.expectEqual(actors.Vat.DriveProgress.more_pending, try vat.driveBudgeted(2));
+    try std.testing.expect(vat.ingresses.get(a).?.first == null);
+    try std.testing.expectEqual(@as(usize, 1), vat.ingresses.get(b).?.pending_turns);
+    try std.testing.expect(vat.spare_chunk != null);
+    try vat.drive();
+}
+
+const ReentrantChunkBorrow = struct {
+    observed: [16]u8 = undefined,
+    observed_len: usize = 0,
+
+    pub fn handle(self: *ReentrantChunkBorrow, turn: *Turn, msg: Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "outer")) {
+            // Drain the next row in this same chunk. Once it exhausts the chunk,
+            // enqueue again to force an incorrect early spare to be reused and
+            // overwrite the outer message before we read it.
+            try turn.vat.drive();
+            _ = try turn.send(turn.me(), .{ .verb = "after", .args = &.{.{ .bytes = "OVERWRITE" }} });
+            const original = try msg.argBytes(0);
+            @memcpy(self.observed[0..original.len], original);
+            self.observed_len = original.len;
+            return .{ .void = {} };
+        }
+        if (std.mem.eql(u8, msg.verb, "inner") or std.mem.eql(u8, msg.verb, "after")) return .{ .void = {} };
+        if (std.mem.eql(u8, msg.verb, "observed")) return .{ .bytes = self.observed[0..self.observed_len] };
+        return error.NoSuchMethod;
+    }
+};
+
+test "a nested drive cannot recycle a chunk still borrowed by its outer turn" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    const actor = try vat.spawn(ReentrantChunkBorrow, .{});
+
+    try vat.tell(actor, .{ .verb = "outer", .args = &.{.{ .bytes = "ORIGINAL" }} });
+    try vat.tell(actor, .{ .verb = "inner" });
+    try vat.drive();
+
+    const observed = (try vat.near(actor, .{ .verb = "observed" })).bytes;
+    try std.testing.expectEqualStrings("ORIGINAL", observed);
+}
+
 test "far tell delivers with no answer and the partner replies nothing" {
     const allocator = std.testing.allocator;
     var pair = try pancake.ocapn.engine.pairing.paired(allocator);
@@ -449,18 +745,22 @@ test "far tell delivers with no answer and the partner replies nothing" {
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    var host_vat = actors.Vat.initOver(allocator, host_peer);
+    var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
+    var host_port = actors.Port.init(allocator, host_peer);
+    defer host_port.deinit();
     const counter = try host_vat.spawn(Counter, .{ .n = 0 });
-    try host_vat.bindExport(counter, 5);
+    try host_port.bindExport(counter, 5);
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.initOver(allocator, caller_peer);
+    var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit();
 
     // Fire-and-forget: no answer requested, so the caller holds no promise.
-    try caller_vat.tell(.{ .far = model.FarRef.object(5) }, .{ .verb = "increment" });
+    try caller_port.tell(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "increment" });
 
     _ = try caller_peer.step();
     while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
@@ -468,7 +768,7 @@ test "far tell delivers with no answer and the partner replies nothing" {
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = host_vat.serve(&e) catch {};
+        _ = host_port.serve(&host_vat, &e) catch {};
     }
 
     // The actor ran on the host.
@@ -485,18 +785,22 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    var host_vat = actors.Vat.initOver(allocator, host_peer);
+    var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
+    var host_port = actors.Port.init(allocator, host_peer);
+    defer host_port.deinit();
     const counter = try host_vat.spawn(Counter, .{ .n = 0 });
-    try host_vat.bindExport(counter, 5);
+    try host_port.bindExport(counter, 5);
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.initOver(allocator, caller_peer);
+    var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit();
 
     // A far send the host answers with the new count.
-    const vow = try caller_vat.send(.{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
     // The deliver reaches the host, which runs the actor and resolves the answer.
     _ = try caller_peer.step();
@@ -505,7 +809,7 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = host_vat.serve(&e) catch {};
+        _ = host_port.serve(&host_vat, &e) catch {};
     }
     // The host's resolve travels back to the caller and is applied.
     _ = try host_peer.step();
@@ -516,7 +820,7 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = caller_vat.serve(&e) catch {};
+        _ = caller_port.serve(&caller_vat, &e) catch {};
     }
 
     // A listener registered now would never fire, so it is refused loud —
@@ -524,13 +828,13 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     var captured = Captured{};
     try std.testing.expectError(
         actors.Error.AlreadySettled,
-        caller_vat.on(vow, .{ .ctx = &captured, .func = Captured.record }),
+        caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = Captured.record }),
     );
     // The refusal is idempotent: a retried `on` hits the same wall instead of
     // slipping past a consumed marker into a listener that can never fire.
     try std.testing.expectError(
         actors.Error.AlreadySettled,
-        caller_vat.on(vow, .{ .ctx = &captured, .func = Captured.record }),
+        caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = Captured.record }),
     );
 }
 
@@ -541,23 +845,25 @@ test "breakFarVows settles outstanding far vows broken" {
     const caller_peer = &pair.p2;
 
     try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.initOver(allocator, caller_peer);
+    var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit();
 
     // A far send the partner never answers: the vow stays pending until the
     // connection it rode on is gone.
-    const vow = try caller_vat.send(.{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var broke = false;
-    try caller_vat.on(vow, .{ .ctx = &broke, .func = promise_capture.captureBroken });
+    try caller_port.on(&caller_vat, vow, .{ .ctx = &broke, .func = promise_capture.captureBroken });
 
     // No resolution arrives; breaking the far vows fires the listener broken
     // rather than leaving the awaiter waiting on a reply that can never come.
     try std.testing.expect(!broke);
-    caller_vat.breakFarVows("connection closed");
+    caller_port.breakFarVows("connection closed");
     try std.testing.expect(broke);
 
     // Idempotent: a second break has nothing left to settle.
-    caller_vat.breakFarVows("connection closed");
+    caller_port.breakFarVows("connection closed");
 }
 
 test "bindExport refuses a far ref with NotLocal" {
@@ -565,14 +871,16 @@ test "bindExport refuses a far ref with NotLocal" {
     var pair = try pancake.ocapn.engine.pairing.paired(allocator);
     defer pair.deinit();
 
-    var vat = actors.Vat.initOver(allocator, &pair.p1);
+    var vat = actors.Vat.init(allocator);
     defer vat.deinit();
+    var port = actors.Port.init(allocator, &pair.p1);
+    defer port.deinit();
 
     // Only a local actor can answer an export position this vat hosts; a far
     // ref already lives on the partner.
     try std.testing.expectError(
         actors.Error.NotLocal,
-        vat.bindExport(.{ .far = model.FarRef.object(3) }, 7),
+        port.bindExport(.{ .far = model.FarRef.object(3) }, 7),
     );
 }
 
@@ -616,7 +924,7 @@ test "a turn's local send built in turn.arena survives the next turn's arena res
 
     // Turn one builds the payload in the turn arena and queues a local send of
     // it. Turn two (the sink's) begins with a depth-0 turn-arena reset, so the
-    // queued message must own its bytes (the queue-arena clone) or the sink
+    // queued message must own its bytes (the queue-chunk clone) or the sink
     // reads scribbled-over storage.
     try vat.tell(forwarder, .{ .verb = "forward", .args = &.{.{ .bytes = "intact" }} });
     try vat.drive();
@@ -1370,6 +1678,7 @@ const EchoVerb = struct {
 /// under the outer value.
 const NestedServeCapture = struct {
     vat: *actors.Vat,
+    port: *actors.Port,
     inner_event: *pancake.ocapn.engine.Event,
     buf: [64]u8 = undefined,
     len: usize = 0,
@@ -1386,7 +1695,7 @@ const NestedServeCapture = struct {
         };
         // Pump the second resolve through a nested serve — the same shape a
         // driver's `step` → `drainEvents` re-entry has — before reading.
-        _ = self.vat.serve(self.inner_event) catch {
+        _ = self.port.serve(self.vat, self.inner_event) catch {
             self.broke = true;
             return;
         };
@@ -1402,19 +1711,23 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    var host_vat = actors.Vat.initOver(allocator, host_peer);
+    var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
+    var host_port = actors.Port.init(allocator, host_peer);
+    defer host_port.deinit();
     const echo = try host_vat.spawn(EchoVerb, .{});
-    try host_vat.bindExport(echo, 5);
+    try host_port.bindExport(echo, 5);
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.initOver(allocator, caller_peer);
+    var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit();
     const remote: actors.Ref = .{ .far = model.FarRef.object(5) };
 
-    const first = try caller_vat.send(remote, .{ .verb = "one" });
-    const second = try caller_vat.send(remote, .{ .verb = "two" });
+    const first = try caller_port.send(&caller_vat, remote, .{ .verb = "one" });
+    const second = try caller_port.send(&caller_vat, remote, .{ .verb = "two" });
 
     // Shuttle the delivers over (one step per frame), run both turns, then
     // shuttle the resolves back the same way.
@@ -1427,7 +1740,7 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = try host_vat.serve(&e);
+        _ = try host_port.serve(&host_vat, &e);
     }
     while (true) {
         _ = try host_peer.step();
@@ -1441,12 +1754,12 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     var second_event = caller_peer.pollEvent() orelse return error.ExpectedResolve;
     defer second_event.deinit();
 
-    var outer = NestedServeCapture{ .vat = &caller_vat, .inner_event = &second_event };
-    try caller_vat.on(first, .{ .ctx = &outer, .func = NestedServeCapture.record });
+    var outer = NestedServeCapture{ .vat = &caller_vat, .port = &caller_port, .inner_event = &second_event };
+    try caller_port.on(&caller_vat, first, .{ .ctx = &outer, .func = NestedServeCapture.record });
     var inner = Captured{};
-    try caller_vat.on(second, .{ .ctx = &inner, .func = Captured.record });
+    try caller_port.on(&caller_vat, second, .{ .ctx = &inner, .func = Captured.record });
 
-    try std.testing.expect(try caller_vat.serve(&first_event));
+    try std.testing.expect(try caller_port.serve(&caller_vat, &first_event));
 
     // Both resolutions read intact: the nested settle allocated in the same
     // arena but never reset it (depth returned to 1, not 0).
@@ -1460,6 +1773,7 @@ test "a far listener that pumps a second resolve through a nested serve reads in
 /// ever come.
 const RegisterOnBreak = struct {
     vat: *actors.Vat,
+    port: *actors.Port,
     late_broke: *bool,
     registered: bool = false,
 
@@ -1467,11 +1781,12 @@ const RegisterOnBreak = struct {
         const self: *RegisterOnBreak = @ptrCast(@alignCast(ctx.?));
         if (resolution != .broken or self.registered) return;
         self.registered = true;
-        const late = self.vat.send(
+        const late = self.port.send(
+            self.vat,
             .{ .far = model.FarRef.object(6) },
             .{ .verb = "late" },
         ) catch return;
-        self.vat.on(late, .{ .ctx = self.late_broke, .func = promise_capture.captureBroken }) catch {};
+        self.port.on(self.vat, late, .{ .ctx = self.late_broke, .func = promise_capture.captureBroken }) catch {};
     }
 };
 
@@ -1483,17 +1798,19 @@ test "a far vow registered during breakFarVows also fires broken" {
 
     try caller_peer.importObject(5);
     try caller_peer.importObject(6);
-    var vat = actors.Vat.initOver(allocator, caller_peer);
+    var vat = actors.Vat.init(allocator);
     defer vat.deinit();
+    var port = actors.Port.init(allocator, caller_peer);
+    defer port.deinit();
 
-    const vow = try vat.send(.{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
+    const vow = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
     var late_broke = false;
-    var reactor = RegisterOnBreak{ .vat = &vat, .late_broke = &late_broke };
-    try vat.on(vow, .{ .ctx = &reactor, .func = RegisterOnBreak.record });
+    var reactor = RegisterOnBreak{ .vat = &vat, .port = &port, .late_broke = &late_broke };
+    try port.on(&vat, vow, .{ .ctx = &reactor, .func = RegisterOnBreak.record });
 
     // The whole listener map is detached before any fire; the mid-break
     // registration lands in the fresh map and the outer re-check drains it.
-    vat.breakFarVows("connection closed");
+    port.breakFarVows("connection closed");
     try std.testing.expect(reactor.registered);
     try std.testing.expect(late_broke);
 }

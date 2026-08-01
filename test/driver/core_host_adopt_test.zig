@@ -69,11 +69,11 @@ test "openAcceptedOver adopts an embedder-pinned peer: handshake, fetch, per-eve
     try std.testing.expect(dialed.sessionOpen());
     // The adopted shell serves the pinned peer, not a node-owned twin, and
     // the host posture landed on it.
-    try std.testing.expect(adopted.served.peer == &pinned);
+    try std.testing.expect(adopted.served.port.peer == &pinned);
     try std.testing.expectEqual(@as(usize, frame_cap), pinned.session_state.limits.max_frame_bytes);
 
     // Publish and fetch over the adopted connection.
-    _ = try adopted.served.publish("counter", Counter, .{});
+    _ = try adopted.served.publish(&adopted.host.vat, "counter", Counter, .{});
     var fetched = CapturedRef{};
     const fetch_vow = try client.fetch(dialed, "counter");
     try client.vowOn(fetch_vow, .{ .ctx = &fetched, .func = CapturedRef.record });

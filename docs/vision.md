@@ -1,152 +1,107 @@
-# pancake: Vision
+# Vision
 
-This file is the destination. [`shipped.md`](shipped.md) says what the code does
-today. When the two disagree, the code is the truth about the present, and this
-file is where the present is headed. Build toward this.
+pancake should be a dependable OCapN implementation for people who need
+capability networking from Zig or another systems boundary.
+
+This page describes that destination. [What ships](shipped.md) describes the
+code today; [the roadmap](roadmap.md) names the work between the two.
 
 ## The goal
 
-pancake aims to be a fully canonical OCapN implementation and a highly
-performant one. Canonical means a native Zig peer, or a peer in any binding, can
-hold a complete and correct OCapN conversation with a real
-[Spritely Goblins](https://spritely.institute/goblins/) peer, and with each
-other, with no asterisks. Performant means every allocation and copy on the wire
-path is forbidden, intentional, or measured.
+A pancake peer should hold a complete, correct conversation with any conforming
+OCapN peer, including [Spritely Goblins](https://spritely.institute/goblins/).
+That conversation should work whether the application uses native Zig, the C
+ABI, or a language binding.
 
-Correctness comes first. A fast wrong answer is worthless. Performance and
-ergonomics are co-equal seconds: shipping one without the other misses the goal.
-When two right answers conflict, find the design that honors both.
+Correctness comes first. Once the protocol is correct, performance and
+ergonomics are both requirements: the library should make its costs visible
+without making ordinary applications manage protocol machinery.
 
-## Why this exists
+An independent implementation also tests whether the specification can be
+implemented from its own words. Differences between the draft, Goblins, and
+pancake stay visible in [community review](community-review.md); project
+provenance and upstream-contact policy live in
+[`PROVENANCE.md`](../PROVENANCE.md).
 
-Its author needs an object-capability substrate to build infrastructure on, and
-would rather build on one whose allocations, boundaries, and failure modes are
-visible than on one that hides them.
+## Design commitments
 
-The other reason is that a specification is better off with an implementation
-written by someone other than its authors. A second peer finds the sentences that
-admit two readings, gives the conformance suite another subject to run against,
-and is evidence that the spec can be built from its own text. Where pancake
-reads the spec differently from Goblins, the difference is written down rather
-than smoothed over: [`boundaries.md`](boundaries.md) records where each
-capability stops, and [`community-review.md`](community-review.md) lists the
-divergences and open questions. Those notes are offered to OCapN as findings,
-not as arguments.
+- **A small portable core.** Session semantics remain synchronous and free of
+  I/O, threads, schedulers, and platform policy.
+- **Visible ownership.** Allocation, copying, borrowing, and release are
+  explicit at the boundary where they happen.
+- **One source of authority.** Session state decides what a reference means.
+  Codecs parse and render; transports move bytes.
+- **Application-shaped APIs.** Fetching, publishing, calling, hosting,
+  delegation, attenuation, revocation, and handoff should read as ordinary
+  operations rather than wire-protocol bookkeeping.
+- **Replaceable edges.** Codecs, transports, and runtime adapters meet the core
+  through narrow contracts. The long-term goal is to make those contracts
+  usable from every supported surface, not only native Zig.
 
-pancake is not trying to replace [Spritely Goblins](https://spritely.institute/goblins/).
-Goblins is the reference this project is measured against, which is why the live
-interop steps exist: so the measurement keeps happening instead of being claimed
-once.
+## Scale
 
-## The number
+The destination is 500,000 live CapTP sessions on one node.
 
-One node should hold five hundred thousand live CapTP sessions. That number is
-a budget the code draws against, and no surface calls 500k an achievement until
-a check proves it under real socket load.
+That is a target, not a current result. It is reached only when a recorded run
+holds that many real socket sessions with acceptable memory and scheduling
+cost. Until then, per-session footprint checks and allocation budgets keep the
+design moving in the right direction. [The route to 1.0](ladder.md) owns the
+measured numbers.
 
-The portable core is synchronous and does no I/O, so it cannot deliver 500k by
-itself. It can make 500k impossible by letting per-session state bloat or by
-allocating on the wire path without naming it. The core's job is a small enough
-per-session footprint, and a strict enough allocation discipline, that the
-adapter never fights its own substrate. The [ladder](ladder.md) owns the checked
-numbers. A field added to session state is a withdrawal from that budget.
+The core cannot create scale by itself; the connection loop and operating
+system do the serving. Its responsibility is to avoid making the target
+impossible through oversized session state, hidden allocation, or unnecessary
+copies.
 
-## Two surfaces, both idiomatic
+## A useful application surface
 
-pancake is consumed two ways, and both must feel native:
+An application should hold a session, fetch or publish an object, and call it.
+It should be able to pass a reference to another peer and receive calls back
+without learning export positions, driving a manual flush loop, or naming CapTP
+messages.
 
-- The Zig API should read like what a Zig programmer expects from a modern OCapN
-  library. Ownership, allocation, and lifetime stay visible at the call that
-  performs them. There is no hidden runtime to learn before you send a message.
-- The C ABI should read like what a binding author expects to wrap: opaque
-  handles, fixed-width return codes, `ptr + len` views, callbacks, and explicit
-  release. A Rust, Python, or Deno author should bind it well without knowing
-  Zig.
+The Zig API should keep allocation and lifetimes legible to a Zig programmer.
+The C ABI should give binding authors opaque handles, fixed-width results,
+`ptr + len` views, callbacks, and explicit release. A binding that feels
+awkward in its host language is a reason to improve the shared boundary.
 
-A binding that feels like a second-class translation of the Zig API is a defect
-in the ABI, not in the binding.
+Higher-level actor support belongs above the protocol engine. Applications may
+use it, replace it, or work directly with the session API; the protocol core
+should not grow framework policy to serve one runtime.
 
-## The application surface
+## Reachability
 
-pancake also competes on how obvious it is to build with. An application
-developer in any binding holds one object, a CapTP `Session`, and a small verb
-vocabulary (see the [bindings contract](../bindings/README.md)). They fetch a
-capability by name, spawn a local object, and hand a partner a reference. The
-partner calls it back. Happy-path application code carries no export-position
-bookkeeping, no manual flush, no hand-rolled receive loop, and no protocol
-vocabulary.
+OCapN does not require one transport. A peer locator carries the designator and
+hints a netlayer needs to reach it; only identity-aware transports bind that
+designator to a cryptographic peer identity. The same CapTP semantics should
+work over a local process, a cleartext development socket, or an encrypted
+peer-to-peer channel.
 
-The `Session` composes the sans-io
-peer, the actor vat, and the I/O adapter. A consumer who outgrows it reaches the
-peer at `session.peer`. Delegation is passing a reference. Attenuation and
-revocation are one `session.attenuate` or `session.caretaker` call each
-(ADR-0064). Cross-language demos prove the shape: `zig build demo-rooms`,
-`demo-tasks`, and `demo-tools`.
+The destination includes real internet reachability: authenticated peer
+identity, encryption, NAT traversal, and relays without folding those concerns
+into CapTP. Three-party handoff must establish a direct relationship between
+the introduced peers; the transport must make that relationship reachable.
 
-## Pluggable by contract
+Browsers are peers too. After obtaining a channel, they should be able to host
+objects, answer calls, pass capabilities, and take part in handoff without
+turning a relay into an application-level authority.
 
-Use the netlayers and codecs pancake ships, or bring your own. That holds in Zig
-and in every binding. Netlayers and codecs are contracts the core dispatches
-against. If swapping one out means reaching into the core, the boundary is
-wrong.
+## Interoperability
 
-## Reachable on modern networks
+Interoperability means:
 
-OCapN lets CapTP ride any netlayer. A locator names a peer by a designator,
-usually a self-authenticating public key. Hints carry what the netlayer needs to
-reach the peer. The same locator can bootstrap a session in band as Syrup or out
-of band as an `ocapn://<designator>.<transport>` URI.
+- native pancake and Goblins can dial, host, call, and hand off to each other;
+- every language binding can act as both client and host with outside peers;
+- pancake peers using different bindings, codecs, and transports preserve the
+  same capability semantics.
 
-Two peers that cannot open a raw socket still need to talk. pancake should ship
-a netlayer that gives reachability on the modern internet: a self-authenticating
-node identity, NAT traversal and relays, and an encrypted ordered channel. A
-QUIC peer-to-peer netlayer in the [iroh](https://www.iroh.computer/) shape fits:
-its node id is the designator, its relays and hole-punching give reachability
-without port-forwarding, and its QUIC streams are the channel. It belongs behind
-the same netlayer contract as TCP, above the sans-io core and never inside it.
+## Read the current state
 
-Peer-to-peer is also a capability-graph property. Introducing a third peer is
-OCapN's three-party handoff. The handoff substrate is pancake's job; making the
-introduced peer reachable is the netlayer's. Both have to be real.
-
-## Interop is the proof
-
-The goal is full, bidirectional conversation:
-
-- a native Zig peer with a real Goblins peer (live `goblins-interop`),
-- a peer in any binding dialing a real Goblins peer (live `*-goblins-interop`;
-  bidirectional native proof is `goblins-interop` only),
-- any pancake or binding peer with any other.
-
-A semantic claim that no scenario or fixture proves is a wish, not part of the
-vision yet.
-
-## Drivers above the core
-
-The core stays small: codec-neutral semantics, authoritative session state, a
-synchronous no-I/O engine, and explicit frame ownership. Framework-shaped pieces
-sit above it as optional drivers the core does not know about.
-
-- The actor layer is a Goblins-style framework so an application on pancake
-  feels as intuitive as one on Goblins. The substrate never grows actor
-  semantics to serve it.
-- `griddle` is a planned deterministic network simulator and fuzzer. It is not
-  implemented.
-
-The actor layer is real in every binding and in native Zig, reached through the
-application surface above. Three cross-language demos prove the dial half
-(`demo-rooms`, `demo-tasks`, `demo-tools`). The accountability host and the
-driver loopback test prove the hosting half. Live proof that a Goblins client
-calls a pancake-hosted actor is the `goblins-interop` listener brackets plus
-one binding: `zig build deno-goblins-listen` has a real Goblins vat dial a
-greeter the Deno binding publishes. The other bindings' listener direction is
-not proven by a live build check.
-
-## Where we are
-
-For what runs today, read [`shipped.md`](shipped.md). For today's edges, read
-[`boundaries.md`](boundaries.md). For the ordered route to 1.0, read
-[the ladder](ladder.md). For why specific boundaries sit where they do, read the
-ADRs under [decisions/adr/](decisions/adr/). When you close a gap, update
-`shipped.md` and the ladder in the same change, and write a superseding ADR
-rather than citing a deferral as a reason to leave work undone.
+- [What ships](shipped.md) is the implemented surface.
+- [Known limitations](boundaries.md) lists constraints that affect users.
+- [Stability](stability.md) says what recurring evidence supports each claim.
+- [The route to 1.0](ladder.md) records milestone standings and measured
+  budgets.
+- [The roadmap](roadmap.md) lists the remaining work in order.
+- [Architecture](architecture.md) explains the boundaries that protect this
+  destination.

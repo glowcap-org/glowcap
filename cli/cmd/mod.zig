@@ -80,10 +80,10 @@ fn applyToCtx(ctx: *Ctx, flag: Flag, value: ?[]const u8) !void {
 
 fn storeFlag(parsed: *Parsed, flag: Flag, value: ?[]const u8) !void {
     switch (flag.kind) {
-        .bool_flag => try parsed.bools.put(parsed.gpa, flag.long, true),
+        .bool_flag => try parsed.setBool(flag.long, true),
         .string_flag => {
             const v = value orelse return error.Usage;
-            try parsed.strings.put(parsed.gpa, flag.long, v);
+            try parsed.setString(flag.long, v);
         },
     }
 }
@@ -104,7 +104,10 @@ fn refuseRepeatedFlag(
     value: []const u8,
     path: []const *const Command,
 ) !void {
-    const first = parsed.strings.get(flag.long) orelse return;
+    const first = switch (parsed.flags.get(flag.long) orelse return) {
+        .string_flag => |s| s,
+        .bool_flag => return,
+    };
     log.err(ctx.io, "--{s} was given twice, as \"{s}\" and then \"{s}\"; keep the one you meant", .{ flag.long, first, value });
     try help_mod.writeNodeHelpErr(ctx.io, path);
     return error.Usage;

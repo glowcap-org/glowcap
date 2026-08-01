@@ -1,25 +1,25 @@
 """Internal: distributed GC (ADR-0063), opt-in and off by default. Owns the
-per-connection :class:`ConnGc` state, fetch ``track_import`` / verb-head
-``drain_gc`` choreography, and ``pancake_host_gc_release``. Session keeps
-``with_gc`` as a thin CapTP verb and binds a :class:`GcHandle` so this module
-never reaches into Session underscore fields. Binding spine Pass 3b.
+Host-wide :class:`HostGc` state, fetch ``track_import`` / verb-head
+``drain_gc`` choreography, and ``pancake_host_ref_release``. Session keeps
+``with_gc`` as a thin opt-in; the Host owns the finalizer state. Binding spine
+Pass 3b.
 """
 
 from __future__ import annotations
 
 import weakref
-from typing import TYPE_CHECKING, Callable, Optional, Protocol
+import ctypes
+from typing import Callable, Optional, Protocol
 
 from ._errors import _check_host
-from ._ffi_driver import _host
-from ._locator import REDEEMED_TOKEN_BASE
+from ._codec import _ref_to_c
+from ._ffi_host import _host
 
-if TYPE_CHECKING:
-    from ._value import Ref
+from ._value import Ref, _ref_from_id
 
 
 class GcHandle(Protocol):
-    """Session callbacks ConnGc needs without importing Session."""
+    """Host callbacks HostGc needs without importing Host."""
 
     @property
     def released(self) -> bool: ...
@@ -32,50 +32,54 @@ class GcHandle(Protocol):
     def schedule_drain(self, run: Callable[[], None]) -> None: ...
 
 
-class _SessionGcHandle:
-    """GcHandle over Session binding-internal seams — keeps ConnGc free of
-    Session underscore reach-ins."""
+class _HostGcHandle:
+    """GcHandle over Host binding-internal seams."""
 
     __slots__ = ("_s",)
 
-    def __init__(self, session) -> None:
-        self._s = session
+    def __init__(self, host) -> None:
+        self._s = weakref.ref(host)
 
     @property
     def released(self) -> bool:
-        return self._s.released
+        host = self._s()
+        return host is None or host.released
 
     @property
     def host_raw(self):
-        return self._s.host.raw
+        host = self._s()
+        return None if host is None else host.raw_or_none
 
     def kick(self) -> None:
-        self._s.host.schedule_kick()
+        host = self._s()
+        if host is not None:
+            host.schedule_kick()
 
     def schedule_drain(self, run: Callable[[], None]) -> None:
-        self._s.schedule_on_loop(run)
+        host = self._s()
+        if host is not None:
+            host.schedule_on_loop(run)
 
 
-def bind_session(gc: "ConnGc", session) -> None:
-    """Bind ConnGc to a Session through a GcHandle (never the Session itself)."""
-    gc.bind(_SessionGcHandle(session))
+def bind_host(gc: "HostGc", host) -> None:
+    """Bind HostGc to its Host through the narrow finalizer-safe seam."""
+    gc.bind(_HostGcHandle(host))
 
 
-class ConnGc:
-    """Per-session GC state."""
+class HostGc:
+    """Host-wide finalizer registry and release queue.
+
+    A fetched reference may be homed on a sibling session and may outlive the
+    session through which it arrived, so this state follows Host authority.
+    """
 
     def __init__(self) -> None:
-        self.enabled = False
         self.pending: list[int] = []
         self._h: Optional[GcHandle] = None
 
     def bind(self, h: GcHandle) -> None:
-        """Bind the live Session once so track/drain can kick without Session
-        wrappers."""
+        """Bind the live Host once so track/drain can schedule progress."""
         self._h = h
-
-    def enable(self) -> None:
-        self.enabled = True
 
     def track_import(self, ref: "Ref") -> "Ref":
         # Register a fetched capability for GC when enabled. The `Ref` holds a
@@ -87,14 +91,22 @@ class ConnGc:
         h = self._h
         if h is None:
             return ref
-        wire = ref.far
-        if self.enabled and wire is not None and wire.id >= REDEEMED_TOKEN_BASE:
-            weakref.finalize(ref, self._on_import_dropped, wire.id)
+        prior = getattr(ref, "_gc_finalizer", None)
+        if prior is not None:
+            prior.detach()
+        finalizer = weakref.finalize(ref, self._on_import_dropped, ref.id)
+        object.__setattr__(ref, "_gc_finalizer", finalizer)
         return ref
+
+    def disarm(self, ref: "Ref") -> None:
+        """Disarm a tracked ref after deterministic release committed."""
+        finalizer = getattr(ref, "_gc_finalizer", None)
+        if finalizer is not None:
+            finalizer.detach()
 
     def _on_import_dropped(self, token: int) -> None:
         # Runs when the last `Ref` is collected, possibly off the loop thread:
-        # park the token and hop to the loop to drain it — gc_release never
+        # park the id and hop to the loop to drain it — ref_release never
         # runs from a finalizer thread.
         h = self._h
         if h is None:
@@ -113,7 +125,14 @@ class ConnGc:
         pending, self.pending = self.pending, []
         for token in pending:
             try:
-                _check_host(_host.pancake_host_gc_release(h.host_raw, token, 1))
+                ref = _ref_to_c(_ref_from_id(token))
+                _check_host(_host.pancake_host_ref_release(h.host_raw, ctypes.byref(ref), 1))
             except Exception:  # noqa: BLE001 — best-effort
                 pass
         h.kick()
+
+
+def release_ref(host_raw, ref: Ref) -> None:
+    """Release one opaque Host capability deterministically."""
+    c_ref = _ref_to_c(ref)
+    _check_host(_host.pancake_host_ref_release(host_raw, ctypes.byref(c_ref), 1))

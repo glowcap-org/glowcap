@@ -10,11 +10,19 @@ superseded_by: []
 
 # ADR-0070 Browser binding via WebAssembly
 
+> **Current standing.** The WebAssembly Host, WebSocket channel, browser and
+> native WebRTC DataChannel arms, and capability-carried signaling scenarios
+> have landed. ADR-0072 and ADR-0079 replaced the `Peer` / `Node` binding names
+> below with `Host` / `Session`. ADR-0089 supplies Milestone 2's transport, but
+> generic Host adoption and three-party redemption over that transport remain
+> open. Signaling through a capability is one prerequisite for redemption; it
+> is not itself a completed handoff.
+
 ## Context
 
 A browser cannot open a raw TCP socket or speak iroh's QUIC, so today a browser
 tab is not an OCapN peer at all. The rooms web demo works around this with a
-per-tab bridge (`apps/rooms/deno/web.ts`): the browser talks JSON over a
+per-tab bridge (`apps/rooms/web/serve.ts`): the browser talks JSON over a
 WebSocket to a Deno process that holds the real pancake connection through the C
 ABI and relays between the two. The bridge is honest about what it is, but the
 browser never holds a capability, never runs the session, and cannot be
@@ -45,14 +53,14 @@ What the browser still lacks is a transport, added in two milestones:
 - **Milestone 1. WebSocket.** The browser holds a real peer and moves OCapN
   frames over a WebSocket to a peer that accepts WebSocket connections. This
   makes the browser a first-class OCapN peer and retires the per-tab bridge: the
-  rooms `web.ts` becomes a static file server plus a WebSocket-accepting netlayer
+  rooms `serve.ts` becomes a static file server plus a WebSocket-accepting netlayer
   in front of the room server, not a protocol translator.
 - **Milestone 2. WebRTC DataChannel.** Two browsers speak OCapN directly over a
   reliable, ordered WebRTC DataChannel. The room introduces them and relays the
-  WebRTC signaling (SDP/ICE) between them: which is precisely the OCapN
-  three-party handoff, over WebRTC instead of iroh. The DataChannel is the
-  message stream framing needs; DTLS is the encryption; the room's introduction
-  is the signaling relay.
+  WebRTC signaling (SDP/ICE) between them. The DataChannel is the message stream
+  framing needs; DTLS is the encryption; the room's introduction supplies the
+  signaling path. Composing that path with generic Host handoff redemption is a
+  separate step.
 
 ## Scope (what this does not decide)
 
@@ -62,9 +70,13 @@ one freestanding `wasm32` module, `pancake_driver.wasm`;
 `zig build wasm-driver-test` drives a keyed handshake between two Hosts over an
 in-memory byte pipe; and `@pancake/web` (`bindings/ts/web`) runs the full
 `@pancake/stack` surface over the module with a WebSocket byte channel,
-proved end to end by `zig build web-peer-test`. What remains is the rooms web
-demo's move off its per-tab bridge and the WebRTC DataChannel transport
-(Milestone 2); both are tracked in [`docs/roadmap.md`](../../roadmap.md).
+proved end to end by `zig build web-peer-test`.
+
+ADR-0089's DataChannel and signaling portions of Milestone 2 have also landed.
+The browser and native arms establish direct channels after signaling, and a
+shared native endpoint reports peer events through one readiness descriptor.
+Standalone rendezvous, generic Host adoption, and handoff redemption remain in
+[`docs/roadmap.md`](../../roadmap.md).
 
 The Decision above predates the byte-fed Host consolidation (ADR-0072,
 ADR-0079): the wasm target is now `libpancake_driver` rather than the
@@ -98,9 +110,9 @@ is unchanged — one FFI boundary swapped for a WebAssembly instance.
   (Milestone 1), and a WebRTC DataChannel netlayer with room-relayed signaling
   (Milestone 2), added as `net.netlayer.Netlayer` residents the way iroh was
   (ADR-0055), with no core or session edit.
-- At Milestone 1 the rooms `web.ts` bridge retires; at Milestone 2 the rooms DM
-  becomes a genuine browser-to-browser handoff, the WebRTC analog of
-  `demo-rooms-dm-iroh`.
+- At Milestone 1 the rooms `serve.ts` bridge retires. Milestone 2 supplies the
+  direct keyed browser-to-browser session and signaling capability; composing
+  those with generic Host handoff redemption remains separate work in ADR-0089.
 
 ## Forward compatibility
 

@@ -1,4 +1,4 @@
-//! The buffer-explicit spelling of the application surface.
+//! The buffer-explicit form of the application surface.
 //!
 //! Chapter 01 rides the owning `driver.Session`, where one `frame_cap`
 //! option sizes the buffers and the session limit together. This example is
@@ -20,11 +20,11 @@ const pancake = @import("pancake");
 /// A finite handshake budget. The library default is unbounded, so a partner
 /// that opens a socket and then says nothing would park this example forever.
 /// A reader copies this line, which is why it names a real number.
-const handshake_budget_ms: i32 = 10_000;
+const handshake_budget: driver.Budget = .{ .ms = 10_000 };
 
 /// A finite budget for every wait after the session opens. Same reason: the
 /// library default waits forever, and a reader copies this line.
-const settle_budget_ms: i32 = 10_000;
+const settle_budget: driver.Budget = .{ .ms = 10_000 };
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -59,11 +59,11 @@ fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var session = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget_ms);
+    var session = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget);
     // The accepting side gets the same budget as the dialing side. It only
     // serves here, and serving does not wait on an answer, but a reader copies
     // this block into code that does.
-    session.settle_timeout_ms = settle_budget_ms;
+    session.settle = settle_budget;
     defer session.deinit();
 
     _ = try session.publish("greeter", Greeter, .{});
@@ -105,13 +105,13 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var session = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf, handshake_budget_ms);
+    var session = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf, handshake_budget);
     // The other budget, and the other default. `fetch`, `call`, and `settle`
     // all wait on the partner to answer, and they wait forever unless this is
     // set. It is a field rather than a parameter because those waits happen
     // after the session is open, which is the whole difference from the
     // handshake budget above.
-    session.settle_timeout_ms = settle_budget_ms;
+    session.settle = settle_budget;
     const greeter = try session.fetch("greeter");
 
     var reply = Reply{};

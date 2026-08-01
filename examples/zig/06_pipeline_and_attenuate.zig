@@ -46,10 +46,8 @@ const Desk = struct {
         // everything else, so the reply grants exactly one verb of authority.
         const record = try turn.spawn(Record, .{ .title = "Blue Train" });
         const guarded = try actors.attenuate(turn.vat, record, &.{"play"});
-        const peer = turn.vat.peer orelse return error.NotConnected;
-        const position = try peer.exportNextObject();
-        try turn.vat.bindExport(guarded, position);
-        return .{ .reference = .{ .near = model.NearRef.object(position) } };
+        const port = turn.port orelse return error.NotConnected;
+        return .{ .reference = .{ .near = try port.projectActor(guarded) } };
     }
 };
 
@@ -94,10 +92,12 @@ pub fn main() !void {
     const desk_peer = &pair.p1;
     const listener_peer = &pair.p2;
 
-    var desk_vat = pancake.Vat.initOver(allocator, desk_peer);
+    var desk_vat = pancake.Vat.init(allocator);
     defer desk_vat.deinit();
+    var desk_port = actors.Port.init(allocator, desk_peer);
+    defer desk_port.deinit();
     const desk = try desk_vat.spawn(Desk, .{});
-    try desk_vat.bindExport(desk, 5);
+    try desk_port.bindExport(desk, 5);
     // The listener learns the desk's position out-of-band (this example wires
     // both peers by hand), so the desk takes an explicit grant. The record the
     // desk checks out later needs none: its reference rides the checkout reply,
@@ -105,20 +105,22 @@ pub fn main() !void {
     try desk_peer.exportObject(5);
     try listener_peer.importObject(5);
 
-    var listener_vat = actors.Vat.initOver(allocator, listener_peer);
+    var listener_vat = actors.Vat.init(allocator);
     defer listener_vat.deinit();
+    var listener_port = actors.Port.init(allocator, listener_peer);
+    defer listener_port.deinit();
 
     // The whole dependent chain leaves before anything resolves: `checkout`,
     // then `play` and `eject` aimed at checkout's still-pending answer.
     const desk_ref: actors.Ref = .{ .far = model.FarRef.object(5) };
-    const checkout = try listener_vat.send(desk_ref, .{ .verb = "checkout" });
-    const play = try listener_vat.sendToAnswer(checkout.far, .{ .verb = "play" });
-    const eject = try listener_vat.sendToAnswer(checkout.far, .{ .verb = "eject" });
+    const checkout = try listener_port.send(&listener_vat, desk_ref, .{ .verb = "checkout" });
+    const play = try listener_port.sendToAnswer(&listener_vat, checkout.far, .{ .verb = "play" });
+    const eject = try listener_port.sendToAnswer(&listener_vat, checkout.far, .{ .verb = "eject" });
 
     var played = Outcome{};
     var ejected = Outcome{};
-    try listener_vat.on(play, .{ .ctx = &played, .func = onResolve });
-    try listener_vat.on(eject, .{ .ctx = &ejected, .func = onResolve });
+    try listener_port.on(&listener_vat, play, .{ .ctx = &played, .func = onResolve });
+    try listener_port.on(&listener_vat, eject, .{ .ctx = &ejected, .func = onResolve });
 
     // Shuttle frames until both sides go quiet: the desk drains the pipelined
     // calls onto the freshly attenuated record when `checkout` resolves. Each
@@ -137,7 +139,7 @@ pub fn main() !void {
         while (desk_peer.pollEvent()) |ev| {
             var e = ev;
             defer e.deinit();
-            _ = try desk_vat.serve(&e);
+            _ = try desk_port.serve(&desk_vat, &e);
             progressed = true;
         }
         try desk_vat.drive();
@@ -150,7 +152,7 @@ pub fn main() !void {
         while (listener_peer.pollEvent()) |ev| {
             var e = ev;
             defer e.deinit();
-            _ = try listener_vat.serve(&e);
+            _ = try listener_port.serve(&listener_vat, &e);
             progressed = true;
         }
         try listener_vat.drive();

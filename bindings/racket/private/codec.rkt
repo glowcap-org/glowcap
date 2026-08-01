@@ -27,12 +27,12 @@
 
 ;; ── Marshalling (encode) ─────────────────────────────────────────────────────
 (define (ref->c ref)
-  (cond
-    [(near-ref? ref) (make-PancakeReference REF-NEAR (if (near-ref-promise ref) REF-PROMISE-KIND REF-OBJECT) (near-ref-id ref))]
-    [(far-ref? ref) (make-PancakeReference REF-FAR (if (far-ref-promise ref) REF-PROMISE-KIND REF-OBJECT) (far-ref-id ref))]
-    [(promise-ref? ref) (make-PancakeReference REF-PROMISE 0 (promise-ref-answer ref))]
-    [else (raise-pancake 'ref->c ERR-UNSUPPORTED-VALUE
-                         "unsupported reference type: ~a" ref)]))
+  (unless (ref? ref)
+    (raise-pancake 'ref->c ERR-UNSUPPORTED-VALUE
+                    "unsupported reference type: ~a" ref))
+  (when (ref-released? ref)
+    (error 'pancake "this capability was released"))
+  (make-PancakeReference (ref-id ref)))
 
 ;; Returns (values cpointer count), keeping backing buffers alive via `keep`.
 (define (args->c args keep)
@@ -47,7 +47,7 @@
      (values arr n)]))
 
 (define (arg->c a keep)
-  (define c (make-PancakeArgument ARG-VOID 0 0 0.0 #f 0 (make-PancakeReference 0 0 0) #f 0))
+  (define c (make-PancakeArgument ARG-VOID 0 0 0.0 #f 0 (make-PancakeReference 0) #f 0))
   (cond
     [(boolean? a) (set-PancakeArgument-kind! c ARG-BOOLEAN) (set-PancakeArgument-boolean! c (if a 1 0))]
     ;; The C integer field is i64; a Racket bignum outside that range rides
@@ -66,7 +66,7 @@
     [(string? a) (set-bytes-field! c ARG-STRING (string->bytes/utf-8 a) keep)]
     [(bytes? a) (set-bytes-field! c ARG-BYTES a keep)]
     [(void? a) (set-PancakeArgument-kind! c ARG-VOID)]
-    [(or (near-ref? a) (far-ref? a) (promise-ref? a)) (set-PancakeArgument-kind! c ARG-REFERENCE) (set-PancakeArgument-reference! c (ref->c a))]
+    [(ref? a) (set-PancakeArgument-kind! c ARG-REFERENCE) (set-PancakeArgument-reference! c (ref->c a))]
     [(kw? a) (set-bytes-field! c ARG-KEYWORD (string->bytes/utf-8 (kw-value a)) keep)]
     [(tagged-arg? a) (set-bytes-field! c ARG-TAGGED (string->bytes/utf-8 (tagged-arg-tag a)) keep)
                      (define-values (ptr cnt) (args->c (tagged-arg-value a) keep))
@@ -90,15 +90,7 @@
 
 ;; ── Marshalling (decode) ─────────────────────────────────────────────────────
 (define (ref<-c r)
-  (define promise? (= (PancakeReference-sub-kind r) REF-PROMISE-KIND))
-  (define k (PancakeReference-kind r))
-  (cond
-    [(= k REF-NEAR) (near (PancakeReference-id r) promise?)]
-    [(= k REF-FAR) (far (PancakeReference-id r) promise?)]
-    [(= k REF-PROMISE) (promise-ref (PancakeReference-id r))]
-    [(= k REF-STURDY) (sturdy)]
-    [(= k REF-BROKEN) (broken)]
-    [else (error 'ref<-c "unrecognized reference kind: ~a" k)]))
+  (make-ref/internal (PancakeReference-id r)))
 
 (define (arg<-c c)
   (define k (PancakeArgument-kind c))

@@ -6,8 +6,7 @@ vocabulary, defined once in ``libpancake_ocapn``'s ``pancake_uri_*`` /
 :func:`parse_locator` copies every borrowed view into Python strings before
 releasing the handle; :func:`format_peer_uri` renders through the same grammar.
 :func:`encode_peer_locator` builds the verbatim exporter location record a
-gifter embeds in a give, and :data:`REDEEMED_TOKEN_BASE` names the reserved
-far-id range redeemed-handoff tokens draw from. Re-exported from the
+gifter embeds in a give. Re-exported from the
 :mod:`pancake` package; import from there.
 """
 
@@ -23,11 +22,6 @@ from ._ffi_ocapn import _lib
 
 _OK = _abi.OK
 _ERR_BUFFER_TOO_SMALL = _abi.ERR_BUFFER_TOO_SMALL
-
-# A redeemed-handoff token is a far id from a reserved high range, disjoint from
-# any wire import, so it can never alias one (PANCAKE_REDEEMED_TOKEN_BASE).
-REDEEMED_TOKEN_BASE = _abi.REDEEMED_TOKEN_BASE
-
 
 def encode_peer_locator(transport: str, designator: str, direct_addresses: str = "") -> bytes:
     """Build the verbatim exporter location-record bytes a gifter embeds in a give
@@ -46,7 +40,7 @@ def encode_peer_locator(transport: str, designator: str, direct_addresses: str =
     t_b = ctypes.create_string_buffer(transport.encode(), len(transport.encode()))
     d_b = ctypes.create_string_buffer(designator.encode(), len(designator.encode()))
     a_b = ctypes.create_string_buffer(direct_addresses.encode(), len(direct_addresses.encode()))
-    _check(_lib.pancake_encode_peer_locator(
+    _check(_lib.pancake_locator_record_encode(
         ctypes.cast(t_b, ctypes.c_void_p), len(transport.encode()),
         ctypes.cast(d_b, ctypes.c_void_p), len(designator.encode()),
         ctypes.cast(a_b, ctypes.c_void_p), len(direct_addresses.encode()),
@@ -55,7 +49,7 @@ def encode_peer_locator(transport: str, designator: str, direct_addresses: str =
     try:
         return ctypes.string_at(out_loc, out_len.value)
     finally:
-        _lib.pancake_peer_locator_bytes_release(out_loc, out_len.value)
+        _lib.pancake_locator_record_bytes_release(out_loc, out_len.value)
 
 
 class Locator(NamedTuple):

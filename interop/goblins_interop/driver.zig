@@ -318,17 +318,20 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
 
     var vat: ?actors.Vat = null;
     defer if (vat) |*v| v.deinit();
+    var port: ?actors.Port = null;
+    defer if (port) |*p| p.deinit();
     if (scenario.serves_actor) {
         const export_position = try peer.registerBootstrapCap(scenario.swiss);
-        vat = actors.Vat.initOver(allocator, peer);
+        vat = actors.Vat.init(allocator);
+        port = actors.Port.init(allocator, peer);
         switch (scenario.actor) {
             .greeter => {
                 const greeter = try vat.?.spawn(Greeter, .{});
-                try vat.?.bindExport(greeter, export_position);
+                try port.?.bindExport(greeter, export_position);
             },
             .projection => {
                 const provider = try vat.?.spawn(ProjectionResponder, .{});
-                try vat.?.bindExport(provider, export_position);
+                try port.?.bindExport(provider, export_position);
             },
         }
     }
@@ -384,7 +387,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
             var event = event_value;
             defer event.deinit();
             if (vat) |*v| {
-                if (v.serve(&event) catch false) served = true;
+                if (port.?.serve(v, &event) catch false) served = true;
             }
         }
         if (progress == .closed) break;

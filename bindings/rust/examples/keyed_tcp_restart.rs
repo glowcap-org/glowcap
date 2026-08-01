@@ -46,7 +46,7 @@ async fn call_greeter(uri: &str, published: oneshot::Receiver<()>) -> Result<(),
 async fn host_one(server: Rc<KeyedTcpServer>, published: oneshot::Sender<()>) {
 	match server.accept().await {
 		Ok(session) => {
-			if session.publish("greeter", greeter).await.is_ok() {
+			if session.publish("greeter", greeter).is_ok() {
 				let _ = published.send(());
 			}
 			let _served: Session = session;

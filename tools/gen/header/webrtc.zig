@@ -12,8 +12,8 @@
 //! (`tools/gen/stub/webrtc_sidecar.zig`).
 //!
 //! The shared frame/peer/context vocabulary is declared in `pancake_ocapn.h`,
-//! which this header includes; only the `PancakeWebrtcPeer` handle and the
-//! `pancake_webrtc_*` prototypes are new here.
+//! which this header includes; only the WebRTC handles, readiness record, event
+//! constants, and `pancake_webrtc_*` prototypes are new here.
 
 const std = @import("std");
 const c = @import("c_abi_net_transport_webrtc");
@@ -36,6 +36,11 @@ pub const step_name = "gen-header-net-transport-webrtc";
 // `pub export fn pancake_webrtc_*` cannot silently miss the header while the
 // gate stays green.
 const emitted_fn_names = [_][]const u8{
+    "pancake_webrtc_netlayer_new",
+    "pancake_webrtc_netlayer_new_in",
+    "pancake_webrtc_netlayer_readiness_fd",
+    "pancake_webrtc_netlayer_drain_ready",
+    "pancake_webrtc_netlayer_release",
     "pancake_webrtc_peer_new",
     "pancake_webrtc_peer_new_in",
     "pancake_webrtc_peer_create_offer",
@@ -44,9 +49,10 @@ const emitted_fn_names = [_][]const u8{
     "pancake_webrtc_peer_set_remote_answer",
     "pancake_webrtc_peer_add_remote_candidate",
     "pancake_webrtc_peer_next_local_candidate",
-    "pancake_webrtc_peer_wait_open",
-    "pancake_webrtc_peer_read",
-    "pancake_webrtc_peer_write",
+    "pancake_webrtc_peer_id",
+    "pancake_webrtc_peer_is_open",
+    "pancake_webrtc_peer_try_read",
+    "pancake_webrtc_peer_try_write",
     "pancake_webrtc_peer_close",
     "pancake_webrtc_peer_release",
     "pancake_webrtc_last_error",
@@ -85,9 +91,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   pancake_webrtc_* family and shares no core symbol with libpancake_ocapn,
         \\   so a consumer links BOTH archives and includes BOTH headers. The
         \\   shared frame, peer, and context vocabulary lives in pancake_ocapn.h
-        \\   (included below) and the archives agree on its layout; only the
-        \\   PancakeWebrtcPeer handle and the pancake_webrtc_* prototypes are
-        \\   declared here. The webrtc family has its own last-error slot, read
+        \\   (included below) and the archives agree on its layout; the WebRTC
+        \\   handles and readiness vocabulary are declared here. The webrtc
+        \\   family has its own last-error slot, read
         \\   through pancake_webrtc_last_error rather than pancake_ocapn's
         \\   pancake_last_error. */
         \\#ifndef PANCAKE_NET_TRANSPORT_WEBRTC_H
@@ -110,8 +116,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\there is no connect(addr). The channel comes up through an out-of-band
         \\signaling exchange you drive:
         \\
-        \\  1. Create both ends with pancake_webrtc_peer_new, one offerer (nonzero
-        \\     is_offerer, which creates the data channel) and one answerer.
+        \\  1. Create one PancakeWebrtcNetlayer per host, register its
+        \\     pancake_webrtc_netlayer_readiness_fd once, then create peers from
+        \\     it with pancake_webrtc_peer_new: one offerer and one answerer.
         \\  2. The offerer produces an SDP offer with pancake_webrtc_peer_create_offer;
         \\     carry it to the answerer, which sets it with
         \\     pancake_webrtc_peer_set_remote_offer and produces an SDP answer with
@@ -120,24 +127,27 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\  3. Trickle ICE candidates both ways: drain each side's
         \\     pancake_webrtc_peer_next_local_candidate (PANCAKE_ERR_WOULD_BLOCK when
         \\     none is pending) and hand each to the other side's
-        \\     pancake_webrtc_peer_add_remote_candidate, until
-        \\     pancake_webrtc_peer_wait_open reports the channel open.
+        \\     pancake_webrtc_peer_add_remote_candidate. The readiness fd reports
+        \\     CANDIDATE while more are ready and OPEN when the channel opens.
         \\
-        \\Then pancake_webrtc_peer_read and pancake_webrtc_peer_write move raw
-        \\session bytes, which you frame yourself (feed them to a PancakePeer's
-        \\stream input and write its outbound frames back), the same shape the iroh
-        \\and TCP consumers use. On loopback and on a LAN the two peers reach each
-        \\other on host candidates alone, with no STUN or TURN.
+        \\When the fd wakes, call pancake_webrtc_netlayer_drain_ready and route its
+        \\stable peer-id records. Drain local candidates on CANDIDATE, check channel
+        \\state on OPEN, use pancake_webrtc_peer_try_read / _try_write for raw
+        \\session bytes on READABLE / WRITABLE, and stop on CLOSED. You frame the
+        \\raw bytes yourself. On loopback and on a LAN the peers reach each other
+        \\on host candidates alone, with no STUN or TURN.
         \\
-        \\Threading: a peer is single-owner; serialize calls on one onto one thread.
-        \\pancake_webrtc_peer_read blocks until bytes arrive or the channel closes,
-        \\and pancake_webrtc_peer_wait_open blocks until the channel opens, so run
-        \\both off your event loop. Release every peer with
-        \\pancake_webrtc_peer_release.
+        \\Threading: a netlayer and its peers are single-owner. Signaling submissions
+        \\complete synchronously and may wait on the sidecar runtime, so perform them
+        \\outside a reactor turn. Once submitted, channel progress, candidates, byte
+        \\I/O, and closure are readiness-driven and do not park the reactor. Release
+        \\every peer before pancake_webrtc_netlayer_release.
     );
 
     try b.appendSlice(gpa,
         \\
+        \\/* One WebRTC runtime/readiness endpoint shared by its peers. */
+        \\typedef struct PancakeWebrtcNetlayer PancakeWebrtcNetlayer;
         \\/* One WebRTC peer: its RTCPeerConnection and single reliable, ordered
         \\   data channel. Created by pancake_webrtc_peer_new; released by
         \\   pancake_webrtc_peer_release. */
@@ -146,19 +156,39 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    try emitFn(&b, gpa, "pancake_webrtc_peer_new", &.{ "is_offerer", "out_peer" }, "Create a peer in one of the two signaling roles into out_peer: is_offerer\nnonzero makes the offerer (which creates the data channel and produces the SDP\noffer), zero the answerer (which receives the channel and produces the answer).\nPANCAKE_ERR_IO (see pancake_webrtc_last_error) if the sidecar cannot create the\npeer connection. Release with pancake_webrtc_peer_release.");
-    try emitFn(&b, gpa, "pancake_webrtc_peer_new_in", &.{ "context", "is_offerer", "out_peer" }, "As pancake_webrtc_peer_new, but the handle allocates through context's\nallocator instead of the library allocator. Released the same way, with\npancake_webrtc_peer_release.");
+    try b.print(gpa, "#define PANCAKE_WEBRTC_EV_OPEN {d}u\n", .{c.PANCAKE_WEBRTC_EV_OPEN});
+    try b.print(gpa, "#define PANCAKE_WEBRTC_EV_CANDIDATE {d}u\n", .{c.PANCAKE_WEBRTC_EV_CANDIDATE});
+    try b.print(gpa, "#define PANCAKE_WEBRTC_EV_READABLE {d}u\n", .{c.PANCAKE_WEBRTC_EV_READABLE});
+    try b.print(gpa, "#define PANCAKE_WEBRTC_EV_WRITABLE {d}u\n", .{c.PANCAKE_WEBRTC_EV_WRITABLE});
+    try b.print(gpa, "#define PANCAKE_WEBRTC_EV_CLOSED {d}u\n", .{c.PANCAKE_WEBRTC_EV_CLOSED});
+    try b.appendSlice(gpa,
+        \\/* One readiness record from pancake_webrtc_netlayer_drain_ready. subject
+        \\   is the stable identity returned by pancake_webrtc_peer_id. */
+        \\typedef struct PancakeWebrtcReadyEvent {
+        \\  uintptr_t subject;
+        \\  uint32_t events;
+        \\} PancakeWebrtcReadyEvent;
+    );
+
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_new", &.{"out_netlayer"}, "Create the shared WebRTC runtime/readiness endpoint. Release it after every peer\ncreated from it has been released.");
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_new_in", &.{ "context", "out_netlayer" }, "As pancake_webrtc_netlayer_new, allocating through context.");
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_readiness_fd", &.{"netlayer"}, "Borrow the netlayer's single read-only OS readiness fd. Register it once; do not\nclose it. When it wakes, call pancake_webrtc_netlayer_drain_ready.");
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_drain_ready", &.{ "netlayer", "out_events", "out_cap", "out_count" }, "Drain pending stable peer-id events without blocking. Call after the readiness fd\nwakes, then drive CANDIDATE/OPEN/READABLE/WRITABLE/CLOSED for each subject.");
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_release", &.{"netlayer"}, "Release the endpoint after every peer created from it is released. NULL is a no-op.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_new", &.{ "netlayer", "is_offerer", "out_peer" }, "Create a peer from netlayer in one of the two signaling roles into out_peer.\nis_offerer nonzero creates the offerer; zero creates the answerer. Release with\npancake_webrtc_peer_release before releasing netlayer.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_new_in", &.{ "context", "netlayer", "is_offerer", "out_peer" }, "As pancake_webrtc_peer_new, allocating the peer shell through context.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_create_offer", &.{ "peer", "out", "cap", "out_len" }, "Produce the offerer's SDP offer into out (cap bytes), writing the SDP length to\nout_len and setting it as the local description. PANCAKE_ERR_BUFFER_TOO_SMALL\nstill writes the required length to out_len, so retry with a buffer that size.\nOfferer only.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_create_answer", &.{ "peer", "out", "cap", "out_len" }, "Produce the answerer's SDP answer into out (cap bytes), writing the SDP length\nto out_len and setting it as the local description. Answerer only, after\npancake_webrtc_peer_set_remote_offer. PANCAKE_ERR_BUFFER_TOO_SMALL still writes\nthe required length.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_set_remote_offer", &.{ "peer", "sdp", "sdp_len" }, "Set the far offerer's SDP offer (sdp/sdp_len, borrowed UTF-8) as the remote\ndescription. Answerer side.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_set_remote_answer", &.{ "peer", "sdp", "sdp_len" }, "Set the far answerer's SDP answer (sdp/sdp_len, borrowed UTF-8) as the remote\ndescription. Offerer side.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_add_remote_candidate", &.{ "peer", "cand", "cand_len" }, "Add one remote ICE candidate (cand/cand_len, the borrowed JSON the far peer's\npancake_webrtc_peer_next_local_candidate produced).");
     try emitFn(&b, gpa, "pancake_webrtc_peer_next_local_candidate", &.{ "peer", "out", "cap", "out_len" }, "Drain the next locally gathered ICE candidate into out (cap bytes) as JSON,\nwriting its length to out_len; carry it to the far peer's\npancake_webrtc_peer_add_remote_candidate. PANCAKE_ERR_WOULD_BLOCK when none is\npending yet; PANCAKE_ERR_BUFFER_TOO_SMALL still writes the required length.");
-    try emitFn(&b, gpa, "pancake_webrtc_peer_wait_open", &.{ "peer", "timeout_ms" }, "Block until the data channel opens, or timeout_ms elapses: PANCAKE_OK once open,\nPANCAKE_ERR_WOULD_BLOCK on timeout. Runs the ICE/DTLS/SCTP bring-up, so call it\noff your event loop while trickling candidates.");
-    try emitFn(&b, gpa, "pancake_webrtc_peer_read", &.{ "peer", "buf", "len", "out_read" }, "Blocking read of raw inbound session bytes into buf: PANCAKE_OK with the byte\ncount in out_read, PANCAKE_ERR_CLOSED on a clean end of stream, or\nPANCAKE_ERR_IO on a fault (out_read untouched on any non-OK return). Parks the\ncalling thread until bytes arrive, so run it off your event loop. You frame\nthese bytes yourself, feeding a PancakePeer's stream input.");
-    try emitFn(&b, gpa, "pancake_webrtc_peer_write", &.{ "peer", "buf", "len", "out_written" }, "Write len raw session bytes from buf: PANCAKE_OK with the count written (the\nwhole slice, all-or-nothing) in out_written, or PANCAKE_ERR_IO on a fault\n(out_written untouched on any non-OK return).");
-    try emitFn(&b, gpa, "pancake_webrtc_peer_close", &.{"peer"}, "Close the channel and connection without releasing the handle, waking any parked\nreader with end of stream. Idempotent. The shutdown lever for a host whose read\nparks on another thread; the handle is still released with\npancake_webrtc_peer_release.");
-    try emitFn(&b, gpa, "pancake_webrtc_peer_release", &.{"peer"}, "Release the peer, closing its channel and shutting down its runtime. NULL is a\nno-op.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_id", &.{"peer"}, "Return the peer's stable, nonzero readiness identity, or zero for NULL.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_is_open", &.{"peer"}, "Check channel establishment without blocking: PANCAKE_OK once open,\nPANCAKE_ERR_WOULD_BLOCK while pending, PANCAKE_ERR_CLOSED after close.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_try_read", &.{ "peer", "buf", "len", "out_read" }, "Non-blocking read of raw inbound bytes: PANCAKE_OK with the count in out_read,\nPANCAKE_ERR_WOULD_BLOCK until READABLE, PANCAKE_ERR_CLOSED at clean EOF, or\nPANCAKE_ERR_IO on fault.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_try_write", &.{ "peer", "buf", "len", "out_written" }, "Copy a prefix into the bounded send queue and return immediately. Advance by\nout_written; on PANCAKE_ERR_WOULD_BLOCK retry the remaining slice after\nWRITABLE.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_close", &.{"peer"}, "Close the channel without releasing the handle and report CLOSED readiness.\nIdempotent; pancake_webrtc_peer_release is still required afterward.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_release", &.{"peer"}, "Release the peer and close its channel. Release before its netlayer. NULL is a\nno-op.");
 
     try emitFn(&b, gpa, "pancake_webrtc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last webrtc-transport error into out_buf, the webrtc\nsibling of pancake_last_error, reading libpancake_net_transport_webrtc's own\nper-thread slot. A pancake_webrtc_* call that returns PANCAKE_ERR_IO records its\nconcrete cause here. Copies at most cap-1 bytes and NUL-terminates when cap>0;\nout_buf NULL or cap 0 queries the length. Returns the full message length, or 0\nwhen none is set.");
     try emitFn(&b, gpa, "pancake_webrtc_clear_last_error", &.{}, "Clear the calling thread's webrtc-transport last-error slot.");

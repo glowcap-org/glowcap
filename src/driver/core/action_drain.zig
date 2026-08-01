@@ -1,8 +1,10 @@
 //! Shared host-action drain: one `while (takeAction) switch` over the six
 //! arms, with per-embedder behavior injected through a comptime executor.
-//! `Bridge` (and any future Zig embedder) supply the arms that differ;
-//! `need_gift_id` lives here so a seventh action kind is a compile error in
-//! every embedder, not a silent miss in one of N hand-rolled copies.
+//! Both Zig embedders ride it — `driver.Bridge` at the loop tier and the
+//! owning `driver.PollHost` face at the blocking tier (ADR-0090) — supplying only
+//! the arms that differ; `need_gift_id` lives here so a seventh action kind is
+//! a compile error in every embedder, not a silent miss in one of N
+//! hand-rolled copies.
 
 const Host = @import("host.zig").Host;
 

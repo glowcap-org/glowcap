@@ -4,18 +4,16 @@
 //! this is stale.
 //!
 //! Expected sizes and field offsets for the hand-mirrored `#[repr(C)]`
-//! structs in `sys::ocapn`, `sys::driver`, and `sys::iroh`: values come
+//! structs in `sys::ocapn`, `sys::host`, and `sys::iroh`: values come
 //! from `@sizeOf`/`@offsetOf` on the real Zig C ABI types, so a Zig-side
 //! field change moves a number here and the `const` assert blocks that
 //! check against these constants fail loudly instead of silently
 //! misparsing a frame or an action.
 #![allow(dead_code)]
 
-pub const PANCAKE_REFERENCE_SIZE: usize = 16;
-pub const PANCAKE_REFERENCE_KIND_OFF: usize = 0;
-pub const PANCAKE_REFERENCE_SUB_KIND_OFF: usize = 4;
-pub const PANCAKE_REFERENCE_ID_OFF: usize = 8;
-pub const PANCAKE_ARGUMENT_SIZE: usize = 72;
+pub const PANCAKE_REFERENCE_SIZE: usize = 8;
+pub const PANCAKE_REFERENCE_ID_OFF: usize = 0;
+pub const PANCAKE_ARGUMENT_SIZE: usize = 64;
 pub const PANCAKE_ARGUMENT_KIND_OFF: usize = 0;
 pub const PANCAKE_ARGUMENT_BOOLEAN_OFF: usize = 4;
 pub const PANCAKE_ARGUMENT_INTEGER_OFF: usize = 8;
@@ -23,8 +21,8 @@ pub const PANCAKE_ARGUMENT_FLOAT64_OFF: usize = 16;
 pub const PANCAKE_ARGUMENT_BYTES_OFF: usize = 24;
 pub const PANCAKE_ARGUMENT_BYTES_LEN_OFF: usize = 32;
 pub const PANCAKE_ARGUMENT_REFERENCE_OFF: usize = 40;
-pub const PANCAKE_ARGUMENT_ITEMS_OFF: usize = 56;
-pub const PANCAKE_ARGUMENT_ITEMS_LEN_OFF: usize = 64;
+pub const PANCAKE_ARGUMENT_ITEMS_OFF: usize = 48;
+pub const PANCAKE_ARGUMENT_ITEMS_LEN_OFF: usize = 56;
 pub const PANCAKE_FRAME_SIZE: usize = 24;
 pub const PANCAKE_FRAME_BYTES_OFF: usize = 0;
 pub const PANCAKE_FRAME_LEN_OFF: usize = 8;
@@ -48,13 +46,13 @@ pub const PANCAKE_ALLOCATOR_SIZE: usize = 24;
 pub const PANCAKE_ALLOCATOR_ALLOC_OFF: usize = 0;
 pub const PANCAKE_ALLOCATOR_FREE_OFF: usize = 8;
 pub const PANCAKE_ALLOCATOR_USER_DATA_OFF: usize = 16;
-pub const PANCAKE_HOST_ACTION_SIZE: usize = 112;
+pub const PANCAKE_HOST_ACTION_SIZE: usize = 104;
 pub const PANCAKE_HOST_ACTION_KIND_OFF: usize = 0;
 pub const PANCAKE_HOST_ACTION_TICKET_OFF: usize = 8;
 pub const PANCAKE_HOST_ACTION_SESSION_OFF: usize = 16;
 pub const PANCAKE_HOST_ACTION_VALUE_OFF: usize = 24;
-pub const PANCAKE_HOST_ACTION_MESSAGE_OFF: usize = 96;
-pub const PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF: usize = 104;
+pub const PANCAKE_HOST_ACTION_MESSAGE_OFF: usize = 88;
+pub const PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF: usize = 96;
 pub const PANCAKE_DIAL_PLAN_SIZE: usize = 56;
 pub const PANCAKE_DIAL_PLAN_SHAPE_OFF: usize = 0;
 pub const PANCAKE_DIAL_PLAN_HOST_OFF: usize = 8;
@@ -76,6 +74,13 @@ pub const PANCAKE_PENDING_DIAL_DESIGNATOR_OFF: usize = 16;
 pub const PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF: usize = 24;
 pub const PANCAKE_PENDING_DIAL_HINT_OFF: usize = 32;
 pub const PANCAKE_PENDING_DIAL_HINT_LEN_OFF: usize = 40;
+pub const PANCAKE_PARTNER_IDENTITY_SIZE: usize = 48;
+pub const PANCAKE_PARTNER_IDENTITY_SESSION_KEY_OFF: usize = 0;
+pub const PANCAKE_PARTNER_IDENTITY_SESSION_KEY_LEN_OFF: usize = 8;
+pub const PANCAKE_PARTNER_IDENTITY_DESIGNATOR_OFF: usize = 16;
+pub const PANCAKE_PARTNER_IDENTITY_DESIGNATOR_LEN_OFF: usize = 24;
+pub const PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_OFF: usize = 32;
+pub const PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF: usize = 40;
 pub const PANCAKE_HOST_PUMP_HOOKS_SIZE: usize = 48;
 pub const PANCAKE_HOST_PUMP_HOOKS_CTX_OFF: usize = 0;
 pub const PANCAKE_HOST_PUMP_HOOKS_FLUSH_OFF: usize = 8;
@@ -84,8 +89,11 @@ pub const PANCAKE_HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF: usize = 24;
 pub const PANCAKE_HOST_PUMP_HOOKS_COMPLETE_OFF: usize = 32;
 pub const PANCAKE_HOST_PUMP_HOOKS_DIAL_OFF: usize = 40;
 pub const PANCAKE_IROH_READY_EVENT_SIZE: usize = 16;
-pub const PANCAKE_IROH_READY_EVENT_CONN_OFF: usize = 0;
+pub const PANCAKE_IROH_READY_EVENT_SUBJECT_OFF: usize = 0;
 pub const PANCAKE_IROH_READY_EVENT_EVENTS_OFF: usize = 8;
+pub const PANCAKE_WEBRTC_READY_EVENT_SIZE: usize = 16;
+pub const PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF: usize = 0;
+pub const PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF: usize = 8;
 pub const PANCAKE_IROH_CONFIG_SIZE: usize = 16;
 pub const PANCAKE_IROH_CONFIG_REACHABILITY_OFF: usize = 0;
 pub const PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF: usize = 8;

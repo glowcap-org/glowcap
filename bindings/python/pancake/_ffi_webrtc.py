@@ -22,14 +22,43 @@ from ._lib_resolve import _lib_file, _lib_path
 # its concrete cause there, read through ``pancake_webrtc_last_error`` rather
 # than the core ``pancake_last_error``.
 from ._sigs_gen import webrtc_sigs
+from ._layouts_gen import (
+    PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF,
+    PANCAKE_WEBRTC_READY_EVENT_SIZE,
+    PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF,
+)
 
 _WEBRTC_LIB_PATH = _lib_path("pancake_net_transport_webrtc")
 _WEBRTC_LIB_FILE = _lib_file("pancake_net_transport_webrtc")
 
 
+class _WebrtcReadyEvent(ctypes.Structure):
+    """One stable peer-id readiness record from the WebRTC endpoint."""
+
+    _fields_ = [("subject", ctypes.c_size_t), ("events", ctypes.c_uint32)]
+
+
+def _pin_layout() -> None:
+    got = ctypes.sizeof(_WebrtcReadyEvent)
+    subject_off = _WebrtcReadyEvent.subject.offset
+    events_off = _WebrtcReadyEvent.events.offset
+    if (
+        got != PANCAKE_WEBRTC_READY_EVENT_SIZE
+        or subject_off != PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF
+        or events_off != PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF
+    ):
+        raise ImportError(
+            "pancake FFI layout drift: _WebrtcReadyEvent "
+            f"is {got} bytes (subject@{subject_off}, events@{events_off})"
+        )
+
+
+_pin_layout()
+
+
 def _load_webrtc():
     lib = ctypes.CDLL(str(_WEBRTC_LIB_PATH))
-    for name, (argtypes, restype) in webrtc_sigs().items():
+    for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype

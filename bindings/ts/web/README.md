@@ -13,14 +13,14 @@ browser-path check yet.
 ```ts
 import { init } from "@pancake/web";
 
-const stack = await init({ wasm: fetch("/pancake_driver.wasm") });
+const stack = await init({ wasm: fetch("/pancake_host.wasm") });
 const session = await stack.connect(stack.keyedTcpLocator(key, host, port));
 session.serve().catch((err) => console.error("session ended:", err));
 const greeter = await session.fetch("greeter");
 console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
-`init` instantiates `pancake_driver.wasm` (built by `zig build wasm-driver`), builds the runtime
+`init` instantiates `pancake_host.wasm` (built by `zig build wasm-driver`), builds the runtime
 adapter over it, installs the adapter, and only then loads `@pancake/stack`, which binds to it
 instead of probing for Deno or Bun. The returned value is the stack module itself, so everything in
 [`@pancake/stack`'s README](../stack/README.md) applies: `Session`, `spawn`, `publish`, pipelining,
@@ -59,10 +59,10 @@ and forwards bytes to a target TCP locator without parsing CapTP frames, so the 
 session authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
 `(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
 reference relay ships as [`@pancake/relay`](../relay/README.md). The rooms app wraps it at
-[`apps/rooms/deno/relay_server.ts`](../../../apps/rooms/deno/relay_server.ts), which allow-lists the
-room server's own port for TCP targets, checks the `Origin` header on the upgrade, caps live
-sessions, times out idle pairs, and bounds bytes per session. `zig build deno-relay-test` proves a
-keyed OCapN session from this binding through that relay to a native TCP host.
+[`apps/rooms/web/relay.ts`](../../../apps/rooms/web/relay.ts), which allow-lists the room server's
+own port for TCP targets, checks the `Origin` header on the upgrade, caps live sessions, times out
+idle pairs, and bounds bytes per session. `zig build deno-relay-test` proves a keyed OCapN session
+from this binding through that relay to a native TCP host.
 
 ## The proof
 
@@ -81,7 +81,7 @@ exports with no binding at all.
 
 ## What a real page needs
 
-Serve `pancake_driver.wasm` (from `zig-out/wasm/` or a release) and bundle this package plus
+Serve `pancake_host.wasm` (from `zig-out/wasm/` or a release) and bundle this package plus
 `@pancake/stack` and `@pancake/abi`, using [`browser-bundle.json`](browser-bundle.json) as the
 bundler config. The stack's module graph is browser-clean: the archive-resolution cascade loads its
 host built-ins dynamically and degrades away when they are absent, so a bundler ships no `node:`

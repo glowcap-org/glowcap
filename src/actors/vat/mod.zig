@@ -1,9 +1,9 @@
 //! A vat: a turn loop over a heap of actors, local and remote alike.
 //!
 //! This is pancake's Goblins-shaped actor model, expressed in native Zig. It is
-//! where local actors meet the OCapN engine. A vat owns a set of local actors,
-//! keyed by id, and a queue of pending eventual-sends. When it is bound to a peer,
-//! it can also route sends to remote objects over the wire. You drive it
+//! where local actors meet the OCapN engine. A Vat owns local actors and queued
+//! turns; one or more Ports own session-specific wire names and route remote
+//! sends. You drive it
 //! explicitly. It owns no I/O and no scheduler thread, so it stays in the same
 //! sync, no-I/O core as the engine it rides on.
 //!
@@ -38,19 +38,17 @@
 //!
 //! An eventual-send's message is the mirror image: `send` and `tell` borrow
 //! the verb and args only for the duration of the call. The local arm clones
-//! them into a vat-owned queue arena (a queued turn runs at the next `drive`,
-//! after the turn arena the caller built them in has been reset), and the far
-//! arm clones them inside `peer.sendCopying`. Either way the caller's storage
-//! is free the moment the send returns.
+//! them into an ingress-attributed queue chunk (a queued turn runs at the next
+//! `drive`, after the turn arena the caller built them in has been reset), and
+//! the far arm clones them inside `peer.sendCopying`. Either way the caller's
+//! storage is free the moment the send returns.
 //!
 //! Two verbs, matching Goblins:
 //!   * `Vat.near` is the synchronous near-call (`$`). It runs an actor's handler
 //!     immediately and returns its value. It is legal only for a local ref in the
 //!     same vat, exactly as Goblins forbids `$` to a far ref.
-//!   * `Vat.send` is the eventual send (`<-`). It is location-transparent: to a
-//!     local ref it queues a turn, and to a far ref it sends an `op:deliver` over
-//!     the bound peer. Either way it returns a `Vow` you observe with
-//!     `Vat.on`.
+//!   * `Port.send` is eventual send (`<-`). A local ref queues a Vat turn; a far
+//!     ref sends `op:deliver` over that Port. Either way it returns a `Vow`.
 //!
 //! A `Vow` is observed with `Vat.on` and has no matching `off`. A listener fires
 //! exactly once, when the vow settles or when `breakFarVows` breaks every far vow
@@ -110,26 +108,20 @@ const turn_mod = @import("turn.zig");
 pub const Turn = turn_mod.Turn;
 
 // The vat's steady footprint bounds, one per reclaim site, mirroring the
-// engine's `steady_queue_bytes` posture (src/ocapn/engine/mod.zig): at
-// one-vat-per-connection scale, capacity a burst grew must not stay
-// pinned for the connection's life — capacity at or under the bound is
-// retained so steady turns stay allocation-free, capacity above it is
-// freed at the same drain boundary that used to retain it. The named
-// trade is one growth re-allocation at the start of the *next* burst
-// episode, never per turn — the same trade the engine documents, and why
-// `retain_with_limit` beats `free_all`. Recorded in
-// .agents/rules/memory.md's per-session footprint budget. File-level (not
-// `Vat` decls) so the sibling vat modules share them without widening the
-// public surface.
+// engine's `steady_queue_bytes` posture (src/ocapn/engine/mod.zig). A Vat
+// retains one spare queue chunk globally, never one per ingress; its payload
+// arena keeps at most the bound below so ordinary traffic stays allocation-free
+// after warming while burst chunks reclaim incrementally. Recorded in
+// .agents/rules/memory.md's footprint budget. File-level (not `Vat` decls) so
+// sibling vat modules share them without widening the public surface.
 /// Turn-arena bound, applied at the outermost-turn reset in `turn.beginTurn`.
 pub const steady_turn_arena_bytes = 4096;
-/// Queue-arena bound, applied at the outermost drive's full-drain reset.
-pub const steady_queue_arena_bytes = 4096;
+/// Payload-arena bound for the Vat-wide spare queue chunk.
+pub const steady_spare_arena_bytes = 4096;
 /// Settle-arena bound, applied at the depth-0 reset in the far-resolve settle.
 pub const steady_settle_arena_bytes = 4096;
-/// Backing bound for the plain ArrayLists (`queue`, `moved_replies`):
-/// above it the drain point does `clearAndFree` instead of retaining,
-/// the engine `Queue.pop` idiom.
+/// Backing bound for plain ArrayLists such as `moved_replies`, and the target
+/// size of one queue chunk's fixed row array.
 pub const steady_list_bytes = 4096;
 /// Cap on `served_dropped_far`: the count of resolve-before-`on` drops the
 /// vat remembers to refuse a late `on`. Empty in the normal flow; the cap
@@ -216,6 +208,69 @@ pub const Message = struct {
         };
     }
 };
+
+/// One causal source of queued turns. `.local` is the pure-local/application
+/// source; a composed Host mints one additional id per session Port. The Vat
+/// owns ids so two adapters cannot accidentally share accounting.
+pub const IngressId = enum(u32) {
+    local = 0,
+    _,
+};
+
+/// Atomic admission limits for each ingress. `max_pending_bytes` charges the
+/// exact requested payload bytes of the owned message clone plus its queue row;
+/// allocator metadata and bounded chunk slack are held separately by footprint
+/// tests. A single message must also fit `max_chunk_bytes`, so no exceptional
+/// oversized chunk bypasses incremental reclamation.
+pub const QueueLimits = struct {
+    max_pending_turns: u32 = 4096,
+    max_pending_bytes: u32 = 1024 * 1024,
+    max_chunk_bytes: u32 = 64 * 1024,
+};
+
+const Queued = struct {
+    target: u64,
+    msg: Message,
+    vow: u64,
+    charged_bytes: u32,
+    /// Port whose authority caused this turn, or null for pure-local work.
+    port: ?*Port,
+};
+
+/// Queue metadata is bounded independently of message payload. A chunk owns
+/// one arena for at most this many turns and is released as soon as its last
+/// turn finishes, even while other ingress work remains.
+const queue_chunk_turns = @max(1, steady_list_bytes / @sizeOf(Queued));
+
+const QueueChunk = struct {
+    next: ?*QueueChunk = null,
+    arena: std.heap.ArenaAllocator,
+    items: [queue_chunk_turns]Queued = undefined,
+    head: usize = 0,
+    len: usize = 0,
+    owned_bytes: u32 = 0,
+    /// Turns currently borrowing messages from this chunk. A nested drive may
+    /// exhaust the remaining rows while an outer handler still reads an earlier
+    /// row, so exhaustion detaches the chunk but reclamation waits for this to
+    /// reach zero.
+    active_turns: u32 = 0,
+};
+
+const IngressState = struct {
+    id: IngressId,
+    first: ?*QueueChunk = null,
+    last: ?*QueueChunk = null,
+    pending_turns: u32 = 0,
+    pending_bytes: u32 = 0,
+    active_turns: u32 = 0,
+    runnable_next: ?*IngressState = null,
+    runnable: bool = false,
+};
+
+/// A local vow name in this Vat's monotonic, never-reused epoch. Keeping the
+/// map key distinct prevents a wire answer position or another bare integer
+/// namespace from being used here by accident.
+const PendingLocalVowKey = struct { id: u64 };
 
 /// How a vow settled. The carried value (`fulfilled` argument or `broken`
 /// message) is borrowed only for the duration of the listener call. A listener
@@ -348,9 +403,9 @@ pub const Error = error{
     /// than silently omitting the actor.
     NotSnapshottable,
     /// `Vat.on` was called for a local vow that already settled (a prior
-    /// `drive` ran its turn). Local vows settle exactly once, in FIFO
-    /// order, so a listener registered afterwards could never fire; failing
-    /// loud beats parking it forever.
+    /// `drive` ran its turn). Local vows settle exactly once; a listener
+    /// registered afterwards could never fire, so failing loud beats parking
+    /// it forever. Fair ingress rotation means settlement is not globally FIFO.
     AlreadySettled,
     /// A local value tree deep-copied into the queue or a settle nested past
     /// `model.max_value_depth`. Copying an actor's arguments walks the tree
@@ -358,46 +413,242 @@ pub const Error = error{
     /// failing loud rather than overflowing the native stack. Real handler
     /// arguments never reach it; a pathologically nested local value does.
     MalformedView,
+    /// A local enqueue would exceed its ingress's pending-turn, pending-byte,
+    /// or single-chunk byte limit. Admission happens before cloning or queue
+    /// mutation, so this refusal never leaves a partial turn behind.
+    ResourceExhausted,
+    /// An ingress id was not minted by this Vat, or was already closed.
+    UnknownIngress,
+    /// Closing an ingress was attempted while it still had queued or running
+    /// turns. Its accounting remains live until both reach zero.
+    IngressBusy,
 } || std.mem.Allocator.Error;
+
+/// One CapTP session's projection of a Vat: wire peer, export positions, and
+/// far-vow settlement. A Port owns names and authority that exist only on that
+/// session; the Vat owns the actor graph and turn machinery shared by every
+/// Port attached to it.
+pub const Port = struct {
+    allocator: std.mem.Allocator,
+    /// Borrowed from the Node that owns this session's Peer allocation.
+    peer: *engine.Peer,
+    /// Causal/admission identity in the Vat. Standalone Ports use `.local`;
+    /// a multi-Port Host assigns one minted ingress per session.
+    ingress: IngressId = .local,
+    resolve_interceptor: ?ResolveInterceptor = null,
+    /// Listener for a far send's vow, keyed by this Port's outbound answer
+    /// position namespace.
+    far_listeners: std.AutoHashMapUnmanaged(model.AnswerPosition, Listener) = .{},
+    /// Answers served before a listener was registered. Bounded; see
+    /// `max_served_dropped_far_answers`.
+    served_dropped_far: std.AutoHashMapUnmanaged(model.AnswerPosition, void) = .{},
+    /// Local actor id for each export position projected on this Port.
+    exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
+    /// Canonical export position already projecting a local actor.
+    reverse_exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
+
+    pub fn init(allocator: std.mem.Allocator, peer: *engine.Peer) Port {
+        return .{ .allocator = allocator, .peer = peer };
+    }
+
+    pub fn deinit(self: *Port) void {
+        freeOwnedForwardContexts(self.allocator, &self.far_listeners);
+        self.far_listeners.deinit(self.allocator);
+        self.served_dropped_far.deinit(self.allocator);
+        self.exports.deinit(self.allocator);
+        self.reverse_exports.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    /// Install (or clear) the fulfilled-reply interceptor for this session.
+    pub fn setResolveInterceptor(self: *Port, interceptor: ?ResolveInterceptor) void {
+        self.resolve_interceptor = interceptor;
+    }
+
+    /// Location-transparent eventual-send through this session projection.
+    pub fn send(self: *Port, vat: *Vat, target: Ref, msg: Message) Error!Vow {
+        return self.sendFromIngress(vat, self.ingress, target, msg);
+    }
+
+    pub fn sendFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!Vow {
+        if (ingress != self.ingress) return Error.UnknownIngress;
+        _ = try vat.ingressState(ingress);
+        return switch (target) {
+            .local => |id| .{ .local = try vat.enqueueLocal(ingress, self, id, msg) },
+            .far => |far| self.sendFarTo(vat, .{ .far = far }, msg),
+        };
+    }
+
+    fn sendFarTo(self: *Port, vat: *Vat, target: model.Reference, msg: Message) Error!Vow {
+        const answer = model.AnswerPosition.from(self.peer.allocateAnswer());
+        try vat.farDeliverTo(self, target, msg, answer);
+        return .{ .far = answer };
+    }
+
+    /// Promise-pipelined eventual-send through this Port's answer namespace.
+    pub fn sendToAnswer(self: *Port, vat: *Vat, answer: model.AnswerPosition, msg: Message) Error!Vow {
+        return self.sendFarTo(vat, .{ .promise = .{ .answer_position = answer } }, msg);
+    }
+
+    pub fn tell(self: *Port, vat: *Vat, target: Ref, msg: Message) Error!void {
+        return self.tellFromIngress(vat, self.ingress, target, msg);
+    }
+
+    pub fn tellFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!void {
+        if (ingress != self.ingress) return Error.UnknownIngress;
+        _ = try vat.ingressState(ingress);
+        switch (target) {
+            .local => |id| _ = try vat.enqueueLocal(ingress, self, id, msg),
+            .far => |far| try vat.farDeliverTo(self, .{ .far = far }, msg, null),
+        }
+    }
+
+    /// Observe a local Vat vow or a far vow in this Port's answer namespace.
+    pub fn on(self: *Port, vat: *Vat, vow: Vow, listener: Listener) Error!void {
+        switch (vow) {
+            .local => try vat.on(vow, listener),
+            .far => |answer| {
+                if (self.served_dropped_far.contains(answer)) return Error.AlreadySettled;
+                const gop = try self.far_listeners.getOrPut(self.allocator, answer);
+                if (gop.found_existing) return Error.AlreadyListening;
+                gop.value_ptr.* = listener;
+            },
+        }
+    }
+
+    /// Dispatch one inbound event under this Port's causal ingress.
+    pub fn serveFromIngress(self: *Port, vat: *Vat, ingress: IngressId, event: *engine.Event) !bool {
+        if (ingress != self.ingress) return Error.UnknownIngress;
+        const state = try vat.ingressState(ingress);
+        state.active_turns += 1;
+        defer state.active_turns -= 1;
+        return serve_mod.serveFromIngress(vat, self, ingress, event);
+    }
+
+    pub fn serve(self: *Port, vat: *Vat, event: *engine.Event) !bool {
+        return self.serveFromIngress(vat, self.ingress, event);
+    }
+
+    pub fn settleFar(self: *Port, vat: *Vat, answer: model.AnswerPosition, outcome: FarOutcome) Error!void {
+        return serve_mod.settleFar(vat, self, answer, outcome);
+    }
+
+    pub fn breakFarVows(self: *Port, message: []const u8) void {
+        serve_mod.breakFarVows(self, message);
+    }
+
+    pub fn bindExport(self: *Port, actor: Ref, position: u64) !void {
+        return serve_mod.bindExport(self, actor, position);
+    }
+
+    pub fn refForExport(self: *const Port, position: u64) ?Ref {
+        return serve_mod.refForExport(self, position);
+    }
+
+    pub fn projectionForActor(self: *const Port, actor: Ref) ?model.NearRef {
+        const actor_id = switch (actor) {
+            .local => |id| id,
+            .far => return null,
+        };
+        const position = self.reverse_exports.get(actor_id) orelse return null;
+        return model.NearRef.object(position);
+    }
+
+    pub const Projection = struct {
+        near: model.NearRef,
+        created: bool,
+    };
+
+    /// Undo a bind that never became shared with the partner.
+    pub fn rollbackExport(self: *Port, actor: Ref, position: u64) void {
+        const actor_id = switch (actor) {
+            .local => |id| id,
+            .far => unreachable,
+        };
+        std.debug.assert(self.exports.get(position).? == actor_id);
+        std.debug.assert(self.exports.remove(position));
+        if (self.reverse_exports.get(actor_id) == position) {
+            var replacement: ?u64 = null;
+            var it = self.exports.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.* == actor_id) {
+                    replacement = entry.key_ptr.*;
+                    break;
+                }
+            }
+            if (replacement) |other|
+                self.reverse_exports.getPtr(actor_id).?.* = other
+            else
+                std.debug.assert(self.reverse_exports.remove(actor_id));
+        }
+        self.peer.session_state.releaseUnsharedExport(.from(position));
+    }
+
+    /// Reuse or lazily mint this Port's canonical wire position for `actor`,
+    /// reporting whether this call created the row. The receipt lets a caller
+    /// whose larger transaction later fails roll back only authority it minted.
+    pub fn prepareProjection(self: *Port, actor: Ref) !Projection {
+        const actor_id = switch (actor) {
+            .local => |id| id,
+            .far => return Error.NotLocal,
+        };
+        if (self.reverse_exports.get(actor_id)) |position| return .{
+            .near = model.NearRef.object(position),
+            .created = false,
+        };
+        const position = try self.peer.exportNextObject();
+        errdefer self.peer.session_state.releaseUnsharedExport(.from(position));
+        try self.bindExport(actor, position);
+        return .{
+            .near = model.NearRef.object(position),
+            .created = true,
+        };
+    }
+
+    /// Reuse or lazily mint this Port's canonical wire position for `actor`.
+    pub fn projectActor(self: *Port, actor: Ref) !model.NearRef {
+        return (try self.prepareProjection(actor)).near;
+    }
+};
+
+fn freeOwnedForwardContexts(allocator: std.mem.Allocator, map: anytype) void {
+    var it = map.valueIterator();
+    while (it.next()) |listener| {
+        if (listener.func == serve_mod.forwardListener) {
+            const fc: *serve_mod.ForwardContext = @ptrCast(@alignCast(listener.ctx.?));
+            allocator.destroy(fc);
+        }
+    }
+}
 
 /// One single-threaded container of local objects, the Goblins-shaped layer
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
 /// eventual-send with `send` (`<-`), and `drive` queued turns to completion;
-/// bind a peer and the same sends reach far references. Sync and no-I/O by
-/// contract (ADR-0036): the vat only enqueues onto its peer's outbound queue
-/// and reads its events. Everything spawned or queued lives on the vat's
+/// attach Ports and the same sends reach far references. Sync and no-I/O by
+/// contract (ADR-0036). Everything spawned or queued lives on the vat's
 /// allocator and arenas, freed in `deinit`.
 pub const Vat = struct {
     allocator: std.mem.Allocator,
-    /// The peer this vat rides on, or null for a pure-local vat. Far sends and
-    /// hosting require it; the vat still owns no I/O. It only enqueues onto the
-    /// peer's outbound queue and reads its events.
-    peer: ?*engine.Peer = null,
-    resolve_interceptor: ?ResolveInterceptor = null,
     actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
-    queue: std.ArrayList(Queued) = .empty,
-    /// The drain cursor into `queue`, shared across nested drives so a listener
-    /// that opens a re-entrant drive continues where the outer left off instead
-    /// of re-running already-executed turns. Only the outermost drive resets it.
-    queue_head: usize = 0,
+    queue_limits: QueueLimits = .{},
+    local_ingress: IngressState = .{ .id = .local },
+    /// Non-local ingress rows are heap-pinned so the intrusive runnable ring
+    /// stays pointer-stable while the hash map grows inside a running turn.
+    ingresses: std.AutoHashMapUnmanaged(IngressId, *IngressState) = .{},
+    runnable_head: ?*IngressState = null,
+    runnable_tail: ?*IngressState = null,
+    /// One Vat-wide spare amortizes ordinary local enqueue without retaining a
+    /// chunk per idle ingress. Every additional completed chunk is freed.
+    spare_chunk: ?*QueueChunk = null,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
-    /// Listener for a far send's vow, keyed by outbound answer position.
-    far_listeners: std.AutoHashMapUnmanaged(model.AnswerPosition, Listener) = .{},
-    /// Outbound answers whose resolve was *served* before any listener was
-    /// registered, so `serve` had to drop it. `on`'s far arm reads this to
-    /// refuse a late listener with `AlreadySettled` — the wire mirror of the
-    /// local settled guard — rather than park an awaiter that can never fire.
-    /// Empty in the ordinary send-then-`on`-then-serve flow, so an idle
-    /// connection holds nothing here; capped at `max_served_dropped_far_answers`
-    /// so a stream of unclaimed drops cannot grow it without bound (past the cap
-    /// a late `on` falls back to parking, the pre-guard behavior). An entry is
-    /// never removed once recorded, so a retried `on` hits the same refusal
-    /// (`AlreadySettled`), and the whole set frees at `deinit`.
-    served_dropped_far: std.AutoHashMapUnmanaged(model.AnswerPosition, void) = .{},
-    /// Local actor id for each export position published on the peer.
-    exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
-    // The three arenas below (turn, queue, settle) retain their backing storage
-    // across a reset, and a safety build does not poison that retained region.
+    /// Local vows whose turns are still pending. Fair ingress rotation can
+    /// settle vow ids out of global numeric order, so the old FIFO high-water
+    /// mark is unsound; this index makes late-listener refusal independent of
+    /// scheduling order.
+    pending_local_vows: std.AutoHashMapUnmanaged(PendingLocalVowKey, void) = .{},
+    // The turn and settle arenas below, plus the Vat-wide spare chunk's payload
+    // arena, retain backing storage across a reset. A safety build does not
+    // poison that retained region.
     // The use-after-reset class is closed at the root instead: each value that
     // must outlive a reset is cloned clear of it (see `settleLocal` and the
     // become-in-turn reply), and the scribble tests overwrite the arena to catch
@@ -410,33 +661,18 @@ pub const Vat = struct {
     /// outermost turn begins (when `turn_depth` returns to 0 and rises again), so a
     /// reply stays valid until then and no handler frees or leaks its own reply.
     turn_arena: std.heap.ArenaAllocator,
-    /// Owns every queued local eventual-send's message clone. A queued turn runs
-    /// at the next `drive`, after the turn arena the sender built its args in has
-    /// been reset, so the queue cannot borrow them: `send`/`tell` clone the
-    /// message here, and one bounded reset (`retain_with_limit`, see the
-    /// steady-bytes constants below) reclaims everything when the outermost
-    /// `drive` has fully drained the queue. That reset condition is
-    /// drive-to-quiescence, so an unbounded self-send chain makes the outermost
-    /// `drive` never return. A loop host runs `driveBudgeted` instead: it drains
-    /// each inbound batch to quiescence (so this arena resets every batch) but
-    /// caps the turns at `max_batch_local_turns`, closing a connection whose one
-    /// batch amplifies past the cap rather than letting this arena grow across
-    /// an unbounded drain. The connection-per-thread `drive` stays unbounded by
-    /// contract.
-    queue_arena: std.heap.ArenaAllocator,
     /// Nesting depth of in-flight turns. The turn arena resets only at depth 0, so a
     /// near-call or send made inside a turn shares that turn's scratch rather than
     /// pulling it out from under the call in flight.
     turn_depth: u32 = 0,
     /// Nesting depth of in-flight `drive` calls. A listener may open a nested
-    /// `drive`; only the outermost one may reset the queue arena, or the inner
-    /// reset would free messages the outer drive still holds.
+    /// drive; the runnable ring is Vat-owned so nested drives continue from the
+    /// fair rotation point rather than re-running the active turn.
     drive_depth: u32 = 0,
-    /// Scratch for the far-resolve settle in `serve`: an inbound fulfilled
-    /// value is cloned here for its listener call. The queue arena is not safe
-    /// for that clone — `serve` runs outside any drive, so a listener-opened
-    /// `drive` is *outermost* and its full-drain reset would free the value
-    /// mid-call. This arena resets only when `settle_depth` returns to zero.
+    next_ingress: u32 = 1,
+    /// Scratch for local and far fulfilled-listener calls. Queue chunks may
+    /// reclaim independently, so settlement has one depth-guarded arena that a
+    /// listener-opened drive cannot reset under the borrowed value.
     settle_arena: std.heap.ArenaAllocator,
     /// Nesting depth of in-flight far-resolve settles. A far listener can
     /// re-enter `serve` (a driver pump: `BlockingSession.step` then `drainEvents`),
@@ -445,11 +681,6 @@ pub const Vat = struct {
     settle_depth: u32 = 0,
     next_actor: u64 = 1,
     next_vow: u64 = 1,
-    /// The highest local vow id already settled by `drive`. Local vows
-    /// settle in FIFO order (ids are monotonic), so `on`'s local arm can refuse
-    /// a registration for `id <= last_settled_vow` with `AlreadySettled`
-    /// rather than parking a listener that can never fire.
-    last_settled_vow: u64 = 0,
     /// Reply bytes handlers moved to the vat via `Turn.moveOut`, awaiting free.
     /// They share the turn arena's lifetime: the vat frees them when its next
     /// outermost turn begins, so a moved reply stays valid for the caller until
@@ -465,26 +696,20 @@ pub const Vat = struct {
     /// here instead of at the install makes both replies outlive it.
     retired_boxes: std.ArrayList(*boxed.StateBox) = .empty,
 
-    const Queued = struct { target: u64, msg: Message, vow: u64 };
+    pub const Options = struct {
+        queue_limits: QueueLimits = .{},
+    };
 
     /// A pure-local vat (no wire). `near`/`send`/`drive` over local actors only.
     pub fn init(allocator: std.mem.Allocator) Vat {
-        return .{
-            .allocator = allocator,
-            .turn_arena = std.heap.ArenaAllocator.init(allocator),
-            .queue_arena = std.heap.ArenaAllocator.init(allocator),
-            .settle_arena = std.heap.ArenaAllocator.init(allocator),
-        };
+        return initWithOptions(allocator, .{});
     }
 
-    /// A vat bound to `peer`: far sends route to it, and `bindExport` binds actors
-    /// to export positions so inbound deliveries (via `serve`) run their turns.
-    pub fn initOver(allocator: std.mem.Allocator, peer: *engine.Peer) Vat {
+    pub fn initWithOptions(allocator: std.mem.Allocator, options: Options) Vat {
         return .{
             .allocator = allocator,
-            .peer = peer,
+            .queue_limits = options.queue_limits,
             .turn_arena = std.heap.ArenaAllocator.init(allocator),
-            .queue_arena = std.heap.ArenaAllocator.init(allocator),
             .settle_arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
@@ -498,39 +723,115 @@ pub const Vat = struct {
             releaseBox(self.allocator, cell.box);
         }
         self.actors.deinit(self.allocator);
-        self.queue.deinit(self.allocator);
+        self.freeIngressQueue(&self.local_ingress);
+        var ingress_it = self.ingresses.valueIterator();
+        while (ingress_it.next()) |state_ptr| {
+            self.freeIngressQueue(state_ptr.*);
+            self.allocator.destroy(state_ptr.*);
+        }
+        self.ingresses.deinit(self.allocator);
+        if (self.spare_chunk) |chunk| {
+            chunk.arena.deinit();
+            self.allocator.destroy(chunk);
+        }
         // Reclaim only the listener contexts the vat itself allocated, keyed by
         // function-pointer identity: a local `forward` heap-allocates a
         // `ForwardContext` whose only free path is the listener firing, which a
         // never-drained queue at teardown skips. Every other listener context is
         // caller-owned (an `on` caller's stack state), so it must be left alone.
-        self.freeOwnedForwardContexts(&self.listeners);
-        self.freeOwnedForwardContexts(&self.far_listeners);
+        freeOwnedForwardContexts(self.allocator, &self.listeners);
         self.listeners.deinit(self.allocator);
-        self.far_listeners.deinit(self.allocator);
-        self.served_dropped_far.deinit(self.allocator);
-        self.exports.deinit(self.allocator);
+        self.pending_local_vows.deinit(self.allocator);
         turn_mod.drainMovedReplies(self);
         self.moved_replies.deinit(self.allocator);
         turn_mod.drainRetiredBoxes(self);
         self.retired_boxes.deinit(self.allocator);
         self.turn_arena.deinit();
-        self.queue_arena.deinit();
         self.settle_arena.deinit();
     }
 
-    /// Free the vat-owned `ForwardContext` behind every `forwardListener` entry
-    /// in `map`, identified by function-pointer identity so caller-owned listener
-    /// contexts are never touched. A fired listener removes its entry, so only
-    /// unfired forwards remain here, making a double-free impossible.
-    fn freeOwnedForwardContexts(self: *Vat, map: anytype) void {
-        var it = map.valueIterator();
-        while (it.next()) |listener| {
-            if (listener.func == serve_mod.forwardListener) {
-                const fc: *serve_mod.ForwardContext = @ptrCast(@alignCast(listener.ctx.?));
-                self.allocator.destroy(fc);
-            }
+    fn ingressState(self: *Vat, ingress: IngressId) Error!*IngressState {
+        if (ingress == .local) return &self.local_ingress;
+        return self.ingresses.get(ingress) orelse Error.UnknownIngress;
+    }
+
+    fn acquireQueueChunk(self: *Vat) std.mem.Allocator.Error!*QueueChunk {
+        if (self.spare_chunk) |chunk| {
+            self.spare_chunk = null;
+            const arena = chunk.arena;
+            chunk.* = .{ .arena = arena };
+            return chunk;
         }
+        const chunk = try self.allocator.create(QueueChunk);
+        chunk.* = .{ .arena = std.heap.ArenaAllocator.init(self.allocator) };
+        return chunk;
+    }
+
+    fn releaseQueueChunk(self: *Vat, chunk: *QueueChunk) void {
+        std.debug.assert(chunk.next == null);
+        std.debug.assert(chunk.active_turns == 0);
+        if (self.spare_chunk == null) {
+            _ = chunk.arena.reset(.{ .retain_with_limit = steady_spare_arena_bytes });
+            const arena = chunk.arena;
+            chunk.* = .{ .arena = arena };
+            self.spare_chunk = chunk;
+            return;
+        }
+        chunk.arena.deinit();
+        self.allocator.destroy(chunk);
+    }
+
+    fn freeIngressQueue(self: *Vat, state: *IngressState) void {
+        var maybe_chunk = state.first;
+        while (maybe_chunk) |chunk| {
+            maybe_chunk = chunk.next;
+            chunk.arena.deinit();
+            self.allocator.destroy(chunk);
+        }
+        state.first = null;
+        state.last = null;
+        state.pending_turns = 0;
+        state.pending_bytes = 0;
+    }
+
+    fn makeRunnable(self: *Vat, state: *IngressState) void {
+        if (state.runnable or state.pending_turns == 0) return;
+        state.runnable = true;
+        state.runnable_next = null;
+        if (self.runnable_tail) |tail| tail.runnable_next = state else self.runnable_head = state;
+        self.runnable_tail = state;
+    }
+
+    fn takeRunnable(self: *Vat) ?*IngressState {
+        const state = self.runnable_head orelse return null;
+        self.runnable_head = state.runnable_next;
+        if (self.runnable_head == null) self.runnable_tail = null;
+        state.runnable_next = null;
+        state.runnable = false;
+        return state;
+    }
+
+    fn takeSpecificRunnable(self: *Vat, wanted: *IngressState) bool {
+        if (!wanted.runnable) return false;
+        var previous: ?*IngressState = null;
+        var current = self.runnable_head;
+        while (current) |state| : (current = state.runnable_next) {
+            if (state == wanted) {
+                if (previous) |prev| prev.runnable_next = state.runnable_next else self.runnable_head = state.runnable_next;
+                if (self.runnable_tail == state) self.runnable_tail = previous;
+                state.runnable_next = null;
+                state.runnable = false;
+                return true;
+            }
+            previous = state;
+        }
+        unreachable;
+    }
+
+    fn finishQueueTurn(self: *Vat, chunk: *QueueChunk) void {
+        std.debug.assert(chunk.active_turns > 0);
+        chunk.active_turns -= 1;
+        if (chunk.head == chunk.len and chunk.active_turns == 0) self.releaseQueueChunk(chunk);
     }
 
     /// Spawn a local actor with `initial` state, returning a local `Ref`. No
@@ -570,16 +871,94 @@ pub const Vat = struct {
         return self.registerBox(try boxed.makeHostedBox(self, hosted));
     }
 
+    /// Roll back a freshly spawned actor that failed before any export binding
+    /// or application reference became observable. The caller must hold the
+    /// exact `Ref` returned by `spawn`/`spawnHosted` and call this only on that
+    /// operation's unwind; actor ids remain monotonic and are not reused.
+    pub fn discardFreshActor(self: *Vat, actor: Ref) void {
+        const id = switch (actor) {
+            .local => |local| local,
+            .far => unreachable,
+        };
+        const removed = self.actors.fetchRemove(id) orelse unreachable;
+        std.debug.assert(removed.value.pending_become == null);
+        releaseBox(self.allocator, removed.value.box);
+    }
+
+    pub fn hasActor(self: *const Vat, id: u64) bool {
+        return self.actors.contains(id);
+    }
+
     /// The synchronous near-call (`$`): run `target`'s handler now and return its
     /// value. Legal only for a local ref; a far ref must be reached with `send`.
     /// The returned `Argument` is borrowed from the actor's state or the message
     /// (see the module header) and is valid only as long as both are; a caller
     /// that keeps it copies first.
     pub fn near(self: *Vat, target: Ref, msg: Message) anyerror!model.Argument {
+        return self.nearFromIngress(.local, target, msg);
+    }
+
+    pub fn nearFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) anyerror!model.Argument {
+        return self.nearFromPort(null, ingress, target, msg);
+    }
+
+    pub fn nearFromPort(self: *Vat, port: ?*Port, ingress: IngressId, target: Ref, msg: Message) anyerror!model.Argument {
+        const state = try self.ingressState(ingress);
+        state.active_turns += 1;
+        defer state.active_turns -= 1;
         return switch (target) {
-            .local => |id| turn_mod.callLocal(self, id, msg),
+            .local => |id| turn_mod.callLocal(self, port, ingress, id, msg),
             .far => Error.NotNearCallable,
         };
+    }
+
+    /// Mint a non-local ingress row. Each Host Port owns one such id; a
+    /// pure-local caller can use several to isolate admission and scheduling.
+    pub fn openIngress(self: *Vat) Error!IngressId {
+        if (self.next_ingress == std.math.maxInt(u32)) return Error.ResourceExhausted;
+        const id: IngressId = @enumFromInt(self.next_ingress);
+        const state = try self.allocator.create(IngressState);
+        errdefer self.allocator.destroy(state);
+        state.* = .{ .id = id };
+        try self.ingresses.put(self.allocator, id, state);
+        self.next_ingress += 1;
+        return id;
+    }
+
+    /// Release an empty, inactive non-local ingress. Pending or running work is
+    /// authority: closing it early would erase accounting and reorder turns.
+    pub fn closeIngress(self: *Vat, ingress: IngressId) Error!void {
+        if (ingress == .local) return Error.IngressBusy;
+        const state = self.ingresses.get(ingress) orelse return Error.UnknownIngress;
+        if (state.pending_turns != 0 or state.active_turns != 0 or state.runnable) return Error.IngressBusy;
+        std.debug.assert(state.first == null and state.last == null);
+        std.debug.assert(self.ingresses.remove(ingress));
+        self.allocator.destroy(state);
+    }
+
+    /// Tear down a session ingress that can no longer run. It is removed from
+    /// admission and fair scheduling before listeners fire, so a break handler
+    /// cannot enqueue fresh work onto the closing Port. Every queued local vow
+    /// settles broken; unobserved turns are discarded with their chunk.
+    pub fn cancelIngress(self: *Vat, ingress: IngressId, reason: []const u8) Error!void {
+        if (ingress == .local) return Error.IngressBusy;
+        const state = self.ingresses.get(ingress) orelse return Error.UnknownIngress;
+        if (state.active_turns != 0) return Error.IngressBusy;
+        std.debug.assert(self.ingresses.remove(ingress));
+
+        _ = self.takeSpecificRunnable(state);
+
+        var maybe_chunk = state.first;
+        while (maybe_chunk) |chunk| : (maybe_chunk = chunk.next) {
+            std.debug.assert(chunk.active_turns == 0);
+            for (chunk.items[chunk.head..chunk.len]) |queued| {
+                std.debug.assert(self.pending_local_vows.remove(.{ .id = queued.vow }));
+                if (self.listeners.fetchRemove(queued.vow)) |entry|
+                    entry.value.func(entry.value.ctx, .{ .broken = reason });
+            }
+        }
+        self.freeIngressQueue(state);
+        self.allocator.destroy(state);
     }
 
     /// The eventual send (`<-`): location-transparent. A local target queues a
@@ -587,41 +966,18 @@ pub const Vat = struct {
     /// (a leading symbol carries the verb, matching Goblins's `($ obj 'method …)`).
     /// Returns a `Vow` for the result. The message's verb and args are
     /// borrowed only for the duration of this call: the local arm clones them
-    /// into the vat's queue arena, the far arm clones them inside
+    /// into one ingress queue chunk, the far arm clones them inside
     /// `peer.sendCopying`.
     pub fn send(self: *Vat, target: Ref, msg: Message) Error!Vow {
+        return self.sendFromIngress(.local, target, msg);
+    }
+
+    pub fn sendFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!Vow {
+        _ = try self.ingressState(ingress);
         switch (target) {
-            .local => |id| return .{ .local = try self.enqueueLocal(id, msg) },
-            .far => |far_ref| return self.sendFarTo(.{ .far = far_ref }, msg),
+            .local => |id| return .{ .local = try self.enqueueLocal(ingress, null, id, msg) },
+            .far => return Error.NotConnected,
         }
-    }
-
-    /// Mint an answer, put one answer-requesting far `op:deliver` to `target` on
-    /// the wire, and return the `.far` Vow for its result. The spine `send`'s far
-    /// arm (a settled far ref) and `sendToAnswer` (a pending answer) share, differing
-    /// only in the wire `target`.
-    fn sendFarTo(self: *Vat, target: model.Reference, msg: Message) Error!Vow {
-        const peer = self.peer orelse return Error.NotConnected;
-        const answer = model.AnswerPosition.from(peer.allocateAnswer());
-        try self.farDeliverTo(target, msg, answer);
-        return .{ .far = answer };
-    }
-
-    /// Promise pipelining (the questioner half of ADR-0007): eventual-send `msg`
-    /// to a far answer this vat is still awaiting — the `.far` position a prior
-    /// `send` returned — instead of a settled reference. It puts one
-    /// `op:deliver` against `<desc:answer answer_pos>` on the wire, so a
-    /// dependent call need not wait for the answer it depends on to come back:
-    /// send `create`, then `sendToAnswer(create_answer, assign)` before
-    /// `create` resolves. The partner queues the call on that pending answer and
-    /// drains it when the answer settles (the serving side ADR-0007 already
-    /// built). Returns a `Vow` for this call's own result, which can itself
-    /// be pipelined against. `msg`'s verb and args are borrowed only for this
-    /// call (cloned inside `peer.sendCopying`). `NotConnected` if no peer is
-    /// bound. The empty-path target rides the engine's flat `desc:answer` send;
-    /// a multi-hop path is the engine's decomposition concern, not this surface.
-    pub fn sendToAnswer(self: *Vat, answer_pos: model.AnswerPosition, msg: Message) Error!Vow {
-        return self.sendFarTo(.{ .promise = .{ .answer_position = answer_pos } }, msg);
     }
 
     /// The fire-and-forget eventual-send (Goblins `<-np`): like `send`, but it
@@ -631,42 +987,77 @@ pub const Vat = struct {
     /// a reply nobody reads. A local `tell` queues a turn whose result is
     /// discarded. Returns nothing: there is no vow to observe.
     pub fn tell(self: *Vat, target: Ref, msg: Message) Error!void {
+        return self.tellFromIngress(.local, target, msg);
+    }
+
+    pub fn tellFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!void {
+        _ = try self.ingressState(ingress);
         switch (target) {
             // Queue a turn like `send`, but discard the vow id: it keeps the
             // queue entry uniform and `drive` settles it into no listener.
-            .local => |id| _ = try self.enqueueLocal(id, msg),
-            .far => |far_ref| try self.farDeliver(far_ref, msg, null),
+            .local => |id| _ = try self.enqueueLocal(ingress, null, id, msg),
+            .far => return Error.NotConnected,
         }
     }
 
-    /// The one local-enqueue spine `send` and `tell` share: mint the next vow
-    /// id, clone the message into the queue arena, and append the turn.
-    fn enqueueLocal(self: *Vat, id: u64, msg: Message) Error!u64 {
+    /// The one local-enqueue spine `send` and `tell` share. Admission computes
+    /// the whole logical ownership charge before cloning; every mutation after
+    /// a successful clone is infallible, so refusal never partially enqueues.
+    fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message) Error!u64 {
+        const state = try self.ingressState(ingress);
+        const args_bytes = model.measureArgumentSliceOwnedBytes(msg.args) catch return Error.MalformedView;
+        var charge = std.math.add(usize, @sizeOf(Queued), msg.verb.len) catch return Error.ResourceExhausted;
+        charge = std.math.add(usize, charge, args_bytes) catch return Error.ResourceExhausted;
+        const limits = self.queue_limits;
+        if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return Error.ResourceExhausted;
+        const charge32: u32 = @intCast(charge);
+        if (state.pending_turns >= limits.max_pending_turns) return Error.ResourceExhausted;
+        if (state.pending_bytes > limits.max_pending_bytes or charge32 > limits.max_pending_bytes - state.pending_bytes)
+            return Error.ResourceExhausted;
+        try self.pending_local_vows.ensureUnusedCapacity(self.allocator, 1);
+
+        var chunk = state.last;
+        var acquired = false;
+        if (chunk == null or chunk.?.len == queue_chunk_turns or
+            chunk.?.owned_bytes > limits.max_chunk_bytes - charge32)
+        {
+            chunk = try self.acquireQueueChunk();
+            acquired = true;
+        }
+        const owned = self.cloneForQueue(chunk.?, msg) catch |err| {
+            if (acquired) self.releaseQueueChunk(chunk.?);
+            return err;
+        };
         const vow = self.next_vow;
-        try self.queue.append(self.allocator, .{ .target = id, .msg = try self.cloneForQueue(msg), .vow = vow });
+        if (acquired) {
+            if (state.last) |last| last.next = chunk else state.first = chunk;
+            state.last = chunk;
+        }
+        chunk.?.items[chunk.?.len] = .{ .target = id, .msg = owned, .vow = vow, .charged_bytes = charge32, .port = port };
+        chunk.?.len += 1;
+        chunk.?.owned_bytes += charge32;
+        state.pending_turns += 1;
+        state.pending_bytes += charge32;
+        self.pending_local_vows.putAssumeCapacity(.{ .id = vow }, {});
+        self.makeRunnable(state);
         self.next_vow += 1;
         return vow;
     }
 
-    /// Clone `msg` into the vat-owned queue arena: the one named boundary copy
+    /// Clone `msg` into its vat-owned queue chunk: the one named boundary copy
     /// of the local eventual-send path, symmetric with the far path's clone
     /// inside `peer.sendCopying`. A queued message must outlive the sender's
     /// turn — the drive that runs it begins by resetting the very turn arena
     /// the documented handler pattern builds outgoing args in — so the queue
-    /// owns its bytes. The whole arena resets once, when an outermost `drive`
-    /// has fully drained the queue.
-    fn cloneForQueue(self: *Vat, msg: Message) Error!Message {
-        const arena = self.queue_arena.allocator();
+    /// owns its bytes. Its chunk is reclaimed immediately after that chunk's
+    /// last turn, independent of every other ingress.
+    fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Message) Error!Message {
+        _ = self;
+        const arena = chunk.arena.allocator();
         return .{
             .verb = try arena.dupe(u8, msg.verb),
             .args = try model.cloneArgumentSlice(arena, msg.args),
         };
-    }
-
-    /// Encode a far `op:deliver` to a settled far import, the resolved-target
-    /// case of `farDeliverTo`.
-    fn farDeliver(self: *Vat, far_ref: model.FarRef, msg: Message, answer: ?model.AnswerPosition) Error!void {
-        return self.farDeliverTo(.{ .far = far_ref }, msg, answer);
     }
 
     /// Encode one far `op:deliver` for `msg` to a wire `target` — a far import
@@ -683,8 +1074,8 @@ pub const Vat = struct {
     /// where an arena bump would pin until the next outermost turn. The splice
     /// cannot reuse the clone: `sendCopying` clones whatever list it is
     /// handed, and the verb must be in that list first.
-    fn farDeliverTo(self: *Vat, target: model.Reference, msg: Message, answer: ?model.AnswerPosition) Error!void {
-        const peer = self.peer orelse return Error.NotConnected;
+    fn farDeliverTo(self: *Vat, port: *Port, target: model.Reference, msg: Message, answer: ?model.AnswerPosition) Error!void {
+        const peer = port.peer;
         const has_verb = msg.verb.len > 0;
         const total = msg.args.len + @intFromBool(has_verb);
         // Verb-splice scratch: stack for the common arity, gpa above it.
@@ -721,28 +1112,12 @@ pub const Vat = struct {
                 // A local vow settles exactly once, during `drive`; a
                 // listener registered after that settlement would never fire,
                 // so refuse it loud.
-                if (id <= self.last_settled_vow) return Error.AlreadySettled;
+                if (id < self.next_vow and !self.pending_local_vows.contains(.{ .id = id })) return Error.AlreadySettled;
                 const gop = try self.listeners.getOrPut(self.allocator, id);
                 if (gop.found_existing) return Error.AlreadyListening;
                 gop.value_ptr.* = listener;
             },
-            .far => |answer| {
-                // The wire-side mirror of the local guard: if this vow's resolve
-                // was already served with no listener to catch it, `serve` dropped
-                // it, so a listener registered now would never fire. Refuse it
-                // loud rather than park an awaiter that strands forever. A resolve
-                // merely applied but not yet served is fine — the app may poll the
-                // event, register `on`, then serve to fire it — so the signal is
-                // the served-drop, not the session's settled status. The marker is
-                // read, never consumed: a retried `on` must hit the same refusal,
-                // not slip past it into a listener that can never fire. The set is
-                // bounded (`max_served_dropped_far_answers`) and freed at deinit,
-                // so retention costs nothing.
-                if (self.served_dropped_far.contains(answer)) return Error.AlreadySettled;
-                const gop = try self.far_listeners.getOrPut(self.allocator, answer);
-                if (gop.found_existing) return Error.AlreadyListening;
-                gop.value_ptr.* = listener;
-            },
+            .far => return Error.NotConnected,
         }
     }
 
@@ -751,22 +1126,12 @@ pub const Vat = struct {
     /// Rewind the local actor heap to a snapshot (see `boxed.restore`).
     pub const restore = boxed.restore;
 
-    /// Dispatch one inbound peer event (see `serve.serve`).
-    pub const serve = serve_mod.serve;
-    /// Settle a far vow off the wire path (see `serve.settleFar`).
-    pub const settleFar = serve_mod.settleFar;
-    /// Break every outstanding far vow on disconnect (see `serve.breakFarVows`).
-    pub const breakFarVows = serve_mod.breakFarVows;
-    /// Bind a local actor to a wire export position (see `serve.bindExport`).
-    pub const bindExport = serve_mod.bindExport;
-    /// The local ref bound to a wire export, if any (see `serve.refForExport`).
-    pub const refForExport = serve_mod.refForExport;
-
     /// The most local eventual-send turns one inbound batch may drive on a loop
     /// host before the vat is treated as a runaway. A handler's local work
     /// settles in one batch — a legitimate fan-out or chain is far under this —
-    /// so the loop drives each batch's queue to completion and reclaims it,
-    /// keeping no cross-batch residual and no unbounded queue-arena growth. A
+    /// so the loop drives each batch's queue to completion, keeping no
+    /// cross-batch residual. Independently reclaimable chunks bound the retained
+    /// queue storage while it does so. A
     /// single inbound message that amplifies past this many local turns (a
     /// runaway self-send loop, or an oversized fan-out) exceeds the limit, and
     /// the loop closes that connection rather than stall the residual or hold it
@@ -780,28 +1145,24 @@ pub const Vat = struct {
 
     /// The outcome of a budgeted drive: whether the local queue emptied.
     pub const DriveProgress = enum {
-        /// The queue drained fully within the budget; its arena was reclaimed,
-        /// exactly as `drive`.
+        /// Every ingress queue drained fully within the budget.
         drained,
-        /// The budget was spent with turns still queued. Nothing was reset: the
-        /// queue and its arena stay intact, and the next `driveBudgeted` resumes
-        /// at the same cursor.
+        /// The budget was spent with turns still queued. The next call resumes
+        /// at the head of the fair runnable ring.
         more_pending,
     };
 
     /// Run queued local eventual-sends to quiescence, settling each vow with
     /// the handler's value (or a break on error) and firing its listener. Turns
-    /// queued by a turn run in the same drive (FIFO). The queued messages'
-    /// clones live in the queue arena, which resets — capacity retained — only
-    /// when the *outermost* drive has fully drained the queue, so a turn that
-    /// queues more sends mid-drive never has its message freed under it.
+    /// queued by a turn run in the same drive. FIFO holds within one ingress;
+    /// runnable ingresses rotate one turn at a time.
     pub fn drive(self: *Vat) Error!void {
         _ = try self.driveBudgeted(std.math.maxInt(usize));
     }
 
     /// Like `drive`, but runs at most `max_turns` queued local turns, then
-    /// yields `.more_pending` with the queue and cursor left intact (a later
-    /// call resumes where it stopped). A vat whose handlers re-send to
+    /// yields `.more_pending` with every ingress queue intact (a later call
+    /// resumes at the fair ring head). A vat whose handlers re-send to
     /// themselves without bound makes `drive` never return; on a loop host
     /// that would starve every other connection the loop serves. `driveBudgeted`
     /// gives the loop host a bound to act on: it drives each inbound batch to
@@ -811,45 +1172,78 @@ pub const Vat = struct {
     /// partner, so a self-send chain there starves only itself.
     ///
     /// Call this at the top level (the loop host's per-connection drive point),
-    /// not re-entrantly: like `drive`, it shares the vat's queue cursor, and a
-    /// nested full `drive` a listener opens runs to quiescence by its own
-    /// contract, draining past this budget.
+    /// not re-entrantly: a nested full `drive` a listener opens runs to
+    /// quiescence by its own contract, draining past this budget.
     pub fn driveBudgeted(self: *Vat, max_turns: usize) Error!DriveProgress {
         // A *finite* budget must not nest (the documented contract above): a
         // nested full `drive` (a listener's) is legal and runs unbudgeted.
         std.debug.assert(max_turns == std.math.maxInt(usize) or self.drive_depth == 0);
         self.drive_depth += 1;
         defer self.drive_depth -= 1;
-        // The cursor lives on the vat, not the stack: a listener firing inside
-        // `settleLocal` may open a nested drive, and it must continue past the
-        // turns already run rather than restart at zero and execute them twice.
-        // Across budget slices it plays the same role: a yielded slice leaves
-        // the cursor where it stopped so the next call resumes there.
         var ran: usize = 0;
-        while (ran < max_turns and self.queue_head < self.queue.items.len) {
-            const queued = self.queue.items[self.queue_head];
-            self.queue_head += 1;
+        while (ran < max_turns) {
+            const state = self.takeRunnable() orelse break;
             ran += 1;
-            const resolution: Resolution = if (turn_mod.callLocal(self, queued.target, queued.msg)) |value|
-                .{ .fulfilled = value }
-            else |err|
-                .{ .broken = @errorName(err) };
-            try self.settleLocal(queued.vow, resolution);
+            try self.runQueuedTurn(state);
         }
-        const drained = self.queue_head >= self.queue.items.len;
-        // Only the outermost drive that actually emptied the queue reclaims its
-        // arena; a nested drive leaves both for the outer to finish, and a
-        // budget-yield with turns still queued must leave the queue and its
-        // arena intact — the pending messages' clones live in that arena.
-        if (self.drive_depth == 1 and drained) {
-            self.queue.clearRetainingCapacity();
-            if (self.queue.capacity * @sizeOf(Queued) > steady_list_bytes) {
-                self.queue.clearAndFree(self.allocator);
-            }
-            self.queue_head = 0;
-            _ = self.queue_arena.reset(.{ .retain_with_limit = steady_queue_arena_bytes });
+        return if (self.runnable_head == null) .drained else .more_pending;
+    }
+
+    /// Drive only one causal ingress. A Host invokes this at a Port's batch
+    /// boundary so work enqueued onto a sibling remains attributed to that
+    /// sibling's own budget and close policy.
+    pub fn driveIngressBudgeted(self: *Vat, ingress: IngressId, max_turns: usize) Error!DriveProgress {
+        std.debug.assert(max_turns == std.math.maxInt(usize) or self.drive_depth == 0);
+        const state = try self.ingressState(ingress);
+        self.drive_depth += 1;
+        defer self.drive_depth -= 1;
+        var ran: usize = 0;
+        while (ran < max_turns and self.takeSpecificRunnable(state)) : (ran += 1)
+            try self.runQueuedTurn(state);
+        return if (state.pending_turns == 0) .drained else .more_pending;
+    }
+
+    fn runQueuedTurn(self: *Vat, state: *IngressState) Error!void {
+        const chunk = state.first orelse unreachable;
+        std.debug.assert(chunk.head < chunk.len);
+        const queued = chunk.items[chunk.head];
+        chunk.head += 1;
+        state.pending_turns -= 1;
+        state.pending_bytes -= queued.charged_bytes;
+        if (chunk.head == chunk.len) {
+            state.first = chunk.next;
+            if (state.first == null) state.last = null;
+            chunk.next = null;
         }
-        return if (drained) .drained else .more_pending;
+        // Rotate before running the handler. A nested drive therefore sees
+        // the next ingress, while a causal send from this turn appends this
+        // ingress once at the tail if it had become empty.
+        self.makeRunnable(state);
+        state.active_turns += 1;
+        chunk.active_turns += 1;
+        const resolution: Resolution = if (turn_mod.callLocal(self, queued.port, state.id, queued.target, queued.msg)) |value|
+            .{ .fulfilled = value }
+        else |err|
+            .{ .broken = @errorName(err) };
+        self.settleLocal(queued.vow, resolution) catch |err| {
+            state.active_turns -= 1;
+            self.finishQueueTurn(chunk);
+            return err;
+        };
+        state.active_turns -= 1;
+        self.finishQueueTurn(chunk);
+    }
+
+    fn beginSettle(self: *Vat) std.mem.Allocator {
+        self.settle_depth += 1;
+        return self.settle_arena.allocator();
+    }
+
+    fn endSettle(self: *Vat) void {
+        self.settle_depth -= 1;
+        if (self.settle_depth == 0) {
+            _ = self.settle_arena.reset(.{ .retain_with_limit = steady_settle_arena_bytes });
+        }
     }
 
     /// Fire `vow_id`'s listener, if any. The clone below defends two
@@ -860,21 +1254,18 @@ pub const Vat = struct {
     /// Second, the value may borrow the settling actor's own mutable state,
     /// and a listener-opened nested drive can run a turn that mutates or
     /// `become`-frees that state under the borrow. So the one argument is
-    /// cloned into the vat's queue arena: `settleLocal` runs only inside
-    /// `drive` (`drive_depth >= 1`), and that arena resets only when the
-    /// *outermost* drive has fully drained, which cannot happen while this
-    /// listener is still on the outermost drive's stack — so the clone
-    /// outlives the listener call with no gpa traffic and no per-settle free.
+    /// cloned into the settle arena shared with far settlement. Its depth guard
+    /// lets a listener open a nested drive or far settle without freeing the
+    /// outer listener's value.
     /// A broken resolution carries `@errorName`'s static string, which no
     /// reset can free.
     fn settleLocal(self: *Vat, vow_id: u64, resolution: Resolution) Error!void {
-        // The queue-arena clone below is safe only inside a drive (see the doc
-        // comment); hold that invariant mechanically, not just in prose.
+        // Local settlement only occurs inside a drive; hold that invariant
+        // mechanically even though its clone now lives in the settle arena.
         std.debug.assert(self.drive_depth >= 1);
-        // Record the settlement before anything fallible: local vows
-        // settle in FIFO order (ids are monotonic), so this high-water mark is
-        // what lets `on` refuse a registration that can never fire.
-        self.last_settled_vow = vow_id;
+        // Remove before anything fallible: the turn ran, so a later `on` must
+        // refuse even if cloning its result for an already-parked listener OOMs.
+        std.debug.assert(self.pending_local_vows.remove(.{ .id = vow_id }));
         // Peek the listener rather than remove it, mirroring the far-resolve
         // arm in `serve`: the fulfilled arm clones fallibly before firing, and
         // an OOM return must leave the entry in the map so teardown
@@ -885,7 +1276,9 @@ pub const Vat = struct {
         const listener = self.listeners.get(vow_id) orelse return;
         switch (resolution) {
             .fulfilled => |value| {
-                const owned = try model.cloneArgument(self.queue_arena.allocator(), value);
+                const arena = self.beginSettle();
+                defer self.endSettle();
+                const owned = try model.cloneArgument(arena, value);
                 std.debug.assert(self.listeners.fetchRemove(vow_id) != null);
                 listener.func(listener.ctx, .{ .fulfilled = owned });
             },
@@ -897,11 +1290,5 @@ pub const Vat = struct {
             // far-resolve path in `serve` constructs `.give`.
             .give => unreachable,
         }
-    }
-
-    /// Install (or clear, with null) the served-reply interceptor. One per
-    /// vat: the host that owns cross-connection routing is the only consumer.
-    pub fn setResolveInterceptor(self: *Vat, interceptor: ?ResolveInterceptor) void {
-        self.resolve_interceptor = interceptor;
     }
 };

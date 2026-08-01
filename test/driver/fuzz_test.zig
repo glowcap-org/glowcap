@@ -115,7 +115,7 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
     }
     host.feedBytes(session, damaged[0..bytes.len]) catch {};
     drainHost(host, session);
-    try bounds.checkDeclared(&session.served.peer.session_state);
+    try bounds.checkDeclared(&session.served.port.peer.session_state);
 }
 
 /// Feed `input` to `session` in `chunk` sized pieces, draining after each, the
@@ -125,7 +125,7 @@ fn feedChunked(host: *Host, session: *HostSession, input: []const u8, chunk: usi
     if (chunk == 0) {
         host.feedBytes(session, input) catch {};
         drainHost(host, session);
-        try bounds.checkDeclared(&session.served.peer.session_state);
+        try bounds.checkDeclared(&session.served.port.peer.session_state);
         return;
     }
     var at: usize = 0;
@@ -141,7 +141,7 @@ fn feedChunked(host: *Host, session: *HostSession, input: []const u8, chunk: usi
         // then trimmed back would slip past an end-of-program check, and the
         // window where it was over the cap is the window an attacker holds the
         // memory.
-        try bounds.checkDeclared(&session.served.peer.session_state);
+        try bounds.checkDeclared(&session.served.port.peer.session_state);
         at = end;
     }
 }
@@ -179,7 +179,7 @@ fn hostFeedOne(_: void, smith: *std.testing.Smith) anyerror!void {
         defer acceptor.deinit();
         const pair = host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001") catch return;
 
-        _ = pair.b.served.publish("counter", Counter, .{}) catch return;
+        _ = pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{}) catch return;
         const fetched = dialer.fetch(pair.a, "counter") catch return;
         var captured = promise_capture.CapturedRef{};
         dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record }) catch return;
@@ -215,7 +215,7 @@ test "fuzz: arbitrary read boundaries never crash or leak a working host session
         var acceptor = Host.init(gpa, [_]u8{0x33} ** 32, .{ .limits = bounds.tight });
         defer acceptor.deinit();
         const pair = try host_pair.openPair(&dialer, &acceptor, "127.0.0.1:9001");
-        _ = try pair.b.served.publish("counter", Counter, .{});
+        _ = try pair.b.served.publish(&pair.b.host.vat, "counter", Counter, .{});
         const fetched = try dialer.fetch(pair.a, "counter");
         var captured = promise_capture.CapturedRef{};
         try dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record });

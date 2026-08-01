@@ -61,9 +61,9 @@ pub const SignedReceive = struct {
 /// `pancake_build_handoff_give` built); it is parsed once here into a typed,
 /// codec-neutral give. `secret` is the recipient's session key — the one the
 /// gifter named as the give's recipient key — so the exporter verifies the
-/// receive against it. The `handoff_count` is minted from `registry` against the
-/// derived receiving session, so the monotonic replay counter is owned by the
-/// vat-scoped registry here rather than re-tracked by every caller (ADR-0056).
+/// receive against it. The `handoff_count` is minted from this
+/// recipient-to-exporter session's `registry`, so its monotonic replay counter
+/// dies with the session (ADR-0100).
 pub fn signedReceiveFromGiveBytes(
     allocator: std.mem.Allocator,
     limits: session_mod.SessionLimits,
@@ -73,12 +73,13 @@ pub fn signedReceiveFromGiveBytes(
     exporter_partner_key: []const u8,
     give_bytes: []const u8,
 ) !SignedReceive {
-    const give = try codec.syrup.decodeSignedHandoffGiveOwned(allocator, give_bytes);
+    const give = try codec.signed.decodeGiveOwned(allocator, give_bytes);
     errdefer model.freeHandoffGive(allocator, give);
     const our_side = try sideName(our_pubkey.asBytes());
     const exporter_side = try sideName(exporter_partner_key);
     const receiving_session = sessionName(our_side, exporter_side);
-    const handoff_count = try registry.nextEmittedCount(allocator, limits, &receiving_session);
+    _ = limits;
+    const handoff_count = try registry.nextEmittedCount();
     var result: SignedReceive = .{
         .receiving_session = receiving_session,
         .receiving_side = our_side,
@@ -86,7 +87,7 @@ pub fn signedReceiveFromGiveBytes(
         .give = give,
         .handoff_count = handoff_count,
     };
-    const receive_signed = try codec.syrup.canonicalHandoffReceiveSignedBytes(allocator, result.message());
+    const receive_signed = try codec.signed.receiveBytes(allocator, result.message());
     defer allocator.free(receive_signed);
     result.signature = crypto.sign(&secret, receive_signed).bytes;
     return result;
@@ -102,9 +103,9 @@ fn reconstructSignedHandoffGive(
 ) ![]u8 {
     const owned = try give.toOwned(allocator);
     defer model.freeHandoffGive(allocator, owned);
-    const record = try codec.syrup.canonicalHandoffGiveSignedBytes(allocator, owned);
+    const record = try codec.signed.giveBytes(allocator, owned);
     defer allocator.free(record);
-    return codec.syrup.wrapSignedHandoffGive(allocator, record, owned.signature);
+    return codec.signed.wrapGive(allocator, record, owned.signature);
 }
 
 /// Project a give's exporter peer into the dialable `ocapn://…` URI a

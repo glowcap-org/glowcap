@@ -393,99 +393,6 @@ pub fn checkAbiExportsConsumed(
     }
 }
 
-/// CapTP `PANCAKE_EVENT_*` kinds (except `NONE`) must have a peer send constructor
-/// in `pancake_ocapn.h`, or an explicit allowlist reason. Renamed constructors
-/// (start_session, handoff deposit/withdraw/resolve-give) count; LISTEN is
-/// allowlisted as engine-synthesized / inbound-only. Adding an event without a
-/// send or allowlist row fails this check.
-pub fn checkPeerEventSendParity(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const header_path = "include/pancake_ocapn.h";
-    const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for event/send parity with {s}", .{ header_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(header);
-
-    const Row = struct {
-        event: []const u8,
-        send: ?[]const u8 = null,
-        also: []const []const u8 = &.{},
-        allowlist: ?[]const u8 = null,
-    };
-    const rows = [_]Row{
-        .{ .event = "DELIVER", .send = "pancake_peer_send_deliver" },
-        .{ .event = "RESOLVE", .send = "pancake_peer_send_resolve" },
-        .{ .event = "GC_EXPORT", .send = "pancake_peer_send_gc_export" },
-        .{ .event = "GC_ANSWER", .send = "pancake_peer_send_gc_answer" },
-        .{ .event = "HANDOFF", .also = &.{
-            "pancake_peer_send_deposit_gift",
-            "pancake_peer_send_withdraw_gift",
-            "pancake_peer_send_resolve_handoff_give",
-        } },
-        .{ .event = "START_SESSION", .send = "pancake_peer_start_session" },
-        .{ .event = "ABORT", .send = "pancake_peer_send_abort" },
-        .{ .event = "LISTEN", .allowlist = "engine-synthesized / inbound install; not an app send at the peer ABI" },
-        .{ .event = "GET", .send = "pancake_peer_send_get" },
-        .{ .event = "INDEX", .send = "pancake_peer_send_index" },
-        .{ .event = "UNTAG", .send = "pancake_peer_send_untag" },
-    };
-
-    var seen_events = std.StringHashMap(void).init(gpa);
-    defer seen_events.deinit();
-
-    var rest = header;
-    const event_needle = "#define PANCAKE_EVENT_";
-    while (std.mem.indexOf(u8, rest, event_needle)) |start| {
-        const after = rest[start + event_needle.len ..];
-        const line_end = std.mem.indexOfScalar(u8, after, '\n') orelse after.len;
-        const line = after[0..line_end];
-        rest = after[line_end..];
-        const name_end = std.mem.indexOfAny(u8, line, " \t") orelse continue;
-        const suffix = line[0..name_end];
-        if (std.mem.eql(u8, suffix, "NONE")) continue;
-        try seen_events.put(suffix, {});
-
-        var matched_row: ?Row = null;
-        for (rows) |row| {
-            if (std.mem.eql(u8, row.event, suffix)) {
-                matched_row = row;
-                break;
-            }
-        }
-        const row = matched_row orelse {
-            try appendViolation(gpa, violations, "{s}: PANCAKE_EVENT_{s} has no peer send/allowlist row in checkPeerEventSendParity — add pancake_peer_send_* or an allowlist reason", .{ header_path, suffix });
-            continue;
-        };
-        if (row.allowlist != null) continue;
-
-        var ok = false;
-        if (row.send) |send_name| {
-            if (std.mem.indexOf(u8, header, send_name) != null) ok = true;
-        }
-        for (row.also) |alt| {
-            if (std.mem.indexOf(u8, header, alt) != null) ok = true;
-        }
-        if (!ok) {
-            if (row.send) |send_name| {
-                try appendViolation(gpa, violations, "{s}: PANCAKE_EVENT_{s} needs `{s}` (or a listed alternate) in the header, or an allowlist reason in checkPeerEventSendParity", .{ header_path, suffix, send_name });
-            } else {
-                try appendViolation(gpa, violations, "{s}: PANCAKE_EVENT_{s} needs one of its alternate send constructors in the header, or an allowlist reason in checkPeerEventSendParity", .{ header_path, suffix });
-            }
-        }
-    }
-
-    for (rows) |row| {
-        if (!seen_events.contains(row.event)) {
-            try appendViolation(gpa, violations, "{s}: checkPeerEventSendParity lists EVENT_{s} but the header has no PANCAKE_EVENT_{s} — drop the stale row", .{ header_path, row.event, row.event });
-        }
-    }
-}
-
 pub fn checkCAbiResolve(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -620,7 +527,7 @@ pub fn checkCAbiResolve(
     }
     // Env name list is documentation in README; unpaid if shipped as JSON.
     if (getField(parsed.value, "env") != null) {
-        try appendViolation(gpa, violations, "{s}: unpaid `env` field — delete it; document env names in bindings/README.md", .{contract_path});
+        try appendViolation(gpa, violations, "{s}: unpaid `env` field — delete it; document env names in bindings/PACKAGING.md", .{contract_path});
     }
 
     // Header macros must match the contract pin; user_agent embeds the same version.
@@ -687,25 +594,25 @@ pub fn checkCAbiResolve(
         try appendViolation(gpa, violations, "{s}: missing operator fetch script ({s})", .{ expected_operator_script, @errorName(err) });
     };
 
-    const readme = root.readFileAlloc(io, "bindings/README.md", gpa, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "bindings/README.md: failed to read for c-abi-resolve check with {s}", .{@errorName(err)});
+    const readme = root.readFileAlloc(io, "bindings/PACKAGING.md", gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: failed to read for c-abi-resolve check with {s}", .{@errorName(err)});
         return;
     };
     defer gpa.free(readme);
     if (std.mem.indexOf(u8, readme, "c-abi-resolve.json") == null) {
-        try appendViolation(gpa, violations, "bindings/README.md: Finding the archives must name `c-abi-resolve.json`", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must name `c-abi-resolve.json`", .{});
     }
     if (std.mem.indexOf(u8, readme, "ADR-0077") == null) {
-        try appendViolation(gpa, violations, "bindings/README.md: Finding the archives must cite ADR-0077", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must cite ADR-0077", .{});
     }
     if (std.mem.indexOf(u8, readme, "PANCAKE_STRICT") == null) {
-        try appendViolation(gpa, violations, "bindings/README.md: Finding the archives must document `PANCAKE_STRICT`", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `PANCAKE_STRICT`", .{});
     }
     if (std.mem.indexOf(u8, readme, "releases_published") == null) {
-        try appendViolation(gpa, violations, "bindings/README.md: Finding the archives must document `releases_published`", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `releases_published`", .{});
     }
     if (std.mem.indexOf(u8, readme, "PANCAKE_DOWNLOAD") == null) {
-        try appendViolation(gpa, violations, "bindings/README.md: Finding the archives must document `PANCAKE_DOWNLOAD`", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `PANCAKE_DOWNLOAD`", .{});
     }
 
     const binding_loaders = c_abi_binding_loaders;
@@ -944,7 +851,7 @@ pub fn checkCAbiResolve(
     // iroh loader opens in its hand module.
     const racket_ffi_loaders = [_][]const u8{
         "bindings/racket/private/ffi-ocapn-gen.rkt",
-        "bindings/racket/private/ffi-driver-gen.rkt",
+        "bindings/racket/private/ffi-host-gen.rkt",
         "bindings/racket/private/ffi-tcp-gen.rkt",
         "bindings/racket/private/ffi-inproc-gen.rkt",
         "bindings/racket/private/ffi-iroh.rkt",
@@ -1141,7 +1048,7 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, readme, "c-abi-host-aliases") == null and
         std.mem.indexOf(u8, readme, "CARGO_CFG_TARGET") == null)
     {
-        try appendViolation(gpa, violations, "bindings/README.md: must document release-pack target triples / cargo cfg posture", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: must document release-pack target triples / cargo cfg posture", .{});
     }
 
     // release.yml must gate `gh release create` on the contract valve.
@@ -1249,15 +1156,15 @@ pub fn checkCAbiResolve(
             try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the listing (ADR-0077 §5)", .{path});
         }
     }
-    const boundaries = root.readFileAlloc(io, "docs/boundaries.md", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "docs/boundaries.md: failed to read for ADR-0077 packaging edge with {s}", .{@errorName(err)});
+    const binding_docs = root.readFileAlloc(io, "bindings/PACKAGING.md", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: failed to read for ADR-0077 archive resolution with {s}", .{@errorName(err)});
         return;
     };
-    defer gpa.free(boundaries);
-    if (std.mem.indexOf(u8, boundaries, "ADR-0077") == null or
-        std.mem.indexOf(u8, boundaries, "c-abi-resolve.json") == null)
+    defer gpa.free(binding_docs);
+    if (std.mem.indexOf(u8, binding_docs, "ADR-0077") == null or
+        std.mem.indexOf(u8, binding_docs, "c-abi-resolve.json") == null)
     {
-        try appendViolation(gpa, violations, "docs/boundaries.md: must name ADR-0077 publishable C-ABI resolve / c-abi-resolve.json", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: must name ADR-0077 and c-abi-resolve.json as the archive-resolution contract", .{});
     }
 }
 
@@ -1544,7 +1451,7 @@ const c_abi_binding_loaders = [_][]const u8{
 /// silently miss others.
 const abi_vocabulary_headers = [_][]const u8{
     "include/pancake_ocapn.h",
-    "include/pancake_driver.h",
+    "include/pancake_host.h",
     "include/pancake_net_transport_tcp.h",
     "include/pancake_net_transport_inproc.h",
     "include/pancake_net_transport_iroh.h",
@@ -1553,7 +1460,7 @@ const abi_vocabulary_headers = [_][]const u8{
 
 const doc_c_abi_header_paths = [_][]const u8{
     "include/pancake_ocapn.h",
-    "include/pancake_driver.h",
+    "include/pancake_host.h",
     "include/pancake_net_transport_tcp.h",
     "include/pancake_net_transport_inproc.h",
     "include/pancake_net_transport_iroh.h",
@@ -1602,7 +1509,7 @@ pub fn checkDeletedNodeCProjection(
     const banned = "pancake_node_";
     const paths = [_][]const u8{
         "include/pancake_ocapn.h",
-        "include/pancake_driver.h",
+        "include/pancake_host.h",
         "bindings/ts/stack/internal/ffi/ocapn.ts",
         "bindings/python/pancake/_ffi_ocapn.py",
         "bindings/racket/private/ffi-ocapn.rkt",
@@ -1750,6 +1657,22 @@ fn extractPancakeCiteToken(span: []const u8) ?[]const u8 {
     return span[0..end];
 }
 
+/// ADRs preserve the exact spelling of surfaces they decided, including a
+/// surface a later ADR explicitly retired. Current guides and site content get
+/// no exception; this is a closed historical vocabulary, not a general stale-
+/// cite allowlist.
+fn isRetiredAdrCAbiToken(path: []const u8, token: []const u8) bool {
+    if (!std.mem.startsWith(u8, path, "docs/decisions/adr/")) return false;
+    if (std.mem.startsWith(u8, token, "pancake_peer_")) return true;
+    if (std.mem.startsWith(u8, token, "pancake_tcp_session_")) return true;
+    return std.mem.eql(u8, token, "pancake_event_release") or
+        std.mem.eql(u8, token, "pancake_any_event_release") or
+        std.mem.eql(u8, token, "pancake_tcp_settled_release") or
+        std.mem.eql(u8, token, "pancake_host_session_enroll_capability") or
+        std.mem.eql(u8, token, "pancake_host_session_release_import") or
+        std.mem.eql(u8, token, "pancake_host_gc_release");
+}
+
 fn scanDocCAbiCitesInContents(
     gpa: std.mem.Allocator,
     path: []const u8,
@@ -1764,7 +1687,7 @@ fn scanDocCAbiCitesInContents(
         const span = after_tick[0..close];
         rest = after_tick[close + 1 ..];
         const token = extractPancakeCiteToken(span) orelse continue;
-        if (!docCAbiTokenValid(token, symbols)) {
+        if (!docCAbiTokenValid(token, symbols) and !isRetiredAdrCAbiToken(path, token)) {
             try appendViolation(gpa, violations, "{s}: backtick cite `{s}` has no matching symbol in include/*.h (doc C-ABI cite check)", .{ path, token });
         }
     }
@@ -1782,7 +1705,7 @@ pub fn checkHostActionArmLockstep(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const header_path = "include/pancake_driver.h";
+    const header_path = "include/pancake_host.h";
     const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for HostAction arm lockstep with {s}", .{ header_path, @errorName(err) });
         return;
@@ -1821,8 +1744,8 @@ pub fn checkHostActionArmLockstep(
         }
     }
 
-    const embedder = root.readFileAlloc(io, "src/c_abi/driver/embedder_pump.zig", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "src/c_abi/driver/embedder_pump.zig: failed to read for HostAction arm lockstep with {s}", .{@errorName(err)});
+    const embedder = root.readFileAlloc(io, "src/c_abi/host/embedder_pump.zig", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "src/c_abi/host/embedder_pump.zig: failed to read for HostAction arm lockstep with {s}", .{@errorName(err)});
         return;
     };
     defer gpa.free(embedder);
@@ -1838,7 +1761,7 @@ pub fn checkHostActionArmLockstep(
                 if (std.mem.indexOf(u8, embedder, "PANCAKE_HOST_ACTION_SETTLE") != null and
                     std.mem.indexOf(u8, embedder, "PANCAKE_HOST_ACTION_FAIL") != null) continue;
             }
-            try appendViolation(gpa, violations, "src/c_abi/driver/embedder_pump.zig: missing drain arm for `{s}`", .{token});
+            try appendViolation(gpa, violations, "src/c_abi/host/embedder_pump.zig: missing drain arm for `{s}`", .{token});
         }
     }
 
@@ -1892,7 +1815,7 @@ pub fn checkUnwiredHostPluginApis(
 ) !void {
     const retired_needle = "Host does not yet call `Peer.relayResolution`";
     const boundaries = root.readFileAlloc(io, "docs/boundaries.md", gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "docs/boundaries.md: failed to read for host-plugin check with {s}", .{@errorName(err)});
+        try appendViolation(gpa, violations, "docs/boundaries.md: failed to read for retired host limitation with {s}", .{@errorName(err)});
         return;
     };
     defer gpa.free(boundaries);
@@ -1979,9 +1902,10 @@ pub fn checkUnwiredHostPluginApis(
     })) {
         try appendViolation(gpa, violations, "materializeResolutionForStore called outside node.zig — proxy fire path only (memory.md)", .{});
     }
-    // Withdraw moves; pre-row clone must not return on the settle path.
+    // Withdrawal preparation clones the complete outbound message once. A
+    // separate reference clone would add a second payload owner and copy.
     if (try fileContains(io, gpa, root, "src/ocapn/engine/bootstrap.zig", "cloneReference")) {
-        try appendViolation(gpa, violations, "src/ocapn/engine/bootstrap.zig: cloneReference must stay deleted — applyWithdraw moves verbatim caps", .{});
+        try appendViolation(gpa, violations, "src/ocapn/engine/bootstrap.zig: cloneReference must stay deleted — prepared withdraw owns one complete outbound clone", .{});
     }
     // Enliven: session owns swissnum; Host bridge keys on answer only.
     for ([_][]const u8{
@@ -2043,21 +1967,21 @@ pub fn checkUnwiredHostPluginApis(
         "pub fn pendingDial",
         "PendingDialView",
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/driver/host.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
         "pancake_host_pending_dial",
         "PancakePendingDial",
         "inst.core.pendingDial",
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/driver/mod.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
         "pub const PancakePendingDial",
     });
     // Dual C pending-dial exports must stay deleted — one struct view.
     for ([_][]const u8{ "pancake_host_pending_dial_locator", "pancake_host_pending_dial_parts" }) |needle| {
-        if (try fileContains(io, gpa, root, "src/c_abi/driver/host.zig", needle)) {
-            try appendViolation(gpa, violations, "src/c_abi/driver/host.zig: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
+        if (try fileContains(io, gpa, root, "src/c_abi/host/host.zig", needle)) {
+            try appendViolation(gpa, violations, "src/c_abi/host/host.zig: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
         }
-        if (try fileContains(io, gpa, root, "include/pancake_driver.h", needle)) {
-            try appendViolation(gpa, violations, "include/pancake_driver.h: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
+        if (try fileContains(io, gpa, root, "include/pancake_host.h", needle)) {
+            try appendViolation(gpa, violations, "include/pancake_host.h: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
         }
     }
     // Redeem dial must not re-parse the pending URI on Host/Bridge.
@@ -2088,8 +2012,8 @@ pub fn checkUnwiredHostPluginApis(
     // needle is retired: it could never re-match after a rewrap, and the
     // OutboundConnect require-set plus the DialKind/submitPendingDial bans
     // above carry the one-adopt-switch invariant.)
-    if (try fileContains(io, gpa, root, "tools/gen/header/driver.zig", "Empty transport/designator means")) {
-        try appendViolation(gpa, violations, "tools/gen/header/driver.zig: empty-parts-as-unparseable prose must stay deleted — acceptGive fails unparseable closed", .{});
+    if (try fileContains(io, gpa, root, "tools/gen/header/host.zig", "Empty transport/designator means")) {
+        try appendViolation(gpa, violations, "tools/gen/header/host.zig: empty-parts-as-unparseable prose must stay deleted — acceptGive fails unparseable closed", .{});
     }
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
         "UnparseableExporterLocator",

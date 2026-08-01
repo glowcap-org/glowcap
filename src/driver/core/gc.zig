@@ -5,6 +5,17 @@
 //! is resolved the host may GC the answer position via `op:gc-answers`. This is
 //! adapter policy, the session tables own the counts; these helpers only enqueue
 //! the wire messages after a surfaced event has been handled.
+//!
+//! One exception to "the vat did not retain it, so nobody did": an event the
+//! before-serve hook *claimed* never reaches the vat, and the node may have
+//! retained something from it. A proxy home-listener fire that settles to a
+//! capability is the live case — `Node.giftRelayedCapability` enrolls that
+//! import and deposits it later, once the embedder answers `need_gift_id`, so
+//! releasing it on the way out of the same turn would gc the gift out from
+//! under its own deposit. A host that turns `gc_stateless` on for a session
+//! under a `Node` has to skip emission for claimed events; the stateless hosts
+//! that use it today run a bare `Served` with no node, so nothing reaches this
+//! case yet.
 
 const engine = @import("engine");
 const model = @import("model");
@@ -89,16 +100,6 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
         switch (rmd) {
             .far => |far| batch.add(far.import_position.int()),
             else => {},
-        }
-    }
-
-    // Only a `.near` export this peer hosts can be a resolver export; a
-    // partner-named `.far` import position in the same integer space must not key the
-    // export-indexed resolver-answer lookup.
-    if (deliver.target.exportPosition()) |target| {
-        if (peer.answerForResolverExport(target)) |answer| {
-            const answer_positions = [_]u64{answer.int()};
-            peer.sendCopying(.{ .gc_answer = .{ .positions = &answer_positions } }) catch {};
         }
     }
 

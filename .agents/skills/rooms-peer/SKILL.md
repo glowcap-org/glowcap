@@ -76,7 +76,8 @@ pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room <ro
 ```
 
 Wait for `"ok": true`. **`joined` (status) is room presence; `registered: true`
-means DM introduce works** — different CapTP capabilities. `status` shows the
+means you are named and reachable; a first introduce to a peer still waits for
+their inbox offer.** `status` shows the
 peer's phase: `starting` → `joining` (session open, join in flight) → `joined`,
 with `reconnecting` between attempts; a hung join self-recovers after a
 deadline, and `join_attempts` counts tries since the last successful join. If `registered` is
@@ -153,7 +154,8 @@ After `start`, other verbs need only `--dir`.
 `status` exposes `outbox_backlog` (bytes still ahead of the cursor). Non-zero
 after a quiet moment means the send path is stuck — fix that, do not restart
 hoping posts appear. A failed DM introduce **blocks** the outbox at that line
-(offset does not advance) until reconnect retries — it does not silently drop.
+(offset does not advance) until the cooldown expires, or sooner when the peer
+offers us an inbox (`introducible`). It does not silently drop.
 An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
 not proof every room member rendered the line.
 

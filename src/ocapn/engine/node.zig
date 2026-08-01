@@ -6,10 +6,9 @@
 //! node owns stable identity (one retained session `seed`, reused for every
 //! session it opens, so an exporter verifies a `desc:handoff-receive` against
 //! one key), the set of `engine.Peer`s it routes between (keyed by an integer
-//! `peer_id`), one shared
-//! `engine.bootstrap.GiftRegistry` (ADR-0056)
-//! so a deposit on a gifter session meets a withdraw on the recipient session,
-//! and the two routing tables that make three-party handoff transparent: the
+//! `peer_id`), a live-session directory that lets a recipient-session withdraw
+//! reach the gifter session's `GiftRegistry` (ADR-0100), and the two routing
+//! tables that make three-party handoff transparent: the
 //! `redeemed` map from a synthetic far token to the exporter session that
 //! hosts the real capability, and the `foreign_imports` map from a node-unique
 //! token to the session a fetched capability lives on and the real wire
@@ -29,13 +28,9 @@
 //!
 //! The node owns each registered `engine.Peer` (heap-pinned, since a live
 //! session borrows the peer's stable address) and frees it when the
-//! session is removed or the node is torn down. The node itself must not
-//! move once a session is registered: each registered peer points at the
-//! node's shared gift registry by address (the C ABI heap-pins the node for
-//! exactly this reason). The shared gift registry is
-//! the node's; every peer it registers points at it, so a peer freed by the node
-//! never frees the shared registry (the engine's `Peer.deinit` only frees a
-//! peer's *own* registry).
+//! session is removed or the node is torn down. The node itself must not move
+//! once a session is registered because every Peer services vtable points back
+//! to it (the C ABI heap-pins the node for this reason).
 
 const std = @import("std");
 
@@ -44,28 +39,11 @@ const model = @import("model");
 const engine = @import("mod.zig");
 const session_mod = @import("session");
 
-const ActionFifo = @import("action_fifo.zig").ActionFifo;
+const ActionFifo = @import("fifo.zig").ActionFifo;
 
 const crypto = foundation.crypto;
-
-/// A connection id: the embedder's handle to one registered peer. Stable for the
-/// life of the registration; freed ids are not reused within a node's life, so a
-/// stale id fails closed rather than aliasing a later connection. A distinct
-/// type (the `ImportPosition` pattern): the host tier also traffics in vow ids
-/// and gift tokens, which are plain `u64`s, and the compiler refuses the mix-up
-/// instead of a review catching it. Cross the ABI or index with `.int()`; mint
-/// from an integer with `.from()`.
-pub const PeerId = enum(u64) {
-    _,
-
-    pub fn from(n: u64) PeerId {
-        return @enumFromInt(n);
-    }
-
-    pub fn int(self: PeerId) u64 {
-        return @intFromEnum(self);
-    }
-};
+pub const PeerId = @import("peer_id.zig").PeerId;
+const HandoffDependency = engine.node_services.HandoffDependency;
 
 /// Where a redeemed token routes: the exporter connection that hosts the real
 /// capability, and the real exporter-side reference to swap in when forwarding.
@@ -73,6 +51,34 @@ pub const PeerId = enum(u64) {
 const Route = struct {
     peer_id: PeerId,
     reference: model.Reference,
+};
+
+const no_handoff_change = std.math.maxInt(usize);
+const exporter_closed_reason = "handoff redeem failed: exporter connection closed";
+const HandoffReceivers = std.AutoHashMapUnmanaged(PeerId, void);
+
+pub const HandoffWaiterIterator = struct {
+    inner: HandoffReceivers.KeyIterator,
+
+    pub fn next(self: *HandoffWaiterIterator) ?PeerId {
+        const receiver = self.inner.next() orelse return null;
+        return receiver.*;
+    }
+};
+
+/// Scheduler-only dependencies for withdrawals awaiting one exact gift on one
+/// live gifter session. A receiver owns at most one group for this key, so the
+/// receiver set needs no duplicate count.
+const HandoffWaiterGroup = struct {
+    receivers: HandoffReceivers = .empty,
+    changed_index: usize = no_handoff_change,
+};
+
+/// All exact gift groups rooted in one live Gifter–Exporter session. Making
+/// the gifter the outer key means session close touches only its own groups;
+/// unrelated tenants never enter that teardown path.
+const GifterHandoffGroups = struct {
+    gifts: std.AutoHashMapUnmanaged([16]u8, HandoffWaiterGroup) = .empty,
 };
 
 /// One recipient for an introducing-session foreign-promise proxy (ADR-0009).
@@ -133,6 +139,22 @@ pub const Node = struct {
     /// standardizes (retiring the per-binding `Ref.home` field).
     pub const REDEEMED_TOKEN_BASE: u64 = session_mod.REDEEMED_TOKEN_BASE;
 
+    /// Max third parties one introducing-session proxy row will introduce to a
+    /// single home promise (ADR-0009).
+    ///
+    /// The recipient side drives this count — it asks, and the application
+    /// answers each time with the same foreign promise — while the *home* side
+    /// pays when that promise settles to a capability: one signed give and one
+    /// `deposit-gift` per recipient, on a session that did one thing. Without
+    /// a bound the amplification is unbounded and aimed at a peer that is not
+    /// party to it.
+    ///
+    /// A node constant rather than a `SessionLimits` field: the proxy row is
+    /// node-owned, so a per-session field would spend a word on every one of
+    /// the connections the footprint budget counts to hold a number only the
+    /// node ever reads.
+    pub const max_proxy_recipients: usize = 1_024;
+
     allocator: std.mem.Allocator,
     /// The node's session identity, expanded once at construction and reused for
     /// every CapTP session this node opens, so an exporter verifies a
@@ -142,16 +164,63 @@ pub const Node = struct {
     /// derived. `SecretKey.seed` recovers the 32 bytes it was built from; they
     /// are not stored twice.
     secret: crypto.SecretKey,
-    /// One deposited-gift / handoff-count authority shared across every peer this
-    /// node registers, so an exporter's deposit (on the gifter session) and
-    /// withdraw (on the recipient session) resolve against the same table.
-    gifts: engine.bootstrap.GiftRegistry = .{},
-    /// Registered CapTP sessions, indexed by `peer_id`: the node-owned, heap-pinned
+    /// Gifter–Exporter session -> fixed-size gift tag -> receiver sessions whose
+    /// parked withdrawals depend on that exact gift. This is scheduler state,
+    /// never capability authority: each Peer still owns the signed receive,
+    /// exact gift id, and replay count. The nested owner makes gifter closure
+    /// proportional to that session's groups, not every Node tenant. Admission
+    /// reserves the corresponding changed-list slot, so deposit and close
+    /// notification are allocation-free after authority moves.
+    handoff_waiters: std.AutoHashMapUnmanaged(PeerId, GifterHandoffGroups) = .empty,
+    handoff_group_count: usize = 0,
+    handoff_changes: std.ArrayListUnmanaged(HandoffDependency) = .empty,
+    /// Optional Host-owned mapping between a Port-local export position and
+    /// the exact local actor it names. This is node-wide because all Ports of
+    /// one Host project the same Vat; keeping it here spends no bytes per Peer.
+    local_object_projection: ?engine.bootstrap.LocalObjectProjection = null,
+    /// Optional Host-owned directory used to authenticate a signed give before
+    /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
+    /// registered Peer.
+    gifter_session_resolver: ?engine.bootstrap.GifterSessionResolver = null,
+    /// Registered CapTP sessions keyed by `peer_id`: the node-owned, heap-pinned
     /// peer for each live session, whose stable address the embedder's
-    /// `net.Connection` borrows. A removed slot holds null, so null is the entire
-    /// liveness marker; a `peer_id` is never reused, so an index stays stable
-    /// for the node's life.
-    peers: std.ArrayListUnmanaged(?PeerSlot) = .empty,
+    /// `net.Connection` borrows. Presence is the entire liveness marker, and a
+    /// removed session's row leaves with it, so the table holds live sessions
+    /// rather than every session the node has ever registered. A dense array of
+    /// slots could not do that, because a slot cannot be reclaimed without
+    /// reusing its id.
+    ///
+    /// Ids are drawn from `next_peer_id` and never reused. That is not
+    /// bookkeeping: a redeemed token's route keeps naming its exporter session
+    /// after that session dies, and `routeReference` reads the missing peer to
+    /// fail the token closed. Hand the same id to a later session and the stale
+    /// route would forward a redeemed capability onto it instead.
+    peers: std.AutoHashMapUnmanaged(PeerId, PeerSlot) = .empty,
+    /// The next session id to hand out. Monotonic, so no id is ever reused; at
+    /// one session per nanosecond a `u64` lasts longer than the hardware.
+    next_peer_id: u64 = 0,
+    /// Where this node's next session starts handing out export positions; see
+    /// `initialExportBase`. A plain counter, not an atomic: one thread drives a
+    /// node, which is what lets every other table here be a plain map too.
+    next_export_base: u64,
+    /// One past the last range this node may draw — the top of its own slot.
+    /// The counter stops here instead of carrying into the next node's slot,
+    /// which would alias that node's sessions one for one, and at the last slot
+    /// would run export positions into the range kept for redeemed tokens.
+    export_base_end: u64,
+    /// Ranges released sessions gave back, reused oldest-first. Reclamation is
+    /// what keeps the session field a bound on *concurrent* sessions rather
+    /// than on how many a node may ever mint: a node that churns connections
+    /// would otherwise spend its slot and stop minting, which an attacker who
+    /// can open and close connections reaches on purpose. Oldest-first, so a
+    /// range is reused only after every other freed one has been, and a stale
+    /// capability from the released session is as far as it can be from naming
+    /// a live object in the session that inherits its numbers.
+    freed_export_bases: std.ArrayListUnmanaged(u64) = .empty,
+    /// How much of `freed_export_bases` is already handed back out. The list is
+    /// a queue read from this cursor and compacted in `takeExportBase`, so it
+    /// stays proportional to the ranges actually outstanding.
+    freed_export_head: usize = 0,
     /// token -> exporter route. A redeemed-handoff capability the application
     /// holds as a far ref `>= REDEEMED_TOKEN_BASE` resolves here.
     redeemed: std.AutoHashMapUnmanaged(u64, Route) = .empty,
@@ -165,11 +234,10 @@ pub const Node = struct {
     foreign_imports: std.AutoHashMapUnmanaged(u64, Route) = .empty,
     /// Latches true the first time this node enrolls a foreign import (ADR-0069),
     /// and stays true thereafter. It is the gate each registered peer reads before
-    /// walking an outbound message to lower tokens (`Peer.lowering`): a node that
+    /// walking an outbound message to lower tokens (`Peer.node_services`): a node that
     /// never fetches a foreign capability leaves it false, so every send skips the
     /// walk for one bool load. The peer holds a `*const bool` into this field, so
-    /// the node must not move once a session is registered — already required
-    /// for the shared gift registry.
+    /// the node must not move once a session is registered.
     foreign_active: bool = false,
     /// The next synthetic token a redeemed capability is enrolled under.
     next_token: u64 = REDEEMED_TOKEN_BASE,
@@ -205,28 +273,162 @@ pub const Node = struct {
     /// Home listener export → home-wire key, for O(1) fire dispatch.
     proxy_by_listener: std.AutoHashMapUnmanaged(ProxyListenerKey, ProxyHomeKey) = .empty,
 
-    /// A node bound to a caller-supplied identity `seed`, with empty tables. The
-    /// seed is the node's stable session identity; draw it at the embedder's I/O
-    /// boundary (the sans-io core never generates entropy) and pass it here.
-    pub fn init(allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8) Node {
-        return .{ .allocator = allocator, .secret = crypto.SecretKey.fromSeed(seed) };
+    /// How far apart two sessions' export positions start, and where this
+    /// node's sessions begin.
+    ///
+    /// A near reference is one integer, and it means whatever the session
+    /// reading it says it means, so the same number names a different object on
+    /// every session. An application holds capabilities from several sessions
+    /// at once — `sendRedeeming` hands it two in one call — and offering one to
+    /// the wrong session is a one-word mistake. Disjoint ranges make that
+    /// mistake name a position no session holds, so the held-export check
+    /// refuses it, instead of it landing on whatever that session keeps at the
+    /// same number and resolving silently to the wrong object.
+    ///
+    /// The split is 16 bits of node, 20 of session, 24 of export range: about a
+    /// million sessions per node, each able to export sixteen million objects,
+    /// both past what the connection budget admits. The node bits come from the
+    /// node's own identity rather than a shared counter, because a counter
+    /// would be process-wide mutable state in a layer whose whole point is not
+    /// to have any — and two nodes in one process must still number their
+    /// sessions apart, since an application can hold capabilities from both.
+    const export_range_bits: u6 = 24;
+    const export_node_shift: u6 = 44;
+    /// How many node slots there are. Derived from where the node's own token
+    /// range begins rather than from the width of a `u64`, so the top slot ends
+    /// exactly where the reserved range starts and no export position can be
+    /// read as a redeemed token. Sixteen bits, at the shift below.
+    const export_node_slots: u64 = REDEEMED_TOKEN_BASE >> export_node_shift;
+    const export_range_span: u64 = 1 << export_range_bits;
+    comptime {
+        // The fields must tile without overlapping, and the slots must tile the
+        // reserved space exactly — a partial top slot would let the last node's
+        // counter stop somewhere the arithmetic above does not describe. Held
+        // here rather than in the prose above, because prose does not fail a
+        // build.
+        std.debug.assert(export_node_shift > export_range_bits);
+        std.debug.assert(export_node_slots >= 1);
+        std.debug.assert(REDEEMED_TOKEN_BASE % (@as(u64, 1) << export_node_shift) == 0);
+        // Every range a node draws is one span wide and starts on a span
+        // boundary, so a slot must hold a whole number of them.
+        std.debug.assert((@as(u64, 1) << export_node_shift) % export_range_span == 0);
     }
 
-    /// Tear down the node: free every registered peer, the routing tables (and
-    /// the references the redeemed table owns), and the shared gift registry. A
-    /// registered peer points at this node's shared registry, so freeing the peer
-    /// never touches the registry; the node frees the registry last, after every
-    /// peer is gone.
+    /// This node's first range. The node bits come from its own identity, so
+    /// two nodes in one process usually land in different slots — usually, not
+    /// always: sixteen bits of hash collide by birthday somewhere around three
+    /// hundred nodes in one process, and colliding nodes number their sessions
+    /// alike again. That is the same defence-in-depth the ranges give a session
+    /// pair, not a guarantee, and a process running hundreds of nodes should
+    /// read it that way.
+    ///
+    /// The `| export_range_span` skips slot zero's zeroth range on purpose: a
+    /// base of 0 would have the first session mint export position 0, which is
+    /// `session.BOOTSTRAP_POSITION`, aliasing the bootstrap export the session
+    /// installs at open. Every other slot's first range starts above zero
+    /// already; paying one span in every slot keeps the rule uniform.
+    fn initialExportBase(seed: [crypto.SEED_BYTES]u8) u64 {
+        const node_slot: u64 = std.hash.Wyhash.hash(0, &seed) % export_node_slots;
+        return (node_slot << export_node_shift) | export_range_span;
+    }
+
+    /// Give `peer`'s session the next range, the one door a session's export
+    /// numbers come through.
+    ///
+    /// It runs at registration for both the owned and the adopted path, so
+    /// there is no verb that enrols a session without numbering it. That is the
+    /// whole point of it living here: the node is what holds many sessions, so
+    /// "two sessions numbering alike" is a thing it can make unspellable, and a
+    /// layer above cannot forget to ask.
+    fn applyExportRange(self: *Node, target: *engine.Peer) !void {
+        const base = try self.takeExportBase();
+        target.session_state.setExportBase(base, export_range_span);
+    }
+
+    /// One past this node's last range: the top of the slot `base` sits in.
+    fn exportBaseEndFor(base: u64) u64 {
+        return ((base >> export_node_shift) + 1) << export_node_shift;
+    }
+
+    /// Draw the next session's export range: a range a released session gave
+    /// back if there is one, otherwise a fresh one from the counter. Called
+    /// once per session, at the one place every session passes through: a
+    /// second draw would hand one session a range and throw another away.
+    ///
+    /// Refuses rather than carrying past the node's slot. Reaching that needs
+    /// this node to hold every range in its slot at once, which the connection
+    /// budget stops first; a node that merely churns connections recycles.
+    fn takeExportBase(self: *Node) !u64 {
+        const queued = self.freed_export_bases.items;
+        if (self.freed_export_head < queued.len) {
+            const base = queued[self.freed_export_head];
+            self.freed_export_head += 1;
+            const live = queued.len - self.freed_export_head;
+            if (live == 0) {
+                self.freed_export_bases.clearRetainingCapacity();
+                self.freed_export_head = 0;
+            } else if (self.freed_export_head >= live and self.freed_export_head >= 64) {
+                // Slide the queue down once the dead prefix has grown past what
+                // is still in it, so steady churn holds capacity near the
+                // outstanding count instead of growing a cursor forever.
+                std.mem.copyForwards(u64, queued[0..live], queued[self.freed_export_head..]);
+                self.freed_export_bases.shrinkRetainingCapacity(live);
+                self.freed_export_head = 0;
+            }
+            return base;
+        }
+        if (self.next_export_base >= self.export_base_end) return session_mod.Error.ExportRangeExhausted;
+        const base = self.next_export_base;
+        self.next_export_base += export_range_span;
+        return base;
+    }
+
+    /// Take a released session's range back for reuse. Best effort: the release
+    /// path has nowhere to report to, and a range that fails to make it back
+    /// costs one slot out of a million, never correctness.
+    fn recycleExportBase(self: *Node, base: u64) void {
+        self.freed_export_bases.append(self.allocator, base) catch return;
+    }
+
+    /// A node bound to a caller-supplied identity `seed`, with empty tables.
+    /// The seed is the node's stable session identity; draw it at the
+    /// embedder's I/O boundary (the sans-io core never generates entropy) and
+    /// pass it here.
+    pub fn init(allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8) Node {
+        const base = initialExportBase(seed);
+        return .{
+            .allocator = allocator,
+            .secret = crypto.SecretKey.fromSeed(seed),
+            .next_export_base = base,
+            .export_base_end = exportBaseEndFor(base),
+        };
+    }
+
+    /// Tear down the node: free every registered peer and the routing tables
+    /// (including the references the redeemed table owns). Each Peer frees its
+    /// own session gift and replay authority.
     pub fn deinit(self: *Node) void {
-        for (self.peers.items) |slot| {
-            if (slot) |s| {
-                if (s.owned) {
-                    s.peer.deinit();
-                    self.allocator.destroy(s.peer);
-                }
+        var peer_it = self.peers.valueIterator();
+        while (peer_it.next()) |s| {
+            // Adopted peers outlive the Node; owned peers call `deinit` below.
+            // Sever the borrowed back-pointer in both cases. The whole relation
+            // is being destroyed, so per-row unregister work is unnecessary.
+            s.peer.node_services = null;
+            if (s.owned) {
+                s.peer.deinit();
+                self.allocator.destroy(s.peer);
             }
         }
         self.peers.deinit(self.allocator);
+        var gifter_it = self.handoff_waiters.valueIterator();
+        while (gifter_it.next()) |gifter| {
+            var gift_it = gifter.gifts.valueIterator();
+            while (gift_it.next()) |group| group.receivers.deinit(self.allocator);
+            gifter.gifts.deinit(self.allocator);
+        }
+        self.handoff_waiters.deinit(self.allocator);
+        self.handoff_changes.deinit(self.allocator);
+        self.freed_export_bases.deinit(self.allocator);
 
         var route_it = self.redeemed.valueIterator();
         while (route_it.next()) |entry| model.freeReference(self.allocator, entry.reference);
@@ -235,8 +437,6 @@ pub const Node = struct {
         var foreign_it = self.foreign_imports.valueIterator();
         while (foreign_it.next()) |entry| model.freeReference(self.allocator, entry.reference);
         self.foreign_imports.deinit(self.allocator);
-
-        self.gifts.deinit(self.allocator);
 
         var exporter_keys = self.exporters.keyIterator();
         while (exporter_keys.next()) |key| self.allocator.free(key.*);
@@ -268,8 +468,26 @@ pub const Node = struct {
         self.proxy_by_listener.deinit(self.allocator);
     }
 
-    /// Register a fresh negotiating peer bound to this node's shared gift
-    /// registry and return its `peer_id`. The embedder builds its live
+    /// Install the local-object seam used to retain exact gifts across Ports.
+    /// A standalone sans-io Node leaves this unset and keeps protocol
+    /// references verbatim.
+    pub fn setLocalObjectProjection(self: *Node, projection: engine.bootstrap.LocalObjectProjection) void {
+        self.local_object_projection = projection;
+    }
+
+    pub fn localObjectProjection(self: *Node) ?engine.bootstrap.LocalObjectProjection {
+        return self.local_object_projection;
+    }
+
+    pub fn setGifterSessionResolver(self: *Node, resolver: engine.bootstrap.GifterSessionResolver) void {
+        self.gifter_session_resolver = resolver;
+    }
+
+    pub fn gifterSessionResolver(self: *Node) ?engine.bootstrap.GifterSessionResolver {
+        return self.gifter_session_resolver;
+    }
+
+    /// Register a fresh negotiating peer and return its `peer_id`. The embedder builds its live
     /// `net.Connection` over `node.peer(peer_id)` and pumps it; the peer's
     /// address is stable for the registration's life. The peer is negotiating, so
     /// the embedder completes the keyed `op:start-session` handshake (it owns the
@@ -279,18 +497,24 @@ pub const Node = struct {
     /// host never pokes session tables after the fact.
     pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerId {
         const new_peer = try self.allocator.create(engine.Peer);
-        errdefer self.allocator.destroy(new_peer);
         new_peer.* = engine.Peer.initNegotiatingWith(self.allocator, options);
-        new_peer.shared_gift_registry = &self.gifts;
+        errdefer {
+            new_peer.node_services = null;
+            new_peer.deinit();
+            self.allocator.destroy(new_peer);
+        }
+        try self.applyExportRange(new_peer);
+        errdefer self.recycleExportBase(new_peer.session_state.export_base);
 
-        const id: PeerId = .from(self.peers.items.len);
-        new_peer.lowering = self.lowering(id);
-        try self.peers.append(self.allocator, .{ .peer = new_peer, .owned = true });
+        const id: PeerId = .from(self.next_peer_id);
+        new_peer.node_services = self.services(id);
+        try self.peers.putNoClobber(self.allocator, id, .{ .peer = new_peer, .owned = true });
+        self.next_peer_id += 1;
         return id;
     }
 
     /// Register a connection over a peer the embedder already owns and pins at a
-    /// stable address, joining it to the node's routing and shared gift registry
+    /// stable address, joining it to the node's routing
     /// without the node taking ownership. `removePeer` and `deinit` unregister
     /// the slot but never free `peer`; the embedder frees it. This is how a
     /// peer-owning driver — the completion loop, whose fixed-slot `peers` hold
@@ -298,14 +522,17 @@ pub const Node = struct {
     /// routes to them and a served reply can originate a gift. `peer` must
     /// outlive its registration.
     pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerId {
-        adopted.shared_gift_registry = &self.gifts;
-        const id: PeerId = .from(self.peers.items.len);
-        adopted.lowering = self.lowering(id);
-        try self.peers.append(self.allocator, .{ .peer = adopted, .owned = false });
+        try self.applyExportRange(adopted);
+        errdefer self.recycleExportBase(adopted.session_state.export_base);
+        const id: PeerId = .from(self.next_peer_id);
+        adopted.node_services = self.services(id);
+        errdefer adopted.node_services = null;
+        try self.peers.putNoClobber(self.allocator, id, .{ .peer = adopted, .owned = false });
+        self.next_peer_id += 1;
         return id;
     }
 
-    /// Remove a registered CapTP session: free its peer and mark the slot dead. A
+    /// Remove a registered CapTP session: free its peer and drop its row. A
     /// later route to a redeemed token whose exporter was this session fails
     /// closed (the peer is gone), rather than forwarding onto a dead socket. The
     /// `peer_id` is never reused.
@@ -318,18 +545,24 @@ pub const Node = struct {
     /// hold" branch and get sent to a partner as an ordinary far — a meaningless
     /// high id. The dead rows are reclaimed at `deinit`.
     pub fn removePeer(self: *Node, peer_id: PeerId) void {
-        if (peer_id.int() >= self.peers.items.len) return;
-        // Guarded < len (a usize), so the id fits the index type; the cast keeps
-        // the slice access valid on a 32-bit target (wasm32, ADR-0070).
-        const idx: usize = @intCast(peer_id.int());
-        const slot = self.peers.items[idx] orelse return;
+        const live = self.peers.get(peer_id) orelse return;
+        // Receiver-side dependencies must leave while the services back-pointer
+        // is valid. This also makes an adopted peer safe to deinit later.
+        live.peer.detachNodeServices();
+        const removed = self.peers.fetchRemove(peer_id) orelse return;
+        // Mark only receivers that name this exact Gifter–Exporter session,
+        // after liveness disappears so their retry observes closure.
+        self.markGifterHandoffsChanged(peer_id);
         // Only a node-owned peer is freed here; an adopted (`registerPeerOver`)
-        // peer is the embedder's to free, so the node only unregisters the slot.
-        if (slot.owned) {
-            slot.peer.deinit();
-            self.allocator.destroy(slot.peer);
+        // peer is the embedder's to free, so the node only unregisters it.
+        // Give the range back before the peer goes, while it is still the only
+        // record of which range this session held. Reclaiming is what makes the
+        // slot bound live sessions rather than the node's lifetime.
+        self.recycleExportBase(removed.value.peer.session_state.export_base);
+        if (removed.value.owned) {
+            removed.value.peer.deinit();
+            self.allocator.destroy(removed.value.peer);
         }
-        self.peers.items[idx] = null;
         if (self.exporter_locations.fetchRemove(peer_id)) |prev| self.allocator.free(prev.value);
 
         // Evict the exporter-cache rows naming this CapTP session, so a later
@@ -345,19 +578,11 @@ pub const Node = struct {
             }
         }.cleanup);
 
-        // Break every withdraw still pending on this session: its resolve
-        // can never arrive, so the recipient's answer fails closed instead of
-        // hanging. Best-effort — an allocation failure during teardown queues
-        // nothing, and the recipient's own disconnect handling breaks the vow.
-        self.removeRowsForPeer(&self.pending_withdraws, peer_id, struct {
-            fn match(key: WithdrawKey, _: PendingWithdraw, dying: PeerId) bool {
-                return key.peer_id == dying;
-            }
-        }.match, struct {
-            fn cleanup(node: *Node, _: WithdrawKey, pending: PendingWithdraw) void {
-                node.queueFail(pending.recipient_peer, pending.answer, "handoff redeem failed: exporter connection closed") catch {};
-            }
-        }.cleanup);
+        // Break every withdraw still pending on this session. Admission kept
+        // one action slot reserved per row, and the diagnostic is static, so
+        // teardown cannot strand a live recipient answer behind allocator
+        // pressure.
+        self.failWithdrawsForPeer(peer_id);
 
         // A claimed gifter origination whose recipient died settles nowhere;
         // retire its ticket so a late provideGiftId is a clean no-op.
@@ -387,14 +612,11 @@ pub const Node = struct {
         self.sweepPromiseProxiesForPeer(peer_id);
     }
 
-    /// Remove every row of `map` tied to the dying `peer_id` in one O(n) pass:
-    /// collect the matching keys, then remove and clean up each. This is the
-    /// shape `sweepPromiseProxiesForPeer` uses; restarting the scan after each
-    /// removal is O(n·k) and repeats the same flag-and-break spine at every
-    /// teardown site. `match` reads a row against the dying peer; `cleanup` runs
-    /// on the removed key and value to free its owned bytes or break its pending
-    /// vow. A teardown allocation failure drops that key from the sweep — the
-    /// row is reclaimed at `deinit` — rather than failing the teardown.
+    /// Remove every row of `map` tied to the dying `peer_id` in one O(n),
+    /// allocation-free pass. Removing the iterator's current row tombstones the
+    /// slot without moving or reallocating the backing, so teardown cannot
+    /// retain a stale cache/route merely because its allocator is exhausted.
+    /// `cleanup` receives the removed ownership.
     fn removeRowsForPeer(
         self: *Node,
         map: anytype,
@@ -402,31 +624,56 @@ pub const Node = struct {
         comptime match: anytype,
         comptime cleanup: anytype,
     ) void {
-        const Key = @FieldType(@TypeOf(map.*).KV, "key");
-        var doomed: std.ArrayListUnmanaged(Key) = .empty;
-        defer doomed.deinit(self.allocator);
         var it = map.iterator();
         while (it.next()) |entry| {
-            if (match(entry.key_ptr.*, entry.value_ptr.*, peer_id)) {
-                doomed.append(self.allocator, entry.key_ptr.*) catch continue;
-            }
+            if (!match(entry.key_ptr.*, entry.value_ptr.*, peer_id)) continue;
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+            map.removeByPtr(entry.key_ptr);
+            cleanup(self, key, value);
         }
-        for (doomed.items) |key| {
-            if (map.fetchRemove(key)) |kv| cleanup(self, kv.key, kv.value);
+    }
+
+    fn failWithdrawsForPeer(self: *Node, peer_id: PeerId) void {
+        var it = self.pending_withdraws.iterator();
+        while (it.next()) |entry| {
+            if (entry.key_ptr.peer_id != peer_id) continue;
+            const pending = entry.value_ptr.*;
+            self.actions.pushReserved(.{ .fail = .{
+                .peer_id = pending.recipient_peer,
+                .answer = pending.answer,
+                .reason = .{ .static = exporter_closed_reason },
+            } });
+            // Removing the iterator's current row only tombstones its slot; it
+            // does not reallocate or move the backing. Queue the infallible
+            // consequence first, then retire the row and its reserved slot.
+            std.debug.assert(self.pending_withdraws.remove(entry.key_ptr.*));
         }
     }
 
     /// The reserved token id `reference` names (ADR-0066), or null for any
     /// reference outside the reserved range: an ordinary far import, a near, a
     /// promise, a sturdyref. This is the one definition of "this far id is a node
-    /// token" that every routing and lowering entry shares, so the reserved-range
-    /// boundary is a single fact rather than four hand-inlined compares.
-    fn tokenIdOf(reference: model.Reference) ?u64 {
-        const id = switch (reference) {
-            .far => |far| far.import_position.int(),
-            else => return null,
+    /// token" that every routing and lowering entry shares, including the host
+    /// verbs above the node, so the reserved-range boundary is a single fact
+    /// rather than a compare re-typed at each use.
+    pub fn tokenIdOf(reference: model.Reference) ?u64 {
+        const named = model.ImportName.of(reference) orelse return null;
+        return switch (named) {
+            .token => |t| t.int(),
+            .wire => null,
         };
-        return if (id >= REDEEMED_TOKEN_BASE) id else null;
+    }
+
+    /// The token `reference` names, for a caller that wants the typed value
+    /// rather than its integer. `tokenIdOf` above stays for the table lookups,
+    /// which key on the raw id.
+    pub fn tokenOf(reference: model.Reference) ?model.RedeemedToken {
+        const named = model.ImportName.of(reference) orelse return null;
+        return switch (named) {
+            .token => |t| t,
+            .wire => null,
+        };
     }
 
     /// The node-owned peer for `peer_id`, or null when the id names no live
@@ -437,10 +684,7 @@ pub const Node = struct {
     }
 
     fn peerAt(self: *Node, peer_id: PeerId) ?*engine.Peer {
-        if (peer_id.int() >= self.peers.items.len) return null;
-        // Guarded < len (a usize): safe to narrow for indexing on wasm32.
-        const idx: usize = @intCast(peer_id.int());
-        const slot = self.peers.items[idx] orelse return null;
+        const slot = self.peers.get(peer_id) orelse return null;
         return slot.peer;
     }
 
@@ -472,7 +716,24 @@ pub const Node = struct {
         // A foreign-import token (ADR-0069) routes to its home connection,
         // addressed with the real wire import — the same swap a redeemed token
         // gets, so a send to a fetched capability reaches its exporter.
-        return self.foreign_imports.get(id);
+        return self.foreignRoute(id);
+    }
+
+    /// The still-current foreign-import route for `id`.
+    ///
+    /// The import row's token is its generation stamp. A missing or different
+    /// token means the row was released (and perhaps reused) before a stale
+    /// node map row was reclaimed, so every router reader goes through this
+    /// check instead of addressing the position under its new meaning.
+    fn foreignRoute(self: *Node, id: u64) ?Route {
+        const foreign = self.foreign_imports.get(id) orelse return null;
+        const home = self.peerAt(foreign.peer_id) orelse return null;
+        const position = switch (foreign.reference) {
+            .far => |far| far.import_position,
+            else => return null,
+        };
+        if (home.session_state.foreignTokenFor(position) != id) return null;
+        return foreign;
     }
 
     /// The exporter peer a redeemed-handoff (or foreign-import) token routes to,
@@ -495,15 +756,42 @@ pub const Node = struct {
     /// through `freeReference` on `removePeer` and `deinit` for uniformity with the
     /// redeemed route.
     pub fn enrollForeign(self: *Node, home: PeerId, wire: model.Reference) !model.Reference {
+        const far = switch (wire) {
+            .far => |value| value,
+            else => return error.NotAFarReference,
+        };
+        const home_peer = self.peer(home) orelse return error.UnknownPeer;
+        const kind = far.kind;
+        // Enrolling is idempotent per import: the same capability keeps the
+        // token it was first given. Minting a second one would give one object
+        // two identities, which is what a caller comparing two fetches of the
+        // same name sees, and would leave a routing row behind on every
+        // enrollment, so a loop that re-fetches would grow the table without
+        // bound. The token is kept on the import row, so it is forgotten when
+        // the import is released.
+        if (home_peer.session_state.foreignTokenFor(far.import_position)) |existing| {
+            // The kind comes off the enrolled row, not off this caller's
+            // reference: the row is what routing reads, so a second caller
+            // naming the same import with a different kind must not be handed
+            // a reference that disagrees with where it points.
+            const enrolled_kind = if (self.foreign_imports.get(existing)) |row|
+                switch (row.reference) {
+                    .far => |enrolled_far| enrolled_far.kind,
+                    else => kind,
+                }
+            else
+                kind;
+            return .{ .far = .{ .import_position = .from(existing), .kind = enrolled_kind } };
+        }
         try self.foreign_imports.ensureUnusedCapacity(self.allocator, 1);
         const token = self.next_token;
+        // The session row is the generation check `route` consults. Record it
+        // before committing the node route so an allocation failure returns
+        // no unusable token and leaves no half-installed map row.
+        try home_peer.session_state.noteForeignToken(far.import_position, token);
         self.foreign_imports.putAssumeCapacity(token, .{ .peer_id = home, .reference = wire });
         self.next_token += 1;
         self.foreign_active = true;
-        const kind = switch (wire) {
-            .far => |far| far.kind,
-            else => .object,
-        };
         return .{ .far = .{ .import_position = .from(token), .kind = kind } };
     }
 
@@ -514,7 +802,7 @@ pub const Node = struct {
     /// capability's identity is always a token, so only the token enrollment is
     /// consulted (ADR-0069).
     fn homeOf(self: *Node, far_id: u64) ?PeerId {
-        if (self.foreign_imports.get(far_id)) |r| return r.peer_id;
+        if (self.foreignRoute(far_id)) |r| return r.peer_id;
         return null;
     }
 
@@ -534,7 +822,7 @@ pub const Node = struct {
         // A foreign-import token is foreign only away from its home. A redeemed
         // token has no wire home and is foreign everywhere; an unknown high id
         // fails closed.
-        if (self.foreign_imports.get(id)) |r| return r.peer_id != default_peer;
+        if (self.foreignRoute(id)) |r| return r.peer_id != default_peer;
         return true;
     }
 
@@ -542,7 +830,7 @@ pub const Node = struct {
     /// place every outbound message is emitted (`Peer.send`, ADR-0069). This is
     /// the single chokepoint that keeps a node-local token off the wire in *every*
     /// position — target, argument, forwarded target, resolution — instead of one
-    /// path at a time. The peer reaches it through the `engine.Lowering` hook this
+    /// path at a time. The peer reaches it through the `engine.NodeServices` link this
     /// node installs at registration; the shared error type is
     /// `engine.LoweringError`.
     ///
@@ -568,18 +856,135 @@ pub const Node = struct {
     /// registration so `Peer.send` swaps tokens to wire references (ADR-0069). It
     /// carries a `*const bool` into `foreign_active` as its gate, so the peer skips
     /// the walk entirely until this node fetches its first foreign capability.
-    fn lowering(self: *Node, peer_id: PeerId) engine.Lowering {
-        return .{
-            .ctx = self,
-            .peer_id = peer_id,
-            .active = &self.foreign_active,
-            .lower_fn = lowerThunk,
-        };
+    fn services(self: *Node, peer_id: PeerId) engine.NodeServices {
+        return engine.NodeServices.bind(self, peer_id, &self.foreign_active, .{
+            .lower = lowerForConn,
+            .local_object_projection = localObjectProjection,
+            .gifter_session_resolver = gifterSessionResolver,
+            .pending_withdraw_added = addHandoffWaiter,
+            .pending_withdraw_removed = removeHandoffWaiter,
+            .gift_deposited = markHandoffChanged,
+            .session_closed = markGifterHandoffsChanged,
+        });
     }
 
-    fn lowerThunk(ctx: *anyopaque, peer_id: PeerId, reference: model.Reference) engine.LoweringError!model.Reference {
-        const self: *Node = @ptrCast(@alignCast(ctx));
-        return self.lowerForConn(peer_id, reference);
+    fn addHandoffWaiter(self: *Node, receiver: PeerId, dependency: HandoffDependency) std.mem.Allocator.Error!void {
+        if (self.handoffGroup(dependency)) |group| {
+            if (group.receivers.contains(receiver)) return;
+            try group.receivers.ensureUnusedCapacity(self.allocator, 1);
+            group.receivers.putAssumeCapacity(receiver, {});
+            return;
+        }
+
+        var group: HandoffWaiterGroup = .{};
+        errdefer group.receivers.deinit(self.allocator);
+        try group.receivers.ensureUnusedCapacity(self.allocator, 1);
+        // One reserved change slot per exact gift group makes every later
+        // authority notification infallible.
+        try self.handoff_changes.ensureTotalCapacity(self.allocator, self.handoff_group_count + 1);
+        group.receivers.putAssumeCapacity(receiver, {});
+
+        if (self.handoff_waiters.getPtr(dependency.gifter)) |gifter| {
+            try gifter.gifts.ensureUnusedCapacity(self.allocator, 1);
+            gifter.gifts.putAssumeCapacity(dependency.gift_tag, group);
+            self.handoff_group_count += 1;
+            return;
+        }
+
+        var gifter: GifterHandoffGroups = .{};
+        errdefer gifter.gifts.deinit(self.allocator);
+        try gifter.gifts.ensureUnusedCapacity(self.allocator, 1);
+        try self.handoff_waiters.ensureUnusedCapacity(self.allocator, 1);
+        gifter.gifts.putAssumeCapacity(dependency.gift_tag, group);
+        self.handoff_waiters.putAssumeCapacity(dependency.gifter, gifter);
+        self.handoff_group_count += 1;
+    }
+
+    fn removeHandoffWaiter(self: *Node, receiver: PeerId, dependency: HandoffDependency) void {
+        const gifter = self.handoff_waiters.getPtr(dependency.gifter) orelse return;
+        const group = gifter.gifts.getPtr(dependency.gift_tag) orelse return;
+        std.debug.assert(group.receivers.remove(receiver));
+        if (group.receivers.count() != 0) return;
+        if (group.changed_index != no_handoff_change) self.removeHandoffChange(group.changed_index);
+        group.receivers.deinit(self.allocator);
+        std.debug.assert(gifter.gifts.remove(dependency.gift_tag));
+        self.handoff_group_count -= 1;
+        if (gifter.gifts.count() == 0) {
+            gifter.gifts.deinit(self.allocator);
+            std.debug.assert(self.handoff_waiters.remove(dependency.gifter));
+        }
+        // Return a burst all the way to zero instead of retaining the Node's
+        // historical scheduler high-water until teardown. A live gifter's gift
+        // map retains its own peak capacity; the memory rule names that bounded
+        // active-group tradeoff.
+        if (self.handoff_waiters.count() == 0) {
+            self.handoff_waiters.deinit(self.allocator);
+            self.handoff_waiters = .empty;
+            std.debug.assert(self.handoff_group_count == 0);
+            self.handoff_changes.deinit(self.allocator);
+            self.handoff_changes = .empty;
+        }
+    }
+
+    fn markHandoffChanged(self: *Node, dependency: HandoffDependency) void {
+        const group = self.handoffGroup(dependency) orelse return;
+        if (group.changed_index != no_handoff_change) return;
+        std.debug.assert(self.handoff_changes.items.len < self.handoff_changes.capacity);
+        group.changed_index = self.handoff_changes.items.len;
+        self.handoff_changes.appendAssumeCapacity(dependency);
+    }
+
+    /// A gifter close invalidates every gift dependency rooted in that exact
+    /// session. Each group reserved one change slot when admitted, so marking
+    /// all of them remains allocation-free at the authority transition.
+    fn markGifterHandoffsChanged(self: *Node, gifter: PeerId) void {
+        const groups = self.handoff_waiters.getPtr(gifter) orelse return;
+        var it = groups.gifts.iterator();
+        while (it.next()) |entry| {
+            self.markHandoffChanged(.{ .gifter = gifter, .gift_tag = entry.key_ptr.* });
+        }
+    }
+
+    fn removeHandoffChange(self: *Node, index: usize) void {
+        const last = self.handoff_changes.items.len - 1;
+        const moved = self.handoff_changes.items[last];
+        const removed = self.handoff_changes.swapRemove(index);
+        std.debug.assert(self.handoffGroup(removed).?.changed_index == index);
+        if (index != last) self.handoffGroup(moved).?.changed_index = index;
+    }
+
+    fn handoffGroup(self: *Node, dependency: HandoffDependency) ?*HandoffWaiterGroup {
+        const gifter = self.handoff_waiters.getPtr(dependency.gifter) orelse return null;
+        return gifter.gifts.getPtr(dependency.gift_tag);
+    }
+
+    /// Peek one exact changed dependency without consuming it. The Host
+    /// reserves one dirty-FIFO slot per live shell at mint, so inserting every
+    /// affected receiver and consuming this marker are infallible.
+    pub fn nextHandoffChange(self: *const Node) ?HandoffDependency {
+        return if (self.handoff_changes.items.len == 0) null else self.handoff_changes.items[self.handoff_changes.items.len - 1];
+    }
+
+    pub fn handoffWaiterCount(self: *const Node, gifter: PeerId) usize {
+        const groups = self.handoff_waiters.get(gifter) orelse return 0;
+        var total: usize = 0;
+        var it = groups.gifts.valueIterator();
+        while (it.next()) |group| total += group.receivers.count();
+        return total;
+    }
+
+    pub fn handoffWaiters(self: *Node, dependency: HandoffDependency) HandoffWaiterIterator {
+        const group = self.handoffGroup(dependency) orelse return .{
+            .inner = HandoffReceivers.empty.keyIterator(),
+        };
+        return .{ .inner = group.receivers.keyIterator() };
+    }
+
+    pub fn consumeHandoffChange(self: *Node, dependency: HandoffDependency) void {
+        const group = self.handoffGroup(dependency) orelse return;
+        if (group.changed_index == no_handoff_change) return;
+        self.removeHandoffChange(group.changed_index);
+        group.changed_index = no_handoff_change;
     }
 
     // ── Routed send ──────────────────────────────────────────────────────────
@@ -615,6 +1020,57 @@ pub const Node = struct {
         const r = self.route(.{ .far = model.FarRef.object(token) }) orelse return null;
         if (self.peerAt(r.peer_id) == null) return null;
         return .{ .peer_id = r.peer_id, .target = r.reference };
+    }
+
+    /// Retire `token` once its real wire import has reached zero.
+    ///
+    /// The session import row is the lifetime authority: while it exists, a
+    /// partial release must leave routing intact. Once it is gone, the partner
+    /// may reuse that position, so retaining this route would let the old token
+    /// address the new object. Unknown tokens and routes whose home connection
+    /// has already gone are no-ops; their existing teardown policy owns those
+    /// rows.
+    pub fn retireReleasedToken(self: *Node, token: u64) void {
+        const kind: enum { redeemed, foreign } = if (self.redeemed.contains(token))
+            .redeemed
+        else if (self.foreign_imports.contains(token))
+            .foreign
+        else
+            return;
+        const route_row = switch (kind) {
+            .redeemed => self.redeemed.get(token).?,
+            .foreign => self.foreign_imports.get(token).?,
+        };
+        const home = self.peerAt(route_row.peer_id) orelse return;
+        const position = switch (route_row.reference) {
+            .far => |far| far.import_position,
+            else => return,
+        };
+        switch (kind) {
+            .redeemed => {
+                if (home.session_state.hasImport(position)) return;
+                const removed = self.redeemed.fetchRemove(token).?;
+                model.freeReference(self.allocator, removed.value.reference);
+            },
+            .foreign => {
+                // A reused row may already exist here. Its token, not mere row
+                // presence, decides whether this route still belongs to it.
+                if (home.session_state.foreignTokenFor(position) == token) return;
+                const removed = self.foreign_imports.fetchRemove(token).?;
+                model.freeReference(self.allocator, removed.value.reference);
+            },
+        }
+    }
+
+    /// Consume a redeemed-handoff token when the Host lifts it into its own
+    /// identity space. This is an ownership transfer: the Host retains the real
+    /// import incarnation, and the synthetic Node route must stop being a
+    /// second stale-capable handle. Foreign-import tokens are import-row memos
+    /// used by the legacy surface and are deliberately left in place.
+    pub fn consumeRedeemedToken(self: *Node, token: u64) bool {
+        const removed = self.redeemed.fetchRemove(token) orelse return false;
+        model.freeReference(self.allocator, removed.value.reference);
+        return true;
     }
 
     // ── Recipient withdraw (the redeem half) ─────────────────────────────────
@@ -724,15 +1180,46 @@ pub const Node = struct {
 
     /// One claimed gifter origination awaiting its host-drawn gift id, keyed
     /// by the ticket the `need_gift_id` action carried.
+    /// One recipient's stored slot for a relayed promise: the import position
+    /// the recipient knows it by, stamped with the row identity that proves
+    /// the row was not torn down and re-registered underneath (ADR-0069).
+    const RelayedSlot = struct { import_pos: u64, row_id: u64 };
+
     const PendingGift = struct {
         recipient_peer: PeerId,
-        answer: u64,
         far_id: u64,
+        /// Where the minted give lands. Both destinations owe the recipient a
+        /// handoff for the same reason — a message carrying a reference
+        /// imported from another session must become one — and differ only in
+        /// the slot the give resolves.
+        dest: Dest,
+
+        /// `answer` is the reply-interception path: a served reply fulfilled
+        /// with a foreign capability, so the give resolves the claimed answer.
+        /// `relayed` is the introducing-session proxy path: a promise
+        /// introduced to this recipient settled to a capability, so the give
+        /// becomes the resolution stored in that import's slot.
+        const Dest = union(enum) {
+            answer: u64,
+            relayed: RelayedSlot,
+        };
     };
 
     const WithdrawKey = struct {
         peer_id: PeerId,
         answer: u64,
+    };
+
+    pub const FailureReason = union(enum) {
+        owned: []u8,
+        static: []const u8,
+
+        pub fn bytes(self: FailureReason) []const u8 {
+            return switch (self) {
+                .owned => |reason| reason,
+                .static => |reason| reason,
+            };
+        }
     };
 
     /// What the embedder must do next. Byte views are node-owned and valid
@@ -753,7 +1240,14 @@ pub const Node = struct {
         /// application receives.
         settle: struct { peer_id: PeerId, answer: u64, token: u64 },
         /// Break the application answer `answer` on `peer_id` with `reason`.
-        fail: struct { peer_id: PeerId, answer: u64, reason: []const u8 },
+        fail: struct {
+            peer_id: PeerId,
+            answer: u64,
+            /// Most failures own a copy of a call-scoped reason. Teardown uses
+            /// one static diagnostic so its reserved consequence cannot fail
+            /// allocation; the union makes those lifetimes non-interchangeable.
+            reason: FailureReason,
+        },
         /// Draw 32 bytes of gift-id entropy and feed them back through
         /// `provideGiftId(ticket, bytes)`. Entropy is a host effect like
         /// dialing: the sans-io node never generates it, and requesting it
@@ -829,31 +1323,59 @@ pub const Node = struct {
 
     fn freeAction(self: *Node, action: Action) void {
         switch (action) {
-            .fail => |f| self.allocator.free(f.reason),
+            .fail => |f| switch (f.reason) {
+                .owned => |reason| self.allocator.free(reason),
+                .static => {},
+            },
             .dial, .flush, .settle, .need_gift_id => {},
         }
     }
 
     fn queueAction(self: *Node, action: Action) !void {
-        try self.actions.push(self.allocator, action);
+        try self.reserveActions(1);
+        self.actions.pushReserved(action);
+    }
+
+    /// Preserve one future exporter-close failure per pending redeem, plus the
+    /// immediate actions the caller is about to commit. `ActionFifo.reserve`
+    /// reuses a dead prefix before it grows the backing.
+    fn reserveActions(self: *Node, immediate: usize) !void {
+        try self.actions.reserve(self.allocator, self.pending_withdraws.count() + immediate);
     }
 
     /// Queue a fail action carrying an owned copy of `reason`.
     fn queueFail(self: *Node, peer_id: PeerId, answer: u64, reason: []const u8) !void {
         const owned = try self.allocator.dupe(u8, reason);
         errdefer self.allocator.free(owned);
-        try self.queueAction(.{ .fail = .{ .peer_id = peer_id, .answer = answer, .reason = owned } });
+        try self.queueAction(.{ .fail = .{ .peer_id = peer_id, .answer = answer, .reason = .{ .owned = owned } } });
     }
 
     /// Pop the next queued action. The previous action's byte views are freed
     /// here, so a popped action is valid until the next call. Null when no
     /// action is pending.
+    pub fn hasAction(self: *const Node) bool {
+        return self.actions.unpopped().len != 0;
+    }
+
+    /// Borrow the next action without transferring or freeing it. Host uses
+    /// this two-phase form so a fallible Vat consequence commits before the
+    /// Node action is destructively popped.
+    pub fn peekAction(self: *const Node) ?Action {
+        return self.actions.peek();
+    }
+
+    /// Commit the action returned by `peekAction`, freeing any owned payload.
+    pub fn consumePeekedAction(self: *Node) void {
+        const action = self.actions.pop(self.allocator) orelse unreachable;
+        self.freeAction(action);
+    }
+
     pub fn nextAction(self: *Node) ?Action {
         if (self.last_action) |last| {
             self.freeAction(last);
             self.last_action = null;
         }
-        const action = self.actions.pop() orelse return null;
+        const action = self.actions.pop(self.allocator) orelse return null;
         self.last_action = action;
         return action;
     }
@@ -915,7 +1437,7 @@ pub const Node = struct {
         // action carries only the ticket (no verbatim URI dupe).
         try self.pending_dials.ensureUnusedCapacity(self.allocator, 1);
         try self.pending_dial_by_identity.ensureUnusedCapacity(self.allocator, 1);
-        try self.actions.reserve(self.allocator, 1);
+        try self.reserveActions(1);
         var pending: PendingDial = .{
             .identity = staged.identity,
             .transport = staged.transport,
@@ -948,7 +1470,10 @@ pub const Node = struct {
         const conn = self.peerAt(exporter_peer) orelse
             return self.queueFail(recipient_peer, answer, "handoff redeem failed: exporter connection is gone");
         try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
-        try self.actions.reserve(self.allocator, 1);
+        // One immediate flush plus the new pending redeem's eventual close
+        // failure. Once the row is inserted, ordinary pushes preserve that
+        // latter slot through `reserveActions`.
+        try self.reserveActions(2);
         const withdraw_answer = conn.allocateAnswer();
         conn.sendWithdrawGift(self.secretKey(), give, model.AnswerPosition.from(withdraw_answer)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -1051,7 +1576,7 @@ pub const Node = struct {
                 // all-or-nothing step: an OOM can only fire before anything
                 // commits, and the retriable withdraw never strands a token.
                 try self.redeemed.ensureUnusedCapacity(self.allocator, 1);
-                try self.actions.reserve(self.allocator, 1);
+                try self.reserveActions(1);
                 const token = try self.enrollRedeemed(peer_id, .{ .far = model.FarRef.object(far_id) });
                 self.actions.pushReserved(.{ .settle = .{
                     .peer_id = pending.recipient_peer,
@@ -1107,7 +1632,7 @@ pub const Node = struct {
     pub fn proxyForeignPromiseFulfill(self: *Node, recipient_peer: PeerId, far_id: u64) !?model.Reference {
         const home = self.homeOf(far_id) orelse return null;
         if (home == recipient_peer) return null;
-        const enrolled = self.foreign_imports.get(far_id) orelse return null;
+        const enrolled = self.foreignRoute(far_id) orelse return null;
         const wire_far = switch (enrolled.reference) {
             .far => |f| f,
             else => return null,
@@ -1133,6 +1658,13 @@ pub const Node = struct {
         const row_id = rp.session_state.importedPromiseRowId(.from(export_pos.int())).?;
 
         const proxy = self.promise_proxies.getPtr(home_key).?;
+        // Refused at introduce time, where the caller can still see it. At fire
+        // time the only outcome left is a break, and the peer that would pay
+        // for an unbounded list is the home session, which is not the one
+        // driving the count.
+        if (proxy.recipients.items.len >= max_proxy_recipients) {
+            return error.ProxyRecipientCapExceeded;
+        }
         try proxy.recipients.append(self.allocator, .{
             .peer = recipient_peer,
             .import_pos = export_pos.int(),
@@ -1165,10 +1697,150 @@ pub const Node = struct {
         return true;
     }
 
+    /// Whether a home session's resolution names something whose meaning is
+    /// local to that session, so it cannot be stored on a recipient as it
+    /// stands. This only detects; the caller decides what to do about it.
+    ///
+    /// The resolution was decoded on the home session, so its references mean
+    /// what that session says they mean. Storing them on a recipient session
+    /// unchanged hands that partner a number belonging to a different
+    /// conversation.
+    ///
+    /// Renaming it is not enough. Handing a capability to a third party is a
+    /// handoff: that party has no session with whoever hosts the object, so it
+    /// needs a signed give naming the exporter. Even enrolling the reference
+    /// under a node token only moves the failure later — a token whose home is
+    /// another connection cannot be lowered onto this one, and the send would
+    /// fail at encode with the promise already settled. So a true verdict here
+    /// sends the value to `giftableCapability`: a bare far object is
+    /// introduced by handoff, and everything else is broken, which is a
+    /// settlement the recipient can observe.
+    ///
+    /// Only the arms whose meaning comes from session state count. A `near` is
+    /// an export position, a `far` an import position, a `promise` an answer
+    /// position: each names a slot in one conversation. A `sturdy` names a peer
+    /// and a swissnum, which mean the same thing everywhere, and is the
+    /// ordinary way to hand a durable capability to a third party without a
+    /// handoff — it relays like any other value, and the payload encoder
+    /// already writes it in fulfill position. A `broken` carries only a reason.
+    fn carriesSessionScopedReference(arg: model.Argument) bool {
+        return switch (arg) {
+            .reference => |reference| switch (reference) {
+                .near, .far, .promise => true,
+                .sturdy, .broken => false,
+            },
+            .list, .set => |items| for (items) |item| {
+                if (carriesSessionScopedReference(item)) break true;
+            } else false,
+            .tagged => |tagged| for (tagged.value) |item| {
+                if (carriesSessionScopedReference(item)) break true;
+            } else false,
+            .@"struct" => |entries| for (entries) |entry| {
+                if (carriesSessionScopedReference(entry.value)) break true;
+            } else false,
+            else => false,
+        };
+    }
+
+    fn resolutionCarriesSessionScopedReference(resolution: model.Resolution) bool {
+        return switch (resolution) {
+            .fulfill => |arg| carriesSessionScopedReference(arg),
+            .@"break" => false,
+        };
+    }
+
+    /// Settle every live recipient of a proxy row with a break. Best effort by
+    /// contract: this runs where the alternative is leaving a recipient's
+    /// promise pending for the life of its session, so a recipient whose
+    /// session is gone, or whose store refuses, is skipped rather than
+    /// stranding the others. The reason is duped per recipient because each
+    /// store owns what it holds; bounded by the recipient count the proxy row
+    /// already bounds, and freed by that store's single-owner path.
+    fn breakRecipients(self: *Node, row: *PromiseProxy, reason: []const u8) void {
+        for (row.recipients.items) |r| {
+            self.breakRelayedSlot(r.peer, .{ .import_pos = r.import_pos, .row_id = r.row_id }, reason);
+        }
+    }
+
+    /// Settle one relayed slot with a break. The single spine both the
+    /// whole-row sweep above and a failed gift origination settle through, so
+    /// a recipient promise is broken the same way whichever gives up on it.
+    fn breakRelayedSlot(self: *Node, peer_id: PeerId, slot: RelayedSlot, reason: []const u8) void {
+        const recip = self.peer(peer_id) orelse return;
+        const owned = self.allocator.dupe(u8, reason) catch return;
+        const broken: model.Resolution = .{ .@"break" = .{ .message = owned } };
+        recip.applyRelayedResolution(model.ImportPosition.from(slot.import_pos), slot.row_id, broken) catch {
+            model.freeResolution(self.allocator, broken);
+        };
+    }
+
+    /// The capability a relayed resolution can be introduced by handoff, or
+    /// null when it cannot.
+    ///
+    /// Only a bare far object qualifies, and each rejected shape is rejected
+    /// for its own reason. A promise cannot be gifted because a handoff names
+    /// a capability the exporter deposits and the recipient withdraws once,
+    /// while a promise has a settlement of its own that no gift registry
+    /// models. A near names an object this node itself exports, so handing it
+    /// on is a re-export on the recipient's session rather than a handoff, and
+    /// the node cannot do that: it holds export positions, not the objects
+    /// behind them. A value that merely contains references, such as a list or
+    /// a struct, would need each one introduced separately and reassembled.
+    /// All three still break.
+    fn giftableCapability(resolution: model.Resolution) ?model.Reference {
+        const arg = switch (resolution) {
+            .fulfill => |a| a,
+            .@"break" => return null,
+        };
+        const reference = switch (arg) {
+            .reference => |r| r,
+            else => return null,
+        };
+        if (reference != .far or reference.far.kind != .object) return null;
+        return reference;
+    }
+
+    /// Introduce a relayed capability to every recipient of `row` by handoff.
+    ///
+    /// The draft CapTP specification requires this: a message carrying a
+    /// reference imported from another session must introduce it with a
+    /// handoff, and a `desc:handoff-give` is legal wherever a Passable value
+    /// is. `wire` is the capability as the *home* session names it, which is
+    /// also how the exporter will see it in the deposit.
+    ///
+    /// Each recipient gets its own ticket, because a give is signed for one
+    /// recipient's session key. A recipient whose ticket cannot be parked is
+    /// broken rather than left pending; the rest still proceed.
+    ///
+    /// Infallible, by the contract `breakRecipients` carries and for a sharper
+    /// reason: the caller has already consumed the home listener's fire, so an
+    /// error returned from here would skip the proxy teardown and leave every
+    /// recipient waiting on a promise nothing can settle a second time.
+    fn giftRelayedCapability(self: *Node, row: *PromiseProxy, home: PeerId, wire: model.Reference) void {
+        const token = self.enrollForeign(home, wire) catch {
+            self.breakRecipients(row, "relayed handoff origination failed: out of memory");
+            return;
+        };
+        const far_id = token.far.import_position.int();
+        for (row.recipients.items) |r| {
+            const slot: RelayedSlot = .{ .import_pos = r.import_pos, .row_id = r.row_id };
+            self.requestGiftId(r.peer, far_id, .{ .relayed = slot }) catch |err| switch (err) {
+                error.OutOfMemory => self.breakRelayedSlot(r.peer, slot, "relayed handoff origination failed: out of memory"),
+            };
+        }
+    }
+
     /// If `listener_export` on `home_peer` is a proxy home-listener, take
-    /// ownership of `resolution` as the fire owner, settle every recipient
-    /// store (move for N=1; `materializeResolutionForStore` for the rest),
-    /// tear the proxy down, and return true. False leaves `resolution` with the caller.
+    /// ownership of `resolution` as the fire owner, settle every recipient,
+    /// tear the proxy down, and return true. False leaves `resolution` with
+    /// the caller.
+    ///
+    /// How a recipient is settled depends on what the home session named. A
+    /// value that means the same everywhere is stored directly (moved for
+    /// N=1, `materializeResolutionForStore` for the rest). A value naming a
+    /// slot in the home conversation cannot be, so it takes the handoff branch
+    /// first: a bare far object is introduced with a signed give, and every
+    /// other such shape is broken.
     pub fn consumeProxyListenerFire(
         self: *Node,
         home_peer: PeerId,
@@ -1179,23 +1851,41 @@ pub const Node = struct {
         const row = self.promise_proxies.getPtr(home_key) orelse return false;
         std.debug.assert(row.recipients.items.len > 0);
 
+        // A resolution naming a slot in the home conversation cannot be stored
+        // on a recipient as it stands: the numbers mean what the home session
+        // says they mean. Where the value is a plain capability, the protocol
+        // says what to do instead of breaking — introduce it by handoff. The
+        // home session is not at fault in either case, so nothing is refused
+        // back at it.
+        const owned_resolution = resolution;
+        if (resolutionCarriesSessionScopedReference(owned_resolution)) {
+            defer model.freeResolution(self.allocator, owned_resolution);
+            if (giftableCapability(owned_resolution)) |wire| {
+                self.giftRelayedCapability(row, home_key.home, wire);
+            } else {
+                self.breakRecipients(row, "relayed promise settled to a value this session cannot name");
+            }
+            self.removePromiseProxy(home_key);
+            return true;
+        }
+
         if (row.recipients.items.len == 1) {
             const r = row.recipients.items[0];
             const recip = self.peer(r.peer) orelse {
-                model.freeResolution(self.allocator, resolution);
+                model.freeResolution(self.allocator, owned_resolution);
                 self.removePromiseProxy(home_key);
                 return true;
             };
-            try recip.applyRelayedResolution(model.ImportPosition.from(r.import_pos), r.row_id, resolution);
+            try recip.applyRelayedResolution(model.ImportPosition.from(r.import_pos), r.row_id, owned_resolution);
             self.removePromiseProxy(home_key);
             return true;
         }
 
         // Fire owner: materialize into each live recipient store, then free.
-        defer model.freeResolution(self.allocator, resolution);
+        defer model.freeResolution(self.allocator, owned_resolution);
         for (row.recipients.items) |r| {
             const recip = self.peer(r.peer) orelse continue;
-            const owned = try model.materializeResolutionForStore(self.allocator, resolution);
+            const owned = try model.materializeResolutionForStore(self.allocator, owned_resolution);
             try recip.applyRelayedResolution(model.ImportPosition.from(r.import_pos), r.row_id, owned);
         }
         self.removePromiseProxy(home_key);
@@ -1208,12 +1898,18 @@ pub const Node = struct {
         if (!hp.sessionIsOpen()) return error.session_not_open;
         // Far listen target must already be a held import (enrollment).
 
+        // Reserved before anything commits, so the flush push below cannot fail
+        // after the row is armed.
+        try self.reserveActions(1);
         const listener = try hp.session_state.allocateExport();
-        hp.send(.{ .listen = .{
-            .target = .{ .far = wire_far },
-            .listener = .{ .near = model.NearRef.object(listener.int()) },
-            .wants_partial = false,
-        } }) catch |err| {
+        hp.send(.{
+            .listen = .{
+                .target = .{ .far = wire_far },
+                // Project the mention from the authoritative slot (ADR-0080).
+                .listener = session_mod.slot.toReference(hp.session_state.exportSlot(listener).?).?,
+                .wants_partial = false,
+            },
+        }) catch |err| {
             hp.session_state.releaseUnsharedExport(listener);
             return err;
         };
@@ -1228,6 +1924,11 @@ pub const Node = struct {
         try self.promise_proxies.put(self.allocator, home_key, .{
             .listener_export = listener.int(),
         });
+
+        // This runs while the *recipient's* session is being fed, so nothing
+        // else will encode the home peer's outbound: without the flush the proxy
+        // is armed and the partner is never asked.
+        self.actions.pushReserved(.{ .flush = home_key.home });
     }
 
     fn removePromiseProxy(self: *Node, key: ProxyHomeKey) void {
@@ -1281,24 +1982,44 @@ pub const Node = struct {
     pub fn interceptFulfilledRef(self: *Node, peer_id: PeerId, answer: u64, far_id: u64) !bool {
         const home = self.homeOf(far_id) orelse return false;
         if (home == peer_id) return false;
-        if (self.foreign_imports.get(far_id)) |enrolled| {
+        if (self.foreignRoute(far_id)) |enrolled| {
             if (enrolled.reference == .far and enrolled.reference.far.kind == .promise) return false;
         }
-        // Reserve the ticket table and the action queue before either commits,
-        // so the row install and the `need_gift_id` queue are one all-or-nothing
-        // step: an OOM fires before anything commits and never orphans a ticket
-        // whose action the embedder never sees.
+        try self.requestGiftId(peer_id, far_id, .{ .answer = answer });
+        return true;
+    }
+
+    /// Park a pending gift and ask the embedder for its id. Entropy is a host
+    /// effect, so the node cannot draw the id itself; it queues a
+    /// `need_gift_id` action and finishes in `provideGiftId`.
+    ///
+    /// One ticket per recipient, never one per capability: a give is signed
+    /// for a single recipient's session key, so two recipients of the same
+    /// relayed promise need two ids and two deposits.
+    ///
+    /// The ticket table and the action queue are reserved before either
+    /// commits, so an out-of-memory fires before anything does and never
+    /// orphans a ticket whose action the embedder never sees.
+    fn requestGiftId(self: *Node, recipient_peer: PeerId, far_id: u64, dest: PendingGift.Dest) !void {
         try self.pending_gifts.ensureUnusedCapacity(self.allocator, 1);
-        try self.actions.reserve(self.allocator, 1);
+        try self.reserveActions(1);
         const ticket = self.next_pending;
         self.pending_gifts.putAssumeCapacity(ticket, .{
-            .recipient_peer = peer_id,
-            .answer = answer,
+            .recipient_peer = recipient_peer,
             .far_id = far_id,
+            .dest = dest,
         });
         self.next_pending += 1;
         self.actions.pushReserved(.{ .need_gift_id = .{ .ticket = ticket } });
-        return true;
+    }
+
+    /// Settle a pending gift that cannot be originated, at whichever slot it
+    /// was bound for.
+    fn failPendingGift(self: *Node, pending: PendingGift, reason: []const u8) !void {
+        switch (pending.dest) {
+            .answer => |answer| try self.queueFail(pending.recipient_peer, answer, reason),
+            .relayed => |slot| self.breakRelayedSlot(pending.recipient_peer, slot, reason),
+        }
     }
 
     /// Answer a `need_gift_id` action with the host-drawn `gift_id`: the node
@@ -1314,8 +2035,8 @@ pub const Node = struct {
         // The claimed far is a foreign-import token (ADR-0069) that carries the real
         // `far(position)` to deposit; depositing the token itself would name an
         // export the exporter never made.
-        const r = self.foreign_imports.get(pending.far_id) orelse
-            return self.queueFail(pending.recipient_peer, pending.answer, "handoff origination failed: home connection is gone");
+        const r = self.foreignRoute(pending.far_id) orelse
+            return self.failPendingGift(pending, "handoff origination failed: home connection is gone");
         const home = r.peer_id;
         const gifted = r.reference;
         self.originateGive(
@@ -1323,15 +2044,20 @@ pub const Node = struct {
             home,
             gifted,
             gift_id,
-            pending.answer,
+            pending.dest,
             self.exporterLocation(home),
-        ) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => {
-                var buf: [128]u8 = undefined;
-                const reason = std.fmt.bufPrint(&buf, "handoff origination failed: {s}", .{@errorName(err)}) catch "handoff origination failed";
-                return self.queueFail(pending.recipient_peer, pending.answer, reason);
-            },
+        ) catch |err| {
+            // A relayed slot has nobody who can give up on it. The ticket is
+            // consumed, the proxy row is torn down, and the home listener that
+            // could have fired again is spent, so a settlement that does not
+            // land here never lands and the recipient waits for the life of
+            // its session. It is settled even for an out-of-memory. The answer
+            // arm still propagates that one, because an unanswered question is
+            // symmetric and the asker can time out.
+            if (err == error.OutOfMemory and pending.dest == .answer) return error.OutOfMemory;
+            var buf: [128]u8 = undefined;
+            const reason = std.fmt.bufPrint(&buf, "handoff origination failed: {s}", .{@errorName(err)}) catch "handoff origination failed";
+            return self.failPendingGift(pending, reason);
         };
         try self.queueAction(.{ .flush = home });
         try self.queueAction(.{ .flush = pending.recipient_peer });
@@ -1362,7 +2088,7 @@ pub const Node = struct {
         exporter_peer: PeerId,
         gifted: model.Reference,
         gift_id: []const u8,
-        answer: u64,
+        dest: PendingGift.Dest,
         exporter_location: []const u8,
     ) !void {
         const rp = self.peerAt(recipient_peer) orelse return error.UnknownConnection;
@@ -1375,16 +2101,55 @@ pub const Node = struct {
         else
             ep.session_state.partnerLocatorRaw() orelse return error.NoExporterLocator;
 
+        const give = try self.depositAndMintGive(ep, gifted, gift_id, recipient_key, exporter_key, exporter_loc);
+        defer self.allocator.free(give);
+
+        // The two destinations differ only here. Both hand the recipient the
+        // same signed bytes; one resolves a claimed answer, the other fills
+        // the relayed promise's stored slot.
+        switch (dest) {
+            .answer => |answer| try rp.sendResolveHandoffGive(model.AnswerPosition.from(answer), give),
+            .relayed => |slot| try rp.applyRelayedHandoffGive(
+                model.ImportPosition.from(slot.import_pos),
+                slot.row_id,
+                give,
+            ),
+        }
+    }
+
+    /// Deposit the gift on the exporter and mint the signed give that names
+    /// it — the half of a handoff origination that does not depend on how the
+    /// give reaches the recipient.
+    ///
+    /// Two destinations need it. `originateGive` resolves a claimed *answer*
+    /// with the give, which is the reply-interception path. The relayed
+    /// settlement path needs the same bytes for a different slot: an
+    /// introduced promise that fulfils with a capability owes the recipient a
+    /// handoff, not a break, and a signed give is legal in any Passable
+    /// position (the draft CapTP specification's "Sending the
+    /// `desc:handoff-give`"). Splitting mint from delivery is what lets the
+    /// second caller exist without a second copy of the signing.
+    ///
+    /// The caller owns the returned bytes.
+    fn depositAndMintGive(
+        self: *Node,
+        exporter: *engine.Peer,
+        gifted: model.Reference,
+        gift_id: []const u8,
+        recipient_key: []const u8,
+        exporter_key: []const u8,
+        exporter_loc: []const u8,
+    ) ![]u8 {
         // Deposit on the exporter first (fire-and-forget): the exporter records
         // the gift so a `withdraw-gift` the recipient sends later resolves.
-        try ep.sendDepositGift(gift_id, gifted);
+        try exporter.sendDepositGift(gift_id, gifted);
 
         const secret = self.secretKey();
         const gifter_side = try engine.handoff_recipient.sideName(secret.publicKey().asBytes());
         const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
         const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
 
-        const give = try engine.handoff_gifter.buildSignedGive(
+        return engine.handoff_gifter.buildSignedGive(
             self.allocator,
             secret,
             recipient_key,
@@ -1393,8 +2158,5 @@ pub const Node = struct {
             &gifter_side,
             gift_id,
         );
-        defer self.allocator.free(give);
-
-        try rp.sendResolveHandoffGive(model.AnswerPosition.from(answer), give);
     }
 };

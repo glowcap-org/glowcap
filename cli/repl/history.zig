@@ -85,5 +85,3 @@ test "history prev next draft" {
     try std.testing.expectEqualStrings("draft", h.next().?);
     try std.testing.expect(h.next() == null);
 }
-
-

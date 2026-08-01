@@ -16,7 +16,7 @@
 //         bindings/ts/relay/serve.ts <listen-port>
 //
 // The embedding app adds the target allow-list and capacity admission (see the
-// rooms relay in apps/rooms/deno/relay_server.ts); this reference relays wherever
+// rooms relay in apps/rooms/web/relay.ts); this reference relays wherever
 // it is pointed so the conformance proofs can drive it.
 
 import { denoIrohChannel, denoTcpChannel, type RelayConfig, webSocketRelay } from "@pancake/relay";

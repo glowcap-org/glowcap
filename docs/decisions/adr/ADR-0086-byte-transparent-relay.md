@@ -170,10 +170,14 @@ marker change per row.
   by a readiness fd that Rust (`AsyncFd`), Python (`add_reader`), and Racket (an
   fd thread) poll natively; Deno's iroh loop already solved this, so a Deno relay
   reuses that strategy rather than inventing a second one.
-- **The C-ABI TCP conn is frame-level, not raw.** `pancake_tcp_conn_read_frame`
-  delimits frames against a codec, which a relay cannot use. A TCP relay
-  therefore opens the runtime's own socket, which is byte-level and needs no
-  pancake wrapper.
+- **The C-ABI TCP and inproc conns are frame-level, not raw.**
+  `pancake_tcp_conn_read_frame` and `pancake_inproc_conn_read_frame` delimit
+  frames against a codec, which a relay cannot use. A TCP relay therefore opens
+  the runtime's own socket, which is byte-level and needs no pancake wrapper.
+- **iroh is the only transport that supplies a relay byte channel.** The other
+  legs a relay opens are the runtime's own socket and, for the cold-dial
+  rendezvous, a held WebSocket. So the channel is a shape each binding fills in
+  its own language, not a C-ABI object. The rejected shape below says why.
 
 ## Threat Model
 
@@ -218,19 +222,20 @@ against one runtime's relay, so this ADR names the shape and points at the gate.
   `racket-relay-idle-test`, and so on). Beyond the matrix,
   `rooms-web-relay-peer`, `rooms-web-browser-peer`, and `rooms-web-page` drive the
   room directory through the Deno relay with a real Chromium.
-- **A named `PancakeRelayChannel` C-ABI shape (not built):** iroh's raw conn plus
-  its readiness already satisfy the byte-channel contract; naming them as one
-  documented `PancakeRelayChannel` (readiness fd, pump, `try_read`/`try_write`
-  with `WOULD_BLOCK`, close, release), and adding the same for `inproc` so
-  in-tree conformance is transport-uniform, is the remaining C-ABI work.
+- **A named `PancakeRelayChannel` C-ABI shape: rejected,** for the reasons in
+  Alternatives below. The iroh calls a relay leg composes are named as a set in
+  `pancake_net_transport_iroh.h` instead, which is the part of that idea that was
+  true.
 - **Browser DMs through the relay (shipped over the iroh leg):** a browser
   redeems a room introduction and dials the member over the relay's iroh path,
   the room out of the message path (`zig build rooms-web-dm`, and
   [ADR-0088](ADR-0088-fully-functioning-browser-peer.md)). The TCP relay leg
   still admits only the room server's own port, so browser DM rides the iroh
   leg, not a TCP target.
-- **Goblins through the relay (not built):** a live byte-transparency proof
-  against a real Goblins peer has no build step.
+- **Goblins through the relay (shipped):** a browser peer holds a keyed OCapN
+  session with a real Goblins vat through the reference relay, and the echo
+  round-trip plus the repeat-enliven dedup ride it
+  (`zig build goblins-relay`).
 
 ## Alternatives Considered
 
@@ -259,8 +264,30 @@ native pump with real backpressure would have to own a far leg to reuse the
 completion loop's high-water parking, linking a transport archive into every
 relay and dragging the iroh sidecar into a TCP-only one, the à-la-carte split
 (ADR-0059) this ADR rejects elsewhere. The pump stays a per-runtime contract
-pinned by conformance; the byte channel it pumps over is the part worth naming in
-C (the `PancakeRelayChannel` shape noted above).
+pinned by conformance; the byte channel it pumps over is named as a set of calls
+in the iroh header, not as a C object (the alternative below).
+
+**A named `PancakeRelayChannel` C-ABI shape.** Rejected, whether as a struct of
+per-transport function pointers, an opaque handle with its own verb family, or a
+typedef plus per-transport adapters. Three facts defeat all three spellings.
+
+First, readiness cannot cross the ABI as a call. A channel is usable only once
+its owner can *wait* on it, and that wait is the runtime's own reactor. So every
+binding would still write the half that decides when to read, and Rust would
+still want `AsyncRead`/`AsyncWrite` over a pancake object.
+
+Second, the legs are not one kind. A relay opens the runtime's socket for a TCP
+target and a held WebSocket for the cold-dial rendezvous, and only the iroh leg
+comes from pancake at all. A cross-transport shape would have one member.
+
+Third, `inproc` cannot honestly be the second member. Its resident carries no
+file descriptor by design, and its pipes are unbounded because a mock has a
+cooperative partner, so an inproc channel would advertise the backpressure clause
+above while structurally lacking it. No relay could dial one either, since the
+target would have to be a peer inside the relay's own process.
+
+What the idea got right was discoverability, so
+`pancake_net_transport_iroh.h` names the calls a relay leg composes as a set.
 
 **A blocking-with-thread channel.** Rejected: a thread per relay session
 contradicts the one-loop-serves-many-connections model (ADR-0057) and the
@@ -278,9 +305,10 @@ adapter; the contract is already defined over an abstract byte duplex, not over
 - **Reference implementation:** `@pancake/relay` (`bindings/ts/relay/`):
   `relayBytes` (the pump) and `webSocketRelay` (the WebSocket adapter), with the
   `RelayChannel` shape. The rooms endpoint that adds policy is
-  `apps/rooms/deno/relay_server.ts`.
+  `apps/rooms/web/relay.ts`.
 - **Shared classifier:** `pancake_host_plan_dial` (`src/driver/core/dial_plan.zig`,
   exported in `libpancake_driver`).
 - **iroh byte channel:** the `pancake_iroh_*` conn and readiness primitives in
-  `libpancake_net_transport_iroh`, driven identically by all four bindings.
-- **Remaining work:** the relay item in [`docs/roadmap.md`](../../roadmap.md).
+  `libpancake_net_transport_iroh`, named as a set in
+  `include/pancake_net_transport_iroh.h` and driven identically by all four
+  bindings.

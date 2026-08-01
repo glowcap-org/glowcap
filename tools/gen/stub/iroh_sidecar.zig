@@ -17,8 +17,8 @@
 
 const msg = "iroh sidecar stub: build-time only (header generation); link libpancake_iroh_sidecar.a to run";
 
-export fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32) ?*anyopaque {
-    _ = .{ secret_seed32, reachability };
+export fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32, connect_timeout_ms: u64) ?*anyopaque {
+    _ = .{ secret_seed32, reachability, connect_timeout_ms };
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_endpoint_node_id(ep: *const anyopaque, out: [*]u8, out_cap: usize) isize {
@@ -29,18 +29,23 @@ export fn pancake_iroh_sidecar_endpoint_direct_addrs(ep: *const anyopaque, out: 
     _ = .{ ep, out, out_cap };
     @panic(msg);
 }
-export fn pancake_iroh_sidecar_connect(
+export fn pancake_iroh_sidecar_connect_blocking(
     ep: *anyopaque,
     node_id: [*]const u8,
     node_id_len: usize,
     addr_hints: [*]const u8,
     addr_hints_len: usize,
+    out_code: *i32,
 ) ?*anyopaque {
-    _ = .{ ep, node_id, node_id_len, addr_hints, addr_hints_len };
+    _ = .{ ep, node_id, node_id_len, addr_hints, addr_hints_len, out_code };
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_accept(ep: *anyopaque) ?*anyopaque {
     _ = ep;
+    @panic(msg);
+}
+export fn pancake_iroh_sidecar_accept_timeout(ep: *anyopaque, timeout_ms: i32) ?*anyopaque {
+    _ = .{ ep, timeout_ms };
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_conn_read(conn: *anyopaque, buf: [*]u8, len: usize) isize {
@@ -80,6 +85,18 @@ export fn pancake_iroh_sidecar_endpoint_drain_ready(ep: *const anyopaque, out: *
     _ = .{ ep, out, out_cap };
     @panic(msg);
 }
+export fn pancake_iroh_sidecar_endpoint_start_connect(ep: *anyopaque, request_id: usize, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize) i32 {
+    _ = .{ ep, request_id, node_id, node_id_len, addr_hints, addr_hints_len };
+    @panic(msg);
+}
+export fn pancake_iroh_sidecar_endpoint_finish_connect(ep: *anyopaque, request_id: usize, out_conn: *?*anyopaque) i32 {
+    _ = .{ ep, request_id, out_conn };
+    @panic(msg);
+}
+export fn pancake_iroh_sidecar_endpoint_cancel_connect(ep: *anyopaque, request_id: usize) i32 {
+    _ = .{ ep, request_id };
+    @panic(msg);
+}
 export fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *anyopaque) i32 {
     _ = ep;
     @panic(msg);
@@ -90,6 +107,10 @@ export fn pancake_iroh_sidecar_endpoint_try_accept(ep: *anyopaque) ?*anyopaque {
 }
 export fn pancake_iroh_sidecar_conn_set_nonblocking(ep: *anyopaque, conn: *anyopaque) i32 {
     _ = .{ ep, conn };
+    @panic(msg);
+}
+export fn pancake_iroh_sidecar_conn_id(conn: *const anyopaque) usize {
+    _ = conn;
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_conn_try_read(conn: *anyopaque, buf: [*]u8, len: usize) isize {

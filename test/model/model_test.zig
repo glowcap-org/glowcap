@@ -12,6 +12,25 @@ test "value-tree types stay within their documented size budget" {
     try std.testing.expect(@sizeOf(model.Argument) <= 40);
     try std.testing.expect(@sizeOf(model.Resolution) <= 48);
     try std.testing.expect(@sizeOf(model.Reference) <= 32);
+    // The borrowed twins get the same gate. `view.Argument` keeps its handoff
+    // arm inline — it borrows wire bytes and may not allocate a box — so it is
+    // roughly eight times its owned twin, and the inbound set-uniqueness fold
+    // parks one per set element (stack for small sets, `recv_scratch` above
+    // that). That spend is deliberate, but it must not grow silently: a new
+    // field on any record under the handoff arm moves these numbers.
+    try std.testing.expect(@sizeOf(model.view.Argument) <= 312);
+    try std.testing.expect(@sizeOf(model.view.Reference) <= 120);
+}
+
+test "owned argument measurement matches the clone payload shape" {
+    const nested = [_]model.Argument{.{ .string = "xy" }};
+    const args = [_]model.Argument{
+        .{ .bytes = "abc" },
+        .{ .list = &nested },
+    };
+    const expected = args.len * @sizeOf(model.Argument) + "abc".len +
+        nested.len * @sizeOf(model.Argument) + "xy".len;
+    try std.testing.expectEqual(expected, try model.measureArgumentSliceOwnedBytes(&args));
 }
 
 test "CapTP versions parse and render wire strings" {

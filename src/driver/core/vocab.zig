@@ -36,19 +36,26 @@ pub const Error = error{
     HandshakeEntropyFailed,
     /// A keyed handshake made no progress within its caller-set budget: the
     /// partner accepted the socket but never spoke. The blocking
-    /// `BlockingSession` handshake breaks with this reason when its opt-in
-    /// `handshake_timeout_ms` elapses, instead of parking the fiber for the
+    /// `BlockingSession` handshake breaks with this reason when its bounded
+    /// `handshake` budget elapses, instead of parking the fiber for the
     /// connection's life; a host-owned redeem dial reserves it for the same
     /// silent-exporter case (ADR-0081).
     HandshakeTimedOut,
     /// A blocking answer-wait (`settle` / `call` / `fetch`) made no progress
     /// within its caller-set budget: the partner opened a session then stalled
-    /// without settling the vow. Opt-in via `BlockingSession.settle_timeout_ms`
-    /// (0 = unbounded). Sibling of `HandshakeTimedOut` for post-handshake waits
-    /// (ADR-0076 follow-up).
+    /// without settling the vow. Bounded via `BlockingSession.settle`. Sibling
+    /// of `HandshakeTimedOut` for post-handshake waits (ADR-0076 follow-up).
     WaitTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
+    /// `Server.close` was called while accepted views still hold sessions of
+    /// the host it would free. Release every `*Session` from `accept` first.
+    SessionsStillOpen,
+    /// The owning host face was asked to bind a session over a transport that
+    /// reports no pollable fd (inproc by design, a userspace stream). A
+    /// blocking multiplex cannot wait on a stream with no readiness signal;
+    /// the completion loop is the tier that serves those transports.
+    TransportNotPollable,
     /// `callReference` was given a target that is not an eventual-send target:
     /// a `sturdy`, `broken`, or bare `promise` reference. Only a near (local
     /// export) or far (partner-hosted) object reference is callable.
@@ -62,6 +69,33 @@ pub const Error = error{
     /// produce the durable designator the transport advertises. Accept with
     /// `.{ .keyed = secret }` holding the listener's identity key.
     EphemeralIdentityOnKeyedTransport,
+};
+
+/// How long a CapTP wait may take. It lives here beside `HandshakeTimedOut`
+/// and `WaitTimedOut`, the two ways a bounded budget ends; the blocking
+/// driver holds the fields, and the byte-fed host tier has no blocking wait
+/// to bound.
+///
+/// The owning `SessionOptions` gives it no default, and that is the point of
+/// the type there: every other option has a wrong value that costs memory or
+/// speed, but a wait budget has a wrong value that costs the process. A
+/// partner can complete the socket connect and then say nothing at all, and
+/// an unbounded wait parks the caller on it forever, so the owning tier asks
+/// the question where it cannot be skipped.
+///
+/// `unbounded` stays available, spelled out, because an in-process pair and a
+/// harness that drives both ends genuinely want it. A `.ms` of zero or less
+/// is a budget that has already expired: a wait under it times out
+/// immediately, in every build mode, rather than inheriting the OS poll
+/// convention that reads zero or a negative as forever.
+pub const Budget = union(enum) {
+    /// Wait as long as it takes. Right when you control both ends; a hang
+    /// against anything that can go silent.
+    unbounded,
+    /// Give up after this many milliseconds. Zero or less has already
+    /// expired: the wait times out at once instead of reading zero as
+    /// forever.
+    ms: i32,
 };
 
 /// What a transport's locator designator is, the byte-fed mirror of
@@ -156,6 +190,57 @@ pub const Identity = union(enum) {
     }
 };
 
+/// The partner identity a session's handshake proved: the partner's session
+/// public key, the location designator it signed, and the verbatim
+/// `<ocapn-peer …>` record those came from.
+///
+/// This is the counterpart to `Identity`, which is what *this* side signs. It
+/// answers "who am I talking to" without taking the partner's word for it. A
+/// keyed `op:start-session` carries an Ed25519 signature over the partner's own
+/// `<my-location …>` record, and the engine verifies that signature before the
+/// session opens and before any of these bytes are learned. The signed span
+/// covers the whole location record, so `designator` is bound to `session_key`
+/// by the same signature.
+///
+/// That binding is the point. An application can require that a locator a
+/// caller *claims* names the key the caller actually proved, and refuse the
+/// mismatch, which is what `designatorIsSessionKey` answers.
+///
+/// Every field borrows session-owned bytes. They are written once when the
+/// partner's handshake half arrives and are never rewritten, so they stay valid
+/// until the session is released.
+pub const PartnerIdentity = struct {
+    /// The partner's verified session public key. Never empty: a session cannot
+    /// open under verification without one.
+    session_key: []const u8,
+    /// The designator the partner signed, or empty when its signed location
+    /// carried none.
+    designator: []const u8,
+    /// The verbatim `<ocapn-peer …>` location record, or empty when the apply
+    /// path captured no raw bytes.
+    locator_record: []const u8,
+
+    /// Whether `designator` is exactly this partner's proved session key, in the
+    /// canonical hex a key designator is spelled in.
+    ///
+    /// This only means anything for a transport whose designator *is* a key, the
+    /// `DesignatorScheme.key` set that `designatorSchemeForTransport` names. For
+    /// those, a true answer says the partner proved it owns the name it is
+    /// advertising. An `address` transport such as `tcp` designates a socket
+    /// address, which the handshake signature covers but which the key does not
+    /// determine, so this is false for a verified `tcp` partner and false is the
+    /// correct answer rather than a failure.
+    ///
+    /// A caller that wants "this locator is the partner's own" therefore checks
+    /// the transport's scheme first, and treats an address transport as a
+    /// question this cannot answer.
+    pub fn designatorIsSessionKey(self: PartnerIdentity) bool {
+        const key = crypto.PeerKey.fromSlice(self.session_key) catch return false;
+        const expected = key.toDesignator();
+        return std.mem.eql(u8, self.designator, &expected);
+    }
+};
+
 /// The responder's signing posture for `listen` / `acceptVia`. An accepting
 /// host always signs its listener's own bound designator — the address a
 /// partner can actually dial — so unlike the dialer's `Identity` there is no
@@ -213,11 +298,13 @@ pub const Capability = struct {
 /// A peerless vat is refused with the actor layer's own `NotConnected`. An
 /// actor that should have no wire position at all is spawned with `Vat.spawn`,
 /// which mints no export.
-pub fn spawnAt(vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Capability {
-    const peer = vat.peer orelse return actors.Error.NotConnected;
-    const position = try peer.exportNextObject();
-    const ref = try vat.spawn(Behavior, initial);
-    try vat.bindExport(ref, position);
+pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !Capability {
+    const port = turn.port orelse return actors.Error.NotConnected;
+    const position = try port.peer.exportNextObject();
+    errdefer port.peer.session_state.releaseUnsharedExport(.from(position));
+    const ref = try turn.vat.spawn(Behavior, initial);
+    errdefer turn.vat.discardFreshActor(ref);
+    try port.bindExport(ref, position);
     return .{ .position = position, .ref = ref };
 }
 
@@ -230,11 +317,12 @@ pub const Settled = union(enum) {
     broken: []const u8,
     /// The answer fulfilled with a three-party introduction: a signed
     /// `desc:handoff-give` addressed to this session's session key. This
-    /// arm surfaces only on the single-session tier (`BlockingSession`,
-    /// `Session`); a host tier claims every give and redeems it itself, so
-    /// a host call settles with the introduced capability instead. The
-    /// payload is materialized into the call's allocator like any other
-    /// outcome.
+    /// arm surfaces only on the borrowing `BlockingSession` tier, where
+    /// "no router" is the caller's explicit choice; every host-backed tier —
+    /// the owning face (ADR-0090), the Bridge, the bindings — claims the
+    /// give and redeems it itself, so its calls settle with the introduced
+    /// capability instead. The payload is materialized into the call's
+    /// allocator like any other outcome.
     give: actors.Give,
 
     /// Free what `call` / `fetchSettled` materialized into `allocator`: the

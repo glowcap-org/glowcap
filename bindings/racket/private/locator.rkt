@@ -104,13 +104,13 @@
   (define d (string->bytes/utf-8 designator))
   (define a (string->bytes/utf-8 direct-addresses))
   (define-values (rc ptr len)
-    (pancake_encode_peer_locator
+    (pancake_locator_record_encode
      (pin-immobile t) (bytes-length t)
      (pin-immobile d) (bytes-length d)
      (pin-immobile a) (bytes-length a)))
   (check rc)
   (define out (bytes<-c ptr len))
-  (pancake_peer_locator_bytes_release ptr len)
+  (pancake_locator_record_bytes_release ptr len)
   out)
 
 ;; Render host:port as a tcp designator; bracket IPv6 for the core grammar.

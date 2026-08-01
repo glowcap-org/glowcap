@@ -22,26 +22,48 @@ pub const Positional = struct {
     variadic: bool = false,
 };
 
+/// What one flag was given as. A flag's declaration fixes its kind, so the
+/// union is the whole story: a name cannot be present as both a switch and a
+/// value, and a reader of a stored flag always knows which it holds.
+pub const FlagValue = union(FlagKind) {
+    bool_flag: bool,
+    string_flag: []const u8,
+};
+
 pub const Parsed = struct {
     gpa: std.mem.Allocator,
-    bools: std.StringHashMapUnmanaged(bool) = .empty,
-    strings: std.StringHashMapUnmanaged([]const u8) = .empty,
+    flags: std.StringHashMapUnmanaged(FlagValue) = .empty,
     positionals: []const []const u8 = &.{},
     positionals_owned: ?[][]const u8 = null,
 
     pub fn deinit(self: *Parsed) void {
-        self.bools.deinit(self.gpa);
-        self.strings.deinit(self.gpa);
+        self.flags.deinit(self.gpa);
         if (self.positionals_owned) |p| self.gpa.free(p);
         self.* = undefined;
     }
 
+    pub fn setBool(self: *Parsed, long: []const u8, on: bool) !void {
+        try self.flags.put(self.gpa, long, .{ .bool_flag = on });
+    }
+
+    pub fn setString(self: *Parsed, long: []const u8, value: []const u8) !void {
+        try self.flags.put(self.gpa, long, .{ .string_flag = value });
+    }
+
     pub fn flagBool(self: *const Parsed, long: []const u8) bool {
-        return self.bools.get(long) orelse false;
+        const v = self.flags.get(long) orelse return false;
+        return switch (v) {
+            .bool_flag => |on| on,
+            .string_flag => false,
+        };
     }
 
     pub fn flagString(self: *const Parsed, long: []const u8) ?[]const u8 {
-        return self.strings.get(long);
+        const v = self.flags.get(long) orelse return null;
+        return switch (v) {
+            .string_flag => |s| s,
+            .bool_flag => null,
+        };
     }
 };
 

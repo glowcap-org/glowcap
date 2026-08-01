@@ -42,7 +42,7 @@
 			</a>
 			<nav class="top-nav" aria-label="Site">
 				<a href="$site.page('reference').link()">API reference</a>
-				<a href="https://codeberg.org/jimisaacs/pancake">Source</a>
+				<a href="https://github.com/jimisaacs/pancake">Source</a>
 				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
 					<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>
 					<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M4.3 4.3l1.5 1.5M18.2 18.2l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.3 19.7l1.5-1.5M18.2 5.8l1.5-1.5"/></svg>
@@ -122,8 +122,8 @@
 					<h2>Project</h2>
 					<a href="$site.page('project').link()">Project &amp; status</a>
 					<a href="$site.page('stability').link()">What you can depend on</a>
-					<a href="https://codeberg.org/jimisaacs/pancake/src/branch/main/SECURITY.md">Security policy</a>
-					<a href="https://codeberg.org/jimisaacs/pancake">Source</a>
+					<a href="https://github.com/jimisaacs/pancake/blob/main/SECURITY.md">Security policy</a>
+					<a href="https://github.com/jimisaacs/pancake">Source</a>
 					<a href="https://github.com/jimisaacs/pancake/actions/workflows/check.yml">Checks</a>
 				</nav>
 			</div>

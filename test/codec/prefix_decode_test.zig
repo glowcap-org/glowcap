@@ -25,10 +25,16 @@ const dispatch = pancake.ocapn.codec.dispatch;
 
 const big_max: usize = 1 << 20;
 
+const Verdict = pancake.ocapn.codec.framing.StreamScan.Verdict;
+
 /// Every strict prefix of `bytes` is `.incomplete`; the full buffer is
 /// `.decoded` consuming exactly `bytes.len`, with the same body discriminant as
 /// the whole-frame decode. This is the core "split at every byte" property.
 fn sweepSyrupExact(bytes: []const u8) !void {
+    // The resumable scan reads the same growing buffer a stream consumer does,
+    // so it is driven once across the whole sweep rather than restarted per
+    // prefix — restarting it would prove nothing about resuming.
+    var scan: pancake.ocapn.codec.framing.StreamScan = .{};
     var k: usize = 0;
     while (k < bytes.len) : (k += 1) {
         const prefix = syrup.decodePrefix(bytes[0..k], big_max);
@@ -36,7 +42,20 @@ fn sweepSyrupExact(bytes: []const u8) !void {
             std.debug.print("k={d}/{d} expected .incomplete, got {s}\n", .{ k, bytes.len, @tagName(prefix) });
             return err;
         };
+        // Below the full length there is no frame to find, so a scan that is
+        // both safe and useful withholds the decoder at every one of these.
+        // Answering `ready` early is not a stall — the decoder would just say
+        // `incomplete` — but it retires the filter for this frame and returns
+        // the walk to once per chunk, which is the cost this exists to remove.
+        const verdict = syrup.scanStream(bytes[0..k], &scan, big_max);
+        std.testing.expectEqual(Verdict.need_more, verdict) catch |err| {
+            std.debug.print("k={d}/{d} scan gave up filtering early\n", .{ k, bytes.len });
+            return err;
+        };
     }
+    // At the full frame the scan must let the decoder speak, or a complete
+    // frame would sit unparsed and the connection would stall.
+    try std.testing.expectEqual(Verdict.ready, syrup.scanStream(bytes, &scan, big_max));
 
     const full = syrup.decodePrefix(bytes, big_max);
     try std.testing.expect(full == .decoded);
@@ -64,6 +83,11 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
         .{ .symbol = "method" },
         .{ .list = nested[0..] },
         .{ .boolean = true },
+        // A `D`-tagged binary64 whose eight raw payload bytes spell the record
+        // and list delimiters. A framer that reads the payload instead of
+        // stepping over it miscounts depth on exactly this input, so the sweep
+        // has to carry one.
+        .{ .float64 = @bitCast(@as(u64, 0x3E3C_5D5B_3E3C_5D5B)) },
     };
 
     var frames: std.ArrayList(pancake.foundation.Frame) = .empty;

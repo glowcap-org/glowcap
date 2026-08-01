@@ -25,6 +25,7 @@ pub const slot = @import("slot.zig");
 const sturdyref_cache = @import("sturdyref_cache.zig");
 const imported_promise = @import("imported_promise.zig");
 const gc = @import("gc.zig");
+const resolver_export = @import("resolver_export.zig");
 const v1_0 = @import("v1_0.zig");
 const bimap = @import("bimap.zig");
 const handshake = @import("handshake.zig");
@@ -64,9 +65,9 @@ pub const Error = error{
     HandoffReplay,
     /// A `desc:handoff-receive` named a receiving session or side that is not
     /// the one derived from the give's recipient key and this node's own
-    /// session key. Those names key the replay counter in a registry shared by
-    /// every session on the host, so they are checked against a derivation
-    /// rather than trusted from the wire (ADR-0009).
+    /// session key. The receiving `Peer` owns one scalar replay guard, so these
+    /// names are checked against the live session derivation rather than trusted
+    /// from the wire (ADR-0009).
     InvalidHandoffSession,
     /// A wire-delta GC message (`op:gc-exports` / `op:gc-answers`) tried to
     /// decrement a refcount below zero or release an id the table never held.
@@ -109,17 +110,13 @@ pub const Error = error{
     /// partner introducing unboundedly many imports (ADR-0025); never a silent
     /// drop. Projects to a `ResourceExhausted` abort.
     ImportCapExceeded,
-    /// The vat's seen-handoff-count table (`engine.bootstrap.GiftRegistry`)
-    /// exceeded `SessionLimits.max_seen_handoff_counts` — too many distinct
-    /// Exporter-to-Receiver sessions tracked for replay rejection (ADR-0025).
-    HandoffCountCapExceeded,
-    /// The vat's deposited-gift table (`engine.bootstrap.GiftRegistry`) exceeded
+    /// The session's deposited-gift table (`engine.bootstrap.GiftRegistry`) exceeded
     /// `SessionLimits.max_deposited_gifts` — the load-bearing bound against
     /// deposit-without-withdraw (ADR-0025).
     DepositedGiftCapExceeded,
     /// The parked-withdraw table exceeded `SessionLimits.max_pending_withdraws`
     /// — the bound against a partner flooding `withdraw-gift`s whose deposits
-    /// never arrive (each parks until its gift is deposited, ADR-0056).
+    /// never arrive (each parks until its gift is deposited, ADR-0100).
     PendingWithdrawCapExceeded,
     /// An inbound argument tree nested deeper than
     /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk
@@ -133,6 +130,11 @@ pub const Error = error{
     /// lets a partner construct that pair. The bound is what keeps a single
     /// frame from buying unbounded CPU. Projects to `resource_exhausted`.
     CompareBudgetExhausted,
+    /// This session handed out every export position in the range its host
+    /// gave it. The range is what keeps one session's capabilities from
+    /// naming another's, so walking past it is refused rather than allowed to
+    /// alias. Projects to `resource_exhausted`.
+    ExportRangeExhausted,
     /// A set argument carried two Equal elements. A set admits each member
     /// once, so a duplicate is a second wire spelling of one value and is
     /// refused rather than admitted: inbound as the codec-neutral twin of the
@@ -184,25 +186,36 @@ pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = 0x8000_0000_0000_0000;
 /// refuses a partner answer claim in the virtual range above, so a far id the
 /// application holds at or above the base is provably a node token, never a
 /// partner import. `engine.Node` re-exports this as `REDEEMED_TOKEN_BASE`.
-pub const REDEEMED_TOKEN_BASE: u64 = 1 << 60;
+///
+/// The value lives with the space it partitions, in `model/position.zig`,
+/// beside `model.ImportName` which is the only thing that reads it directly.
+/// Two declarations of one boundary is the drift this re-export prevents.
+pub const REDEEMED_TOKEN_BASE: u64 = model.REDEEMED_TOKEN_BASE;
 
 comptime {
     // The virtual inbound-answer base must sit above the partner-named answer
     // range it reserves against; a base of 0 would reserve everything and admit
-    // nothing. Export ids need no such base: every export — actor, bootstrap,
-    // and V1.0 resolver alike — is minted by the one session allocator
-    // (`allocateExport`), so export collision is impossible by construction.
+    // nothing.
     std.debug.assert(0 < VIRTUAL_INBOUND_ANSWER_BASE);
     // The two reserved ranges must not overlap: the token range sits strictly
     // below the virtual-answer range, so refusing one never admits the other.
     std.debug.assert(REDEEMED_TOKEN_BASE < VIRTUAL_INBOUND_ANSWER_BASE);
+    // Export positions occupy the space below both. One session allocator mints
+    // them all, which settles collision *within* a session; between sessions it
+    // settles nothing, so a session is also held to its own slice of that space
+    // (`export_base` / `export_position_end`). Whoever mints the sessions carves
+    // those slices and asserts its own tiling. `engine.Node` is the one that
+    // does, and it derives its slot width from `REDEEMED_TOKEN_BASE` so the
+    // top slice ends exactly where the reserved space starts.
 }
 
-/// OCapN V1.0 resolver-callback bookkeeping (ADR-0010). V1.0 has no wire
-/// `op:resolve`; a promise's resolution rides as an `op:deliver` to a
-/// synthesized resolver capability, so the session keeps two position-keyed
-/// maps to translate between a semantic `Resolve` and a wire deliver in both
-/// directions.
+/// Resolver-link bookkeeping: the two position-keyed maps that say which of our
+/// outbound answers a local export settles, and which resolver import the
+/// partner gave us for each of its inbound answers.
+///
+/// The outbound half is version-neutral (`resolver_export.zig`). The inbound
+/// half is V1.0's alone, because only V1.0 lacks a wire `op:resolve` to push a
+/// resolution back.
 ///
 /// These are not folded onto the answer rows: the inbound resolver is installed
 /// while classifying an inbound deliver, *before* `recordRecv` installs the
@@ -214,17 +227,16 @@ comptime {
 /// actor and bootstrap exports, and collision is impossible because the
 /// session is the single minter.
 ///
-/// The V1.0 resolver links (ADR-0010) are two bijections held in `BiMap`s so
-/// each direction stays in lockstep by construction rather than by comment. The
-/// outbound link binds a resolver-export position to the answer-pos it
-/// resolves: the hot lookup (`answerForResolverExport`, run per inbound deliver)
-/// reads it forward, and the `op:gc-answers` prune reads it by its answer side,
-/// both O(1) — no scan of every outstanding link per released answer, which
-/// would be O(Q²) across a full release wave. The inbound link binds an
-/// answer-pos to the partner's resolver import (`resolverForInboundAnswer`
-/// forward, `answerForResolverImport` reverse). Keying each on its position
-/// newtype makes the direction a property of the type. Neither owns heap beyond
-/// its two map backings.
+/// Both links are bijections held in `BiMap`s so each direction stays in
+/// lockstep by construction rather than by comment. The outbound link binds a
+/// resolver-export position to the answer-pos it settles: the hot lookup
+/// (`answerForResolverExport`, run per inbound deliver) reads it forward, and
+/// the `op:gc-answers` prune reads it by its answer side, both O(1) — no scan of
+/// every outstanding link per released answer, which would be O(Q²) across a
+/// full release wave. The inbound link binds an answer-pos to the partner's
+/// resolver import (`resolverForInboundAnswer` forward, `answerForResolverImport`
+/// reverse). Keying each on its position newtype makes the direction a property
+/// of the type. Neither owns heap beyond its two map backings.
 const OutboundResolverLink = bimap.BiMap(model.ExportPosition, model.AnswerPosition);
 const InboundResolverLink = bimap.BiMap(model.AnswerPosition, model.ImportPosition);
 
@@ -317,6 +329,22 @@ pub const Session = struct {
     features: model.FeatureSet,
     limits: SessionLimits,
     next_export_position: u64,
+    /// The first export position this session may hand out. Paired with
+    /// `export_position_end`: together they are the range that says which
+    /// export numbers are *this* session's to name.
+    ///
+    /// A host gives each session a disjoint range so a capability offered to
+    /// the wrong session is absent there rather than ambiguous.
+    export_base: u64 = BOOTSTRAP_POSITION + 1,
+    /// One past the last export position this session may hand out.
+    ///
+    /// The range only protects the session while it stays inside: the
+    /// allocator is monotonic and counts positions ever minted, not live ones,
+    /// so a long-lived session that mints and releases would otherwise walk
+    /// into its neighbour's range and silently start naming another session's
+    /// objects. Running out is a loud refusal instead. `maxInt` when no range
+    /// was imposed.
+    export_position_end: u64 = std.math.maxInt(u64),
     /// Monotonic allocator for the answer-pos we put on outbound `op:deliver`s
     /// (bootstrap-fetch, pipeline decomposition). Per-direction namespace: our
     /// outbound answers are independent of the partner's inbound answer positions.
@@ -402,14 +430,14 @@ pub const Session = struct {
     /// (ADR-0009). Empty until the partner's handshake half arrives with raw
     /// bytes (owned-message apply has none). Lives in `key_arena`.
     partner_acceptable_location_raw: []const u8 = &.{},
-    /// V1.0 resolver-callback links for our *outbound* answers, mapping a
-    /// V1.0 outbound resolver link (ADR-0010): a resolver-export position bound
-    /// to the answer-pos it resolves. An inbound deliver to that export is the
-    /// partner resolving the answer (`answerForResolverExport`, forward, per
-    /// inbound deliver); a fully-released answer drops the link on the
-    /// `op:gc-answers` path by its answer side, O(1) either way. One `BiMap`
-    /// holds both directions, so no half-installed link can survive.
-    v1_0_outbound_resolver_link: OutboundResolverLink,
+    /// The resolver-export link (ADR-0010, ADR-0095): a resolver-export
+    /// position bound to the outbound answer-pos it settles. An inbound
+    /// deliver to that export is the partner settling the answer
+    /// (`answerForResolverExport`, forward, per inbound deliver); a
+    /// fully-released answer drops the link on the `op:gc-answers` path by its
+    /// answer side, O(1) either way. One `BiMap` holds both directions, so no
+    /// half-installed link can survive. Version-neutral (`resolver_export.zig`).
+    outbound_resolver_link: OutboundResolverLink,
     /// V1.0 inbound resolver link (ADR-0010): an answer-pos bound to the
     /// resolver import position we target when we send our resolution
     /// (`resolverForInboundAnswer` forward, `answerForResolverImport` reverse).
@@ -459,7 +487,33 @@ pub const Session = struct {
         captp_version: model.CaptpVersion = model.CaptpVersion.v1_0,
         features: model.FeatureSet = model.FeatureSet.full(),
         limits: SessionLimits = .{},
+        /// The first export position this session hands out.
+        ///
+        /// A near reference carries only this integer, so it means whatever the
+        /// session reading it says it means. Two sessions that both count from
+        /// the same place therefore name different objects with the same
+        /// number, and a capability offered to the wrong one is not refused —
+        /// it silently resolves to whatever that session keeps at that
+        /// position. Handing each session of a host a disjoint range makes the
+        /// foreign position absent instead of ambiguous, so the existing
+        /// held-export check refuses it. The bootstrap export keeps position 0
+        /// on every session (ADR-0006); this is where the rest begin.
+        export_base: u64 = BOOTSTRAP_POSITION + 1,
+        /// How many positions past `export_base` this session may hand out
+        /// before refusing. Unbounded when no host imposed a range.
+        export_span: u64 = std.math.maxInt(u64),
     };
+
+    /// Move the export allocator to the range this session was given, before
+    /// it has handed anything out. Asserted rather than tolerated: a base moved
+    /// after an export exists would renumber a position a partner already
+    /// holds.
+    pub fn setExportBase(self: *Session, base: u64, span: u64) void {
+        std.debug.assert(self.exports.len() == 0);
+        self.export_base = base;
+        self.next_export_position = base;
+        self.export_position_end = base +| span;
+    }
 
     /// Open v1.0 session, all defaults, `initWith(allocator, .{})`.
     pub fn init(allocator: std.mem.Allocator) Session {
@@ -488,7 +542,9 @@ pub const Session = struct {
             // `transitionToOpen` runs, so a cap registered before the session
             // opens (e.g. a vat published on accept, hosting on the completion
             // loop) still gets a fresh export rather than colliding with 0.
-            .next_export_position = BOOTSTRAP_POSITION + 1,
+            .export_base = options.export_base,
+            .next_export_position = options.export_base,
+            .export_position_end = options.export_base +| options.export_span,
             .key_arena = std.heap.ArenaAllocator.init(allocator),
             .recv_scratch = std.heap.ArenaAllocator.init(allocator),
             .exports = .empty,
@@ -502,7 +558,7 @@ pub const Session = struct {
             .local_session_key = &.{},
             .partner_designator = &.{},
             .partner_acceptable_location_raw = &.{},
-            .v1_0_outbound_resolver_link = .empty,
+            .outbound_resolver_link = .empty,
             .v1_0_inbound_resolver_link = .empty,
             .sturdyref_cache = .empty,
             .sturdyref_cache_index = .empty,
@@ -522,7 +578,7 @@ pub const Session = struct {
         var imported_it = self.imported_promises.valueIterator();
         while (imported_it.next()) |entry| deinitImportedPromise(self.allocator, entry);
         self.imported_promises.deinit(self.allocator);
-        self.v1_0_outbound_resolver_link.deinit(self.allocator);
+        self.outbound_resolver_link.deinit(self.allocator);
         self.v1_0_inbound_resolver_link.deinit(self.allocator);
         // Drop the index before freeing row swissnums (keys alias those slices).
         self.sturdyref_cache_index.deinit(self.allocator);
@@ -536,18 +592,28 @@ pub const Session = struct {
         self.recv_scratch.deinit();
     }
 
+    /// The version-neutral resolver-export link lives in `resolver_export.zig`;
+    /// these aliases keep the call sites reading as ordinary `Session` methods
+    /// while the bodies sit beside the link they operate on. The field itself
+    /// stays on `Session`.
+    pub const nominateResolverExport = resolver_export.nominateResolverExport;
+    pub const bindFreshResolverExport = resolver_export.bindFreshResolverExport;
+    pub const abandonResolverExport = resolver_export.abandonResolverExport;
+    pub const abandonResolverNomination = resolver_export.abandonResolverNomination;
+    pub const installOutboundResolver = resolver_export.installOutboundResolver;
+    pub const removeOutboundResolver = resolver_export.removeOutboundResolver;
+    pub const answerForResolverExport = resolver_export.answerForResolverExport;
+
     /// V1.0 resolver-callback translation lives in `v1_0.zig`; these aliases keep
     /// the call sites reading as ordinary `Session` methods while the bodies sit
     /// beside the rest of the V1.0 bridge. The resolver-link fields they operate
     /// on stay on `Session`.
     pub const needsV1_0Translation = v1_0.needsV1_0Translation;
-    pub const installOutboundResolver = v1_0.installOutboundResolver;
     pub const mintOutboundResolver = v1_0.mintOutboundResolver;
     pub const installInboundResolver = v1_0.installInboundResolver;
     pub const resolverForInboundAnswer = v1_0.resolverForInboundAnswer;
     pub const answerForResolverImport = v1_0.answerForResolverImport;
     pub const allocateInboundAnswer = v1_0.allocateInboundAnswer;
-    pub const answerForResolverExport = v1_0.answerForResolverExport;
 
     /// The `op:start-session` handshake state lives in `handshake.zig`; these
     /// aliases keep the call sites reading as ordinary `Session` methods. The
@@ -563,22 +629,41 @@ pub const Session = struct {
         self.state = .closed;
     }
 
-    /// Register `id` as a *granted* export: the row is installed at its local
-    /// baseline and one addressability grant is retained on top, so the
-    /// partner may address the position immediately, without waiting for the
-    /// capability's first marshal. This is the explicit out-of-band grant verb
-    /// (`Peer.exportObject` rides it); a capability that should stay
-    /// unaddressable until its reference first crosses the wire is reserved
-    /// with `reserveExport` / `allocateExport` instead. Idempotent on an
-    /// already-granted row. The pinned bootstrap position is always
-    /// addressable and never takes a grant.
-    pub fn registerExport(self: *Session, id: model.ExportPosition) !void {
-        try self.exports.register(self.allocator, id);
-        if (id.int() != BOOTSTRAP_POSITION and self.exports.wireHeld(id) == 0) {
-            try self.exports.retain(self.allocator, id);
+    /// The marshal-side door into `admitExportPosition`, for `apply`'s
+    /// first-mention branch. Same rule, reachable from the sibling module.
+    pub fn admitExportPositionForMarshal(self: *Session, id: model.ExportPosition) Error!void {
+        return self.admitExportPosition(id);
+    }
+
+    /// Admit an export position that did not come from this session's own
+    /// allocator, and advance past it.
+    ///
+    /// An export position is a name in *this* session's namespace and nowhere
+    /// else, so one from outside the session's range names nothing here.
+    /// Minting a row for it would answer a partner with an object this session
+    /// does not host, and dragging the allocator up to it would spend the
+    /// range the session has left, after which it can export nothing at all.
+    /// Every door a position can arrive through — an explicit grant, a
+    /// reservation, or a first marshal in a sent resolve — comes through here,
+    /// so the rule is the session's rather than each caller's to remember.
+    ///
+    /// The bootstrap position sits below every range by construction and is
+    /// always this session's own.
+    fn admitExportPosition(self: *Session, id: model.ExportPosition) Error!void {
+        if (id.int() == BOOTSTRAP_POSITION) return;
+        if (id.int() < self.export_base or id.int() >= self.export_position_end) {
+            return Error.InvalidReference;
         }
         if (id.int() >= self.next_export_position) {
             self.next_export_position = id.int() + 1;
+        }
+    }
+
+    pub fn registerExport(self: *Session, id: model.ExportPosition) !void {
+        try self.admitExportPosition(id);
+        try self.exports.register(self.allocator, id);
+        if (id.int() != BOOTSTRAP_POSITION and self.exports.wireHeld(id) == 0) {
+            try self.exports.retain(self.allocator, id);
         }
     }
 
@@ -590,10 +675,8 @@ pub const Session = struct {
     /// downgrades: reserving an already-granted position leaves the grant
     /// standing.
     pub fn reserveExport(self: *Session, id: model.ExportPosition) !void {
+        try self.admitExportPosition(id);
         try self.exports.register(self.allocator, id);
-        if (id.int() >= self.next_export_position) {
-            self.next_export_position = id.int() + 1;
-        }
     }
 
     /// Retain a partner-driven import. A *new* id is bounded by
@@ -698,10 +781,13 @@ pub const Session = struct {
     /// materializes its own owned message on the retain path
     /// (`Peer.maybeEnqueuePipelinedCall`).
     ///
-    /// The rarer, sub-structure-heavy kinds (`gc_*`, `handoff`, and the
-    /// `get`/`index`/`untag` projection ops) fall back to one owned
-    /// materialization for the existing owned validate / apply — they are off
-    /// the hot path and not worth a second borrowed walk.
+    /// The rarer kinds that validate or apply over sub-structure the borrowed
+    /// walkers do not yet read (`gc_*`'s position vectors, `handoff`'s deep
+    /// record) fall back to one owned materialization for the existing owned
+    /// validate / apply. The projection ops (`get`/`index`/`untag`) stay
+    /// borrowed: the session reads only their receiver and answer position,
+    /// and the engine re-reads the field or tag from the frame itself, so an
+    /// owned copy here would materialize bytes nobody reads.
     pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
         try self.admitInState(body);
         // Everything both branches bump into `recv_scratch` is turn-scratch —
@@ -713,11 +799,11 @@ pub const Session = struct {
         defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator(), self.limits);
         switch (body) {
-            .deliver, .resolve, .listen, .start_session, .abort => {
+            .deliver, .resolve, .listen, .start_session, .abort, .get, .index, .untag => {
                 try self.validateRecvView(body, &introduced);
                 try self.applyRecvView(body, &introduced);
             },
-            .gc_export, .gc_answer, .handoff, .get, .index, .untag => {
+            .gc_export, .gc_answer, .handoff => {
                 // The feature gate reads the kind alone, so it runs against the
                 // borrowed view first. Otherwise a kind this session never
                 // negotiated could make us materialize its whole payload and
@@ -886,6 +972,20 @@ pub const Session = struct {
         return self.imports.contains(id);
     }
 
+    /// Whether this session can name `id` as a far reference: a row it holds,
+    /// or the partner's pinned bootstrap, which is always addressable and
+    /// carries no row (ADR-0006). Wider than `hasImport` by exactly that
+    /// bootstrap case.
+    ///
+    /// The one definition of "an import this session holds". The send-side
+    /// reference rule asks it before letting a far onto the wire, and
+    /// `driver_core.Host.enrollCapability` asks it before minting a routing
+    /// token for one, so the two cannot drift into disagreeing about which
+    /// positions this session may name.
+    pub fn holdsImport(self: *const Session, id: model.ImportPosition) bool {
+        return id.int() == BOOTSTRAP_POSITION or self.imports.contains(id);
+    }
+
     /// Live export row's CapTP `Slot` (object or promise), or null if absent.
     pub fn exportSlot(self: *const Session, id: model.ExportPosition) ?slot.Slot {
         return self.exports.slotOf(id);
@@ -912,6 +1012,7 @@ pub const Session = struct {
     /// partner cannot address the position until the capability's reference
     /// first crosses the wire (or `registerExport` grants it explicitly).
     pub fn allocateExport(self: *Session) !model.ExportPosition {
+        if (self.next_export_position >= self.export_position_end) return Error.ExportRangeExhausted;
         const id = model.ExportPosition.from(self.next_export_position);
         try self.exports.register(self.allocator, id);
         self.next_export_position += 1;
@@ -951,6 +1052,65 @@ pub const Session = struct {
         self.imports.decrement(id, 1) catch unreachable;
     }
 
+    /// Unwind one `installOutboundAnswer` whose position never reached the
+    /// wire (a failed send after the install), the answer-table member of the
+    /// `releaseUnsharedExport` family. Only valid while the row is still the
+    /// pending count-1 installation the caller just made; an answer the
+    /// partner has seen is released through `op:gc-answers`, never this. Like
+    /// the export half, the monotonic position counter is left advanced.
+    pub fn abandonOutboundAnswer(self: *Session, id: model.AnswerPosition) void {
+        const entry = self.outbound_answers.getPtr(id) orelse unreachable;
+        std.debug.assert(entry.status() == .pending and entry.count == 1);
+        deinitAnswerCell(self.allocator, entry);
+        self.outbound_answers.remove(id);
+    }
+
+    /// The node-unique token this session's import `position` was enrolled
+    /// under (ADR-0069), or null when it has none yet. Enrolling the same
+    /// import twice must name it by the same token, or one capability would
+    /// wear two identities and each enrollment would leave a routing row
+    /// behind, so the node reads this before minting.
+    pub fn foreignTokenFor(self: *const Session, position: model.ImportPosition) ?u64 {
+        return self.imports.tokenOf(position);
+    }
+
+    /// Record the token an import was enrolled under. The token is kept on the
+    /// import row, so releasing the import forgets it in the same step.
+    pub fn noteForeignToken(self: *Session, position: model.ImportPosition, token: u64) !void {
+        return self.imports.noteToken(self.allocator, position, token);
+    }
+
+    /// Opaque Host capability attached to this live import incarnation.
+    pub fn hostCapabilityFor(self: *const Session, position: model.ImportPosition) ?u64 {
+        return self.imports.hostRefOf(position);
+    }
+
+    pub const HostImportIdentity = ImportTable.HostIdentity;
+
+    pub fn hostImportIdentity(self: *const Session, position: model.ImportPosition) ?HostImportIdentity {
+        return self.imports.hostIdentityOf(position);
+    }
+
+    /// Attach one Host capability id to the live import row. Session retains
+    /// only the scalar identity; Host owns its meaning and lifetime.
+    pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u64) !void {
+        return self.imports.noteHostRef(self.allocator, position, ref);
+    }
+
+    pub fn claimHostCapabilityRetain(self: *Session, position: model.ImportPosition, ref: u64) !void {
+        return self.imports.claimHostRetain(position, ref);
+    }
+
+    pub fn releaseHostCapabilityRetains(self: *Session, position: model.ImportPosition, ref: u64, delta: u64) void {
+        self.imports.releaseHostRetains(position, ref, delta);
+    }
+
+    /// Forget the expected Host identity without disturbing a Node token that
+    /// may coexist on the row during migration.
+    pub fn forgetHostCapability(self: *Session, position: model.ImportPosition, ref: u64) void {
+        self.imports.forgetHostRef(position, ref);
+    }
+
     /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
     /// (ADR-0006 responder half): allocate a fresh export and map the swissnum to
     /// it. Returns the export position. Re-registering a swissnum replaces its mapping.
@@ -959,6 +1119,14 @@ pub const Session = struct {
         // The export was never handed out, so a failure to map the swissnum
         // rolls it back instead of leaving a phantom export row.
         errdefer self.releaseUnsharedExport(export_position);
+        try self.bindBootstrapCap(swissnum, export_position);
+        return export_position;
+    }
+
+    /// Bind a bootstrap name to an already-held export. The caller owns that
+    /// export's lifetime; replacing discovery never releases the displaced
+    /// object because capabilities already issued to it remain live.
+    pub fn bindBootstrapCap(self: *Session, swissnum: []const u8, export_position: model.ExportPosition) !void {
         const gop = try self.bootstrap.getOrPut(self.allocator, swissnum);
         if (!gop.found_existing) {
             // getOrPut left the slot keyed on the borrowed `swissnum`; replace it
@@ -970,7 +1138,6 @@ pub const Session = struct {
             };
         }
         gop.value_ptr.* = export_position;
-        return export_position;
     }
 
     /// The local export serving `swissnum`, or null if none is registered.
@@ -992,20 +1159,6 @@ pub const Session = struct {
         } else {
             std.debug.assert(self.bootstrap.remove(swissnum));
         }
-    }
-
-    /// The swissnum a local export serves, or null if `export_position` is not a
-    /// bootstrap-published cap on this session, the reverse of `bootstrapLookup`.
-    /// A gifted near resolved through this names the vat-scoped object identity a
-    /// cross-session withdrawal re-resolves against the withdrawing session
-    /// (ADR-0009 exporter half). The returned slice aliases this session's
-    /// arena-owned key and lives as long as the session.
-    pub fn bootstrapSwissForExport(self: *const Session, export_position: model.ExportPosition) ?[]const u8 {
-        var it = self.bootstrap.iterator();
-        while (it.next()) |entry| {
-            if (entry.value_ptr.* == export_position) return entry.key_ptr.*;
-        }
-        return null;
     }
 
     /// Reserve the next outbound answer-pos. The id is installed in the outbound
@@ -1223,6 +1376,7 @@ pub const Session = struct {
     pub const notePendingEnliven = sturdyref_cache.notePendingEnliven;
     pub const finishPendingEnliven = sturdyref_cache.finishPendingEnliven;
     pub const settlePendingEnlivenIntoCache = sturdyref_cache.settlePendingEnlivenIntoCache;
+    pub const forgetSturdyrefEnlivenmentsAt = sturdyref_cache.forgetSturdyrefEnlivenmentsAt;
 };
 
 // Wire-delta GC accounting and structural well-formedness checks (ADR-0008):

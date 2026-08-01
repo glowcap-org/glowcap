@@ -27,20 +27,19 @@ pub const PANCAKE_IROH_EV_READABLE: u32 = crate::abi_constants_gen::IROH_EV_READ
 pub const PANCAKE_IROH_EV_WRITABLE: u32 = crate::abi_constants_gen::IROH_EV_WRITABLE;
 pub const PANCAKE_IROH_EV_CLOSED: u32 = crate::abi_constants_gen::IROH_EV_CLOSED;
 pub const PANCAKE_IROH_EV_ACCEPT: u32 = crate::abi_constants_gen::IROH_EV_ACCEPT;
+pub const PANCAKE_IROH_EV_CONNECT: u32 = crate::abi_constants_gen::IROH_EV_CONNECT;
 
 /// One readiness record drained by `pancake_iroh_netlayer_drain_ready` — the
-/// `#[repr(C)]` counterpart of the header's `PancakeIrohReadyEvent`. `conn` is
-/// null for an accept record (claim it with `try_accept`) and otherwise the ready
-/// connection's handle; `events` is the `PANCAKE_IROH_EV_*` bitset.
+/// `#[repr(C)]` counterpart of the header's `PancakeIrohReadyEvent`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PancakeIrohReadyEvent {
-	pub conn: *mut PancakeIrohConn,
+	pub subject: usize,
 	pub events: u32,
 }
 
 // Pin the hand-mirrored layout on LP64 (the linux x86_64/aarch64 targets the
-// gates run), the same posture as `sys::driver`'s action pin: a field added or
+// gates run), the same posture as `sys::host`'s action pin: a field added or
 // reordered on either side moves an offset and fails the build loudly instead
 // of misrouting the first drained record. Expected values come from
 // `layouts_gen` (`zig build gen-binding-ffi-layouts`), reflected off the real
@@ -48,7 +47,7 @@ pub struct PancakeIrohReadyEvent {
 const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<PancakeIrohReadyEvent>() == PANCAKE_IROH_READY_EVENT_SIZE);
-	assert!(offset_of!(PancakeIrohReadyEvent, conn) == PANCAKE_IROH_READY_EVENT_CONN_OFF);
+	assert!(offset_of!(PancakeIrohReadyEvent, subject) == PANCAKE_IROH_READY_EVENT_SUBJECT_OFF);
 	assert!(offset_of!(PancakeIrohReadyEvent, events) == PANCAKE_IROH_READY_EVENT_EVENTS_OFF);
 };
 

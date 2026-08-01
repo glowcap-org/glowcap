@@ -2,11 +2,12 @@ use super::*;
 use crate::connect;
 use crate::listen::{listen, listen_with_host};
 use crate::sys;
-use crate::sys::driver as ffi;
+use crate::sys::host as ffi;
 use crate::AbortDomain;
 use crate::Codec;
+use crate::ErrorKind;
 use crate::Host;
-use crate::Reference;
+use crate::Ref;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::oneshot;
@@ -44,19 +45,13 @@ async fn a_mid_turn_driving_verb_breaks_its_own_answer() {
 					}
 					Ok(Argument::String("pong".into()))
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
 			});
 
-			let conn = connect(
-				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
-				None,
-				None,
-			)
-			.await
-			.unwrap();
+			let locator = crate::tcp_locator(&addr.ip().to_string(), addr.port());
+			let conn = connect(&locator, None, None).await.unwrap();
 			ready_rx.await.unwrap();
 			let cap = conn.fetch("svc").await.unwrap();
 			let broke = conn.send(&cap, "reenter", &[]).await.unwrap_err();
@@ -95,31 +90,29 @@ async fn enliven_round_trips_then_caches() {
 					}
 					Ok(Argument::Symbol("alive".into()))
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
 			});
 
-			let conn = connect(
-				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
-				None,
-				None,
-			)
-			.await
-			.unwrap();
+			let locator = crate::tcp_locator(&addr.ip().to_string(), addr.port());
+			let conn = connect(&locator, None, None).await.unwrap();
 			ready_rx.await.unwrap();
 
-			// The connection is already open; enliven keys on the sturdyref's
-			// swissnum, carried by the URI as `/s/greeter`.
-			let sturdyref = "ocapn://greeter-host.tcp/s/greeter";
-			let cap = conn.enliven(sturdyref).await.unwrap();
+			let mismatch = conn
+				.enliven("ocapn://127.0.0.1%3A1.tcp/s/greeter")
+				.await
+				.unwrap_err();
+			assert_eq!(mismatch.kind(), ErrorKind::InvalidArgument);
+			// The complete sturdyref must name this selected session's peer.
+			let sturdyref = format!("{locator}/s/greeter");
+			let cap = conn.enliven(&sturdyref).await.unwrap();
 			let reply = conn.send(&cap, "hello", &[]).await.unwrap();
 			assert_eq!(reply, Argument::Symbol("alive".into()));
 
 			// A repeat enliven hits the dedup cache: the same live capability.
-			let again = conn.enliven(sturdyref).await.unwrap();
-			assert_eq!(again.reference(), cap.reference());
+			let again = conn.enliven(&sturdyref).await.unwrap();
+			assert_eq!(again, cap);
 			let reply2 = conn.send(&again, "hello", &[]).await.unwrap();
 			assert_eq!(reply2, Argument::Symbol("alive".into()));
 
@@ -150,7 +143,6 @@ async fn send_surfaces_the_partner_break_reason() {
 						other => format!("no such method: {other}"),
 					})
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -195,7 +187,6 @@ async fn a_panicking_behavior_breaks_its_answer_and_the_process_survives() {
 					}
 					Ok(Argument::Symbol("calm".into()))
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -251,7 +242,6 @@ async fn tell_flushes_in_order_before_a_following_send() {
 					"get" => Ok(Argument::Integer(count)),
 					other => Err(format!("no such method: {other}")),
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -319,7 +309,6 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 					}
 					Ok(Argument::Void)
 				})
-				.await
 				.unwrap();
 				conn.serve().await;
 			});
@@ -357,7 +346,6 @@ async fn a_failed_fetch_rejects_typed() {
 			let host = tokio::task::spawn_local(async move {
 				let conn = server.accept().await.unwrap();
 				conn.publish("svc", |_verb, _args| Ok(Argument::Void))
-					.await
 					.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -401,7 +389,6 @@ async fn a_failed_command_replies_typed_and_the_connection_survives() {
 					}
 					Ok(Argument::String("pong".into()))
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -416,11 +403,11 @@ async fn a_failed_command_replies_typed_and_the_connection_survives() {
 			.unwrap();
 			ready_rx.await.unwrap();
 
-			// An inadmissible target: import 999 was never granted by the
-			// partner, so the session refuses the deliver locally.
-			let bogus = Ref::try_from(&Argument::Reference(Reference::far(999))).unwrap();
+			// An inadmissible target: opaque Host id 999 was never minted, so
+			// the Host refuses the deliver before selecting a session.
+			let bogus = Ref::try_from(&Argument::Reference(Ref::bare_id(999))).unwrap();
 			let err = conn.send(&bogus, "ping", &[]).await.unwrap_err();
-			assert_eq!(err.code(), crate::sys::ERR_SESSION);
+			assert_eq!(err.code(), crate::sys::ERR_NOT_FOUND);
 
 			// The connection survived the refusal: the next verbs still work.
 			let cap = conn.fetch("svc").await.unwrap();
@@ -466,7 +453,6 @@ async fn send_to_a_self_spawned_actor_resolves_in_process() {
 					};
 					Ok(Argument::String(format!("hi {who}")))
 				})
-				.await
 				.unwrap();
 			let reply = conn
 				.send(&me, "greet", &[Argument::String("self".into())])
@@ -496,12 +482,13 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 			let (ready_tx, ready_rx) = oneshot::channel::<()>();
 			let host = tokio::task::spawn_local(async move {
 				let conn = server.accept().await.unwrap();
-				// The task the board hands out: `complete` flips done and
-				// `status` reports it. Pre-spawned because a behavior runs
-				// synchronously and cannot itself await a spawn.
-				let done = Cell::new(false);
-				let task = conn
-					.spawn(move |verb: &str, _args: &[Argument]| match verb {
+				let factory = Session::view(Rc::clone(&conn.shared));
+				conn.publish("root", move |verb, _args| {
+					if verb != "create" {
+						return Err(format!("no such method: {verb}"));
+					}
+					let done = Cell::new(false);
+					let task = factory.spawn(move |task_verb, _args| match task_verb {
 						"assign" => Ok(Argument::String("assigned".into())),
 						"complete" => {
 							done.set(true);
@@ -512,15 +499,9 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 						)),
 						other => Err(format!("no such method: {other}")),
 					})
-					.await
-					.unwrap();
-				conn.publish("root", move |verb, _args| {
-					if verb != "create" {
-						return Err(format!("no such method: {verb}"));
-					}
+					.map_err(|error| error.to_string())?;
 					Ok((&task).into())
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -544,6 +525,88 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 			assert_eq!(status, Argument::String("done".into()));
 			conn.close();
 			host.await.unwrap();
+		})
+		.await;
+}
+
+// A hosted actor belongs to the Host, not to the Port that first projected it.
+// Close that originating Port, invoke the actor through a sibling Port, and
+// have its synchronous callback use the stale Session handle to spawn a child.
+// The active Host turn must select turn-spawn; consulting the dead Session
+// would reject before the child could ride the reply.
+#[tokio::test]
+async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let addr = server.local_addr().unwrap();
+			let (ready_tx, ready_rx) = oneshot::channel::<()>();
+			let hosted = tokio::task::spawn_local(async move {
+				let origin = server.accept().await.unwrap();
+				let stale_origin = Session::view(Rc::clone(&origin.shared));
+				let root = origin
+					.spawn(move |verb, _args| {
+						if verb != "create" {
+							return Err(format!("no such method: {verb}"));
+						}
+						let child = stale_origin.spawn(|child_verb, _args| {
+							if child_verb == "ping" {
+								Ok(Argument::Symbol("alive".into()))
+							} else {
+								Err(format!("no such method: {child_verb}"))
+							}
+						})
+						.map_err(|error| error.to_string())?;
+						Ok((&child).into())
+					})
+					.unwrap();
+				let sibling = server.accept().await.unwrap();
+				sibling
+					.publish("introducer", move |verb, _args| {
+						if verb == "get" {
+							Ok((&root).into())
+						} else {
+							Err(format!("no such method: {verb}"))
+						}
+					})
+					.unwrap();
+				origin.close();
+				ready_tx.send(()).unwrap();
+				sibling.serve().await;
+			});
+
+			let origin_client = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			let sibling_client = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			ready_rx.await.unwrap();
+			let introducer = sibling_client.fetch("introducer").await.unwrap();
+			let root = Ref::try_from(
+				&sibling_client.send(&introducer, "get", &[]).await.unwrap(),
+			)
+			.expect("the sibling introduces the Host-owned root");
+			let child = Ref::try_from(
+				&sibling_client.send(&root, "create", &[]).await.unwrap(),
+			)
+			.expect("create returns the turn-spawned child");
+			assert_eq!(
+				sibling_client.send(&child, "ping", &[]).await.unwrap(),
+				Argument::Symbol("alive".into())
+			);
+			sibling_client.close();
+			origin_client.close();
+			hosted.await.unwrap();
 		})
 		.await;
 }
@@ -586,7 +649,6 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 					}
 					Ok(Argument::Void)
 				})
-				.await
 				.unwrap();
 			let reply = conn.send(&me, "die", &[]).await.unwrap();
 			assert_eq!(reply, Argument::Symbol("closing".into()));
@@ -598,6 +660,90 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 			let err = conn.send(&me, "die", &[]).await.unwrap_err();
 			assert_eq!(err.kind(), crate::ErrorKind::Closed);
 			host.await.unwrap();
+		})
+		.await;
+}
+
+// Host close is one terminal transaction even when a behavior starts it from
+// inside its own callback. The callback must stay alive until it returns; the
+// deferred transaction must then close every sibling session before releasing
+// the native Host and its actor cells.
+#[tokio::test]
+async fn a_behavior_closing_a_two_session_host_parks_one_ordered_release() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let shared_host = Host::new_host();
+			let observed_host = shared_host.clone();
+			let server = listen_with_host("127.0.0.1:0", shared_host).await.unwrap();
+			let addr = server.local_addr().unwrap();
+			let during = Rc::new(Cell::new(0usize));
+			let during_callback = Rc::clone(&during);
+			let refused_after_intent = Rc::new(Cell::new(false));
+			let refused_in_callback = Rc::clone(&refused_after_intent);
+			let (ready_tx, ready_rx) = oneshot::channel::<()>();
+			let (closed_tx, closed_rx) = oneshot::channel::<(bool, bool)>();
+
+			let server_task = tokio::task::spawn_local(async move {
+				let first = server.accept().await.unwrap();
+				let host_to_close = server.host();
+				first
+					.publish("svc", move |verb, _args| {
+						if verb != "close-host" {
+							return Err(format!("no such method: {verb}"));
+						}
+						host_to_close.close();
+						let refused = host_to_close
+							.set_session_limits(4096, 32)
+							.is_err_and(|error| error.kind() == crate::ErrorKind::Closed);
+						refused_in_callback.set(refused);
+						during_callback.set(crate::host::pending_release_count());
+						Ok(Argument::Symbol("closing".into()))
+					})
+					.unwrap();
+				let second = server.accept().await.unwrap();
+				ready_tx.send(()).unwrap();
+
+				first.serve().await;
+				second.serve().await;
+				let _ = closed_tx.send((first.shared.released.get(), second.shared.released.get()));
+			});
+
+			let first_client = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			let second_client = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			ready_rx.await.unwrap();
+
+			let svc = first_client.fetch("svc").await.unwrap();
+			let _ = first_client.send(&svc, "close-host", &[]).await;
+			let released = tokio::time::timeout(std::time::Duration::from_secs(5), closed_rx)
+				.await
+				.expect("Host close must release both session loops")
+				.unwrap();
+
+			assert_eq!(during.get(), 1, "the callback parks one Host transaction");
+			assert!(
+				refused_after_intent.get(),
+				"close intent must refuse another Host verb before callback unwind"
+			);
+			assert_eq!(crate::host::pending_release_count(), 0);
+			assert_eq!(released, (true, true));
+			assert!(observed_host.shared().raw().is_null());
+
+			first_client.close();
+			second_client.close();
+			server_task.await.unwrap();
 		})
 		.await;
 }
@@ -638,7 +784,6 @@ async fn pipelined_projections_reach_a_field() {
 						])],
 					})
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -699,9 +844,9 @@ async fn forwarding_proxies_forward_revoke_and_attenuate_over_the_wire() {
 				tool_ready_rx.await.unwrap();
 				let tool = conn.fetch("tool").await.unwrap();
 
-				let care = conn.caretaker(&tool).await.unwrap();
+				let care = conn.caretaker(&tool).unwrap();
 				let proxy = care.proxy.clone();
-				let readonly = conn.attenuate(&tool, &["get"]).await.unwrap();
+				let readonly = conn.attenuate(&tool, &["get"]).unwrap();
 
 				conn.publish("root", move |verb, _args| match verb {
 					"proxy" => Ok((&proxy).into()),
@@ -712,7 +857,6 @@ async fn forwarding_proxies_forward_revoke_and_attenuate_over_the_wire() {
 					}
 					other => Err(format!("no such method: {other}")),
 				})
-				.await
 				.unwrap();
 				proxy_ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -734,7 +878,6 @@ async fn forwarding_proxies_forward_revoke_and_attenuate_over_the_wire() {
 				"get" => Ok(Argument::Integer(7)),
 				other => Err(format!("no such method: {other}")),
 			})
-			.await
 			.unwrap();
 			tool_ready_tx.send(()).unwrap();
 			proxy_ready_rx.await.unwrap();
@@ -792,7 +935,6 @@ async fn a_forwarding_proxy_answers_its_hosts_own_local_call() {
 					"ping" => Ok(Argument::Integer(99)),
 					other => Err(format!("no such method: {other}")),
 				})
-				.await
 				.unwrap();
 				conn.serve().await;
 			});
@@ -814,9 +956,8 @@ async fn a_forwarding_proxy_answers_its_hosts_own_local_call() {
 					}
 					other => Err(format!("no such method: {other}")),
 				})
-				.await
 				.unwrap();
-			let care_local = conn.caretaker(&local_tool).await.unwrap();
+			let care_local = conn.caretaker(&local_tool).unwrap();
 			let doubled = conn
 				.send(&care_local.proxy, "double", &[Argument::Integer(21)])
 				.await
@@ -826,7 +967,7 @@ async fn a_forwarding_proxy_answers_its_hosts_own_local_call() {
 			// A caretaker over a far tool, called locally: the proxy forwards
 			// across the wire and the local send still settles on the reply.
 			let far = conn.fetch("tool").await.unwrap();
-			let care_far = conn.caretaker(&far).await.unwrap();
+			let care_far = conn.caretaker(&far).unwrap();
 			let pong = conn.send(&care_far.proxy, "ping", &[]).await.unwrap();
 			assert_eq!(pong, Argument::Integer(99));
 
@@ -862,7 +1003,6 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 			let host = tokio::task::spawn_local(async move {
 				let conn = server.accept().await.unwrap();
 				conn.publish("echo", |_verb, args| Ok(Argument::List(args.to_vec())))
-					.await
 					.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -1016,7 +1156,6 @@ async fn dropping_a_fetched_cap_releases_its_import_when_gc_is_on() {
 				.await
 				.unwrap();
 				conn.publish("svc", |_verb, _args| Ok(Argument::Void))
-					.await
 					.unwrap();
 				conn.serve().await;
 			});
@@ -1031,7 +1170,7 @@ async fn dropping_a_fetched_cap_releases_its_import_when_gc_is_on() {
 			.with_gc();
 			let cap = conn.fetch("svc").await.unwrap();
 			// Dropping the only handle parks the token; the serve task drains
-			// it into one `pancake_host_gc_release`, which rides the wire as
+			// it into one `pancake_host_ref_release`, which rides the wire as
 			// op:gc-exports.
 			drop(cap);
 			wait_for(&seen, "the partner to observe op:gc-exports").await;
@@ -1056,7 +1195,6 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 			let host = tokio::task::spawn_local(async move {
 				let conn = server.accept().await.unwrap();
 				conn.publish("svc", |_verb, _args| Ok(Argument::Void))
-					.await
 					.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -1180,7 +1318,6 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 			let host = tokio::task::spawn_local(async move {
 				let conn = server.accept().await.unwrap();
 				conn.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
-					.await
 					.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -1229,13 +1366,11 @@ async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff()
 				let conn = server.accept().await.unwrap();
 				let target = conn
 					.spawn(|_verb, _args| Ok(Argument::Symbol("reached".into())))
-					.await
 					.unwrap();
 				conn.publish("svc", move |verb, _args| match verb {
 					"grab" => Ok((&target).into()),
 					_ => Ok(Argument::String("plain".into())),
 				})
-				.await
 				.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -1260,7 +1395,7 @@ async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff()
 			// route the host knows, but not one a redeem dialed.
 			let handed = conn.send_redeeming(&svc, "grab", &[]).await.unwrap();
 			let member = Ref::try_from(&handed.reply).expect("grab answers with a capability");
-			assert!(matches!(member.reference(), Reference::Far { .. }));
+			assert_ne!(member.id(), 0);
 			assert!(handed.via.is_none());
 
 			// The lifted capability is live, so the reply survived the extra
@@ -1290,7 +1425,6 @@ async fn a_session_view_does_not_close_the_connection_when_dropped() {
 			let host = tokio::task::spawn_local(async move {
 				let conn = server.accept().await.unwrap();
 				conn.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
-					.await
 					.unwrap();
 				ready_tx.send(()).unwrap();
 				conn.serve().await;
@@ -1312,9 +1446,8 @@ async fn a_session_view_does_not_close_the_connection_when_dropped() {
 			// the session it views, which is the whole point of surfacing it.
 			let inbox = view
 				.spawn(|_verb, _args| Ok(Argument::Symbol("inbox".into())))
-				.await
 				.unwrap();
-			assert!(matches!(inbox.reference(), Reference::Near { .. }));
+			assert_ne!(inbox.id(), 0);
 			assert_eq!(
 				view.send(&cap, "ping", &[]).await.unwrap(),
 				Argument::Symbol("alive".into())
@@ -1331,6 +1464,150 @@ async fn a_session_view_does_not_close_the_connection_when_dropped() {
 			conn.close();
 			assert!(conn.shared.released.get());
 			host.await.unwrap();
+		})
+		.await;
+}
+
+// One partner that publishes `svc`, serves it, and ends when the client closes.
+// Returns its locator and the serving task, so a teardown test can dial several
+// distinct partners and watch which connections survive a close.
+async fn svc_partner() -> (String, tokio::task::JoinHandle<()>) {
+	let server = listen("127.0.0.1:0").await.unwrap();
+	let addr = server.local_addr().unwrap();
+	let serving = tokio::task::spawn_local(async move {
+		let conn = server.accept().await.unwrap();
+		conn.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
+			.unwrap();
+		conn.serve().await;
+	});
+	(
+		crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+		serving,
+	)
+}
+
+// `close` reads the same ownership axis `drop` does. A `Redeemed::via` handle is
+// a view onto an exporter connection the host dialed, and so is every other
+// redeem in flight on that host: a sweep from the view would sever capabilities
+// the caller still holds on connections it never named. Closing a session closes
+// that session; closing the host closes everything the host holds.
+#[tokio::test]
+async fn a_view_close_leaves_the_hosts_other_exporters_open() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let (caller_uri, caller_serving) = svc_partner().await;
+			let (first_uri, first_serving) = svc_partner().await;
+			let (second_uri, second_serving) = svc_partner().await;
+
+			// One host, three connections: the session the application sends on,
+			// and two exporter connections the host dialed to redeem handoffs.
+			let host = Host::new_host();
+			let caller = connect(&caller_uri, None, Some(host.clone()))
+				.await
+				.unwrap();
+			let first = connect(&first_uri, None, Some(host.clone())).await.unwrap();
+			let second = connect(&second_uri, None, Some(host.clone()))
+				.await
+				.unwrap();
+
+			// The shape `send_redeeming` hands back as `via`, closed explicitly.
+			let via = Session::view(Rc::clone(&first.shared));
+			via.close();
+			assert!(
+				first.shared.released.get(),
+				"a view close closes the connection it names"
+			);
+			assert!(
+				!second.shared.released.get(),
+				"another redeem's exporter is not this view's to close"
+			);
+			assert!(
+				!caller.shared.released.get(),
+				"nor is the session the application sent on"
+			);
+			// The untouched exporter is still a working connection.
+			let cap = second.fetch("svc").await.unwrap();
+			assert_eq!(
+				second.send(&cap, "ping", &[]).await.unwrap(),
+				Argument::Symbol("alive".into())
+			);
+
+			// Closing the session the application sends on closes that session
+			// and nothing else. The host was passed in, so it is not this
+			// session's to tear down, and a sibling session on it would still
+			// be using the exporters its own redeems caused.
+			caller.close();
+			assert!(caller.shared.released.get());
+			assert!(
+				!second.shared.released.get(),
+				"closing one session does not close a shared host's exporters"
+			);
+
+			// Releasing the host is what closes everything it holds.
+			host.close();
+			assert!(
+				second.shared.released.get(),
+				"closing the host closes the exporters it dialed"
+			);
+
+			caller_serving.await.unwrap();
+			first_serving.await.unwrap();
+			second_serving.await.unwrap();
+		})
+		.await;
+}
+
+// Zero is how the C ABI and the sibling bindings spell "no bound", so a caller
+// threading a configured millisecond count through must not land on a deadline
+// of right now. The partner holds the open byte channel before answering, so
+// the dialer's handshake is unambiguously still pending when a budget would be
+// consulted: an instant deadline fires there, an unbounded wait does not.
+#[tokio::test]
+async fn a_zero_handshake_budget_waits_unbounded() {
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let addr = listener.local_addr().unwrap();
+			let serving = tokio::task::spawn_local(async move {
+				let (stream, _) = listener.accept().await.unwrap();
+				tokio::time::sleep(Duration::from_millis(100)).await;
+				let designator = match stream.local_addr() {
+					Ok(a) => crate::uri::socket_addr_designator(&a.ip().to_string(), a.port()),
+					Err(_) => crate::uri::socket_addr_designator("127.0.0.1", 0),
+				};
+				let captp = Host::new_host();
+				let conn = Session::establish_accepted(
+					captp.shared(),
+					crate::abi_constants::TRANSPORT_TCP,
+					"",
+					stream,
+					&designator,
+					Some(HANDSHAKE_TIMEOUT),
+				)
+				.await
+				.unwrap();
+				conn.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
+					.unwrap();
+				conn.serve().await;
+			});
+
+			let conn = crate::connect_with_timeout(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+				Some(Duration::ZERO),
+			)
+			.await
+			.expect("a zero budget is unbounded, not an instant timeout");
+			let cap = conn.fetch("svc").await.unwrap();
+			assert_eq!(
+				conn.send(&cap, "ping", &[]).await.unwrap(),
+				Argument::Symbol("alive".into())
+			);
+			conn.close();
+			serving.await.unwrap();
 		})
 		.await;
 }

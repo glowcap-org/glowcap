@@ -14,7 +14,7 @@ from typing import Optional
 import ctypes
 
 from . import _constants as _abi
-from ._ffi_driver import _host
+from ._ffi_host import _host
 from ._ffi_ocapn import _lib, _read_last_error
 
 _OK = _abi.OK

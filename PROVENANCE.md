@@ -1,114 +1,74 @@
 # How pancake is built
 
-pancake is written with heavy use of AI coding agents. Assume every commit in
-this repository was produced that way unless something in it says otherwise.
-That is the accurate default, and it does not depend on any per-commit marker
-being present. Every commit is authored by the maintainer, who directed the work
-and is answerable for it. There is no pre-LLM history; the first commit is from
-June 2026.
+pancake began as the capability-secure substrate for an agent orchestrator.
+The project is written with heavy use of AI coding agents. Assume every commit
+was produced that way unless it says otherwise. There is no earlier,
+human-only codebase; the first commit is from June 2026.
 
-Most commits also carry a `Co-Authored-By: Claude` or `Co-authored-by: Cursor`
-trailer. That is corroboration rather than the disclosure itself: the trailer is
-emitted by whichever agent configuration ran, several are in use here, and one
-that stops emitting leaves no trace of having done so. Counting them tells you
-what the mechanism captured, which is less than the whole. For today's counts:
+The maintainer authors every commit, directs the work, and is answerable for
+what lands. `Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers
+corroborate the disclosure, but they are not the disclosure: different tools
+emit different trailers, and some emit none.
 
-```sh
-git log --grep='Co-Authored-By: Claude' --oneline | wc -l
-git log --grep='Co-authored-by: Cursor' -i --oneline | wc -l
-git log --oneline | wc -l
-```
+## Upstream policies
 
-Two communities pancake depends on have taken public positions on that, so this
-page answers both of them directly.
+[Codeberg](https://codeberg.org/) amended its Terms of Use in July 2026 after a
+member vote. § 2 (1) 7 says: “You must not share projects that mostly consist
+of code written by ‘generative AI’-tools.” pancake falls under that rule. The
+accompanying post, [Protecting our FLOSS commons from
+LLMs](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html),
+also discusses projects built and maintained with heavy LLM use.
 
-## What Codeberg and Zig have decided
+The [Zig project](https://ziglang.org/) does not accept LLM-assisted
+contributions, including issues and comments. pancake therefore sends no
+generated patches, reports, or discussion upstream to Zig or to any project
+with a comparable policy. If pancake finds a Zig bug, the report is written
+without AI assistance or not filed.
 
-[Codeberg](https://codeberg.org/), which is still this repository's origin,
-amended its Terms of Use in July 2026 after a member vote. § 2 (1) 7 now reads:
-"You must not share projects that mostly consist of code written by
-'generative AI'-tools." pancake falls within that wording. The accompanying
-post,
-[Protecting our FLOSS commons from LLMs](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html),
-also lists projects written and maintained with heavy LLM use among those that
-may no longer be welcome.
+## The copied Zig test runner
 
-The [Zig project](https://ziglang.org/) forbids LLM-assisted contributions
-entirely, including issues and comments, because reviewing a pull request is how
-they grow contributors and a generated patch tells them nothing about the person
-who sent it.
+`tools/fuzz/test_runner.zig` is copied from the pinned Zig toolchain under its
+MIT licence. Zig's fuzz-mode test runner passes an error-return trace to
+`std.debug.writeStackTrace`, which expects another type. pancake changes that
+single call to `std.debug.writeErrorReturnTrace`, the function that accepts the
+value. The file itself records its origin and edit;
+[`LICENSE-THIRD-PARTY`](LICENSE-THIRD-PARTY) carries Zig's notice.
 
-## What that means in practice
+`zig build meta-check` compares the copied body with the installed toolchain.
+It will fail if Zig changes the source, including when the upstream fix makes
+the copy unnecessary. Anyone may report the bug or carry the fix upstream;
+this project will not send it.
 
-**Nothing from this repository is sent upstream to a project that forbids it.**
-pancake consumes Zig; it does not contribute LLM-written patches, issues, or
-comments back to the Zig project, and the same restraint applies to any other
-project with a comparable policy. If pancake hits a Zig bug, the report is
-written by hand or it is not filed.
+## Responsibility and licensing
 
-That restraint has a standing cost, and it is better said than left implicit.
-pancake is carrying a fix for a real Zig defect it has not reported. Zig's test
-runner hands an error-return trace to `std.debug.writeStackTrace`, which expects
-a different type, so the runner does not compile in fuzz mode. The neighbouring
-`std.debug.writeErrorReturnTrace` takes exactly that type, and Zig's own
-`debug.zig` uses it for the same job elsewhere. That is the whole fix, and it is
-written out at the top of `tools/fuzz/test_runner.zig`. Anyone is welcome to
-take it upstream; it is not ours to send.
+The maintainer uses pancake and stands behind the repository. The author field
+means the work was reviewed and accepted; it does not erase how the work was
+made or create an exception to another project's policy.
 
-**Someone maintains this.** pancake exists because its author intends to build
-their own infrastructure on it, and stands behind what is here. If that stops
-being true, this file should be the first thing updated.
+pancake-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
+not settle broader copyright questions about generated code. Third-party files
+keep their original terms.
 
-**The maintainer is responsible for what lands.** Every commit author field is
-the maintainer's identity. That records responsibility for accepting the work;
-it does not make the generated provenance an exception to another project's
-policy.
+The repository is hosted on GitHub because Codeberg's rule excludes it and
+because frequent container builds would consume donation-funded resources.
+A paid commercial forge avoids both conflicts.
 
-**One file here is not ours.** `tools/fuzz/test_runner.zig` is Zig's own test
-runner, copied from the pinned toolchain under its MIT licence, with the single
-call renamed that the section above describes. The file opens with a note saying
-where it came from and under what terms, and the notice itself is in
-[LICENSE-THIRD-PARTY](LICENSE-THIRD-PARTY). `zig build meta-check` compares
-everything below that note against the installed toolchain on every run and
-fails when the two stop matching, including on the day Zig fixes the underlying
-bug and the copy should be deleted.
+## Checking the claims
 
-**The license scope is explicit.** The maintainer makes pancake-authored work
-available under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at the
-user's option. That statement does not settle the broader copyright questions
-critics raise about generated code. The copied Zig test runner is MIT-only;
-[`LICENSE-THIRD-PARTY`](LICENSE-THIRD-PARTY) carries Zig's notice and
-identifies the file.
+`zig build check` covers the tests, public examples, architecture rules,
+protocol fixtures, and allocation budgets written inside this repository.
+Those checks show that pancake agrees with its own expectations.
 
-**No project workflow runs on Codeberg.** Codeberg is funded by donations, and
-pancake pushes often; even a small hosted job pays for a checkout and a
-toolchain download on every push. The full check sequence and the documentation
-site build are configured on the [GitHub mirror](https://github.com/jimisaacs/pancake/actions/workflows/check.yml) instead. See
-[CONTRIBUTING.md](CONTRIBUTING.md#continuous-integration).
+External evidence is separate:
 
-## What you can run yourself
-
-Generated code looks plausible whether or not it is right, so the claims here
-are attached to checks you can run:
-
-- `zig build check` runs the in-tree checks: the test suite, architecture and
-  scaffolding checks, the public examples, protocol reference fixtures, and the
-  allocation and footprint budgets.
-- `zig build ocapn-conformance` runs the **upstream OCapN test suite** against a
+- `zig build ocapn-conformance` runs the upstream OCapN test suite against a
   pancake peer.
-- `zig build goblins-interop` holds a live conversation with a real
-  [Spritely Goblins](https://spritely.institute/goblins/) vat, both directions.
-  Goblins is the implementation pancake is measured against.
-- `zig build goblins-handoff` and `goblins-gift` prove three-party handoff
-  against that same live peer, as gifter and as recipient.
+- `zig build goblins-interop` runs a two-way conversation with a live
+  [Spritely Goblins](https://spritely.institute/goblins/) vat.
+- `zig build goblins-handoff`, `goblins-gift`, and `goblins-exporter` exercise
+  pancake in each three-party handoff role against Goblins.
 
-In-tree tests only show that code agrees with code the same author wrote. The
-suite comes from the people who wrote the specification, and the Goblins steps
-talk to somebody else's running implementation. Where an in-tree check is the
-only evidence for a claim,
-[docs/community-review.md](docs/community-review.md) says so in a
-proves / does-not-prove table, and [docs/boundaries.md](docs/boundaries.md)
-records where each capability stops.
-
-If you find a claim in this repository that its named check does not support,
-that is a bug, and I would like the report.
+[Community review](docs/community-review.md) distinguishes in-tree evidence
+from outside evidence. [Known boundaries](docs/boundaries.md) records what the
+checks do not establish. If a named check does not support the claim attached
+to it, please report that as a bug.

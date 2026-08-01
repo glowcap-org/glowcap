@@ -230,6 +230,37 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
             }
         }
 
+        // Codec-by-name ban. Every byte the engine emits is supposed to go
+        // through `codec.dispatch`, so the negotiated codec decides — except
+        // the bytes a signature is defined over, which are Syrup whatever the
+        // session negotiated, because a give signed on one session is verified
+        // on another that negotiated independently. Those live behind
+        // `codec.signed`, which states that reason once. Naming a codec
+        // anywhere else above the codec layer is either a dispatch bypass or a
+        // signature path that lost its precondition; both compile, and neither
+        // fails a single-codec test. `codec/` owns the codecs and `oracle/`
+        // generates per-codec traces, so they are exempt. Comment lines are
+        // skipped so prose may name a codec.
+        if (!std.mem.startsWith(u8, file_path, "src/ocapn/codec/") and
+            !std.mem.startsWith(u8, file_path, "src/oracle/"))
+        {
+            var line_no: usize = 1;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| : (line_no += 1) {
+                const trimmed = std.mem.trimStart(u8, line, " \t");
+                if (std.mem.startsWith(u8, trimmed, "//")) continue;
+                for ([_][]const u8{ "codec.syrup.", "codec.capnp." }) |needle| {
+                    if (std.mem.indexOf(u8, line, needle) != null) {
+                        try violations.append(gpa, try std.fmt.allocPrint(
+                            gpa,
+                            "{s}:{d}: names `{s}` above the codec layer — route ordinary bytes through `codec.dispatch`, and signature bytes through `codec.signed`, which says why they do not follow the negotiated codec",
+                            .{ file_path, line_no, needle },
+                        ));
+                    }
+                }
+            }
+        }
+
         // Platform-syscall-namespace ban. Portable code reaches the OS through
         // `std.posix` / `std.crypto`, which select the platform underneath; a
         // direct `std.os.linux` / `std.os.windows` reference compiles on one OS

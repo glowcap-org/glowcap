@@ -45,11 +45,16 @@ sequenceDiagram
 
 OCapN's equality rules require successive enlivenments of the same sturdyref
 over the same session to compare equal. A second fetch of an already-enlivened
-swiss number therefore reuses the existing live import.
+swiss number therefore reuses the existing live import. The Host first checks
+that the selected session's transport and designator match the sturdyref. Hints
+do not affect peer identity, and a mismatch is refused before cache lookup or
+wire traffic.
 
 ```mermaid
 flowchart TD
-    EN["enliven sturdyref"] --> CK{"swiss number already enlivened on this session?"}
+    EN["enliven sturdyref"] --> PM{"selected session matches the sturdyref peer?"}
+    PM -->|no| RF["refuse - no wire traffic"]
+    PM -->|yes| CK{"swiss number already enlivened on this session?"}
     CK -->|no| FE["bootstrap fetch over the wire"]
     FE --> REC["record swiss number to live-import mapping"]
     CK -->|yes| RE["reuse the recorded live import - no wire traffic"]

@@ -15,6 +15,7 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
+const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
 const promise_capture = @import("../support/capture.zig");
 
 /// Replies with a fresh turn-arena byte string, the documented handler
@@ -37,8 +38,8 @@ test "a warmed local settle window costs zero gpa allocations" {
     const replier = try vat.spawn(ArenaReplier, .{});
     var captured = ByteCapture{};
 
-    // Warm: grow the send queue, the listener table, the turn arena (handler
-    // reply), and the queue arena (queued-message clone + settle clone) so
+    // Warm: grow the spare queue chunk, the listener table, the turn arena
+    // (handler reply), and the settle arena so
     // the measured window sees only steady-state traffic.
     for (0..8) |_| {
         const promise = try vat.send(replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
@@ -48,10 +49,11 @@ test "a warmed local settle window costs zero gpa allocations" {
 
     // The exact contract: the settle window — `drive` running the queued
     // turn, `settleLocal` cloning the fulfilled bytes for the listener, the
-    // listener call, and the end-of-drive queue/arena resets — is bump-only.
-    // The queued message is read from the queue arena, the handler's reply
+    // listener call, chunk reclamation, and the settlement-arena reset — is
+    // bump-only.
+    // The queued message is read from the chunk arena, the handler's reply
     // lives in the warmed turn arena, and the settle clone lands in the
-    // warmed queue arena, so nothing in the window touches the gpa. The
+    // warmed settle arena, so nothing in the window touches the gpa. The
     // send/on half stays outside the window: its queue append and listener
     // insert are vat bookkeeping, not the settle path.
     const turns = 8;
@@ -67,14 +69,67 @@ test "a warmed local settle window costs zero gpa allocations" {
     try std.testing.expectEqualStrings("echo-payload", captured.buf[0..captured.len]);
 }
 
+test "a warmed local queue batch costs zero gpa allocations" {
+    var counter = CountingAllocator{ .backing = std.testing.allocator };
+    var vat = actors.Vat.init(counter.allocator());
+    defer vat.deinit();
+    const replier = try vat.spawn(ArenaReplier, .{});
+
+    // Warm the one Vat-wide spare chunk, its bounded payload arena, and the
+    // pending-vow index. No idle ingress retains its own spare.
+    for (0..8) |_| {
+        try vat.tell(replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+        try vat.drive();
+    }
+
+    counter.allocs = 0;
+    try vat.tell(replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+    try vat.drive();
+    try std.testing.expectEqual(@as(usize, 0), counter.allocs);
+}
+
+test "a completed chunk frees live bytes while another ingress remains runnable" {
+    var live = LiveBytesAllocator{ .backing = std.testing.allocator };
+    var vat = actors.Vat.init(live.allocator());
+    defer vat.deinit();
+    const replier = try vat.spawn(ArenaReplier, .{});
+
+    // Pre-warm the single Vat-wide spare. In the measured episode the first
+    // completed chunk occupies that spare and a later completed chunk must be
+    // returned to the allocator, even though ingress b still has work.
+    try vat.tell(replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+    try vat.drive();
+    const a = try vat.openIngress();
+    const b = try vat.openIngress();
+    const c = try vat.openIngress();
+    defer vat.closeIngress(a) catch unreachable;
+    defer vat.closeIngress(b) catch unreachable;
+    defer vat.closeIngress(c) catch unreachable;
+
+    try vat.tellFromIngress(a, replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+    try vat.tellFromIngress(b, replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+    try vat.tellFromIngress(b, replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+    try vat.tellFromIngress(c, replier, .{ .verb = "echo", .args = &.{.{ .bytes = "payload" }} });
+    const before = live.liveBytes();
+
+    try std.testing.expectEqual(actors.Vat.DriveProgress.more_pending, try vat.driveBudgeted(3));
+    try std.testing.expect(vat.ingresses.get(a).?.first == null);
+    try std.testing.expect(vat.ingresses.get(c).?.first == null);
+    try std.testing.expectEqual(@as(usize, 1), vat.ingresses.get(b).?.pending_turns);
+    try std.testing.expect(live.liveBytes() < before);
+    try vat.drive();
+}
+
 test "a common-arity far send pays exactly the sendCopying clone, no scratch spine" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };
     var pair = try engine.pairing.paired(counter.allocator());
     defer pair.deinit();
     try pair.p1.importObject(5);
 
-    var vat = actors.Vat.initOver(counter.allocator(), &pair.p1);
+    var vat = actors.Vat.init(counter.allocator());
     defer vat.deinit();
+    var port = actors.Port.init(counter.allocator(), &pair.p1);
+    defer port.deinit();
     const remote: actors.Ref = .{ .far = model.FarRef.object(5) };
 
     // Seven args — the widest arity the stack buffer carries with a verb.
@@ -87,7 +142,7 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
     // Warm one send/encode cycle so the pending-send queue's steady backing
     // (retained at drain-reset because it sits under the engine's 4096-byte
     // burst-release bound) and the encode buffers exist before measurement.
-    try vat.tell(remote, .{ .verb = "poke", .args = &args });
+    try port.tell(&vat, remote, .{ .verb = "poke", .args = &args });
     while (true) {
         _ = try pair.p1.step();
         var frame = pair.p1.takeOutbound() orelse break;
@@ -107,7 +162,7 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
     var send_allocs: usize = 0;
     for (0..sends) |_| {
         counter.allocs = 0;
-        try vat.tell(remote, .{ .verb = "poke", .args = &args });
+        try port.tell(&vat, remote, .{ .verb = "poke", .args = &args });
         send_allocs += counter.allocs;
         while (true) {
             _ = try pair.p1.step();

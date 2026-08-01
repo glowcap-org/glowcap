@@ -25,6 +25,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
+const codec = pancake.ocapn.codec;
 const net = pancake.net;
 
 /// Every shape in the checked-in corpus, so the search starts from bytes that
@@ -76,6 +77,7 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
         var test_reader = std.testing.Reader.init(read_buf[0..read_len], calls[0..call_count]);
         const reader = &test_reader.interface;
         var spill: net.Spill = .{};
+        var scan: net.StreamScan = .{};
         defer spill.deinit(gpa);
 
         // Keep reading until the stream refuses or runs out. A frame that ends
@@ -85,7 +87,7 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
         // otherwise spend the whole budget in one input.
         var frames: usize = 0;
         while (frames < 64) : (frames += 1) {
-            var frame = net.readFrameFrom(reader, gpa, codec_id, frame_cap, &spill) catch break;
+            var frame = net.readFrameFrom(reader, gpa, codec_id, frame_cap, &spill, &scan) catch break;
             frame.deinit();
 
             // A drained spill has freed its storage, not merely emptied it.
@@ -905,4 +907,465 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
     // regressions still replay here, so a schedule that broke the loop once
     // runs on every ordinary suite from then on.
     try std.testing.fuzz({}, driveLifecycle, .{ .corpus = schedule_regression_seeds[0..] });
+}
+
+// ── A frame stream's bytes, across arbitrary chunk splits ────────────────────
+//
+// The first target in this file feeds hostile bytes and asks whether anything
+// crashes. This one feeds frames it already knows and asks whether they come
+// back: the same frames, whole, in order, once each. That question needs a
+// reference to check against, so the stream is built here rather than drawn,
+// and what the fuzzer
+// chooses is the geometry — how big the read buffer is, how much one read is
+// allowed to return, where the chunk boundaries fall, which frames arrive, and
+// how the stream ends.
+//
+// Geometry is the whole subject, because it is what decides which of the two
+// byte supplies a frame is decoded from. A frame that fits the read buffer is
+// decoded where it landed and the spill never opens. A frame larger than the
+// buffer cannot be, so returning it whole is itself the evidence the spill
+// carried it (ADR-0041). And past `codec.framing.scan_threshold_bytes` pending
+// bytes the codec stops decoding on every read and walks a resumable scan
+// instead, which withholds the decoder — and with it the decoder's own refusal —
+// so `codec.dispatch.framePrefix` owes the frame cap in its place. One
+// synthesized frame and the open-record tail both reach past that threshold, so
+// a stream here crosses every one of those handovers.
+//
+// What is asserted, beyond not crashing and not leaking:
+//
+//   - Every frame fed comes back byte-identical, in order, exactly once. That
+//     is the coalesce contract stated as an equality rather than as an absence
+//     of crashes: a byte dropped, duplicated, or read twice fails here.
+//   - The read after the last frame gives the verdict the tail earned: a clean
+//     end is `Closed`, a record opened and never closed is `FrameTooLarge`, and
+//     a frame cut short mid-way is `TruncatedFrame`.
+//   - The spill stays inside the cap that admitted it plus the one read that
+//     carried it there, and a spill that is not accumulating has freed its
+//     storage rather than merely emptied it (`net.spill_retain_bytes` is zero at
+//     this tier). The sibling target above states the same retention property
+//     over hostile bytes; this one reaches it on every frame of every stream,
+//     because a stream of known frames actually drains.
+//
+// The harness's own claims are checked before the search runs, in
+// `ratifyStreamShapes`: every corpus frame is one whole admissible frame, the
+// synthesized frame crosses the scan threshold at every argument count the plan
+// can choose and stays under the cap, and the open-record tail is refused at the
+// cap rather than at the end of the stream. A geometry claim nobody checks is
+// how the first target in this file spent a while never touching the spill it
+// exists for.
+//
+// Validated against defects rather than against a passing tree. Each of these
+// was injected into the production path, one at a time, and the search asked to
+// find it, and each was found: bytes lost on the way into the spill
+// (`net.absorbFrom` absorbing one byte fewer than it tosses); bytes duplicated
+// on the way in (tossing one fewer than it absorbs); a consumed frame's last
+// byte left in the spill for the next frame to trip over; a drained spill
+// retaining its storage instead of freeing it; the cap refusal removed from the
+// withheld-decode arm of `codec.dispatch.framePrefix`; and the resumable scan
+// letting a length-prefixed leaf's payload move its depth.
+//
+// Two of those are worth spelling out, because of what caught them.
+//
+// The missing cap refusal was caught by the spill bound, not by the tail's
+// verdict — the verdict still came back `FrameTooLarge`, because the scan settles
+// once its own cursor passes the cap and the decoder then refuses. What had
+// changed was how much had piled up first. Asserting boundedness separately from
+// the verdict is the whole reason that was visible.
+//
+// The scan defect is why the synthesized frame carries byte-string arguments
+// whose payload spells `<`. Two earlier attempts at the same defect class
+// escaped: dropping the scan's digit arm and dropping its symbol arm both make
+// the walk fail *early*, and failing early hands the question straight to the
+// decoder, which is the safe direction. So this target can only see a scan defect
+// that keeps the walk going while miscounting depth, and it needs a frame with a
+// payload that can be miscounted to see even that. The escape shaped the frame;
+// without those arguments the whole class was invisible here.
+//
+// What it does not reach, measured rather than assumed:
+//
+//   - A scan that gives up too early, per the escape above. By design that costs
+//     a wasted decode and nothing observable, so nothing here can judge it;
+//     `test/codec` drives `scanStream` directly, which is the right instrument
+//     for the walk itself.
+//   - Which of the two cap mirrors refused an over-cap prefix. The decoder
+//     refuses one byte later than `framePrefix` does, and one read buffer is
+//     wider than the byte between them.
+//   - `net.drainWholeFrames`, the other spill consumer at this tier. It carries a
+//     chunk tail into the same spill for the readiness loops, but it drives a
+//     `Peer` rather than returning frames, so the target below it is the
+//     completion-loop one above.
+//   - Cap'n Proto, on purpose. Its frames declare their length up front, so it
+//     has no scan and no self-delimiting grammar to resume, and the corpus this
+//     target checks streams against is Syrup.
+//
+// Reachability was measured the same way as the defects, by asserting a state
+// unreachable and letting the search refute it: a stream carrying two or more
+// frames, one of them past the scan threshold, under the large cap, ending in an
+// open record turns up within a few dozen runs.
+//
+// Under `zig build test` the search does not run: the corpus is the regression
+// seeds alone, so the ratification is what the ordinary suite gets from this
+// target. It is not a small part — a scan that miscounts a leaf's payload fails
+// it outright, with no fuzzer involved.
+
+/// Streams the fuzzer found here, replayed by the ordinary suite so a bug it
+/// caught cannot come back quietly. Its own list, separate from the two above,
+/// because a saved stream plan is neither a frame nor a completion schedule.
+const stream_regression_seeds = [_][]const u8{};
+
+/// Upper bound on one stream plan. Smaller than `max_input`: the input picks
+/// frames and a geometry rather than carrying frame bytes itself, so a long
+/// input only ever names more frames than the byte budget below admits.
+const max_stream_input = 512;
+
+/// The two caps a plan may admit frames under, and the fuzzer picks which. The
+/// small one is where the ordinary traffic lives: frames cross the read buffer
+/// and nothing else. The large one is above
+/// `codec.framing.scan_threshold_bytes`, so a frame or an open record can grow
+/// past the point where the codec stops decoding on every read and walks a
+/// resumable scan instead.
+///
+/// Both, rather than only the large one, because the large cap is what a run
+/// costs. Below the threshold the decoder re-walks the pending prefix on every
+/// read, which is quadratic in the frame size over the read size, and that is
+/// the very cost the scan exists to end. Every input paying it would buy the
+/// scan-side arms at roughly twenty times the price per input, which the search
+/// pays for in inputs it never gets to try.
+const small_frame_cap: usize = 1024;
+const large_frame_cap: usize = 8192;
+
+/// How often a plan takes the large cap: one input in this many.
+const large_cap_in: u8 = 8;
+
+/// Smallest the synthesized frame is built, in bytes. Above the scan threshold
+/// with room to spare, so every argument count the plan can choose still crosses
+/// it; `ratifyStreamShapes` holds that at both ends.
+const big_frame_floor: usize = 4224;
+
+/// Largest read buffer the plan hands the reader, and the most one read may
+/// return. Both are drawn from the whole range, so the search reaches
+/// byte-at-a-time reads as well as ones that swallow a corpus frame whole; every
+/// corpus frame is longer than this, so a frame always crosses the buffer
+/// boundary and goes through the spill for real.
+const max_read_len: usize = 96;
+
+/// Chunk boundaries one plan can place. The per-read limit below is what makes
+/// reads short, so these only have to be plentiful enough to land at odd
+/// offsets.
+const max_calls: usize = 128;
+
+/// Frames one stream can carry, and the bytes they may occupy. The budget is
+/// what stops a stream of tiny frames from spending the whole run in one input.
+const max_stream_frames: usize = 32;
+const frames_budget: usize = 8192;
+
+/// How far past the cap the open-record tail runs, so the refusal has to come
+/// from the cap rather than from the stream running out.
+const open_tail_slack: usize = 256;
+
+/// The stream one plan feeds, and the synthesized frame it may include. At file
+/// scope because a plan hands out slices of them that outlive the builder.
+var stream_buf: [frames_budget + large_frame_cap + open_tail_slack]u8 = undefined;
+var big_frame_buf: [large_frame_cap]u8 = undefined;
+var frame_spans: [max_stream_frames][]const u8 = undefined;
+
+/// Configuration bytes at the front of an input, before the frame selectors.
+const stream_config_bytes: usize = 6;
+
+/// How a stream ends after its last whole frame.
+const Tail = enum {
+    /// Nothing follows, so the reader meets a clean end on a frame boundary.
+    clean,
+    /// A record opened and never closed. It cannot complete within the cap, so
+    /// the cap is what has to refuse it.
+    open_record,
+    /// A whole frame cut off part-way. The stream ends inside a frame, which is
+    /// a different condition from ending between two.
+    truncated_frame,
+
+    /// What the read after the last whole frame must answer.
+    fn verdict(self: Tail) anyerror {
+        return switch (self) {
+            .clean => error.Closed,
+            .open_record => error.FrameTooLarge,
+            .truncated_frame => error.TruncatedFrame,
+        };
+    }
+};
+
+/// One stream: the geometry the fuzzer chose, the frames it asked for, and the
+/// bytes those add up to.
+const StreamPlan = struct {
+    /// Bytes of read buffer the frame reader is given.
+    read_len: usize,
+    /// Most bytes one read may return, however much room the buffer has. This is
+    /// what makes a frame arrive over many short reads.
+    per_read: usize,
+    /// Bytes per chunk boundary in the stream.
+    piece: usize,
+    /// The cap frames are admitted under, and so the bound on what the spill may
+    /// hold.
+    frame_cap: usize,
+    tail: Tail,
+    /// The frames fed, in order, borrowing from `stream_buf`.
+    frames: []const []const u8,
+    /// The whole stream: those frames, then the tail.
+    bytes: []const u8,
+};
+
+/// The frame part of a corpus seed. `corpus_seeds.seed` prefixes each frame with
+/// a little-endian length for the fuzzer's replay framing, so the frame is what
+/// follows that prefix.
+fn corpusFrame(index: usize) []const u8 {
+    return seeds.message_seeds[index % seeds.message_seeds.len][4..];
+}
+
+/// An `op:deliver` whose argument list fills about `want` bytes: one whole
+/// admissible frame, far larger than any read buffer and larger than the scan
+/// threshold, so it is decoded from the spill after a resumable scan has walked
+/// it.
+///
+/// Every fourth argument is a byte string whose payload spells `<`, and that is
+/// the point rather than decoration. The scan steps over a length-prefixed leaf
+/// by its declared length precisely so a payload byte cannot move its depth; a
+/// walk that loses that property counts opens it can never close, withholds the
+/// decoder for good, and the frame is refused at the cap instead of returned.
+/// Without such a payload the frame cannot tell a correct walk from that one.
+fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
+    const opener = "<10'op:deliver<11'desc:export7+>[";
+    const closer = "]42+f>";
+    const integer = "1+";
+    const opens = "4:<<<<";
+    @memcpy(out[0..opener.len], opener);
+    var at = opener.len;
+    const room = @min(want, out.len);
+    var written: usize = 0;
+    while (true) : (written += 1) {
+        const element = if (written % 4 == 3) opens else integer;
+        if (at + element.len + closer.len > room) break;
+        @memcpy(out[at..][0..element.len], element);
+        at += element.len;
+    }
+    @memcpy(out[at..][0..closer.len], closer);
+    return out[0 .. at + closer.len];
+}
+
+/// An `op:deliver` whose argument list opens and never closes. Every byte of it
+/// is a legal continuation, so the decoder can only ever call it incomplete, and
+/// the frame cap is the only thing that ends it.
+fn openRecordTail(out: []u8) []const u8 {
+    const opener = "<10'op:deliver<11'desc:export7+>[";
+    @memcpy(out[0..opener.len], opener);
+    var at = opener.len;
+    while (at + 2 <= out.len) : (at += 2) @memcpy(out[at..][0..2], "1+");
+    return out[0..at];
+}
+
+/// Read one stream plan out of the drawn input, or null when the input is too
+/// short to describe one.
+///
+/// Every choice comes out of these bytes rather than from a separate draw. A
+/// draw made after `smith.slice` has consumed the input answers the same way on
+/// every replay, so a saved finding would replay under a geometry the fuzzer
+/// never found it with — and for a target whose whole subject is geometry that
+/// is the wrong one every time.
+fn planStream(input: []const u8) ?StreamPlan {
+    if (input.len <= stream_config_bytes) return null;
+
+    const read_len = 1 + @as(usize, input[0]) % max_read_len;
+    const per_read = 1 + @as(usize, input[1]) % max_read_len;
+    const tail: Tail = switch (input[2] % 3) {
+        0 => .clean,
+        1 => .open_record,
+        else => .truncated_frame,
+    };
+    // One byte carries both halves of the large-cap choice, because they only
+    // mean anything together: the synthesized frame is admissible under the
+    // large cap alone, and the large cap has nothing above the scan threshold to
+    // show without it. The argument count keeps the frame over the threshold at
+    // the low end and under the cap at the high end; `ratifyStreamShapes` holds
+    // both.
+    const large = input[3] % large_cap_in == 0;
+    const cap = if (large) large_frame_cap else small_frame_cap;
+    const big = synthesizeDeliver(&big_frame_buf, big_frame_floor + @as(usize, input[3] / large_cap_in) * 128);
+
+    var at: usize = 0;
+    var count: usize = 0;
+    for (input[stream_config_bytes..]) |selector| {
+        if (count == max_stream_frames) break;
+        // One past the corpus selects the synthesized frame, so a stream can
+        // mix a frame that crosses every boundary with frames that cross only
+        // the read buffer.
+        const pick = selector % (seeds.message_seeds.len + 1);
+        const synthesized = pick == seeds.message_seeds.len;
+        if (synthesized and !large) continue;
+        const frame = if (synthesized) big else corpusFrame(pick);
+        if (at + frame.len > frames_budget) break;
+        @memcpy(stream_buf[at..][0..frame.len], frame);
+        frame_spans[count] = stream_buf[at..][0..frame.len];
+        at += frame.len;
+        count += 1;
+    }
+
+    switch (tail) {
+        .clean => {},
+        .open_record => at += openRecordTail(stream_buf[at..][0 .. cap + open_tail_slack]).len,
+        .truncated_frame => {
+            const frame = corpusFrame(input[4]);
+            const keep = 1 + @as(usize, input[5]) % (frame.len - 1);
+            @memcpy(stream_buf[at..][0..keep], frame[0..keep]);
+            at += keep;
+        },
+    }
+
+    return .{
+        .read_len = read_len,
+        .per_read = per_read,
+        .piece = 1 + @as(usize, input[1] ^ input[2]) % 251,
+        .frame_cap = cap,
+        .tail = tail,
+        .frames = frame_spans[0..count],
+        .bytes = stream_buf[0..at],
+    };
+}
+
+/// Cut `bytes` into chunk-sized reader calls, returning how many were filled.
+/// The pieces are sized so they can span the whole stream: a fixed small piece
+/// silently truncates everything past `calls.len` bytes.
+fn splitStream(bytes: []const u8, calls: []std.testing.Reader.Call, piece: usize) usize {
+    const min_piece = std.math.divCeil(usize, bytes.len, calls.len) catch 1;
+    const use = @max(piece, @max(min_piece, 1));
+    var count: usize = 0;
+    var at: usize = 0;
+    while (at < bytes.len and count < calls.len) : (count += 1) {
+        const end = @min(at + use, bytes.len);
+        calls[count] = .{ .buffer = bytes[at..end] };
+        at = end;
+    }
+    return count;
+}
+
+/// The spill's boundedness and retention, checked where a caller can see them:
+/// between frames.
+fn expectSpillBounded(spill: *const net.Spill, plan: StreamPlan) !void {
+    // A spill that is not accumulating has freed its storage, not merely
+    // emptied it. That is the whole reason this is a spill rather than a buffer
+    // per connection.
+    if (!spill.isActive()) try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
+    try std.testing.expect(spill.len <= spill.buf.len);
+    // What waits here is one in-flight frame, and the codec refuses a prefix
+    // that reaches the cap, so the most that can be waiting is the cap plus the
+    // single read that carried the prefix over it.
+    const bound = plan.frame_cap + plan.read_len;
+    try std.testing.expect(spill.len <= bound);
+    // Capacity doubles when it grows, so it can overshoot what is waiting by up
+    // to one doubling and no more.
+    try std.testing.expect(spill.buf.len <= 2 * bound);
+}
+
+fn driveStream(_: void, smith: *std.testing.Smith) anyerror!void {
+    const gpa = std.testing.allocator;
+    var raw: [max_stream_input]u8 = undefined;
+    const input = raw[0..smith.slice(&raw)];
+    const plan = planStream(input) orelse return;
+
+    var read_buf: [max_read_len]u8 = undefined;
+    var calls: [max_calls]std.testing.Reader.Call = undefined;
+    const call_count = splitStream(plan.bytes, &calls, plan.piece);
+    var test_reader = std.testing.Reader.init(read_buf[0..plan.read_len], calls[0..call_count]);
+    test_reader.artificial_limit = .limited(plan.per_read);
+    const reader = &test_reader.interface;
+
+    var spill: net.Spill = .{};
+    defer spill.deinit(gpa);
+    var scan: net.StreamScan = .{};
+
+    for (plan.frames, 1..) |expected, nth| {
+        var frame = net.readFrameFrom(reader, gpa, .syrup, plan.frame_cap, &spill, &scan) catch |err| {
+            // Every frame in the plan is whole and admissible, so a refusal here
+            // means bytes went missing between the stream and the parser.
+            std.debug.print(
+                "frame {d} of {d} was fed whole and came back as {s}\n",
+                .{ nth, plan.frames.len, @errorName(err) },
+            );
+            return err;
+        };
+        defer frame.deinit();
+        try std.testing.expectEqualSlices(u8, expected, frame.bytes());
+        try expectSpillBounded(&spill, plan);
+    }
+
+    // The read past the last frame. A frame here is a byte the reader invented
+    // or read twice, which is why the tail's verdict is asserted rather than
+    // merely the absence of a crash.
+    if (net.readFrameFrom(reader, gpa, .syrup, plan.frame_cap, &spill, &scan)) |extra| {
+        var frame = extra;
+        frame.deinit();
+        std.debug.print(
+            "the stream held {d} frames and a {t} tail, and a further frame was read\n",
+            .{ plan.frames.len, plan.tail },
+        );
+        return error.FrameAfterStreamEnd;
+    } else |err| {
+        try std.testing.expectEqual(plan.tail.verdict(), err);
+    }
+    try expectSpillBounded(&spill, plan);
+}
+
+/// The geometry this target claims for itself, checked rather than asserted in
+/// prose.
+///
+/// Each of these was wrong at some point in some target's life, and every one of
+/// them fails silently: a corpus frame that no longer decodes, a synthesized
+/// frame that stops crossing the threshold it exists to cross, or a tail the
+/// stream ends before the cap can refuse it, all leave a target that passes
+/// while searching a smaller space than its header claims.
+fn ratifyStreamShapes() !void {
+    for (seeds.message_seeds) |entry| {
+        const frame = entry[4..];
+        // Two bytes at least, so a truncated tail has somewhere to cut, and
+        // inside the smaller of the two caps, so every corpus frame is
+        // admissible under either.
+        try std.testing.expect(frame.len >= 2);
+        try std.testing.expect(frame.len <= small_frame_cap);
+        var scan: net.StreamScan = .{};
+        const prefix = codec.dispatch.framePrefix(.syrup, frame, &scan, small_frame_cap);
+        try std.testing.expect(prefix == .decoded);
+        try std.testing.expectEqual(frame.len, prefix.decoded.consumed);
+    }
+
+    // The synthesized frame, at both ends of the argument count the plan can
+    // choose: one whole frame, over the scan threshold, under the large cap.
+    for ([_]u8{ 0, 31 }) |step| {
+        const big = synthesizeDeliver(&big_frame_buf, big_frame_floor + @as(usize, step) * 128);
+        try std.testing.expect(big.len > codec.framing.scan_threshold_bytes);
+        try std.testing.expect(big.len <= large_frame_cap);
+        var scan: net.StreamScan = .{};
+        const prefix = codec.dispatch.framePrefix(.syrup, big, &scan, large_frame_cap);
+        try std.testing.expect(prefix == .decoded);
+        try std.testing.expectEqual(big.len, prefix.decoded.consumed);
+    }
+
+    // The open-record tail under each cap: incomplete while it is below the cap,
+    // refused once it reaches it. The first of those is what makes the second the
+    // cap's doing rather than the stream's. Under the small cap the decoder
+    // refuses it; under the large one the scan has already withheld the decoder,
+    // so `framePrefix` is what refuses.
+    for ([_]usize{ small_frame_cap, large_frame_cap }) |cap| {
+        const tail = openRecordTail(stream_buf[0 .. cap + open_tail_slack]);
+        try std.testing.expect(tail.len > cap);
+        var under: net.StreamScan = .{};
+        try std.testing.expect(codec.dispatch.framePrefix(.syrup, tail[0 .. cap - 1], &under, cap) == .incomplete);
+        var over: net.StreamScan = .{};
+        try std.testing.expect(codec.dispatch.framePrefix(.syrup, tail, &over, cap) == .too_large);
+    }
+}
+
+test "fuzz: a frame stream returns every frame fed to it whole, in order, once" {
+    try ratifyStreamShapes();
+    // No shaped seeds: an input here is a stream plan, not a frame, so a corpus
+    // frame would be read as a geometry and a list of indices. The regressions
+    // still replay, so a stream that broke the reader once runs on every
+    // ordinary suite from then on.
+    try std.testing.fuzz({}, driveStream, .{ .corpus = stream_regression_seeds[0..] });
 }

@@ -6,11 +6,13 @@
 
 (provide (all-defined-out))
 
-(struct near-ref (id promise) #:transparent)   ; a local export this session hosts
-(struct far-ref (id promise) #:transparent)    ; a partner-hosted import this peer holds
-(struct promise-ref (answer) #:transparent)
-(struct sturdy () #:transparent)
-(struct broken () #:transparent)
+;; One Host-scoped capability identity. Near/far and object/promise are wire
+;; projection details owned by PancakeHost; a binding must not mirror them.
+;; `released?` prevents an application from reusing a handle after returning
+;; its retain to the Host.
+(struct ref (id [released? #:auto #:mutable])
+  #:transparent
+  #:constructor-name make-ref/internal)
 (struct sym (value) #:transparent)             ; tag a string as an OCapN symbol
 (struct kw (value) #:transparent)              ; an OCapN keyword
 (struct pset (items) #:transparent)             ; an OCapN set
@@ -23,6 +25,11 @@
 ;; diagnostic and `error-name` the originating error.
 (struct abort-info (domain kind message error-name) #:transparent)
 
-;; near/far take an optional promise? flag.
-(define (near id [promise #f]) (near-ref id promise))
-(define (far id [promise #f]) (far-ref id promise))
+;; Who a session is talking to, as its handshake proved it. `session-key` is
+;; the partner's session public key, `designator` is the location designator
+;; the partner signed (a string, empty when its location carried none), and
+;; `locator-record` is the verbatim <ocapn-peer> record those were read from
+;; (empty when the session captured none). `session-partner-identity` builds
+;; one, and only ever after the signature over that location record verified,
+;; so the designator here is bound to the key beside it.
+(struct partner-identity (session-key designator locator-record) #:transparent)

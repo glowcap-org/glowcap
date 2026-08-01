@@ -26,47 +26,19 @@ import {
 	ARG_TAGGED,
 	ARG_VOID,
 	INVALID_ARGUMENT,
-	REF_BROKEN,
-	REF_FAR,
-	REF_NEAR,
-	REF_PROMISE,
-	REF_STURDY,
-	REF_SUB_OBJECT,
-	REF_SUB_PROMISE,
 	UNSUPPORTED_VALUE,
 } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
-import { type Argument, isReference, Kw, PSet, type Reference, Sym, Tagged } from "./value.ts";
+import { type Argument, isReference, Kw, PSet, Ref, refFromId, Sym, Tagged } from "./value.ts";
 
-function writeReference(dv: DataView, off: number, ref: Reference): void {
-	let kind = REF_BROKEN, sub = 0, id = 0n;
-	switch (ref.kind) {
-		case "near":
-			kind = REF_NEAR;
-			sub = ref.promise ? REF_SUB_PROMISE : REF_SUB_OBJECT;
-			id = ref.id;
-			break;
-		case "far":
-			kind = REF_FAR;
-			sub = ref.promise ? REF_SUB_PROMISE : REF_SUB_OBJECT;
-			id = ref.id;
-			break;
-		case "promise":
-			kind = REF_PROMISE;
-			id = ref.answer;
-			break;
-		default:
-			throw new PancakeError(
-				UNSUPPORTED_VALUE,
-				"sturdy/broken ref not carried on send",
-			);
+function writeReference(dv: DataView, off: number, ref: Ref): void {
+	if (ref.released) {
+		throw new Error("pancake: this capability was released and is no longer usable");
 	}
-	dv.setUint32(off + L.REF_KIND_OFF, kind, true);
-	dv.setUint32(off + L.REF_SUB_KIND_OFF, sub, true);
-	dv.setBigUint64(off + L.REF_ID_OFF, id, true);
+	dv.setBigUint64(off + L.REF_ID_OFF, ref.id, true);
 }
 
-export function refStruct(ref: Reference): Uint8Array {
+export function refStruct(ref: Ref): Uint8Array {
 	const buf = new Uint8Array(L.REF_SIZE);
 	writeReference(new DataView(buf.buffer), 0, ref);
 	return buf;
@@ -146,23 +118,8 @@ function encodeArg(
 	}
 }
 
-export function readReference(view: DataView, off: number): Reference {
-	const kind = view.getUint32(off + L.REF_KIND_OFF, true);
-	const sub = view.getUint32(off + L.REF_SUB_KIND_OFF, true);
-	const id = view.getBigUint64(off + L.REF_ID_OFF, true);
-	const promise = sub === REF_SUB_PROMISE;
-	switch (kind) {
-		case REF_NEAR:
-			return { kind: "near", id, promise };
-		case REF_FAR:
-			return { kind: "far", id, promise };
-		case REF_PROMISE:
-			return { kind: "promise", answer: id };
-		case REF_STURDY:
-			return { kind: "sturdy" };
-		default:
-			return { kind: "broken" };
-	}
+export function readReference(view: DataView, off: number): Ref {
+	return refFromId(view.getBigUint64(off + L.REF_ID_OFF, true));
 }
 
 export function readArg(view: DataView, off: number): Argument {

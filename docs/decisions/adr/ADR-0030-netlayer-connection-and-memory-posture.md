@@ -110,8 +110,8 @@ engine/model layer owns only the typed abort projection.
   ([`test/net/connection_test.zig`](../../../test/net/connection_test.zig)), the
   TCP loopback handshake + bootstrap-fetch round-trip
   ([`test/net/tcp_test.zig`](../../../test/net/tcp_test.zig)), and the C-ABI
-  frame-seam loopback
-  ([`test/c_abi/endpoint_loopback_test.zig`](../../../test/c_abi/endpoint_loopback_test.zig)).
+  C frame-seam loopback under a caller allocation context
+  ([`test/c_abi/context_test.zig`](../../../test/c_abi/context_test.zig)).
 
 ## Bring-your-own transport seam
 

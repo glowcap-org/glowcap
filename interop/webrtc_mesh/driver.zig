@@ -2,8 +2,8 @@
 //! through an OCapN-shaped signaling object, then hold a keyed OCapN session
 //! over it (ADR-0089 phase 5).
 //!
-//! This is webrtc's `iroh-mesh`: the three-party shape, where an introducer
-//! routes the peers to each other. Here the introducer is the `SignalingHub`, a
+//! This is WebRTC's capability-routed signaling shape: an introducer routes the
+//! peers to each other. Here the introducer is the `SignalingHub`, a
 //! rendezvous keyed by designator that carries the offer, the answer, and the
 //! ICE candidates between the two peers. The hub holds no WebRTC state and
 //! parses no payload; it moves opaque strings between the two designators it was
@@ -92,7 +92,9 @@ const SignalingHub = struct {
 /// `hub.candidate`, until both peers report their channel open.
 fn bringUpViaHub(
     hub: *SignalingHub,
+    offerer_resident: *webrtc.Resident,
     offerer: *webrtc.Peer,
+    answerer_resident: *webrtc.Resident,
     answerer: *webrtc.Peer,
     offerer_designator: []const u8,
     answerer_designator: []const u8,
@@ -109,13 +111,31 @@ fn bringUpViaHub(
 
     var rounds: usize = 0;
     while (rounds < 300) : (rounds += 1) {
+        var offerer_events: [16]webrtc.ReadyEvent = undefined;
+        const offerer_count = try offerer_resident.pollReady(&offerer_events, 50);
+        for (offerer_events[0..offerer_count]) |event| {
+            if (event.subject != @intFromEnum(offerer.id())) return error.UnexpectedReadySubject;
+        }
+        var answerer_events: [16]webrtc.ReadyEvent = undefined;
+        const answerer_count = try answerer_resident.pollReady(&answerer_events, 50);
+        for (answerer_events[0..answerer_count]) |event| {
+            if (event.subject != @intFromEnum(answerer.id())) return error.UnexpectedReadySubject;
+        }
         while (try offerer.nextLocalCandidate(&cand_buf, &len)) |ice| {
             try hub.candidate(answerer_designator, ice);
         }
         while (try answerer.nextLocalCandidate(&cand_buf, &len)) |ice| {
             try hub.candidate(offerer_designator, ice);
         }
-        if (offerer.waitOpen(50) and answerer.waitOpen(50)) return;
+        offerer.checkOpen() catch |err| switch (err) {
+            error.WouldBlock => continue,
+            error.Closed => return error.ChannelClosed,
+        };
+        answerer.checkOpen() catch |err| switch (err) {
+            error.WouldBlock => continue,
+            error.Closed => return error.ChannelClosed,
+        };
+        return;
     }
     return error.ChannelBringUpTimeout;
 }
@@ -213,9 +233,13 @@ pub fn main(init: std.process.Init) !void {
 
     // The offerer is the recipient (it initiates the reach); the answerer is the
     // exporter (it is being reached).
-    var offerer = try webrtc.Peer.init(true);
+    var offerer_resident = try webrtc.Resident.init();
+    defer offerer_resident.deinit();
+    var answerer_resident = try webrtc.Resident.init();
+    defer answerer_resident.deinit();
+    var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();
-    var answerer = try webrtc.Peer.init(false);
+    var answerer = try answerer_resident.newPeer(false);
     defer answerer.deinit();
 
     // Introduce both peers to the signaling hub under their designators, then
@@ -223,7 +247,7 @@ pub fn main(init: std.process.Init) !void {
     var hub = SignalingHub{};
     hub.register(recipient_designator[0..], &offerer);
     hub.register(exporter_designator[0..], &answerer);
-    try bringUpViaHub(&hub, &offerer, &answerer, recipient_designator[0..], exporter_designator[0..]);
+    try bringUpViaHub(&hub, &offerer_resident, &offerer, &answerer_resident, &answerer, recipient_designator[0..], exporter_designator[0..]);
 
     // The exporter serves on its own thread; the recipient drives on this one.
     var exporter_future = try io.concurrent(exporterHalf, .{ io, &answerer, allocator, exporter_secret });

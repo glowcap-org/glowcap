@@ -5,7 +5,7 @@
 ;; this is stale.
 ;;
 ;; Expected sizes the hand-mirrored cstructs in ffi-shared.rkt,
-;; ffi-driver.rkt, and ffi-iroh.rkt pass as pin-layout!'s want-size: values
+;; ffi-host.rkt, and ffi-iroh.rkt pass as pin-layout!'s want-size: values
 ;; come from @sizeOf on the real Zig C ABI types. pin-layout! also
 ;; re-derives each cstruct's field order and types from ctype->layout, a
 ;; stronger check than an offset list, so the kind-based layout
@@ -23,21 +23,25 @@
   PANCAKE-DIAL-PLAN-SIZE
   PANCAKE-ACCEPT-PLAN-SIZE
   PANCAKE-PENDING-DIAL-SIZE
+  PANCAKE-PARTNER-IDENTITY-SIZE
   PANCAKE-HOST-PUMP-HOOKS-SIZE
   PANCAKE-IROH-READY-EVENT-SIZE
+  PANCAKE-WEBRTC-READY-EVENT-SIZE
   PANCAKE-IROH-CONFIG-SIZE
 )
 
-(define PANCAKE-REFERENCE-SIZE 16)
-(define PANCAKE-ARGUMENT-SIZE 72)
+(define PANCAKE-REFERENCE-SIZE 8)
+(define PANCAKE-ARGUMENT-SIZE 64)
 (define PANCAKE-FRAME-SIZE 24)
 (define PANCAKE-MANAGED-FRAME-SIZE 40)
 (define PANCAKE-LAST-ABORT-SIZE 56)
 (define PANCAKE-ALLOCATOR-SIZE 24)
-(define PANCAKE-HOST-ACTION-SIZE 112)
+(define PANCAKE-HOST-ACTION-SIZE 104)
 (define PANCAKE-DIAL-PLAN-SIZE 56)
 (define PANCAKE-ACCEPT-PLAN-SIZE 32)
 (define PANCAKE-PENDING-DIAL-SIZE 48)
+(define PANCAKE-PARTNER-IDENTITY-SIZE 48)
 (define PANCAKE-HOST-PUMP-HOOKS-SIZE 48)
 (define PANCAKE-IROH-READY-EVENT-SIZE 16)
+(define PANCAKE-WEBRTC-READY-EVENT-SIZE 16)
 (define PANCAKE-IROH-CONFIG-SIZE 16)

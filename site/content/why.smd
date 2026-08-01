@@ -335,42 +335,18 @@ out of the E language, carries the rule across a network between mutually
 suspicious programs. OCapN standardizes CapTP, under the
 [Spritely Institute](https://spritely.institute/) and a community group.
 
-## Delegation, attenuation, revocation
-
-The middle steps replace infrastructure with ordinary objects. Delegation
-needs no administrator, because passing the reference is the grant.
-Attenuation needs no cooperation from the provider: the read-only wrapper is
-your object, running in your process, and the thumbnailer's calls pass
-through it on their way to the album. Any policy you can write as code is a
-scope you can hand out, whether or not the service ever thought of it.
-Revocation works from the same seat. The forwarder is yours, so cutting it is
-a local act that kills one grant everywhere it was copied, while every other
-holder keeps working. Compare key rotation, the closest thing tokens offer:
-it ejects one party by logging out everyone.
-
-## Introductions
-
-The last step is the move the familiar protocols cannot follow. When you
-connect two of your partners today, you either share a credential with one of
-them or you sit in the middle and proxy their calls forever. CapTP's
-three-party handoff is a signed introduction: you send it to one partner, that
-partner presents it to the other, and the two of them continue over their own
-session without you. You never see their traffic, and the introduced partner
-holds exactly what you passed, attenuated however you chose.
-
-You can try this yourself. In the [rooms demo]($link.page('examples')),
-asking a room to message a member hands you a direct line to that member, and
-the room drops out of the conversation.
-
 ## What OCapN is
 
 OCapN is the standard that grew out of CapTP: one message model over a choice
 of wire encodings and transports, so the same references travel over TCP,
 QUIC, or a browser connection. Calls return promises you can keep calling
 through, which lets a chain of dependent calls cross the network once instead
-of once per call. [Spritely Goblins](https://spritely.institute/goblins/) is
-the implementation everyone tests against, and pancake holds a live
-conversation with a real Goblins peer as a build check.
+of once per call. pancake checks its outside interoperability against
+[Spritely Goblins](https://spritely.institute/goblins/).
+
+You can watch a three-party introduction in the
+[rooms demo]($link.page('examples')): asking a room to message a member gives
+you a direct reference to that member, and the room leaves the path.
 
 ## Keep going
 
@@ -383,5 +359,5 @@ conversation with a real Goblins peer as a build check.
 - [Start building]($link.page('start')) is the client, line by line, in Zig,
   C, and every binding.
 - The glossary in
-  [capabilities](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/capabilities.md)
+  [capabilities](https://github.com/jimisaacs/pancake/blob/main/docs/capabilities.md)
   gives every term on this page a one-line definition.

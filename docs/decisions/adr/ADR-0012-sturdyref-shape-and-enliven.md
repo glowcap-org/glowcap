@@ -6,6 +6,8 @@ tags: [model, session, engine, sturdyref, enliven, equality, goblins, interop]
 decision: A sturdyref is a `Reference.sturdy` arm carrying `SturdyRef { peer, swissnum }` with structural equality on `(peer, swissnum)`; a `sturdyref` feature gate makes a sturdyref-bearing payload on a non-negotiated session a loud refusal; and enlivenment rides the existing bootstrap-fetch behind a feature+open precondition, a per-session dedup cache (swissnum to `(import_id, kind)`) that short-circuits a repeat enliven with no wire traffic, and an in-flight marker that collapses a concurrent enliven onto the outstanding answer.
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0098]
 ---
 
 # ADR-0012 Sturdyref shape and enliven substrate
@@ -121,10 +123,11 @@ in-flight dial remains admitted until inbound start-session;
 `tiebreakInbound` condemns exactly one side so the pair collapses to one.
 `referencesStructurallyEqual` compares `(import_id, kind)` only within one
 session. The sturdyref dedup cache reuses that row for repeated enlivenment on
-the same session. Neither mechanism identifies a target that returns through an
-arbitrary network path, and the existing sturdyref scenario does not execute a
-handoff. Full OCapN Pass Invariant Equality for targets therefore remains
-unproved. No wire field carries equality.
+the same session, and the sturdyref scenario proves that an ordinary deliver of
+the same export also lands on that row. Neither mechanism identifies a target
+that returns through an arbitrary other session, and the scenario does not
+execute a handoff. Full OCapN Pass Invariant Equality for targets therefore
+remains unproved. No wire field carries equality.
 
 ## Scope (what this does not decide)
 

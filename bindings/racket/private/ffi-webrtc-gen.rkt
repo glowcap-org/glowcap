@@ -8,11 +8,9 @@
 ;; optional and loads lazily, so this module exports one table-building
 ;; function the hand-written sibling (`ffi-webrtc.rkt`) calls with the
 ;; opened library -- the generated module stays below the hand module, so
-;; no require cycle forms. A webrtc peer is an opaque handle with no
-;; config struct, so the table takes only the library. The blocking
-;; `peer-wait-open` and `peer-read` keep their `#:blocking?` mark so the
-;; place's green threads keep serving while a call parks; every other row
-;; returns immediately.
+;; no require cycle forms. WebRTC handles are opaque and the readiness
+;; record buffer crosses as a raw pointer, so the table takes only the
+;; library. Every row returns immediately; the endpoint fd owns wakeups.
 (require ffi/unsafe
          "ffi-shared.rkt")
 (provide webrtc-ffi-table)
@@ -21,8 +19,18 @@
   (hasheq
    'last-error
    (get-ffi-obj 'pancake_webrtc_last_error L (_fun _pointer _size -> _size))
+   'netlayer-new
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_new L (_fun _pointer -> _int32))
+              _pointer #f)
+   'netlayer-readiness-fd
+   (get-ffi-obj 'pancake_webrtc_netlayer_readiness_fd L (_fun _pointer -> _int32))
+   'netlayer-drain-ready
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
+              _size 0)
+   'netlayer-release
+   (get-ffi-obj 'pancake_webrtc_netlayer_release L (_fun _pointer -> _void))
    'peer-new
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_new L (_fun _int32 _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_new L (_fun _pointer _int32 _pointer -> _int32))
               _pointer #f)
    'peer-create-offer
    (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_offer L (_fun _pointer _pointer _size _pointer -> _int32))
@@ -39,12 +47,15 @@
    'peer-next-local-candidate
    (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_next_local_candidate L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
-   'peer-wait-open
-   (get-ffi-obj 'pancake_webrtc_peer_wait_open L (_fun #:blocking? #t _pointer _uint64 -> _int32))
-   'peer-read
-   (get-ffi-obj 'pancake_webrtc_peer_read L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
-   'peer-write
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_write L (_fun _pointer _pointer _size _pointer -> _int32))
+   'peer-id
+   (get-ffi-obj 'pancake_webrtc_peer_id L (_fun _pointer -> _size))
+   'peer-is-open
+   (get-ffi-obj 'pancake_webrtc_peer_is_open L (_fun _pointer -> _int32))
+   'peer-try-read
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_read L (_fun _pointer _pointer _size _pointer -> _int32))
+              _size 0)
+   'peer-try-write
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_try_write L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-close
    (get-ffi-obj 'pancake_webrtc_peer_close L (_fun _pointer -> _void))

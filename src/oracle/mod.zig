@@ -426,20 +426,66 @@ pub fn runDrivenGcPair(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8
 }
 
 /// The full three-party handoff as one driven wire conversation (ADR-0009,
-/// ADR-0056): a gifter introduces a recipient to a capability it fetched from
+/// ADR-0100): a gifter introduces a recipient to a capability it fetched from
 /// an exporter, and the recipient redeems the introduction and calls the
 /// exporter directly. Six peers on three keyed sessions carry it — gifter to
 /// exporter, gifter to recipient, recipient to exporter — with real Ed25519
 /// material from fixed seeds behind every certificate: the three keyed hellos,
 /// the gifter's `desc:handoff-give`, and the recipient's
 /// `desc:handoff-receive` all verify on the receiving side; nothing is
-/// stubbed. The withdraw is shuttled before the deposit on purpose: the two
-/// legs travel on different sessions, so the exporter parks the early withdraw
-/// and settles it when the deposit lands — the arrival-order contract the
-/// upstream OCapN suite pins. The exporter's two peers share one gift
-/// registry, the single gift authority a multi-session host holds (ADR-0056).
+/// stubbed on the wire. The Node's local-target and gifter-directory seams use
+/// deterministic test owners; production Host coverage separately constrains
+/// those owners. The withdraw is shuttled before the deposit on purpose: the
+/// two legs travel on different sessions, so the exporter parks the early
+/// withdraw and settles it when the deposit lands — the arrival-order contract
+/// the upstream OCapN suite pins. The deposit remains owned by the exporter's
+/// Gifter-facing Peer; the Receiver-facing Peer resolves that live session
+/// before verification and consumption (ADR-0100).
 /// Codec-parameterized like `runDrivenDeliverResolve`; the handoff signing
 /// domain stays Syrup on both codecs (ADR-0009).
+const DrivenGiftSeams = struct {
+    gifter_scope: engine.PeerId,
+    recipient_scope: engine.PeerId,
+    source_position: model.ExportPosition,
+    gifter_peer: *engine.Peer,
+    recipient_peer: *engine.Peer,
+    projected_position: ?model.ExportPosition = null,
+
+    const target: u64 = 1;
+
+    fn resolveName(_: ?*anyopaque, _: engine.PeerId, _: []const u8) !?model.ExportPosition {
+        return null;
+    }
+
+    fn capture(ctx: ?*anyopaque, scope: engine.PeerId, position: model.ExportPosition) ?u64 {
+        const self: *DrivenGiftSeams = @ptrCast(@alignCast(ctx.?));
+        if (scope != self.gifter_scope or position != self.source_position) return null;
+        return target;
+    }
+
+    fn project(ctx: ?*anyopaque, scope: engine.PeerId, opaque_target: u64) !engine.bootstrap.ProjectedLocalTarget {
+        const self: *DrivenGiftSeams = @ptrCast(@alignCast(ctx.?));
+        if (scope != self.recipient_scope or opaque_target != target) return error.InvalidGiftTarget;
+        const position: model.ExportPosition = .from(try self.recipient_peer.exportNextObject());
+        self.projected_position = position;
+        return .{ .export_position = position, .created = true };
+    }
+
+    fn rollback(ctx: ?*anyopaque, scope: engine.PeerId, opaque_target: u64, projected: engine.bootstrap.ProjectedLocalTarget) void {
+        const self: *DrivenGiftSeams = @ptrCast(@alignCast(ctx.?));
+        if (!projected.created or scope != self.recipient_scope or opaque_target != target) return;
+        self.recipient_peer.session_state.releaseUnsharedExport(projected.export_position);
+        self.projected_position = null;
+    }
+
+    fn resolveGifterSession(ctx: ?*anyopaque, gifter_side: [32]u8, session_name: []const u8) ?engine.bootstrap.GifterSession {
+        const self: *DrivenGiftSeams = @ptrCast(@alignCast(ctx.?));
+        if (!self.gifter_peer.verify_partner_handshake) return null;
+        const key = engine.bootstrap.gifterKeyForSession(&self.gifter_peer.session_state, gifter_side, session_name) orelse return null;
+        return .{ .peer_id = self.gifter_scope, .key = key, .gifts = self.gifter_peer.giftRegistry() };
+    }
+};
+
 pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     const crypto = foundation.crypto;
 
@@ -451,53 +497,65 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
     const recipient_secret = crypto.SecretKey.fromSeed([_]u8{0x22} ** crypto.SEED_BYTES);
     const exporter_secret = crypto.SecretKey.fromSeed([_]u8{0x33} ** crypto.SEED_BYTES);
 
-    // Declared before the peers so its deinit runs after theirs: a shared
-    // registry's owner keeps it alive past every sharing peer's deinit.
-    var registry: engine.bootstrap.GiftRegistry = .{};
-    defer registry.deinit(allocator);
-
     var gifter_to_recipient = keyedNegotiatingPeer(allocator, codec_id);
     defer gifter_to_recipient.deinit();
     var recipient_to_gifter = keyedNegotiatingPeer(allocator, codec_id);
     defer recipient_to_gifter.deinit();
     var gifter_to_exporter = keyedNegotiatingPeer(allocator, codec_id);
     defer gifter_to_exporter.deinit();
-    var exporter_to_gifter = keyedNegotiatingPeer(allocator, codec_id);
-    defer exporter_to_gifter.deinit();
     var recipient_to_exporter = keyedNegotiatingPeer(allocator, codec_id);
     defer recipient_to_exporter.deinit();
-    var exporter_to_recipient = keyedNegotiatingPeer(allocator, codec_id);
-    defer exporter_to_recipient.deinit();
 
-    exporter_to_gifter.shared_gift_registry = &registry;
-    exporter_to_recipient.shared_gift_registry = &registry;
+    var exporter_node = engine.Node.init(allocator, [_]u8{0x33} ** crypto.SEED_BYTES);
+    defer exporter_node.deinit();
+    const exporter_options: engine.Peer.NegotiatingOptions = .{
+        .captp_version = .v1_0,
+        .codec = codec_id,
+        .features = model.FeatureSet.full(),
+    };
+    const exporter_gifter_id = try exporter_node.registerPeer(exporter_options);
+    const exporter_recipient_id = try exporter_node.registerPeer(exporter_options);
+    const exporter_to_gifter = exporter_node.peer(exporter_gifter_id).?;
+    const exporter_to_recipient = exporter_node.peer(exporter_recipient_id).?;
+
+    var seams = DrivenGiftSeams{
+        .gifter_scope = exporter_gifter_id,
+        .recipient_scope = exporter_recipient_id,
+        .source_position = undefined,
+        .gifter_peer = exporter_to_gifter,
+        .recipient_peer = exporter_to_recipient,
+    };
+    exporter_node.setLocalObjectProjection(.{
+        .ctx = &seams,
+        .resolve_name = DrivenGiftSeams.resolveName,
+        .capture = DrivenGiftSeams.capture,
+        .project = DrivenGiftSeams.project,
+        .rollback = DrivenGiftSeams.rollback,
+    });
+    exporter_node.setGifterSessionResolver(.{ .ctx = &seams, .resolve = DrivenGiftSeams.resolveGifterSession });
 
     try openKeyedSession(&gifter_to_recipient, gifter_secret, "gifter", &recipient_to_gifter, recipient_secret, "recipient");
-    try openKeyedSession(&gifter_to_exporter, gifter_secret, "gifter", &exporter_to_gifter, exporter_secret, "exporter");
-    try openKeyedSession(&recipient_to_exporter, recipient_secret, "recipient", &exporter_to_recipient, exporter_secret, "exporter");
+    try openKeyedSession(&gifter_to_exporter, gifter_secret, "gifter", exporter_to_gifter, exporter_secret, "exporter");
+    try openKeyedSession(&recipient_to_exporter, recipient_secret, "recipient", exporter_to_recipient, exporter_secret, "exporter");
 
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "scenario=driven_handoff\n");
 
-    // The exporter publishes one object on both of its sessions. The deposit
-    // arrives on the gifter session as a near naming this swissnum, so the
-    // withdraw on the recipient session can re-resolve the same object there
-    // (the named-cap deposit path).
+    // Publish only on the gifter-facing session. Deposit captures the exact
+    // opaque target now; withdrawal projects it onto the recipient-facing
+    // session without a swiss name there.
     const thermostat_gifter_session = try exporter_to_gifter.registerBootstrapCap("thermostat");
-    const thermostat_recipient_session = try exporter_to_recipient.registerBootstrapCap("thermostat");
-    try appendTraceLine(allocator, &out, "exporter=registered:swissnum=thermostat:gifter_session={d}:recipient_session={d}\n", .{
-        thermostat_gifter_session,
-        thermostat_recipient_session,
-    });
+    seams.source_position = .from(thermostat_gifter_session);
+    try appendTraceLine(allocator, &out, "exporter=registered:swissnum=thermostat:gifter_session={d}\n", .{thermostat_gifter_session});
 
     // The gifter fetches the capability it will later give away.
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &gifter_to_exporter.session_state, "thermostat");
     try gifter_to_exporter.send(prepared.message);
     _ = try gifter_to_exporter.step();
     try out.appendSlice(allocator, "gifter=sent:fetch\n");
-    try shuttleAndTraceEvents(allocator, &out, &gifter_to_exporter, &exporter_to_gifter, "exporter");
-    try shuttleFrames(&exporter_to_gifter, &gifter_to_exporter);
+    try shuttleAndTraceEvents(allocator, &out, &gifter_to_exporter, exporter_to_gifter, "exporter");
+    try shuttleFrames(exporter_to_gifter, &gifter_to_exporter);
     var fetched: model.Reference = undefined;
     {
         var settle = gifter_to_exporter.pollEvent() orelse return error.MissingFetchResolve;
@@ -598,21 +656,25 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
     try recipient_to_exporter.sendWithdrawGift(recipient_secret, redeem_give.?, .from(1));
     _ = try recipient_to_exporter.step();
     try out.appendSlice(allocator, "recipient=sent:withdraw_gift:answer=1\n");
-    try shuttleAndTraceEvents(allocator, &out, &recipient_to_exporter, &exporter_to_recipient, "exporter");
+    try shuttleAndTraceEvents(allocator, &out, &recipient_to_exporter, exporter_to_recipient, "exporter");
     try appendTraceLine(allocator, &out, "exporter=withdraw_parked={d}:gift_live={}\n", .{
-        exporter_to_recipient.pending_withdraws.items.len,
-        registry.giftLive(&gift_id),
+        exporter_to_recipient.pendingWithdrawCount(),
+        exporter_to_gifter.giftRegistry().giftLive(&gift_id),
     });
 
-    // Now the deposit lands on the gifter session; the shared registry records
-    // the gift, and the recipient session's next step settles the parked
-    // withdraw against it.
-    try shuttleAndTraceEvents(allocator, &out, &gifter_to_exporter, &exporter_to_gifter, "exporter");
-    try appendTraceLine(allocator, &out, "exporter=deposit_recorded:gift_live={}\n", .{registry.giftLive(&gift_id)});
-    try shuttleFrames(&exporter_to_recipient, &recipient_to_exporter);
+    // Now the deposit lands in the gifter session's registry. The recipient
+    // session's next step resolves that live session and settles the parked
+    // withdraw against its gift table.
+    try shuttleAndTraceEvents(allocator, &out, &gifter_to_exporter, exporter_to_gifter, "exporter");
+    try appendTraceLine(allocator, &out, "exporter=deposit_recorded:gift_live={}\n", .{exporter_to_gifter.giftRegistry().giftLive(&gift_id)});
+    const changed = exporter_node.nextHandoffChange() orelse return error.MissingHandoffWake;
+    var waiters = exporter_node.handoffWaiters(changed);
+    while (waiters.next()) |receiver| exporter_node.peer(receiver).?.noteHandoffChange(changed);
+    exporter_node.consumeHandoffChange(changed);
+    try shuttleFrames(exporter_to_recipient, &recipient_to_exporter);
     try appendTraceLine(allocator, &out, "exporter=withdraw_settled:parked={d}:gift_live={}\n", .{
-        exporter_to_recipient.pending_withdraws.items.len,
-        registry.giftLive(&gift_id),
+        exporter_to_recipient.pendingWithdrawCount(),
+        exporter_to_gifter.giftRegistry().giftLive(&gift_id),
     });
     var direct_import: u64 = 0;
     {
@@ -640,14 +702,23 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
     } });
     _ = try recipient_to_exporter.step();
     try out.appendSlice(allocator, "recipient=sent:deliver:answer=2:direct\n");
-    try shuttleAndTraceEvents(allocator, &out, &recipient_to_exporter, &exporter_to_recipient, "exporter");
+    try shuttleFrames(&recipient_to_exporter, exporter_to_recipient);
+    {
+        var event = exporter_to_recipient.pollEvent() orelse return error.MissingRedeemedDeliver;
+        defer event.deinit();
+        const view = try event.view();
+        if (view != .deliver or view.deliver.target != .near) return error.MalformedRedeemedDeliver;
+        if (view.deliver.target.near.export_position != (seams.projected_position orelse return error.GiftWasNotProjected))
+            return error.RedeemedWrongTarget;
+        try out.appendSlice(allocator, "exporter=event:deliver\n");
+    }
     try exporter_to_recipient.sendCopying(.{ .resolve = .{
         .answer = .from(2),
         .resolution = .{ .fulfill = .{ .string = "72F" } },
     } });
     _ = try exporter_to_recipient.step();
     try out.appendSlice(allocator, "exporter=sent:resolve:answer=2\n");
-    try shuttleAndTraceEvents(allocator, &out, &exporter_to_recipient, &recipient_to_exporter, "recipient");
+    try shuttleAndTraceEvents(allocator, &out, exporter_to_recipient, &recipient_to_exporter, "recipient");
     try out.appendSlice(allocator, "\n");
 
     return out.toOwnedSlice(allocator);

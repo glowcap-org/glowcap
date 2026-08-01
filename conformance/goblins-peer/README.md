@@ -41,6 +41,9 @@ wrappers and small Racket programs around that API.
 | `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff (`goblins-handoff` / `*-goblins-handoff`).   |
 | `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for pancake-as-gifter (`*-goblins-gift`).                                  |
 | `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a pancake-minted give (`*-goblins-gift`).             |
+| `racket/exporter-gifter-host.rkt` | Goblins Alice (gifter) over a greeter pancake exports, so a Goblins pair deposits into and withdraws from pancake's gift registry (`goblins-exporter`). |
+| `racket/deferred-exporter-host.rkt` | Goblins Bob (exporter) holding a promise he has not settled. He hands it to pancake as a delivered argument and settles it when the driver writes a line to his stdin (`goblins-relayed-give`). |
+| `racket/relayed-give-recipient.rkt` | Goblins Carol (recipient), who waits on a promise pancake introduced her to and reads the give out of the listener fire (`goblins-relayed-give`). |
 
 ## Running
 
@@ -67,7 +70,7 @@ bash conformance/ocapn-conformance/run.sh test \
 
 | Path | Transport symbol | Who dials whom |
 | ---- | ---------------- | -------------- |
-| Live Goblins interop (`zig build goblins-interop`, handoff, gift, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
+| Live Goblins interop (`zig build goblins-interop`, handoff, gift, relayed give, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
 | Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ pancake or seven-caps peer |
 
 Do not infer that the suite netlayer is the Goblins parity path.

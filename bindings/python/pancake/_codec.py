@@ -14,31 +14,10 @@ import ctypes
 from . import _constants as _abi
 from ._errors import PancakeError
 from ._ffi_ocapn import _Argument, _Reference
-from ._value import (
-    Argument,
-    Broken,
-    Far,
-    Keyword,
-    Near,
-    Promise,
-    Reference,
-    Set,
-    Sturdy,
-    Symbol,
-    Tagged,
-)
+from ._value import Argument, Keyword, Ref, Set, Symbol, Tagged, _ref_from_id
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
-
-_REF_NEAR, _REF_FAR, _REF_PROMISE, _REF_STURDY, _REF_BROKEN = (
-    _abi.REF_NEAR,
-    _abi.REF_FAR,
-    _abi.REF_PROMISE,
-    _abi.REF_STURDY,
-    _abi.REF_BROKEN,
-)
-_REF_SUB_OBJECT, _REF_SUB_PROMISE = _abi.REF_SUB_OBJECT, _abi.REF_SUB_PROMISE
 
 _ARG_INTEGER, _ARG_FLOAT64, _ARG_BOOLEAN, _ARG_BYTES = (
     _abi.ARG_INTEGER,
@@ -66,16 +45,8 @@ def _codec_id(codec: str) -> int:
     raise ValueError(f"unknown OCapN codec {codec!r}")
 
 
-def _ref_to_c(ref: Reference) -> _Reference:
-    if isinstance(ref, Near):
-        sub = _REF_SUB_PROMISE if ref.promise else _REF_SUB_OBJECT
-        return _Reference(_REF_NEAR, sub, ref.id)
-    if isinstance(ref, Far):
-        sub = _REF_SUB_PROMISE if ref.promise else _REF_SUB_OBJECT
-        return _Reference(_REF_FAR, sub, ref.id)
-    if isinstance(ref, Promise):
-        return _Reference(_REF_PROMISE, 0, ref.answer)
-    raise PancakeError(_ERR_UNSUPPORTED_VALUE, "sturdy/broken ref not carried on send")
+def _ref_to_c(ref: Ref) -> _Reference:
+    return _Reference(ref._live().id)
 
 
 def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
@@ -105,7 +76,7 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
         _set_bytes(a, _ARG_BYTES, bytes(value), keepalive)
     elif value is None:
         a.kind = _ARG_VOID
-    elif isinstance(value, (Near, Far, Promise, Sturdy, Broken)):
+    elif isinstance(value, Ref):
         a.kind, a.reference = _ARG_REFERENCE, _ref_to_c(value)
     elif isinstance(value, Tagged):
         _set_bytes(a, _ARG_TAGGED, value.tag.encode(), keepalive)
@@ -136,17 +107,8 @@ def _args_to_c(args: list, keepalive: list):
     return (arr if n else None, n)
 
 
-def _ref_from_c(r: _Reference) -> Reference:
-    promise = r.sub_kind == _REF_SUB_PROMISE
-    if r.kind == _REF_NEAR:
-        return Near(r.id, promise)
-    if r.kind == _REF_FAR:
-        return Far(r.id, promise)
-    if r.kind == _REF_PROMISE:
-        return Promise(r.id)
-    if r.kind == _REF_STURDY:
-        return Sturdy()
-    return Broken()
+def _ref_from_c(r: _Reference) -> Ref:
+    return _ref_from_id(r.id)
 
 
 def _bytes_from_c(a: _Argument) -> bytes:

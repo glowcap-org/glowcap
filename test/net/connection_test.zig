@@ -317,7 +317,7 @@ test "encodeAndFlush drains the projected abort to the wire when stepToIdle fail
     // the second is a duplicate session authority refuses, so the engine
     // projects an `op:abort` onto outbound. Both ride the dispatch path, so it
     // is `stepToIdle` that fails — exercising encodeAndFlush's abort-flush catch,
-    // not the read-half `applyStreamPrefix` path.
+    // not the read-half `recvStreamPrefix` path.
     try peer.feedOwned(try startSessionFrame(allocator, "remote"));
     try peer.feedOwned(try startSessionFrame(allocator, "remote"));
 

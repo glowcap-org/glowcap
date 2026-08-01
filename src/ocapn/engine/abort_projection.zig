@@ -141,11 +141,11 @@ pub fn classify(err: anyerror) Classification {
         error.ListenerCapExceeded,
         error.ProjectionCapExceeded,
         error.ImportCapExceeded,
-        error.HandoffCountCapExceeded,
         error.DepositedGiftCapExceeded,
         error.PendingWithdrawCapExceeded,
         error.NestingTooDeep,
         error.CompareBudgetExhausted,
+        error.ExportRangeExhausted,
         error.FrameTooLarge,
         error.LocalDeliveryCapExceeded,
         => .{ .domain = .session, .abort = .{
@@ -168,15 +168,6 @@ pub fn classify(err: anyerror) Classification {
         => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "inbound message violated the session state machine",
-            .disposition = .close,
-        } },
-        // A V1.0 `op:resolve` reached encode with no resolver row recorded for
-        // its answer — the translation state is broken, so the session fails
-        // closed rather than leave the partner hanging on an answer that can
-        // never settle.
-        error.MissingV1_0Resolver => .{ .domain = .session, .abort = .{
-            .kind = .protocol_error,
-            .message = "v1.0 resolve has no resolver recorded for its answer",
             .disposition = .close,
         } },
         // A `field` pipeline step has no Syrup wire shape

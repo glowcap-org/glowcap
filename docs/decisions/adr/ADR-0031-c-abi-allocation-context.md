@@ -115,10 +115,10 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 - Evidence: balance and lifecycle tests over default and host-backed contexts,
   including session-table growth, outbound/event/adopted frames, `feed_owned`
   failure ownership, and a TCP loopback through a host allocator
-  ([`test/c_abi/context_test.zig`](../../../test/c_abi/context_test.zig)); a C
-  consumer owning every allocation through a bump arena
-  ([`examples/c/context_alloc.c`](../../../examples/c/context_alloc.c)), gated
-  under `zig build check`.
+  ([`test/c_abi/context_test.zig`](../../../test/c_abi/context_test.zig)); and a
+  language consumer routing Host allocations through callbacks
+  ([`bindings/python/zig_smoke.py`](../../../bindings/python/zig_smoke.py)),
+  gated under `zig build check`.
 
 ## Typed driving surface
 

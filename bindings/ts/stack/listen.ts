@@ -30,11 +30,10 @@ import {
 abstract class AcceptLoopServer {
 	#pending: Promise<NetListener>;
 	#listener: NetListener | null = null;
-	// One identity and one shared gift registry for the whole host: every
-	// accepted session keys its handshake with this host's seed and shares its
-	// gift registry, so a gift deposited on one accepted session is withdrawable
-	// on another — the exporter-host shape a three-party handoff recipient relies
-	// on (ADR-0009/ADR-0056).
+	// One identity and one live-session directory for the whole host: every
+	// accepted session keys its handshake with this host's seed, and a withdraw
+	// resolves the still-open session that owns its gift. This is the exporter
+	// shape a handoff recipient relies on (ADR-0009/ADR-0100).
 	readonly #host: Host;
 
 	constructor(pending: Promise<NetListener>, host: Host) {
@@ -42,7 +41,7 @@ abstract class AcceptLoopServer {
 		this.#host = host;
 	}
 
-	/** The server's shared host, its retained identity and gift registry. An
+	/** The server's shared host, its retained identity and handoff router. An
 	 * exporter application reads it to originate gifts that recipients withdraw
 	 * across the host's sessions. */
 	get host(): Host {
@@ -154,9 +153,10 @@ export class Server extends AcceptLoopServer {
 /** Accept connections on `bindHost:port`, returning a `Server` you iterate for
  * each accepted `Session`. The bind completes asynchronously; `await
  * server.ready()` for the bound port. The server holds one host identity and
- * gift registry, read as `server.host` — a dialed sibling session shares it
- * with `connect(locator, reachability, server.host)` for a three-party
- * handoff. `codec` picks the wire grammar for a server built on a fresh host;
+ * live-session directory, read as `server.host` — a dialed sibling session
+ * joins it through `connect(locator, reachability, server.host)` so a
+ * three-party handoff can resolve that session's gift table. `codec` picks the
+ * wire grammar for a server built on a fresh host;
  * a supplied `host` already carries one, and a conflicting explicit codec is
  * refused rather than silently ignored. */
 export function listen(

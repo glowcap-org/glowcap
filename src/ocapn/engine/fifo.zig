@@ -1,0 +1,146 @@
+//! The head-indexed FIFO spine, and the action queue built on it.
+//!
+//! Popping advances a head index instead of shifting rows, and three things
+//! follow from that: the head rewinds when the queue drains, a long dead prefix
+//! slides forward so a producer that never drains to empty cannot grow the
+//! backing without bound, and capacity a burst grew above the caller's steady
+//! bound is returned at the drain rather than pinned for the owner's life.
+//!
+//! `popHead` is those three rules, once. Both queue types in this engine ride
+//! it: the peer's four per-connection queues and the `ActionFifo` below. They
+//! are separate types because their surfaces genuinely differ — one needs
+//! `peek` and `backPtr` for the outbound spine, the other needs `unpopped` for
+//! a teardown sweep — but there is one implementation of the part that is the
+//! same, which is what stops their compaction and reclaim rules drifting apart
+//! again.
+//!
+//! The steady bound is the caller's, because it is a footprint decision and the
+//! callers sit at different scales: four of these ride on every `engine.Peer` at
+//! 500k connections, while the action queues are one per node and per host. It
+//! is a byte count rather than a row count, so the bound means the same thing
+//! whatever `T` is.
+//!
+//! Rows are plain values; the FIFO owns the backing storage and nothing inside
+//! a row, so each owner keeps its own free choreography (a deferred last-popped
+//! free, a teardown sweep over `unpopped`) where its lifetime contract is
+//! visible.
+
+const std = @import("std");
+
+/// Dequeue the front row of a head-indexed queue, or null when it is drained.
+///
+/// This is the whole shared mechanism. On an empty observation the head rewinds
+/// and burst capacity above `steady_bytes` is freed; the reclaim runs on every
+/// empty observation rather than only when the head is ahead, because the slide
+/// below can consume the last row with the head already at zero. On an ordinary
+/// pop, a dead prefix that has grown to dominate the backing slides forward, so
+/// a queue kept non-empty under sustained load holds capacity proportional to
+/// its live depth instead of to everything ever pushed.
+pub fn popHead(
+    comptime T: type,
+    list: *std.ArrayListUnmanaged(T),
+    head: *usize,
+    allocator: std.mem.Allocator,
+    steady_bytes: usize,
+) ?T {
+    if (head.* >= list.items.len) {
+        list.clearRetainingCapacity();
+        head.* = 0;
+        if (list.capacity * @sizeOf(T) > steady_bytes) list.clearAndFree(allocator);
+        return null;
+    }
+    const row = list.items[head.*];
+    head.* += 1;
+    if (head.* >= 64 and head.* * 2 >= list.items.len) {
+        const live = list.items.len - head.*;
+        std.mem.copyForwards(T, list.items[0..live], list.items[head.*..]);
+        list.shrinkRetainingCapacity(live);
+        head.* = 0;
+    }
+    return row;
+}
+
+/// A steady bound that never sheds: the drain keeps whatever capacity it has.
+///
+/// For a queue whose capacity is reserved ahead of the push that spends it, the
+/// reclaim is not an optimization to tune, it is a correctness break. The
+/// action queues reserve at vow-mint time so a later settle's infallible
+/// `pushReserved` cannot fail, and the embedder drains between those two
+/// moments, so a drain that freed the reservation would leave
+/// `appendAssumeCapacity` writing past the end. A queue that reserves ahead
+/// passes this.
+pub const retain_all: usize = std.math.maxInt(usize);
+
+/// The steady backing bound the per-connection queues use. Capacity above it is
+/// one burst's, freed at the drain; capacity at or under it is steady traffic
+/// and stays, so ordinary turns never reallocate.
+pub const steady_fifo_bytes: usize = 4096;
+
+pub fn ActionFifo(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        /// Rows pushed and not yet popped live at `list.items[head..]`.
+        list: std.ArrayListUnmanaged(T) = .empty,
+        head: usize = 0,
+
+        pub fn push(self: *Self, allocator: std.mem.Allocator, row: T) !void {
+            if (self.list.items.len == self.list.capacity) self.compactForAppend();
+            try self.list.append(allocator, row);
+        }
+
+        /// Reserve room for `rows` more pushes so a later `pushReserved`
+        /// cannot fail — the fallible half of an infallible-fire contract.
+        pub fn reserve(self: *Self, allocator: std.mem.Allocator, rows: usize) !void {
+            if (rows > self.list.capacity - self.list.items.len) self.compactForAppend();
+            try self.list.ensureUnusedCapacity(allocator, rows);
+        }
+
+        /// Push into capacity `reserve` already secured.
+        pub fn pushReserved(self: *Self, row: T) void {
+            if (self.list.items.len == self.list.capacity) self.compactForAppend();
+            std.debug.assert(self.list.items.len < self.list.capacity);
+            self.list.appendAssumeCapacity(row);
+        }
+
+        /// Borrow the next row without consuming it. Used when the consequence
+        /// of an action is fallible: commit the consequence first, then pop.
+        pub fn peek(self: *const Self) ?T {
+            if (self.head >= self.list.items.len) return null;
+            return self.list.items[self.head];
+        }
+
+        /// Pop the front row, owning nothing: the caller (or its deferred
+        /// free) owns the row's payload. Null when empty, which also rewinds
+        /// the drained list and returns burst capacity.
+        pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
+            // `retain_all`, not a byte bound: `reserve` runs at vow-mint time
+            // and `pushReserved` spends it at settle time, with this drain in
+            // between. Shedding here would free a reservation already promised
+            // to an infallible append.
+            return popHead(T, &self.list, &self.head, allocator, retain_all);
+        }
+
+        /// The rows pushed and never popped, in order: the owner's teardown
+        /// sweep frees their payloads, and a queue-time dedup scans them.
+        pub fn unpopped(self: *const Self) []const T {
+            return self.list.items[self.head..];
+        }
+
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.list.deinit(allocator);
+        }
+
+        /// Reclaim a dead prefix before append reaches the backing's physical
+        /// end. Reserved capacity is a count of live future rows, not a promise
+        /// that the monotonic tail index may grow forever; this makes repeated
+        /// pop/push cycles reuse the same allocation.
+        fn compactForAppend(self: *Self) void {
+            if (self.head == 0) return;
+            const live = self.list.items.len - self.head;
+            std.mem.copyForwards(T, self.list.items[0..live], self.list.items[self.head..]);
+            self.list.shrinkRetainingCapacity(live);
+            self.head = 0;
+        }
+    };
+}

@@ -7,100 +7,24 @@
 .draft = false,
 ---
 
-A transport, a *netlayer*, moves a session's bytes between two peers. The core
-hands each frame to whichever netlayer a
-[locator]($link.page('concepts'))'s transport symbol names, and never learns which
-one carried it. The transports below ship today. A peer that cannot open a socket
-of its own, like a browser, reaches a socket transport through
-[the relay]($link.page('relay')), or holds a direct WebRTC DataChannel to another
-browser with no socket at all. If you are not sure which to reach for,
-[Choosing a transport]($link.page('transports/choosing')) walks the decision.
-
-## A transport is a resident, not a privilege
-
-Each transport is implemented as a *resident*: the one module in `net` that
-owns that transport's sockets or streams and plugs into the driver. The driver
-holds a slice of residents and dispatches `connectVia` and `acceptVia` on the
-transport symbol it reads off a locator. Every resident funnels through one
-transport-generic `Connection` (a reader, a writer, and a close handle), so it
-reuses the one framing core instead of reinventing it. A new transport is one
-new resident and a registry entry; the driver and the core do not change to
-admit it.
-
-In the table, the **designator** is the peer's name inside its locator, the
-part you dial ([Concepts]($link.page('concepts')) defines the vocabulary).
+A transport, or *netlayer*, moves session bytes between two peers. The session
+above it does not change. In the table, the **designator** is the peer name
+inside an OCapN locator.
 
 | Transport | Symbol | Channel | Designator | Reach for it when |
 | --- | --- | --- | --- | --- |
-| TCP | `tcp` | cleartext TCP, no TLS | `host:port` | a real network, or interop with Goblins over TCP |
-| Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal ([ADR-0075](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)) |
+| TCP | `tcp` | cleartext TCP | `host:port` | a real network, or Goblins interoperability |
+| Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal ([ADR-0075](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)) |
 | In-process | `inproc` | in-memory byte pipes, no sockets | a name within one process | tests and demos that run both peers in one process |
 | iroh | `iroh` | encrypted QUIC (separate artifact) | a self-authenticating node id in an `ocapn://` URI | you want an encrypted channel today, or peer-to-peer reach |
-| WebRTC | `webrtc` | encrypted DataChannel over DTLS (separate artifact) | an Ed25519 designator reached through a signaling capability, not a dialable address | two browsers speaking directly, or a peer-to-peer channel a NAT would otherwise block |
+| WebRTC | `webrtc` | encrypted DataChannel over DTLS (separate artifact) | an Ed25519 designator reached through signaling | direct browser-to-browser traffic |
 
-### TCP
+TCP and keyed TCP are not encrypted. Use iroh for encrypted native
+peer-to-peer traffic and WebRTC for a direct browser channel. A browser can
+also reach a native peer through the byte-transparent
+[relay]($link.page('relay')).
 
-`tcp` is the default real-network transport, and the one that addresses a Goblins
-peer. It is cleartext, no TLS, because `tcp` has to speak the same wire as Goblins'
-cleartext `tcp`. The transport is proven against a live
-[Goblins](https://spritely.institute/goblins/) peer over a real socket, then
-re-exposed over the C ABI as blocking endpoint handles. Two I/O paths sit above it:
-a blocking pump for cooperative request/response, and the completion loop (io_uring
-on Linux, kqueue on macOS) for many connections without a thread apiece.
-
-### Keyed TCP
-
-`keyed-tcp` uses the same cleartext TCP sockets as `tcp`, under a different
-locator grammar. The designator is
-the listener's Ed25519 public key in canonical hex, and the socket address rides the
-`direct-addresses` hint. The driver pins the handshake to the dialed key so a
-partner can re-dial the same designator across a process restart, and a key
-squatter is refused before the session opens
-([ADR-0075](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)).
-Bindings expose `listen_keyed_tcp` / `KeyedTcpServer` and `keyed_tcp_locator`.
-In Python, hosting one looks like this:
-
-```python
-server = await listen_keyed_tcp("127.0.0.1")
-print(server.uri())  # the ocapn:// locator a partner dials
-```
-
-### In-process (inproc)
-
-`inproc` opens no sockets at all. A switchboard wires a dialer and a listener through a pair of
-in-memory byte pipes, one per direction, so a full OCapN conversation runs inside a
-single process. It exists to prove the netlayer contract is not accidentally
-socket-shaped, and it is what the examples and tests use to drive both halves of a
-conversation without binding a port.
-
-### iroh
-
-`iroh` is the encrypted, peer-to-peer transport: QUIC carried by an
-[iroh](https://www.iroh.computer/) sidecar in its own optional artifact. Its
-designator is a self-authenticating node id, and that one key is at once the
-network route, the OCapN designator, and the session signing key. The dedicated
-[iroh page]($link.page('transports/iroh')) covers dialing by id, discovery, the
-reachability postures, and scale.
-
-### WebRTC
-
-`webrtc` is the peer-to-peer transport for browsers and for pairs a NAT would
-otherwise block: a [WebRTC](https://www.w3.org/TR/webrtc/) DataChannel,
-DTLS-encrypted, in its own optional artifact. A WebRTC peer has no dialable
-address; the two ends meet through a signaling capability both can reach, then
-speak directly with the signaling host out of the byte path. The dedicated
-[WebRTC page]($link.page('transports/webrtc')) covers the signaling exchange,
-the browser arm, and the handoff.
-
-## Encryption is the netlayer's job
-
-Confidentiality is something a netlayer provides, not a flag the API sets. The
-contract a transport meets says nothing about whether the stream is encrypted,
-so each netlayer answers that for itself. `iroh` is encrypted because its QUIC
-channel is keyed, and `webrtc` because its DataChannel runs DTLS. The TCP
-transports stay cleartext, for the Goblins parity the TCP section names. TLS over a socket would simply
-be another netlayer under the same contract, with its own transport symbol;
-nothing
-forbids it, and it is not written yet. Where pancake heads beyond today's
-transports lives in the
-[vision](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md).
+[Choosing a transport]($link.page('transports/choosing')) turns the table into
+a decision. The [iroh]($link.page('transports/iroh')) and
+[WebRTC]($link.page('transports/webrtc')) pages cover setup and limits.
+[Modules]($link.page('modules')) explains how netlayers plug into the driver.

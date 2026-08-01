@@ -267,7 +267,7 @@ pub fn encode_peer_locator(
 	let mut out: *mut u8 = core::ptr::null_mut();
 	let mut out_len: usize = 0;
 	check(unsafe {
-		sys::pancake_encode_peer_locator(
+		sys::pancake_locator_record_encode(
 			transport.as_ptr(),
 			transport.len(),
 			designator.as_ptr(),
@@ -283,6 +283,6 @@ pub fn encode_peer_locator(
 	} else {
 		unsafe { core::slice::from_raw_parts(out, out_len) }.to_vec()
 	};
-	unsafe { sys::pancake_peer_locator_bytes_release(out, out_len) };
+	unsafe { sys::pancake_locator_record_bytes_release(out, out_len) };
 	Ok(bytes)
 }

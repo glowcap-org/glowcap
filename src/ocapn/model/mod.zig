@@ -34,6 +34,7 @@ pub const freeMessage = owned.freeMessage;
 pub const cloneArgument = owned.cloneArgument;
 pub const freeArgument = owned.freeArgument;
 pub const cloneArgumentSlice = owned.cloneArgumentSlice;
+pub const measureArgumentSliceOwnedBytes = owned.measureArgumentSliceOwnedBytes;
 pub const freeArgumentSlice = owned.freeArgumentSlice;
 pub const freePipelineOp = owned.freePipelineOp;
 pub const freeResolution = owned.freeResolution;
@@ -94,6 +95,11 @@ pub const FeatureSet = negotiated.FeatureSet;
 /// wire/ABI boundary with `ExportPosition.from` / `.int` and friends.
 pub const ExportPosition = position.ExportPosition;
 pub const ImportPosition = position.ImportPosition;
+/// An id this node minted for a redeemed-handoff capability (ADR-0069), and
+/// the union that says which of the two kinds an import id is (ADR-0091).
+pub const REDEEMED_TOKEN_BASE = position.REDEEMED_TOKEN_BASE;
+pub const RedeemedToken = position.RedeemedToken;
+pub const ImportName = position.ImportName;
 pub const AnswerPosition = position.AnswerPosition;
 
 const hint_types = @import("hints.zig");
@@ -465,34 +471,11 @@ pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
     }
 }
 
-/// Bind two model unions by arm-name set: the owned (`model.*`) and borrowed
-/// (`model.view.*`) shapes of one wire value. `equality.zig` compares and
-/// hashes each shape with its own hand-written exhaustive switch — one for
-/// `Argument`, `Reference`, and `Handoff` per shape — because the owned path is
-/// an infallible `bool` with no allocator while the borrowed path is
-/// `Error!bool` over lazy sequences. That leaves the six switch pairs free to
-/// drift in *which arms exist*: a new arm added to `model.Argument` breaks its
-/// owned switch (forcing an edit) but nothing proves `view.Argument` gained the
-/// mirror arm. This assertion is that proof. It is order-independent, since a
-/// `view` union may legitimately declare the same arms in a different order.
-/// A new arm on one shape without its mirror is a compile error, so the paired
-/// switches cannot classify different arm sets.
-pub fn assertUnionArmsMirror(comptime A: type, comptime B: type) void {
-    const a_fields = @typeInfo(A).@"union".fields;
-    const b_fields = @typeInfo(B).@"union".fields;
-    if (a_fields.len != b_fields.len)
-        @compileError("union arm count drifted between " ++ @typeName(A) ++
-            " and its mirror " ++ @typeName(B));
-    inline for (a_fields) |af| {
-        comptime var found = false;
-        inline for (b_fields) |bf| {
-            if (std.mem.eql(u8, af.name, bf.name)) found = true;
-        }
-        if (!found)
-            @compileError(@typeName(A) ++ " arm '" ++ af.name ++
-                "' has no mirror arm in " ++ @typeName(B));
-    }
-}
+// The owned (`model.*`) and borrowed (`model.view.*`) shapes of one wire
+// value stay arm-for-arm mirrored without a dedicated assertion: `fromOwned`
+// switches exhaustively over the owned arms and must produce a view arm for
+// each, and `toOwned` does the reverse, so an arm added to either shape alone
+// is a compile error in the projection rather than a drift.
 
 /// Bind a wire kind registry to a model union by *set*: every arm name appears
 /// on both sides and the counts match, without pinning the order. This is the

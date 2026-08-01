@@ -19,9 +19,9 @@
          "lib-resolve.rkt")
 (provide iroh-fn
          _PancakeIrohReadyEvent
-         PancakeIrohReadyEvent-conn PancakeIrohReadyEvent-events
+         PancakeIrohReadyEvent-subject PancakeIrohReadyEvent-events
          make-PancakeIrohConfig
-         IROH-EV-READABLE IROH-EV-WRITABLE IROH-EV-CLOSED IROH-EV-ACCEPT)
+         IROH-EV-READABLE IROH-EV-WRITABLE IROH-EV-CLOSED IROH-EV-ACCEPT IROH-EV-CONNECT)
 
 ;; Readiness event bits (the header's PANCAKE_IROH_EV_*), carried by a
 ;; `drain_ready` record. A single record may carry several at once.
@@ -34,14 +34,14 @@
 ;; otherwise the ready connection's handle; `events` is the IROH-EV-* bitset.
 ;; The loop drains an array of these, so it is allocated 'atomic-interior like
 ;; the other cstructs C writes into.
-(define-cstruct _PancakeIrohReadyEvent ([conn _pointer] [events _uint32])
+(define-cstruct _PancakeIrohReadyEvent ([subject _uintptr] [events _uint32])
   #:malloc-mode 'atomic-interior)
 
 ;; The layout gate, as in `ffi-shared.rkt`: the hand-mirrored ready-event
 ;; record is pinned at require time against `PANCAKE-IROH-READY-EVENT-SIZE`
 ;; (from `layouts-gen.rkt`) and the field layout hand-copied here (conn at 0,
 ;; events at 8, trailing pad to 16).
-(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE '(pointer uint32))
+(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE '(uintptr uint32))
 
 ;; One iroh endpoint's config, the cstruct counterpart of the header's
 ;; PancakeIrohConfig: reachability (mandatory) + connect_timeout_ms (0 = the

@@ -46,8 +46,22 @@ pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *Intr
             try validateInboundResolve(self, resolve, introduced);
         },
         .listen => |listen| try validateInboundListen(self, listen),
+        .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
+        .index => |index| try validateProjectionOp(self, index.receiver, index.answer),
+        .untag => |untag| try validateProjectionOp(self, untag.receiver, untag.answer),
         else => {},
     }
+}
+
+/// The one inbound `op:get` / `op:index` / `op:untag` rule, shared by both
+/// recv representations (`receiver` is the owned or borrowed reference): the
+/// receiver names a target in exactly a deliver's position, so the partner
+/// must already hold it, and the answer position must be fresh. Without this
+/// an inbound projection op with an unheld position would surface to the
+/// application unvalidated, an authority gap versus deliver and listen.
+fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerPosition) Error!void {
+    try validateReference(self, receiver, .received, .held_import);
+    try checkInboundAnswerPosition(self, answer);
 }
 
 /// The one `op:start-session` kind rule, shared by all three dispatch
@@ -125,11 +139,14 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
                 return Error.InvalidReference;
             if (entry.status() != .pending) return Error.UnexpectedMessage;
             // The fulfill payload's `near` references are deliberately *not*
-            // validated as held here: resolving an answer with a `.near` is how
-            // the application exports that object for the first time, so
-            // `retainSentExports` mints the export row `registerExport`-shaped
-            // (local baseline plus the wire mention) and advances the export
-            // allocator past it. This is the send-side asymmetry with
+            // validated as held here, and only its `near` references: resolving
+            // an answer with a `.near` is how the application exports that
+            // object for the first time, so `retainSentExports` mints the
+            // export row `registerExport`-shaped (local baseline plus the wire
+            // mention) and advances the export allocator past it. Every other
+            // arm keeps the deliver path's rule; see `SendRefCheck` for why the
+            // `far` arm in particular cannot join the exemption. This is the
+            // send-side asymmetry with
             // `validateInboundResolve`, where a partner-named `near` must
             // carry a wire-count grant. The depth is still bounded here, before
             // `retainSentExports` walks the same payload and enforces the cap
@@ -139,7 +156,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             // `op:gc-exports` will ever release — the all-or-nothing breach the
             // deliver path already closes.
             switch (resolve.resolution) {
-                .fulfill => |arg| try validateArgument(self, arg, 0, .skip),
+                .fulfill => |arg| try validateArgument(self, arg, 0, .near_may_be_first_export),
                 .@"break" => {},
             }
         },
@@ -220,18 +237,13 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
             try session.checkGcAnswerDecrement(self.recv_scratch.allocator(), &self.inbound_answers, gc_answer.positions);
         },
         .listen => |listen| try validateInboundListen(self, listen),
-        // `op:get` / `op:index` / `op:untag` name a receiver in target position,
-        // exactly like a deliver target: the partner must already hold it.
-        // Without this an inbound projection op with an unheld export/import position
-        // would surface to the application unvalidated, an authority gap versus
-        // deliver and listen.
-        .get => |get| try validateReference(self, get.receiver, .received, .held_import),
-        .index => |index| try validateReference(self, index.receiver, .received, .held_import),
-        .untag => |untag| try validateReference(self, untag.receiver, .received, .held_import),
+        .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
+        .index => |index| try validateProjectionOp(self, index.receiver, index.answer),
+        .untag => |untag| try validateProjectionOp(self, untag.receiver, untag.answer),
         .handoff => |handoff| {
             if (!self.features.handoff) return Error.FeatureNotNegotiated;
-            // Well-formedness only. Withdrawal authority (the vat-scoped
-            // `engine.bootstrap.GiftRegistry`) moves solely through a verified
+            // Well-formedness only. Withdrawal authority (the two sessions'
+            // `engine.bootstrap.GiftRegistry` state) moves solely through a verified
             // caller (`engine.bootstrap.resolveForWithdraw`, or a host that
             // verifies both handoff certificates before applying the withdraw
             // against the registry), never from this unauthenticated generic
@@ -248,7 +260,7 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
     if (deliver.resolve_me_desc) |reference| {
         try validateReference(self, reference, .sent, .held_import);
     }
-    try validateArguments(self, deliver.args, 0, .held_import);
+    try validateArguments(self, deliver.args, 0, .held);
 }
 
 // ── Inbound reference / argument validation (single walker) ─────────────
@@ -317,21 +329,27 @@ pub const IntroducedImports = struct {
     }
 };
 
+/// The two rules every partner-named inbound answer position answers to.
+///
+/// The position is attacker-controlled, so both are refusals rather than
+/// assumptions. The range at and above `VIRTUAL_INBOUND_ANSWER_BASE` belongs to
+/// session-allocated virtual answers, and a partner claim inside it could fuse
+/// its question with one the engine allocated for itself. And an answer names
+/// one outstanding question, so reusing a row that is still live — pending, or
+/// settled and awaiting `op:gc-answers` — is a protocol violation; refusing it
+/// here projects a typed abort, where letting it through left `installAnswer` a
+/// no-op and failed later on our own outbound resolve with no abort recorded.
+///
+/// Every kind that installs an inbound answer calls this: the deliver that
+/// carries one, and the three projection ops (ADR-0050), which name an answer
+/// of their own and install a row exactly as a deliver does.
+fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Error!void {
+    if (answer.int() >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
+    if (self.inbound_answers.contains(answer)) return Error.UnexpectedMessage;
+}
+
 fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *IntroducedImports) RecvViewError!void {
-    if (deliver.answer) |answer| {
-        // The answer position is partner-named, so it is attacker-controlled.
-        // The range at and above `VIRTUAL_INBOUND_ANSWER_BASE` is reserved for
-        // session-allocated virtual answers; a partner claim there could
-        // collide with a virtual allocation, so it is refused loudly.
-        if (answer.int() >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
-        // An answer position names one outstanding question. A second wire
-        // deliver that reuses a still-live inbound row (pending or already
-        // settled, awaiting `op:gc-answers`) is a partner protocol violation.
-        // Refusing here projects a typed abort on the recv path; letting it
-        // through left `installAnswer` a no-op and failed later on our own
-        // outbound resolve with `UnexpectedMessage` and no abort recorded.
-        if (self.inbound_answers.contains(answer)) return Error.UnexpectedMessage;
-    }
+    if (deliver.answer) |answer| try checkInboundAnswerPosition(self, answer);
     try validateReference(self, deliver.target, .received, .held_import);
     // A promise target's pipeline path is refused inbound: pancake decomposes
     // every multi-hop pipeline into single-hop links at the *sender*
@@ -422,9 +440,7 @@ fn validateReference(
                 return Error.InvalidReference,
         },
         .far => |far| switch (far_policy) {
-            .held_import => if (far.import_position.int() != BOOTSTRAP_POSITION and
-                !self.imports.contains(far.import_position))
-                return Error.InvalidReference,
+            .held_import => if (!self.holdsImport(far.import_position)) return Error.InvalidReference,
             .introduction => if (far.import_position.int() >= REDEEMED_TOKEN_BASE) return Error.InvalidReference,
         },
         .promise, .broken => {},
@@ -487,8 +503,10 @@ fn validateInboundArgument(
 /// on the shared walk, so both the borrowed view path and the owned fallback
 /// enforce it identically. Borrowed elements are hashed/compared as views
 /// (`viewArgumentHash` / `viewArgumentsEqualBounded`) — scratch holds only the view
-/// handles and hash rows, never a `toOwned` materialization. Owned fallback
-/// keeps the owned hash/equal path. A hash group is confirmed before refusing,
+/// handles and hash rows, never a `toOwned` materialization. The owned
+/// fallback projects through the same spine (`argumentsEqualBounded`) and
+/// charges the same per-message budget, so the two arms cannot drift in
+/// semantics or in cost. A hash group is confirmed before refusing,
 /// so a collision never causes a false refusal. Confirming is not free: two
 /// sets compare as multisets, so an equal-hashed pair of width N costs on the
 /// order of N² element visits, and the commutative set hash lets a partner
@@ -552,7 +570,9 @@ fn checkInboundSetUniqueness(
         }
         return;
     }
-    try checkOwnedSetUniqueness(arena, items);
+    // Same per-message allowance as the borrowed arm above: whichever arm a
+    // message's sets take, one budget bounds the whole message's confirms.
+    try checkOwnedSetUniqueness(arena, items, &introduced.compare_budget);
 }
 
 /// One hash row of the set-uniqueness fold: sort by hash so Equal elements
@@ -570,10 +590,15 @@ const SetHashRow = struct {
 /// inbound path hands the recv arena (rows die in the turn reset); the send
 /// path hands the session gpa (no recv turn brackets a send), so small sets
 /// stay on the stack and a spilled row slice is freed here precisely.
+/// Confirming charges `budget` per element visit exactly as the borrowed fold
+/// does — both folds run the one comparison spine — so a partner-influenced
+/// owned tree (a stored relayed resolution) buys bounded work, not trusted
+/// work.
 fn checkOwnedSetUniqueness(
     scratch: std.mem.Allocator,
     elements: []const model.Argument,
-) error{ OutOfMemory, DuplicateSetElement }!void {
+    budget: *model.equality.CompareBudget,
+) error{ OutOfMemory, DuplicateSetElement, CompareBudgetExhausted }!void {
     if (elements.len < 2) return;
     const stack_cap = 8;
     var stack_rows: [stack_cap]SetHashRow = undefined;
@@ -591,9 +616,18 @@ fn checkOwnedSetUniqueness(
     for (rows, 0..) |row, ri| {
         if (row.hash != rows[run_start].hash) run_start = ri;
         for (rows[run_start..ri]) |prior| {
-            if (model.equality.argumentsEqual(elements[prior.index], elements[row.index])) {
-                return error.DuplicateSetElement;
-            }
+            const equal = model.equality.argumentsEqualBounded(
+                &elements[prior.index],
+                &elements[row.index],
+                .{ .scratch = scratch, .budget = budget },
+            ) catch |err| switch (err) {
+                // An owned tree projects slice-backed with `.projected`
+                // hints, so the lazy-view failure arm cannot fire on it.
+                error.MalformedView => unreachable,
+                error.OutOfMemory => return error.OutOfMemory,
+                error.CompareBudgetExhausted => return error.CompareBudgetExhausted,
+            };
+            if (equal) return error.DuplicateSetElement;
         }
     }
 }
@@ -641,13 +675,28 @@ fn validateInboundStructEntries(
     }
 }
 
-/// How the send-side walker treats a leaf `reference`. The two send paths
-/// share one depth-bounded walk and differ only here: a deliver's arguments
-/// must each name a held import (`.held_import`), while a resolve's fulfill
-/// payload does not — resolving with a `.near` is how the application first
-/// exports that object (the export-on-resolve asymmetry), so its references
-/// are only depth-bounded (`.skip`).
-const SendRefCheck = enum { held_import, skip };
+/// How the send-side walker treats a leaf `reference`. Both send paths hold
+/// every reference to the same rule, and differ on exactly one arm.
+///
+/// A deliver's arguments must each name something this session already holds
+/// (`.held`). A resolve's fulfill payload exempts the `near` arm
+/// (`.near_may_be_first_export`), because resolving an answer with a `.near`
+/// is how the application exports that object for the first time: there is no
+/// export row yet, and `retainSentExportRef` mints one, admitting the position
+/// through `admitExportPositionForMarshal` so it must still be a name in this
+/// session's own range.
+///
+/// The exemption stops at that arm. A `far` names the partner's export on
+/// *this* session and nowhere else, so one this session does not hold names
+/// nothing here: the fulfill would put `<desc:export N>` on the wire for an
+/// export this partner never made. Nothing downstream recovers it. A partner
+/// that numbers its exports from zero, as Goblins does, is liable to hold a
+/// live and unrelated object at that number, so the reference designates the
+/// wrong capability instead of failing; a partner that does not holds nothing
+/// there and refuses the whole session. The far arm of the deliver path's
+/// rule is what closes it, and it is the import-side twin of the export-range
+/// admission `retainSentExportRef` already performs for the `near` arm above.
+const SendRefCheck = enum { held, near_may_be_first_export };
 
 /// Validate a send-side argument tree: bound the nesting past
 /// `max_nesting_depth`, and check each leaf reference per `ref_check`. The
@@ -667,11 +716,21 @@ const SendArgError = Error || std.mem.Allocator.Error;
 /// (the relayed-resolution seam, `Peer.applyRelayedResolution`): the same
 /// depth bound and set / struct-key uniqueness `validateSend` holds for a
 /// resolve's fulfill payload, applied to the one entry point that stores an
-/// application value without a send. References are only depth-bounded
-/// (`.skip`), matching the resolve arm's export-on-resolve asymmetry.
+/// application value without a send. It carries the resolve arm's reference
+/// rule too (`.near_may_be_first_export`), because the stored value reaches
+/// this same partner verbatim when the fire carriers encode it: a `far` the
+/// store holds is a position this session must hold, exactly as if the
+/// application had sent the resolve itself.
+///
+/// The node's relay already keeps to that rule by construction — a relayed
+/// fulfillment naming a bare far object takes the handoff arm
+/// (`Node.giftRelayedCapability`) rather than the store, and every other
+/// session-scoped shape settles broken (ADR-0009) — so this makes an existing
+/// convention a checked one, and catches an embedder that stores through the
+/// seam directly.
 pub fn validateStoredResolution(self: *Session, resolution: model.Resolution) SendArgError!void {
     switch (resolution) {
-        .fulfill => |arg| try validateArgument(self, arg, 0, .skip),
+        .fulfill => |arg| try validateArgument(self, arg, 0, .near_may_be_first_export),
         .@"break" => {},
     }
 }
@@ -686,8 +745,10 @@ fn validateArguments(self: *Session, args: []const model.Argument, depth: usize,
 fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime ref_check: SendRefCheck) SendArgError!void {
     switch (arg) {
         .reference => |reference| switch (ref_check) {
-            .held_import => try validateReference(self, reference, .sent, .held_import),
-            .skip => {},
+            .held => try validateReference(self, reference, .sent, .held_import),
+            // Only the `near` arm is exempt; see `SendRefCheck`.
+            .near_may_be_first_export => if (reference != .near)
+                try validateReference(self, reference, .sent, .held_import),
         },
         .list => |items| try validateArguments(self, items, depth + 1, ref_check),
         .set => |items| {
@@ -698,9 +759,14 @@ fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime 
             // `retainSentExports` committed wire-delta retains for a frame
             // that never ships, the same all-or-nothing breach the depth
             // bound above closes. This fold is at least as strict as encode:
-            // model-Equal-but-byte-distinct spellings (two NaN bit patterns)
-            // refuse only here, exactly as they would inbound.
-            try checkOwnedSetUniqueness(self.allocator, items);
+            // model-Equal-but-byte-distinct forms (two NaN bit patterns)
+            // refuse only here, exactly as they would inbound. No message-wide
+            // budget brackets a send, so each fold mints its own allowance —
+            // per set rather than per message, which still bounds the one
+            // partner-influenced caller (`validateStoredResolution`, a relayed
+            // fulfillment) at the same rate the inbound fold charges.
+            var compare_budget = model.equality.CompareBudget.init(self.limits.max_compare_visits);
+            try checkOwnedSetUniqueness(self.allocator, items, &compare_budget);
         },
         .tagged => |tagged| try validateArguments(self, tagged.value, depth + 1, ref_check),
         .@"struct" => |entries| {

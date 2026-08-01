@@ -5,7 +5,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const driver = pancake.driver;
-const c_abi_driver = @import("c_abi_driver");
+const c_abi_host = @import("c_abi_host");
 const DialError = pancake.net.netlayer.DialError;
 
 const RetryProbe = struct {
@@ -36,8 +36,8 @@ fn fatalDial(ctx: ?*anyopaque) DialError!void {
 }
 
 test "discovery budget lockstep: driver, C ABI, ResilientClient policy" {
-    try std.testing.expectEqual(driver.discovery_retry_ms, c_abi_driver.PANCAKE_DISCOVERY_DIAL_RETRY_MS);
-    try std.testing.expectEqual(driver.discovery_max_attempts, c_abi_driver.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS);
+    try std.testing.expectEqual(driver.discovery_retry_ms, c_abi_host.PANCAKE_DISCOVERY_DIAL_RETRY_MS);
+    try std.testing.expectEqual(driver.discovery_max_attempts, c_abi_host.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS);
     const p = driver.DialPolicy.discovery();
     try std.testing.expectEqual(driver.discovery_max_attempts, p.max_attempts);
     try std.testing.expectEqual(driver.discovery_retry_ms, p.retry_interval_ms);

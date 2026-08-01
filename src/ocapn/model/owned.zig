@@ -103,6 +103,119 @@ pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Arg
     return model.view.Args.fromOwnedSlice(items).toOwnedSlice(allocator);
 }
 
+/// Requested payload bytes an owned clone of `items` allocates, excluding
+/// allocator metadata and alignment padding. Queue admission uses this before
+/// cloning, so a refused actor message mutates no queue and allocates nothing.
+/// The walk mirrors `cloneArgumentSlice`/`freeArgumentSlice` exhaustively; a new
+/// heap-carrying model arm must state its charge here or fail to compile.
+pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.ProjectError!usize {
+    var total: usize = 0;
+    try addProduct(&total, items.len, @sizeOf(model.Argument));
+    for (items) |item| try measureArgument(&total, item, 0);
+    return total;
+}
+
+fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.view.ProjectError!void {
+    if (depth > model.max_value_depth) return error.MalformedView;
+    switch (argument) {
+        .bytes => |bytes| try addBytes(total, bytes.len),
+        .symbol => |symbol| try addBytes(total, symbol.len),
+        .reference => |reference| try measureReference(total, reference, depth),
+        .@"error" => |err| try addBytes(total, err.message.len),
+        .handoff => |handoff| {
+            try addBytes(total, @sizeOf(model.Handoff));
+            try measureHandoff(total, handoff.*);
+        },
+        .string => |string| try addBytes(total, string.len),
+        .list => |items| try measureArgumentSlice(total, items, depth + 1),
+        .set => |items| try measureArgumentSlice(total, items, depth + 1),
+        .tagged => |tagged| {
+            try addBytes(total, tagged.tag.len);
+            try measureArgumentSlice(total, tagged.value, depth + 1);
+        },
+        .keyword => |keyword| try addBytes(total, keyword.len),
+        .big_integer => |big| try addBytes(total, big.digits.len),
+        .@"struct" => |entries| {
+            try addProduct(total, entries.len, @sizeOf(model.StructEntry));
+            for (entries) |entry| {
+                try addBytes(total, entry.key.len);
+                try measureArgument(total, entry.value, depth + 1);
+            }
+        },
+        .integer, .boolean, .void, .float64 => {},
+    }
+}
+
+fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usize) model.view.ProjectError!void {
+    if (depth > model.max_value_depth) return error.MalformedView;
+    try addProduct(total, items.len, @sizeOf(model.Argument));
+    for (items) |item| try measureArgument(total, item, depth);
+}
+
+fn measureReference(total: *usize, reference: model.Reference, depth: usize) model.view.ProjectError!void {
+    switch (reference) {
+        .near, .far => {},
+        .broken => |broken| try addBytes(total, broken.message.len),
+        .sturdy => |sturdy| {
+            try addBytes(total, @sizeOf(model.SturdyRef));
+            try measurePeerLocator(total, sturdy.peer);
+            try addBytes(total, sturdy.swissnum.len);
+        },
+        .promise => |promise| {
+            try addProduct(total, promise.path.ops.len, @sizeOf(model.PipelineOp));
+            for (promise.path.ops) |op| switch (op) {
+                .field => |field| try addBytes(total, field.len),
+                .call => |args| try measureArgumentSlice(total, args, depth + 1),
+            };
+        },
+    }
+}
+
+fn measureHandoff(total: *usize, handoff: model.Handoff) model.view.ProjectError!void {
+    switch (handoff) {
+        .give => |give| try measureHandoffGive(total, give),
+        .receive => |receive| {
+            try addBytes(total, receive.receiving_session.len);
+            try addBytes(total, receive.receiving_side.len);
+            try measureHandoffGive(total, receive.signed_give);
+            try addBytes(total, receive.signature.len);
+        },
+    }
+}
+
+fn measureHandoffGive(total: *usize, give: model.HandoffGive) model.view.ProjectError!void {
+    try addBytes(total, give.recipient_key.len);
+    try measurePeerLocator(total, give.exporter);
+    try addBytes(total, give.gifter_exporter_session.len);
+    try addBytes(total, give.gifter_side.len);
+    try addBytes(total, give.gift_id.len);
+    try addBytes(total, give.signature.len);
+    if (give.raw_signed) |raw| try addBytes(total, raw.len);
+}
+
+fn measurePeerLocator(total: *usize, locator: model.PeerLocator) model.view.ProjectError!void {
+    try addBytes(total, locator.transport.len);
+    try addBytes(total, locator.designator.len);
+    try addProduct(total, locator.hints.entries.len, @sizeOf(model.HintEntry));
+    for (locator.hints.entries) |entry| {
+        try addBytes(total, entry.name.len);
+        switch (entry.value) {
+            .string => |string| try addBytes(total, string.len),
+            .bytes => |bytes| try addBytes(total, bytes.len),
+            .boolean, .integer => {},
+        }
+    }
+}
+
+fn addProduct(total: *usize, count: usize, size: usize) model.view.ProjectError!void {
+    const bytes = std.math.mul(usize, count, size) catch return error.MalformedView;
+    try addBytes(total, bytes);
+}
+
+fn addBytes(total: *usize, bytes: usize) model.view.ProjectError!void {
+    total.* = std.math.add(usize, total.*, bytes) catch return error.MalformedView;
+}
+
 pub fn freeArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) void {
     for (items) |item| {
         freeArgument(allocator, item);

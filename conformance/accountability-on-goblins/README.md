@@ -40,6 +40,16 @@ the protocol core.
 scenario, it must be named as a fixture in that scenario's docs; ordinary demo
 output should stay generated state.
 
+The initial commit landed one round of that output before the rule above was
+written, so twenty KERI secret keys (`.data/keys/*.sk`) and their key event
+logs are in the repository's history. They are demo material the kernel
+generated on one machine, they hold authority over nothing outside these
+scenarios, and nothing needs rotating. They are named here rather than quietly
+dropped, because a reader who finds key material in a project that publishes a
+security policy deserves to be told what it is instead of discovering it.
+Regenerate the tree by running the kernel demo below; the directory is ignored
+now, so a fresh run stays out of the index.
+
 ## Running
 
 The kernel writes `.data/` to the current directory, and the audit and keri

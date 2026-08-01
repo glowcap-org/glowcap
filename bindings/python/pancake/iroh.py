@@ -60,6 +60,7 @@ from ._constants_gen import DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS
 from ._constants_gen import (
     IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
     IROH_EV_CLOSED as _IROH_EV_CLOSED,
+    IROH_EV_CONNECT as _IROH_EV_CONNECT,
     IROH_EV_READABLE as _IROH_EV_READABLE,
     IROH_EV_WRITABLE as _IROH_EV_WRITABLE,
 )
@@ -125,10 +126,8 @@ class IrohConn:
         self._raw: ctypes.c_void_p | None = raw
 
     def key(self) -> int:
-        """This connection's routing key — its raw handle as an int, the value a
-        ``drain_ready`` record carries — so an :class:`_IrohLoop` can map a
-        readiness record back to this connection."""
-        return (self._raw.value or 0) if self._raw else 0
+        """This connection's stable readiness identity."""
+        return int(_iroh().pancake_iroh_conn_id(self._raw)) if self._raw else 0
 
     def try_read_into(self, buf) -> int:
         """Non-blocking read of raw inbound bytes into the ctypes ``buf``: the
@@ -245,22 +244,30 @@ class IrohNetlayer:
         _check_iroh(code)
         return IrohConn(out)
 
-    def try_connect(self, node_id: str, addr_hints: str) -> IrohConn:
-        """Dial a partner and return a non-blocking loop connection. The dial
-        itself blocks the calling thread (run it off the event loop); subsequent
-        frame I/O is non-blocking."""
+    def start_connect(self, request_id: int, node_id: str, addr_hints: str) -> None:
+        """Admit one dial without blocking; completion arrives as EV_CONNECT."""
         id_b = node_id.encode()
         hints_b = addr_hints.encode()
         id_buf, id_ptr = _byte_buf(id_b)
         hints_buf, hints_ptr = _byte_buf(hints_b)
-        out = ctypes.c_void_p()
-        _check_iroh(_iroh().pancake_iroh_netlayer_try_connect(
+        _check_iroh(_iroh().pancake_iroh_netlayer_start_connect(
             self._raw,
+            request_id,
             id_ptr, len(id_b),
             hints_ptr, len(hints_b),
+        ))
+        _ = (id_buf, hints_buf)
+
+    def finish_connect(self, request_id: int) -> IrohConn:
+        out = ctypes.c_void_p()
+        _check_iroh(_iroh().pancake_iroh_netlayer_finish_connect(
+            self._raw, request_id,
             ctypes.byref(out),
         ))
         return IrohConn(out)
+
+    def cancel_connect(self, request_id: int) -> None:
+        _check_iroh(_iroh().pancake_iroh_netlayer_cancel_connect(self._raw, request_id))
 
     def __enter__(self) -> "IrohNetlayer":
         return self
@@ -322,6 +329,8 @@ class _IrohLoop:
     def __init__(self, netlayer: IrohNetlayer):
         self._netlayer = netlayer
         self._conns: "dict[int, _ConnWaiters]" = {}
+        self._dials: "dict[int, asyncio.Future]" = {}
+        self._next_request = 1
         self._accept_waiter: "Optional[asyncio.Future]" = None
         self._accept_pending = 0
         self._closed = False
@@ -339,6 +348,22 @@ class _IrohLoop:
 
     def register(self, conn: IrohConn) -> None:
         self._conns[conn.key()] = _ConnWaiters(conn)
+
+    async def dial(self, node_id: str, addr_hints: str) -> IrohConn:
+        request_id = self._next_request
+        self._next_request += 1
+        fut = asyncio.get_running_loop().create_future()
+        self._dials[request_id] = fut
+        try:
+            self._netlayer.start_connect(request_id, node_id, addr_hints)
+        except BaseException:
+            self._dials.pop(request_id, None)
+            raise
+        try:
+            return await fut
+        except asyncio.CancelledError:
+            self._netlayer.cancel_connect(request_id)
+            raise
 
     def unregister(self, conn: IrohConn) -> None:
         w = self._conns.pop(conn.key(), None)
@@ -400,6 +425,11 @@ class _IrohLoop:
             self._wake_closed(w)
             w.conn.release()
         self._conns.clear()
+        for request_id, fut in list(self._dials.items()):
+            self._netlayer.cancel_connect(request_id)
+            if not fut.done():
+                fut.set_exception(PancakeError(_ERR_CLOSED, "iroh loop closed"))
+        self._dials.clear()
         if self._accept_waiter is not None:
             a = self._accept_waiter
             self._accept_waiter = None
@@ -431,11 +461,11 @@ class _IrohLoop:
                     self._fd = -1
                 return
             for i in range(n):
-                self._dispatch(self._buf[i].conn, self._buf[i].events)
+                self._dispatch(self._buf[i].subject, self._buf[i].events)
             if n < _DRAIN_READY_CAP:
                 return
 
-    def _dispatch(self, conn_ptr: "Optional[int]", events: int) -> None:
+    def _dispatch(self, subject: int, events: int) -> None:
         if events & _IROH_EV_ACCEPT:
             if self._accept_waiter is not None:
                 a = self._accept_waiter
@@ -445,7 +475,20 @@ class _IrohLoop:
             else:
                 self._accept_pending += 1
             return
-        w = self._conns.get(conn_ptr or 0)
+        if events & _IROH_EV_CONNECT:
+            fut = self._dials.pop(subject, None)
+            try:
+                conn = self._netlayer.finish_connect(subject)
+            except BaseException as exc:
+                if fut is not None and not fut.done():
+                    fut.set_exception(exc)
+                return
+            if fut is None or fut.done():
+                conn.release()
+            else:
+                fut.set_result(conn)
+            return
+        w = self._conns.get(subject)
         if w is None:
             return  # a record for an already-released connection
         if events & _IROH_EV_CLOSED:
@@ -559,7 +602,7 @@ class _IrohTransport:
 _DISCOVERY_DIAL_RETRY_S = DISCOVERY_DIAL_RETRY_MS / 1000.0
 
 
-async def _dial_resolving(netlayer: IrohNetlayer, node_id: str, direct_addresses: str, retry: bool) -> IrohConn:
+async def _dial_resolving(loop: _IrohLoop, node_id: str, direct_addresses: str, retry: bool) -> IrohConn:
     """Dial, retrying only under a propagating-discovery posture (``DISCOVERY`` and
     ``DISCOVERY_NO_RELAY``) while it resolves the partner by id. A dial-by-id can
     fail with "no addressing information" until the exporter's pkarr record
@@ -577,7 +620,7 @@ async def _dial_resolving(netlayer: IrohNetlayer, node_id: str, direct_addresses
     attempt = 1
     while True:
         try:
-            return await asyncio.to_thread(netlayer.try_connect, node_id, direct_addresses)
+            return await loop.dial(node_id, direct_addresses)
         except PancakeError as e:
             if e.code != ERR_IO or not retry or attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS:
                 raise
@@ -598,9 +641,10 @@ async def _connect_iroh_with_host(
     Application code uses ``connect(locator, reachability, host=…)``."""
     netlayer = IrohNetlayer(reachability)
     loop = _IrohLoop(netlayer)
+    loop.start()
     try:
         conn = await _dial_resolving(
-            netlayer, node_id, direct_addresses,
+            loop, node_id, direct_addresses,
             int(reachability) in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
         )
     except BaseException:
@@ -608,13 +652,12 @@ async def _connect_iroh_with_host(
         netlayer.release()
         raise
     loop.register(conn)
-    loop.start()
     # The transport owns the dialer-minted connection, loop, and ephemeral
     # netlayer; on a handshake failure `establish_dialed_locator` abandons the
     # half-built connection, and its transport close is what unregisters and
     # releases the sidecar connection, stops the readiness loop, and releases
     # the netlayer. The session is minted against `host`, so the session's
-    # identity (a give's recipient key) and the Host's gift registry agree —
+    # identity (a give's recipient key) and the Host's session directory agree —
     # what a three-party handoff requires.
     transport = _IrohTransport(conn, loop, netlayer, owns_loop=True)
     # `handshake_timeout_ms` bounds only the keyed exchange over the live QUIC
@@ -654,9 +697,10 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
 
     netlayer = IrohNetlayer(reachability)
     loop = _IrohLoop(netlayer)
+    loop.start()
     try:
         conn = await _dial_resolving(
-            netlayer,
+            loop,
             node_id,
             direct_addresses,
             int(reachability) in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
@@ -666,7 +710,6 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
         netlayer.release()
         raise
     loop.register(conn)
-    loop.start()
     return _IrohTransport(conn, loop, netlayer, owns_loop=True)
 
 
@@ -675,7 +718,7 @@ async def _accept_iroh(conn: IrohConn, local_node_id: str, loop: _IrohLoop, host
     the server's endpoint id as the locator designator (used by
     :class:`IrohServer`). The accepted connection's loop and netlayer belong to
     the server, not this connection. It is bound to the server's one ``host``
-    — shared identity and gift registry — and every node-giftable is published
+    — shared identity and handoff router — and every node-giftable is published
     on it by the open itself, before a dialer's pipelined fetch is answered
     (the exporter half of a three-party handoff, ADR-0009), exactly as the TCP
     responder does."""
@@ -720,7 +763,7 @@ class IrohServer:
         # blocking accept and a blocking read parked per connection (ADR-0057).
         self._loop = _IrohLoop(self._netlayer)
         # One shared Host across every accepted session — one retained
-        # identity and one gift registry — the iroh sibling of the TCP
+        # identity and one live-session directory — the iroh sibling of the TCP
         # :class:`pancake.Server`. The gifter half of a three-party handoff dials
         # the exporter under this same Host (:func:`pancake.connect` with ``host=``)
         # so a published node-giftable and the introducer it returns share one
@@ -730,8 +773,8 @@ class IrohServer:
         # crossed-hellos table can recognize it.
         self._host.set_self_designator(self._node_id)
         self._closed = False
-        # Accepted sessions still own live loop conns; release them before the
-        # netlayer so destroyConn never hits a torn loop_conns map.
+        # Accepted sessions still borrow the endpoint through their loop
+        # connections; release them before the netlayer.
         self._sessions: list[Session] = []
 
     @property
@@ -741,7 +784,7 @@ class IrohServer:
 
     @property
     def host(self) -> Host:
-        """The server's shared Host: one retained identity and gift registry
+        """The server's shared Host: one retained identity and handoff router
         across every accepted session. Pass it to
         :func:`pancake.connect` with ``host=self.host`` so a fetched capability and the dialing
         session share one Host — the gifter side of a three-party handoff —

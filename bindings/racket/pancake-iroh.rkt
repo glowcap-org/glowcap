@@ -16,7 +16,6 @@
 ;; `iroh-server-*` surface) is reached through this module directly.
 
 (require ffi/unsafe
-         ffi/unsafe/os-thread
          ffi/unsafe/port
          racket/random
          "private/constants.rkt"
@@ -89,80 +88,27 @@
       [(and (= rc ERR-BUFFER-TOO-SMALL) (< cap (* 64 1024))) (loop (* cap 4))]
       [else (check/iroh rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
 
-;; The dial's completion signal. The C dial parks its calling thread for the
-;; whole QUIC connect, and a callout made from a Racket green thread freezes
-;; every other green thread in the place for the duration — concurrent dials
-;; would starve the very readiness loop and pumps that must answer them. The
-;; dial therefore runs on a plain OS thread (`call-in-os-thread`), whose
-;; one-byte pipe write is both the wake-up the dialing green thread syncs on
-;; and the memory barrier that publishes the result cells. The raw row keeps
-;; its `#:blocking?` mark for a second, independent reason: the mark
-;; deactivates the calling thread during the callout, so the collector never
-;; stops the world waiting on a parked dial — without it, one thirty-second
-;; dial on any thread wedges every allocation in the place until it returns.
-(define libc-for-dial (ffi-lib #f))
-(define c-pipe (get-ffi-obj 'pipe libc-for-dial (_fun _pointer -> _int)))
-(define c-write (get-ffi-obj 'write libc-for-dial (_fun _int _pointer _size -> _intptr)))
-(define c-close (get-ffi-obj 'close libc-for-dial (_fun _int -> _int)))
-
-;; Dial a partner: the dial parks an OS thread (never the place), and the
-;; returned connection is driven by the netlayer's readiness loop, so its reads
-;; and writes never park a thread. Pin the borrowed inputs in immobile memory,
-;; the call runs while the GC moves Racket-managed blocks. The raw table row is
-;; unwrapped, so the out cell is allocated here — before the OS thread starts,
-;; because nothing may allocate on that thread.
-(define (iroh-netlayer-try-connect nl node-id hints)
+;; Admit one dial without parking the place. The sidecar parses the borrowed
+;; bytes before return and publishes the terminal result through EV-CONNECT.
+(define (iroh-netlayer-start-connect nl request-id node-id hints)
   (define nb (string->bytes/utf-8 node-id))
   (define hb (string->bytes/utf-8 hints))
   (define nbuf (pin-immobile nb))
   (define hbuf (pin-immobile hb))
-  (define handle (iroh-netlayer-handle nl))
-  (define raw (iroh-fn 'netlayer-try-connect))
-  (define conn-cell (malloc _pointer 'atomic-interior))
-  (ptr-set! conn-cell _pointer #f)
+  (check/iroh
+   ((iroh-fn 'netlayer-start-connect)
+    (iroh-netlayer-handle nl) request-id
+    nbuf (bytes-length nb) hbuf (bytes-length hb))))
+
+(define (iroh-netlayer-finish-connect nl request-id)
   (define-values (rc conn)
-    (cond
-      [(os-thread-enabled?)
-       (define rc-cell (malloc _int32 'atomic-interior))
-       (define sig (malloc 1 'atomic-interior))
-       (define fds (malloc (* 2 (ctype-sizeof _int)) 'atomic-interior))
-       ;; The last-error slot is per OS thread, so a failing dial's diagnostic
-       ;; lives on the dial thread alone — read it there, into this
-       ;; preallocated buffer, before signalling completion.
-       (define msg-cap 512)
-       (define msg-buf (malloc msg-cap 'atomic-interior))
-       (define msg-len-cell (malloc _size 'atomic-interior))
-       (ptr-set! msg-len-cell _size 0)
-       (define last-error-fn (iroh-fn 'last-error))
-       (unless (zero? (c-pipe fds))
-         (error 'iroh "could not create the dial signal pipe"))
-       (define rfd (ptr-ref fds _int 0))
-       (define wfd (ptr-ref fds _int 1))
-       (call-in-os-thread
-        (lambda ()
-          (define rc (raw handle nbuf (bytes-length nb) hbuf (bytes-length hb) conn-cell))
-          (ptr-set! rc-cell _int32 rc)
-          (unless (= rc OK)
-            (ptr-set! msg-len-cell _size (last-error-fn msg-buf msg-cap)))
-          (c-write wfd sig 1)))
-       (sync (unsafe-file-descriptor->semaphore rfd 'read))
-       (unsafe-file-descriptor->semaphore rfd 'remove)
-       (c-close rfd)
-       (c-close wfd)
-       (define rc (ptr-ref rc-cell _int32))
-       (unless (= rc OK)
-         (define n (min (ptr-ref msg-len-cell _size) msg-cap))
-         (raise-pancake 'iroh rc
-                        (if (zero? n)
-                            (format "iroh dial failed (code ~a)" rc)
-                            (bytes->string/utf-8 (bytes<-c msg-buf n) #\?))))
-       (values rc (ptr-ref conn-cell _pointer))]
-      [else
-       ;; No OS threads (BC): the dial parks the place, the pre-offload shape.
-       (values (raw handle nbuf (bytes-length nb) hbuf (bytes-length hb) conn-cell)
-               (ptr-ref conn-cell _pointer))]))
+    ((iroh-fn 'netlayer-finish-connect) (iroh-netlayer-handle nl) request-id))
   (check/iroh rc)
   conn)
+
+(define (iroh-netlayer-cancel-connect nl request-id)
+  (check/iroh
+   ((iroh-fn 'netlayer-cancel-connect) (iroh-netlayer-handle nl) request-id)))
 
 ;; Close then release the endpoint, nulling the handle FIRST so a second teardown
 ;; — an explicit close racing the finalizer, or the reverse — sees #f and does
@@ -201,24 +147,50 @@
 ;; itself (so `loop-stop!` can release leftovers), and a shared `released?` box
 ;; so transport close! and loop-stop! never double-call conn-release.
 (struct conn-waiters (conn readable writable released? [closed? #:mutable]))
+(struct dial-waiter (sema result [abandoned? #:mutable]))
 
 ;; One readiness loop per netlayer: the netlayer it watches, the address→waiters
 ;; table, the accept gate (posted on each accept record), a stop event the loop
 ;; thread syncs alongside the fd so a close wakes it at once, and the dedicated
 ;; readiness thread. `buf` is the reused record array the loop drains into.
-(struct iroh-loop (netlayer conns accept-sema stop-sema [accept-closed? #:mutable] [stop? #:mutable] [thread #:mutable] buf))
+(struct iroh-loop (netlayer conns dials [next-request #:mutable] accept-sema stop-sema [accept-closed? #:mutable] [stop? #:mutable] [thread #:mutable] buf))
 
-;; A connection handle's address, the stable key both `try-connect`/`try-accept`
-;; and the `drain-ready` records spell it by.
-(define (conn-key conn) (cast conn _pointer _uintptr))
+;; Stable sidecar identity, never the allocation address.
+(define (conn-key conn) ((iroh-fn 'conn-id) conn))
 
 ;; Spawn the netlayer's readiness thread. The loop is already armed (the netlayer
 ;; arms it at construction), so this only stands up the fd-parking thread.
 (define (make-iroh-loop netlayer)
-  (define lp (iroh-loop netlayer (make-hash) (make-semaphore 0) (make-semaphore 0) #f #f #f
+  (define lp (iroh-loop netlayer (make-hash) (make-hash) 1 (make-semaphore 0) (make-semaphore 0) #f #f #f
                         (malloc _PancakeIrohReadyEvent DRAIN-READY-CAP 'atomic-interior)))
   (set-iroh-loop-thread! lp (thread (lambda () (loop-run lp))))
   lp)
+
+(define (loop-dial! lp node-id hints)
+  (define request-id (iroh-loop-next-request lp))
+  (set-iroh-loop-next-request! lp (add1 request-id))
+  (define w (dial-waiter (make-semaphore 0) (box #f) #f))
+  (hash-set! (iroh-loop-dials lp) request-id w)
+  (with-handlers ([exn?
+                   (lambda (e)
+                     (hash-remove! (iroh-loop-dials lp) request-id)
+                     (raise e))])
+    (iroh-netlayer-start-connect (iroh-loop-netlayer lp) request-id node-id hints))
+  (define completed? #f)
+  (dynamic-wind
+   void
+   (lambda ()
+     (semaphore-wait (dial-waiter-sema w))
+     (set! completed? #t)
+     (define result (unbox (dial-waiter-result w)))
+     (case (car result)
+       [(ok) (cdr result)]
+       [(error) (raise (cdr result))]
+       [else (raise-pancake 'iroh ERR-CLOSED "iroh loop closed")]))
+   (lambda ()
+     (unless completed?
+       (set-dial-waiter-abandoned?! w #t)
+       (iroh-netlayer-cancel-connect (iroh-loop-netlayer lp) request-id)))))
 
 (define (loop-register! lp conn)
   (hash-set! (iroh-loop-conns lp) (conn-key conn)
@@ -266,6 +238,12 @@
     (for ([(_k w) (in-hash (iroh-loop-conns lp))])
       (release-conn-once! w))
     (hash-clear! (iroh-loop-conns lp))
+    (for ([(request-id w) (in-hash (iroh-loop-dials lp))])
+      (with-handlers ([exn? void])
+        (iroh-netlayer-cancel-connect (iroh-loop-netlayer lp) request-id))
+      (set-box! (dial-waiter-result w) (cons 'closed #f))
+      (semaphore-post (dial-waiter-sema w)))
+    (hash-clear! (iroh-loop-dials lp))
     (define t (iroh-loop-thread lp))
     (when t (thread-wait t))))
 
@@ -282,7 +260,7 @@
       [else
        (for ([i (in-range n)])
          (define rec (ptr-ref buf _PancakeIrohReadyEvent i))
-         (dispatch! lp (PancakeIrohReadyEvent-conn rec) (PancakeIrohReadyEvent-events rec)))
+         (dispatch! lp (PancakeIrohReadyEvent-subject rec) (PancakeIrohReadyEvent-events rec)))
        (if (= n DRAIN-READY-CAP) (drain) #t)])))
 
 ;; The dedicated readiness thread: park on the netlayer's readiness fd, and on
@@ -317,12 +295,24 @@
 
 (define (set? events bit) (not (= 0 (bitwise-and events bit))))
 
-(define (dispatch! lp session-ptr events)
+(define (dispatch! lp subject events)
   (cond
     [(set? events IROH-EV-ACCEPT)
      (semaphore-post (iroh-loop-accept-sema lp))]
+    [(set? events IROH-EV-CONNECT)
+     (define result
+       (with-handlers ([exn? (lambda (e) (cons 'error e))])
+         (cons 'ok (iroh-netlayer-finish-connect (iroh-loop-netlayer lp) subject))))
+     (define w (hash-ref (iroh-loop-dials lp) subject #f))
+     (hash-remove! (iroh-loop-dials lp) subject)
+     (cond
+       [(or (not w) (dial-waiter-abandoned? w))
+        (when (eq? (car result) 'ok) ((iroh-fn 'conn-release) (cdr result)))]
+       [else
+        (set-box! (dial-waiter-result w) result)
+        (semaphore-post (dial-waiter-sema w))])]
     [else
-     (define w (hash-ref (iroh-loop-conns lp) (cast session-ptr _pointer _uintptr) #f))
+     (define w (hash-ref (iroh-loop-conns lp) subject #f))
      (when w ; a record for an already-released connection has no waiter
        (when (set? events IROH-EV-CLOSED) (set-conn-waiters-closed?! w #t))
        (when (or (set? events IROH-EV-READABLE) (set? events IROH-EV-CLOSED))
@@ -419,7 +409,7 @@
 ;; to the n0 resolver (seconds, variable); every other posture dials once
 ;; (Direct's addresses are in hand, local_discovery resolves instantly). Mirrors
 ;; the TS `dialResolving` and the Zig `iroh-reachability` driver.
-(define (dial-resolving netlayer node-id direct-addresses retry?)
+(define (dial-resolving lp node-id direct-addresses retry?)
   (let loop ([attempt 1])
     (define result
       ;; Let a break through rather than absorbing it into a retry: the retry
@@ -437,7 +427,7 @@
                                   (< attempt DISCOVERY-DIAL-MAX-ATTEMPTS))
                              'retry
                              (raise e)))])
-        (iroh-netlayer-try-connect netlayer node-id direct-addresses)))
+        (loop-dial! lp node-id direct-addresses)))
     (if (eq? result 'retry)
         (begin (sleep DISCOVERY-DIAL-RETRY-S) (loop (add1 attempt)))
         result)))
@@ -445,8 +435,8 @@
 ;; The node-keyed iroh dial behind a handoff redeem: dial the exporter
 ;; endpoint and bring the connection up under host `m` rather than a fresh
 ;; host, so the redeemed capability and any further handoff it triggers share
-;; the recipient's one identity, gift registry, and connection table
-;; (ADR-0009/ADR-0056), the iroh sibling of `dial-parsed-locator`'s TCP arm.
+;; the recipient's one identity, handoff router, and connection table
+;; (ADR-0009/ADR-0100), the iroh sibling of `dial-parsed-locator`'s TCP arm.
 ;; The core's `dial-exporter` loads it lazily for an iroh give. The keyed
 ;; handshake is the host's (`establish-dialed-locator-session` signs it under
 ;; the host identity and drives it byte-fed over this transport), and
@@ -462,7 +452,7 @@
   (define conn
     (with-handlers ([(lambda (_) #t)
                      (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
-      (dial-resolving netlayer node-id direct-addresses
+      (dial-resolving lp node-id direct-addresses
                       (or (= reachability IROH-REACH-DISCOVERY)
                           (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
   (loop-register! lp conn)
@@ -499,7 +489,7 @@
   (define conn
     (with-handlers ([(lambda (_) #t)
                      (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
-      (dial-resolving netlayer node-id direct-addresses
+      (dial-resolving lp node-id direct-addresses
                       (or (= reachability IROH-REACH-DISCOVERY)
                           (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
   (loop-register! lp conn)
@@ -514,7 +504,7 @@
 
 ;; ── host ─────────────────────────────────────────────────────────────────────
 ;; `host` is the one CapTP host shared by every session this server
-;; accepts — its retained identity and gift registry — the iroh sibling of the
+;; accepts — its retained identity and live-session directory — the iroh sibling of the
 ;; TCP `server`'s host. The host owns an `engine.Node` (sans-io router). The
 ;; gifter half of a three-party handoff dials the exporter under this same host
 ;; (`connect` with `#:host`) so a published host-giftable and the introducer it

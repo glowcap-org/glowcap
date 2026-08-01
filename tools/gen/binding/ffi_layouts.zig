@@ -11,7 +11,7 @@
 //! same `@sizeOf`/`@offsetOf` values from the C headers' prose, so a Zig-side
 //! field change had to be swept by hand into three unrelated files with no
 //! compiler to catch a miss. Here the numbers come straight off
-//! `@sizeOf`/`@offsetOf` on the real `c_abi` / `c_abi_driver` /
+//! `@sizeOf`/`@offsetOf` on the real `c_abi` / `c_abi_host` /
 //! `c_abi_net_transport_iroh` types, so a struct change regenerates different
 //! numbers and `zig build gen-binding-ffi-layouts-check` (part of `check`)
 //! rejects a binding whose pin has gone stale.
@@ -20,16 +20,18 @@
 //! `ctype->layout`, a stronger check than an offset list, so only its
 //! `want-size` argument is generated; the kind-based layout list
 //! (`pointer`/`fpointer`/…) stays hand-authored in `ffi-shared.rkt` /
-//! `ffi-driver.rkt` / `ffi-iroh.rkt`.
+//! `ffi-host.rkt` / `ffi-iroh.rkt`.
 
 const std = @import("std");
 
 comptime {
     _ = @import("iroh_sidecar_stub");
+    _ = @import("webrtc_sidecar_stub");
 }
 const c = @import("c_abi");
-const cd = @import("c_abi_driver");
+const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
+const cw = @import("c_abi_net_transport_webrtc");
 
 const Output = @import("output").Output;
 
@@ -80,7 +82,7 @@ fn layoutOf(comptime stem: []const u8, comptime T: type) Layout {
 }
 
 // The shared core structs (`c_abi`), the byte-fed host structs
-// (`c_abi_driver`), and the iroh transport structs (`c_abi_net_transport_iroh`,
+// (`c_abi_host`), and the iroh transport structs (`c_abi_net_transport_iroh`,
 // reflected cargo-free the same way `gen-header-net-transport-iroh` is).
 // Every struct here is one every binding already hand-mirrors and pins; a
 // struct not yet pinned anywhere earns no row until a binding needs it.
@@ -95,8 +97,10 @@ const layouts = [_]Layout{
     layoutOf("PANCAKE_DIAL_PLAN", cd.PancakeDialPlan),
     layoutOf("PANCAKE_ACCEPT_PLAN", cd.PancakeAcceptPlan),
     layoutOf("PANCAKE_PENDING_DIAL", cd.PancakePendingDial),
+    layoutOf("PANCAKE_PARTNER_IDENTITY", cd.PancakePartnerIdentity),
     layoutOf("PANCAKE_HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks),
     layoutOf("PANCAKE_IROH_READY_EVENT", ci.PancakeIrohReadyEvent),
+    layoutOf("PANCAKE_WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent),
     layoutOf("PANCAKE_IROH_CONFIG", ci.PancakeIrohConfig),
 };
 
@@ -110,7 +114,7 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
         \\//! this is stale.
         \\//!
         \\//! Expected sizes and field offsets for the hand-mirrored `#[repr(C)]`
-        \\//! structs in `sys::ocapn`, `sys::driver`, and `sys::iroh`: values come
+        \\//! structs in `sys::ocapn`, `sys::host`, and `sys::iroh`: values come
         \\//! from `@sizeOf`/`@offsetOf` on the real Zig C ABI types, so a Zig-side
         \\//! field change moves a number here and the `const` assert blocks that
         \\//! check against these constants fail loudly instead of silently
@@ -138,7 +142,7 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\# this is stale.
         \\#
         \\# Expected sizes and field offsets the hand-mirrored ctypes.Structure
-        \\# types in _ffi_ocapn, _ffi_driver, and _ffi_iroh pin against in their
+        \\# types in _ffi_ocapn, _ffi_host, and _ffi_iroh pin against in their
         \\# _pin_layout() checks: values come from @sizeOf/@offsetOf on the real
         \\# Zig C ABI types, so a Zig-side field change moves a number here and
         \\# the pin fails loudly at import time instead of silently misparsing a
@@ -166,7 +170,7 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\;; this is stale.
         \\;;
         \\;; Expected sizes the hand-mirrored cstructs in ffi-shared.rkt,
-        \\;; ffi-driver.rkt, and ffi-iroh.rkt pass as pin-layout!'s want-size: values
+        \\;; ffi-host.rkt, and ffi-iroh.rkt pass as pin-layout!'s want-size: values
         \\;; come from @sizeOf on the real Zig C ABI types. pin-layout! also
         \\;; re-derives each cstruct's field order and types from ctype->layout, a
         \\;; stronger check than an offset list, so the kind-based layout

@@ -21,7 +21,7 @@ every member obeys. **Human overrides everything here** when they contradict.
 | “Bueller” / no updates while peers “up” | Usually wedged wake loops (`pending` piled up, no reply/dismiss) or abort-rearm storms with no heartbeat — soft-ping, then hard-kick zombies; do not trust `peer: up` alone |
 | Room silent while agents grind in harness | Lead posts a short heartbeat every ~3–5 min on deep room-assigned work; assignees checkpoint findings ([ops](ops.md) status cadence) |
 | Peer restart drops undrained room posts | Drain cursor is `outbox.offset` (not EOF); `status` exposes `outbox_backlog` bytes — treat non-zero as stuck send path |
-| Failed DM introduce “eats” later posts | Drain stops at that DM without advancing offset; reconnect clears failure and retries — see [rooms-peer](../rooms-peer/SKILL.md) Outbox |
+| Failed DM introduce “eats” later posts | Drain stops at that DM without advancing offset; the cooldown expires, or the peer's inbox offer (`introducible`) clears it sooner — see [rooms-peer](../rooms-peer/SKILL.md) Outbox |
 | Two peers same nick/dir | One peer per nick and DIR; `start` is idempotent — never double-launch |
 | `start` join-timeout | A peer this `start` spawned is stopped before `ok:false` (no orphan to hunt); an adopted pre-existing peer is left running — the `detail` says which |
 | Session open but never joined | Self-recovering: the join window has a deadline; stuck or failed joins abandon and redial (status walks joining → reconnecting, join_attempts climbs). Persistent reconnecting with climbing join_attempts means the room end is wedged — fix the room, not the peer |
@@ -34,7 +34,7 @@ every member obeys. **Human overrides everything here** when they contradict.
 | Team parked in `general` | Mint/ask a dedicated `team-…` room; never default to `general` |
 | Members on different `--room` values | One team room name for the whole roster |
 | `registered: false` treated as failure | Joined ≠ DM-able; wait/retry register; do not restart forever |
-| Pass a `dm` Ref in `register` to skip fetch | Handoff needs a **fetched** import; members publish `dm` on the room session, directory fetches — do not invent a fourth register arg |
+| Expect one `dm` object to serve every peer | A member offers the directory one inbox per peer (`offerInbox`); `dm(text)` names no sender, so whichever inbox it arrives on says who sent it |
 
 ## Coordination failure modes
 
@@ -60,7 +60,7 @@ every member obeys. **Human overrides everything here** when they contradict.
 
 | Gotcha | Guard |
 | ------ | ----- |
-| Unbounded waits | CapTP / tick waits stay finite; never `handshake_timeout_ms: 0` on product paths |
+| Unbounded waits | CapTP / tick waits stay finite; never an `.unbounded` budget on product paths |
 | Parallel quota melt | Limit concurrent model-heavy members; serialize if rate-limited |
 | Hidden errors | Surface failures in-room; do not paper over with “looks fine” |
 | Token burn on meta-talk | If >~30% of room traffic is orchestration theater, simplify strategy |

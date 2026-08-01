@@ -137,30 +137,33 @@ const Greeter = struct {
 /// carries through an opaque pointer.
 const LoopVat = struct {
     vat: actors.Vat,
+    port: actors.Port,
 
     fn make(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque {
         _ = slot;
         const allocator: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         const self = try allocator.create(LoopVat);
         errdefer allocator.destroy(self);
-        self.vat = actors.Vat.initOver(allocator.*, peer);
+        self.vat = actors.Vat.init(allocator.*);
+        self.port = actors.Port.init(allocator.*, peer);
         // Spawn the actor and publish it at the bootstrap swissnum the client
         // fetches, exactly `driver.BlockingSession.publish`, now on the loop.
         const greeter = try self.vat.spawn(Greeter, .{});
         const position = try peer.registerBootstrapCap("thermostat");
-        try self.vat.bindExport(greeter, position);
+        try self.port.bindExport(greeter, position);
         return self;
     }
 
     fn serve(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
         _ = peer;
         const self: *LoopVat = @ptrCast(@alignCast(conn_ctx.?));
-        _ = try self.vat.serve(event);
+        _ = try self.port.serve(&self.vat, event);
     }
 
     fn free(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
         const allocator: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         const self: *LoopVat = @ptrCast(@alignCast(conn_ctx.?));
+        self.port.deinit();
         self.vat.deinit();
         allocator.destroy(self);
     }
@@ -202,8 +205,10 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
     var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
     defer conn.deinit();
 
-    var vat = actors.Vat.initOver(allocator, &peer);
+    var vat = actors.Vat.init(allocator);
     defer vat.deinit();
+    var session_port = actors.Port.init(allocator, &peer);
+    defer session_port.deinit();
 
     try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
 
@@ -225,8 +230,8 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
         }
     };
     var state = State{};
-    const promise = try vat.send(.{ .far = cap }, .{ .verb = "greet", .args = &.{.{ .string = "x" }} });
-    try vat.on(promise, .{ .ctx = &state, .func = State.onReply });
+    const promise = try session_port.send(&vat, .{ .far = cap }, .{ .verb = "greet", .args = &.{.{ .string = "x" }} });
+    try session_port.on(&vat, promise, .{ .ctx = &state, .func = State.onReply });
 
     var spins: usize = 0;
     while (!state.done and spins < 10_000) : (spins += 1) {
@@ -234,7 +239,7 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            _ = try vat.serve(&event);
+            _ = try session_port.serve(&vat, &event);
         }
         if (progress == .closed) break;
     }

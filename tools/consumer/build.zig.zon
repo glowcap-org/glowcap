@@ -1,0 +1,10 @@
+.{
+    .name = .pancake_consumer,
+    .version = "0.0.0",
+    .dependencies = .{
+        .pancake = .{ .path = "../.." },
+    },
+    .fingerprint = 0x733992b805617dec,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+}

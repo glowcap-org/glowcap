@@ -6,8 +6,8 @@
 //! A's, so "who called" is answered by the reference itself.
 //!
 //! This is the in-memory protocol-level proof. The host application owns the
-//! handoff routing itself (ADR-0009). The engine keeps the
-//! `cross_peer.SignatureVerifier` seam and the gift registry, and wires the
+//! handoff routing itself (ADR-0009/ADR-0100). The engine keeps the
+//! `cross_peer.SignatureVerifier` seam and each session's gift registry, and wires the
 //! accountability Episode + Identity layers through `actors.Vat` on each peer.
 
 const std = @import("std");
@@ -45,14 +45,14 @@ fn drainEvents(peer: *engine.Peer) void {
 // --- Host-side handoff routing (ADR-0009) -------------------------------
 //
 // Sibling copy: `test/support/cross_peer.zig`. This fork verifies with a real
-// Ed25519 RoutingVerifier and passes an explicit gifter key at deposit; the
-// support module learns the key from the handshake when null and uses
-// testOnlyAcceptingVerifier() for trusted tests.
+// Ed25519 RoutingVerifier and explicitly supplies the live gifter session's
+// registry; the support module uses testOnlyAcceptingVerifier() for trusted
+// tests.
 //
 // A `Peer` owns one direct session, so routing the give and withdraw legs
 // across the gifter, recipient, and exporter sessions is the host's job,
 // exactly what this application does here. The engine supplies the seams
-// (`cross_peer.SignatureVerifier`, the gift registry); the frames move by
+// (`cross_peer.SignatureVerifier`, the session gift registries); the frames move by
 // this wiring.
 
 const RoutingError = error{
@@ -68,22 +68,19 @@ fn pumpFrame(from: *engine.Peer, to: *engine.Peer) !void {
     _ = try to.step();
 }
 
-/// The gifter's two outbound legs: deposit the gift (with the gifter's session
-/// key as provenance) on the exporter, then deliver the signed give to the
-/// recipient.
+/// The gifter's two outbound legs: deposit the gift on its exporter session,
+/// then deliver the signed give to the recipient.
 fn deliverGive(
     gifter_peer: *engine.Peer,
     recipient: *engine.Peer,
     exporter_peer: *engine.Peer,
     give: model.HandoffGive,
-    gifter_key: []const u8,
 ) !void {
     try exporter_peer.giftRegistry().deposit(
         exporter_peer.allocator,
         exporter_peer.limits(),
         give.gift_id,
         give.recipient_key,
-        gifter_key,
     );
     try gifter_peer.sendCopying(.{ .handoff = .{ .give = give } });
     try pumpFrame(gifter_peer, recipient);
@@ -95,6 +92,7 @@ fn deliverGive(
 fn withdrawGift(
     recipient: *engine.Peer,
     exporter_peer: *engine.Peer,
+    gifter_gifts: *engine.bootstrap.GiftRegistry,
     receive: model.HandoffReceive,
     verifier: cross_peer.SignatureVerifier,
 ) !void {
@@ -114,8 +112,9 @@ fn withdrawGift(
 
     // The exporter checks the receive against names it derives from the two
     // ends of the session the withdraw arrived on, never from the receive's own
-    // words, and keys the replay counter by that derived side (ADR-0009). These
-    // peers never handshake, so there is nothing to derive here.
+    // words. Replay authority is the Receiver–Exporter session's scalar count,
+    // while the exact gift remains in the Gifter–Exporter session registry.
+    // These peers never handshake, so there is nothing to derive here.
     const registry = exporter_peer.giftRegistry();
     const expected: ?engine.handoff_names.ExpectedReceiver = derived: {
         const partner_key = exporter_peer.session_state.partnerSessionKey() orelse break :derived null;
@@ -124,8 +123,9 @@ fn withdrawGift(
         }
         break :derived try engine.handoff_names.ExpectedReceiver.fromPartner(partner_key);
     };
-    try registry.validateWithdraw(receive, expected);
-    _ = try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.limits(), receive, expected);
+    try registry.validateWithdrawEnvelope(receive, expected);
+    try gifter_gifts.validateWithdrawGift(receive);
+    _ = try registry.applyWithdraw(gifter_gifts, exporter_peer.allocator, receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpFrame(recipient, exporter_peer);
@@ -134,8 +134,8 @@ fn withdrawGift(
 /// A real Ed25519 verifier that routes each handoff certificate to the right key
 /// (ADR-0009): a `desc:handoff-receive` payload is checked against the recipient
 /// key, and the embedded `desc:handoff-give` against the gifter's session key. The
-/// exporter builds it from the gifter key it stored at deposit and the recipient
-/// key the give names, no key is conjured at verify time. This is the production
+/// exporter builds it from the live gifter session and the recipient key the
+/// give names, no key is copied into a gift row. This is the production
 /// shape, not a key-agnostic accept-all verifier: a forged or
 /// mismatched certificate is rejected here, so the withdrawal that re-targets B's
 /// session is itself attested, not merely asserted.
@@ -164,11 +164,12 @@ const RoutingVerifier = struct {
 test "three-party handoff: C attributes B (the true caller), not A (the introducer)" {
     const allocator = std.testing.allocator;
 
-    // The standard four-peer topology (ADR-0009):
+    // The standard five-peer topology (ADR-0009/ADR-0100):
     //   gifter (A)        is gifter-to-recipient (A to B)
     //   recipient-from-A  is B's view of A's session
     //   recipient-to-C    is B's view of C's session
-    //   exporter (C)      is the single peer, receives deposit AND withdrawal
+    //   exporter-from-A   receives the deposit on the A-C session
+    //   exporter (C)      receives the withdrawal and B's later direct call
     //
     // A introduces B to C. After the handoff, B reaches C's Affordance
     // through a direct session. C's Episode must attribute B, not A.
@@ -179,6 +180,8 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     defer recipient_from_gifter.deinit();
     var recipient_to_exporter = engine.Peer.init(allocator);
     defer recipient_to_exporter.deinit();
+    var exporter_from_gifter = engine.Peer.init(allocator);
+    defer exporter_from_gifter.deinit();
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
 
@@ -196,14 +199,16 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     // C publishes the Affordance.
     var served: usize = 0;
     var last_subject = [_]u8{0} ** identity.SAID_LEN;
-    var c_vat = actors.Vat.initOver(allocator, &exporter);
+    var c_vat = actors.Vat.init(allocator);
     defer c_vat.deinit();
+    var c_port = actors.Port.init(allocator, &exporter);
+    defer c_port.deinit();
     const aff = try c_vat.spawn(affordance.Affordance, .{
         .store = &c_store,
         .last_subject = &last_subject,
         .served = &served,
     });
-    try c_vat.bindExport(aff, AFFORDANCE_EXPORT);
+    try c_port.bindExport(aff, AFFORDANCE_EXPORT);
     // This test routes the handoff by hand (B imports the affordance position
     // out-of-band after the withdrawal), so C grants the bound position
     // explicitly; a withdraw served through the engine's bootstrap responder
@@ -236,9 +241,9 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     const give_sig = crypto.sign(&gifter_secret, give_signed);
     give.signature = give_sig.asBytes();
 
-    // A deposits the gift on C with its real session key, and delivers the give
-    // certificate to B. C records the gifter key alongside the gift.
-    try deliverGive(&gifter, &recipient_from_gifter, &exporter, give, gifter_pub.asBytes());
+    // A deposits the gift in its A-C session and delivers the give certificate
+    // to B. The row carries no copied session key.
+    try deliverGive(&gifter, &recipient_from_gifter, &exporter_from_gifter, give);
     drainEvents(&recipient_from_gifter);
     drainEvents(&exporter);
 
@@ -255,37 +260,44 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     const receive_sig = crypto.sign(&recipient_secret, receive_signed);
     receive.signature = receive_sig.asBytes();
 
-    // C verifies both certificates with keys routed per ADR-0009 — the gifter key
-    // it stored at deposit, and the recipient key the give names — then authorizes
-    // the withdrawal. A forged certificate would be rejected before B is admitted.
+    // C verifies both certificates with keys routed per ADR-0009 — the live A-C
+    // session key and the recipient key the give names — then consumes from the
+    // A-C gift table while recording replay on B-C.
     var verifier_ctx: RoutingVerifier = .{
-        .gifter_key = try crypto.PeerKey.fromSlice(exporter.giftRegistry().giftGifterKey(&gift_id).?),
+        .gifter_key = gifter_pub,
         .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
     };
-    try withdrawGift(&recipient_to_exporter, &exporter, receive, verifier_ctx.make());
+    try withdrawGift(&recipient_to_exporter, &exporter, exporter_from_gifter.giftRegistry(), receive, verifier_ctx.make());
     drainEvents(&exporter);
 
     // After withdrawal, B can reach C directly. B's Vat sends to C's export.
     try recipient_to_exporter.importObject(AFFORDANCE_EXPORT);
 
     // --- B invokes the Affordance with its own KERI attestation ---
+    // B rotates once before it calls, so the log C reads is a chain and not a
+    // lone inception event: C has to walk the rotation, hold the pre-rotation
+    // commitment, and land on the key B actually signs with.
     var b_id = try identity.Identity.incept(allocator, tio);
     defer b_id.deinit();
+    _ = try b_id.rotate(tio);
 
     const request = "read-thermostat";
     const att = try affordance.Attestation.sign(allocator, b_id.current, &b_id.aid, request, false);
 
     // B sends via its Vat over the B-to-C (recipient_to_exporter) session.
-    var b_vat = actors.Vat.initOver(allocator, &recipient_to_exporter);
+    var b_vat = actors.Vat.init(allocator);
     defer b_vat.deinit();
+    var b_port = actors.Port.init(allocator, &recipient_to_exporter);
+    defer b_port.deinit();
     const ref: actors.Ref = .{ .far = model.FarRef.object(AFFORDANCE_EXPORT) };
-    _ = try b_vat.send(ref, .{
+    _ = try b_port.send(&b_vat, ref, .{
         .verb = affordance.invoke_verb,
         .args = &.{
             .{ .string = b_id.aidSlice() },
             .{ .string = &att.verkey },
             .{ .string = request },
             .{ .string = &att.signature },
+            .{ .string = b_id.kelSlice() },
         },
     });
 
@@ -294,10 +306,10 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     while (exporter.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
-        _ = c_vat.serve(&e) catch {};
+        _ = c_port.serve(&c_vat, &e) catch {};
     }
 
-    // The headline: C attributes the TRUE caller (B), not A (the introducer).
+    // C attributes the attested caller, B, not the introducer, A.
     try std.testing.expect(served == 1);
     try std.testing.expectEqualSlices(u8, b_id.aidSlice(), last_subject[0..identity.SAID_LEN]);
 

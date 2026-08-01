@@ -37,14 +37,10 @@ pub const SessionLimits = struct {
     /// locally-allocated exports are bounded by our own sends, so exports are
     /// uncapped.
     max_imports: usize = 1_048_576,
-    /// Max distinct Exporter-to-Receiver session ids tracked in the vat's
-    /// handoff replay set (`engine.bootstrap.GiftRegistry`, ADR-0025). Each row
-    /// holds one monotonic `last_count`.
-    max_seen_handoff_counts: usize = 16_384,
-    /// Max deposited-gift rows in the vat's gift registry — load-bearing against
+    /// Max deposited-gift rows in this session's gift registry — load-bearing against
     /// a gifter depositing gifts that are never withdrawn (ADR-0025).
     max_deposited_gifts: usize = 65_536,
-    /// Max `withdraw-gift`s parked awaiting their deposit (ADR-0056). The
+    /// Max `withdraw-gift`s parked awaiting their deposit (ADR-0100). The
     /// deposit travels on a different session than the withdraw, so the order
     /// is not guaranteed and an exporter parks an early withdraw; this bounds a
     /// partner whose deposits never arrive.
@@ -60,15 +56,18 @@ pub const SessionLimits = struct {
     /// native-stack overflow (a few KB of nested `[` markers). A loud bound,
     /// projecting to `resource_exhausted`, sibling to the ADR-0025 table caps.
     max_nesting_depth: usize = 64,
-    /// Max element visits one inbound message may spend confirming set and
-    /// struct equality. The set-uniqueness fold compares only elements a hash
-    /// grouping already found equal-hashed, but a set comparison is a multiset
-    /// comparison, so one such pair of width-N sets costs on the order of N²
-    /// visits. The set hash combines its children commutatively, so a partner
-    /// can search offline for two distinct wide sets that hash alike and buy
-    /// that quadratic with a single frame. Honest traffic spends almost none
-    /// of this budget: distinct elements hash apart, so they are never
-    /// compared at all. A loud bound, projecting to `resource_exhausted`.
+    /// Max element visits a set-uniqueness fold may spend confirming set and
+    /// struct equality: one allowance per inbound message (shared by the
+    /// borrowed walk and the owned fallback), and one per send-side or
+    /// stored-resolution set, since no message-wide budget brackets a send.
+    /// The fold compares only elements a hash grouping already found
+    /// equal-hashed, but a set comparison is a multiset comparison, so one
+    /// such pair of width-N sets costs on the order of N² visits. The set
+    /// hash combines its children commutatively, so a partner can search
+    /// offline for two distinct wide sets that hash alike and buy that
+    /// quadratic with a single frame. Honest traffic spends almost none of
+    /// this budget: distinct elements hash apart, so they are never compared
+    /// at all. A loud bound, projecting to `resource_exhausted`.
     max_compare_visits: usize = 1 << 16,
     /// Max bytes in a single inbound frame admitted off a byte stream. The
     /// stream framer caps a frame at this size *during* decode (cap-on-parse),

@@ -47,7 +47,7 @@ pub const Connection = connection.Connection;
 /// Caller-owned read/write buffers handed to a dial/accept. `read` sizes the
 /// steady per-connection memory, not the largest admissible frame (a larger
 /// frame assembles across multiple reads in the connection's bounded overflow
-/// buffer, the `Spill` in `frame_stream.zig`, bounded by the session's
+/// buffer, its `foundation.Spill`, bounded by the session's
 /// `max_frame_bytes`).
 pub const Buffers = struct {
     read: []u8,
@@ -276,7 +276,18 @@ pub const Netlayer = struct {
         designator_scheme: DesignatorScheme = .address,
         dial: *const fn (ctx: *anyopaque, peer: *engine.Peer, locator: model.PeerLocator, bufs: Buffers) DialError!Connection,
         listen: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, config: ListenConfig) ListenError!Listener,
+        /// The host `std.Io` this resident runs on, or null for a resident
+        /// with none (an in-memory pipe network). The owning driver draws
+        /// identity entropy at this boundary before any connection exists,
+        /// which is why the vtable exposes it rather than the connection
+        /// alone.
+        io: *const fn (ctx: *anyopaque) ?std.Io = &noIo,
     };
+
+    fn noIo(ctx: *anyopaque) ?std.Io {
+        _ = ctx;
+        return null;
+    }
 
     pub fn transportName(self: Netlayer) []const u8 {
         return self.vtable.transport_name;
@@ -289,6 +300,11 @@ pub const Netlayer = struct {
     }
     pub fn listen(self: Netlayer, allocator: std.mem.Allocator, config: ListenConfig) ListenError!Listener {
         return self.vtable.listen(self.ctx, allocator, config);
+    }
+
+    /// The resident's host `std.Io`, or null (see `VTable.io`).
+    pub fn io(self: Netlayer) ?std.Io {
+        return self.vtable.io(self.ctx);
     }
 };
 

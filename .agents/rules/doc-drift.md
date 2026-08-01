@@ -39,17 +39,34 @@ change as the state they describe:
 - `docs/protocol-diagrams/**`
 - `site/content/**`
 - `bindings/README.md`
+- `bindings/DEVELOPING.md`
+- `bindings/PACKAGING.md`
 - `bindings/rust/README.md`
 - `bindings/ts/README.md`
 - `bindings/python/README.md`
 - `bindings/racket/README.md`
+- `bindings/proofs/README.md`
 - `examples/README.md`
 - `apps/README.md`
+- `apps/rooms/README.md`
+- `apps/rooms/developing.md`
+- `apps/rooms/web/deploy/README.md`
+- `apps/tasks/README.md`
+- `apps/tools/README.md`
+- `apps/accountability-on-pancake/README.md`
+- `apps/accountability-on-pancake/design.md`
+- `apps/accountability-on-pancake/http-comparison.md`
+- `bench/langs/README.md`
+- `bench/langs/methodology.md`
+- `bench/langs/contract.md`
 - `tools/README.md`
 - `ui/README.md`
 - `bench/goblins/README.md`
+- `bench/goblins/METHODOLOGY.md`
 - `conformance/ocapn-findings/README.md`
 - `.devcontainer/README.md`
+- `.devcontainer/networking.md`
+- `.devcontainer/host-configuration.md`
 - `AGENTS.md`
 - `.agents/**`
 - `.cursor/README.md`, `.cursor/*.json`, and `.cursor/rules/*.mdc`
@@ -90,6 +107,14 @@ surface; do not let old plan language masquerade as current architecture.
   current shape came to be, the record belongs in git history: prune it once the
   work it captured has shipped and its lessons live in the code, ADRs, or
   living-state docs. A snapshot is a transition, not a permanent home.
+- A comment that explains a technique names the condition under which the
+  technique is _available_, not only the motivation for it. Rationale without
+  its precondition reads as a portable pattern, and the next reader ports it to
+  a site where the precondition does not hold. This is the costliest prose
+  defect in the tree, worse than a stale claim: a stale claim misleads, an
+  unqualified rationale actively recruits. When two functions solve
+  similar-looking problems differently, the one that looks over-careful says
+  why the cheaper one is not open to it.
 - When an API name changes, sweep docs, tests, examples, and agent rules in the
   same change. A rename that updates its target file and leaves the referrers
   behind is the commonest drift here, and the compiler will not catch it in

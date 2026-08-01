@@ -1,12 +1,13 @@
 """Internal: the CapTP :class:`Host` — multi-session CapTP product over the byte-fed
-host archive (``libpancake_driver``, ADR-0072). The Host owns ``engine.Node``
+host archive (``libpancake_host``, ADR-0072). The Host owns ``engine.Node``
 (the sans-io handoff router). Goblins ``mycapn`` is two roles: the Host is the
 endpoint half; ``engine.Node`` is the router-tables half — never a single-type
 equation (ADR-0079).
 
-The ``PancakeHost`` owns every decision: the retained identity, the shared
-gift registry, routing, transparent three-party redemption, and the gifter
-half's origination. What lives here is only what the embedder contract leaves
+The ``PancakeHost`` owns every cross-session decision: retained identity, the
+live-session directory, routing, transparent three-party redemption, and the
+gifter half's origination. Each session owns its own gift and replay authority.
+What lives here is only what the embedder contract leaves
 to the binding: the host handle, the conn-pointer → :class:`Session`
 registry the action drain routes by, the vow table the drain's SETTLE/FAIL
 arms settle, the action drain itself, gift-id entropy, and the iroh redeem
@@ -21,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import secrets
+import threading
 from collections import deque
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -32,7 +34,7 @@ from ._errors import PancakeError, _check_host
 if TYPE_CHECKING:
     from ._context import Context
     from ._session import Session
-from ._ffi_driver import _host
+from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf
 from ._trampoline import (
     _BehaviorEntry,
@@ -42,6 +44,7 @@ from ._trampoline import (
     _unregister_behavior,
 )
 from ._value import Behavior, Ref
+from ._gc import HostGc, bind_host
 
 _ERR_CLOSED = _abi.ERR_CLOSED
 
@@ -61,10 +64,18 @@ _MINTED = object()
 # (pancake_host_session_release / pancake_host_release are refused mid-turn);
 # the next drain — the head of any kick, or a feed's unwind — runs them once
 # the enclosing feed unwinds, so a mid-turn close never leaks its C handle.
-# Module-level, not per-host: a Host finalized inside a turn parks its own
-# release, and a list on the object being finalized would never drain (the
-# Rust binding parks on a thread-local for the same reason).
-_parked_releases: "list[Callable[[], None]]" = []
+# Thread-local, not per-host: a Host finalized inside a turn parks its own
+# release, and a list on the object being finalized would never drain. The
+# thread boundary prevents one Host thread from releasing another's handles.
+_release_state = threading.local()
+
+
+def _parked_releases() -> "deque[Callable[[], None]]":
+    releases = getattr(_release_state, "releases", None)
+    if releases is None:
+        releases = deque()
+        _release_state.releases = releases
+    return releases
 
 
 class _VowRow:
@@ -88,9 +99,9 @@ class _VowRow:
 
 
 class Host:
-    """The CapTP Host: one identity, one gift registry, one routing and redeem
+    """The CapTP Host: one identity, one session directory, one routing and redeem
     authority, shared by every session minted against it. It owns
-    ``engine.Node`` in the Zig core behind ``libpancake_driver`` (ADR-0072);
+    ``engine.Node`` in the Zig core behind ``libpancake_host`` (ADR-0072);
     this is the host-idiom residue over it — the :class:`Session` registry,
     the vow table, the action drain that performs the I/O the host asks for
     (dial, flush, settle, entropy), and the iroh redeem posture.
@@ -121,6 +132,14 @@ class Host:
                 _HOST_FRAME_CAP, 1, _codec_id(codec), local_turn_budget, ctypes.byref(out),
             ))
         self._raw: ctypes.c_void_p | None = out
+        # Host-scoped references outlive the session that delivered them; their
+        # finalizer queue therefore belongs here, beside the authority registry.
+        self._gc = HostGc()
+        try:
+            self._loop: "Optional[asyncio.AbstractEventLoop]" = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+        bind_host(self._gc, self)
         # A node in a caller-supplied context must not outlive it: hold the
         # context so it cannot be collected (and its allocator released) first.
         self._context = context
@@ -136,11 +155,20 @@ class Host:
         # Fire-and-forget drain tasks, retained because the event loop holds
         # tasks only weakly: an unreferenced drain could be collected mid-flight.
         self._kick_tasks: "set[asyncio.Task]" = set()
-        # Trampoline ctx ids of this host's giftables. The registry is
-        # process-global, not host-scoped, so nothing drops these when the
-        # host dies — release() frees them, or one row leaks per giftable per
-        # Host generation.
-        self._giftables: "list[int]" = []
+        # Trampoline ctx of each giftable, by published name, so
+        # `Session.published_ref` can find the one it must bind. The registry is
+        # process-global, not host-scoped, so nothing drops these when the host
+        # dies — release() frees them, or one row leaks per giftable per Host
+        # generation.
+        self._giftables: "dict[str, int]" = {}
+        # Every ordinary Session.spawn/publish trampoline on this Host. Actors
+        # live in the Host Vat, so closing the Port that first projected one
+        # must not unregister behavior another Port can still call.
+        self._hosted: "dict[int, int]" = {}
+        # Ctx ids a re-publish displaced. Existing capabilities and gifts still
+        # reach the old Host-Vat actor, so its trampoline stays registered until
+        # release() drops it with the rest.
+        self._displaced_giftables: "list[int]" = []
         # The iroh reachability posture this host uses to redeem a *hint-less*
         # handoff give — one whose exporter location names the exporter by node
         # id alone. Starts at the generated ABI default (Discovery, n0 relays +
@@ -159,6 +187,30 @@ class Host:
             raise PancakeError(_ERR_CLOSED, "the host has been released")
         return self._raw
 
+    @property
+    def raw_or_none(self):
+        """Raw handle or ``None`` for the finalizer-safe GC seam."""
+        return self._raw
+
+    @property
+    def released(self) -> bool:
+        return self._raw is None
+
+    @property
+    def gc(self) -> HostGc:
+        """Host-owned distributed-GC state. Binding-internal."""
+        return self._gc
+
+    def schedule_on_loop(self, run) -> None:
+        """Hop a finalizer drain onto the Host's event loop."""
+        loop = self._loop
+        if loop is None:
+            return
+        try:
+            loop.call_soon_threadsafe(run)
+        except RuntimeError:
+            pass
+
     def release(self) -> None:
         """Release the host and everything it owns — every still-open
         session (each parked vow breaks inside), the vow map, parked
@@ -169,18 +221,25 @@ class Host:
         release — it parks the release for the enclosing feed's unwind instead
         of leaking the handle. Idempotent."""
         if self._raw:
+            # Sessions first: each releases its own handle, and a handle
+            # outliving the Host it belongs to is a free of freed memory.
+            self.close_sessions()
             raw, self._raw = self._raw, None
-            # Free this host's giftable behaviors from the process-global
-            # trampoline registry; nothing else drops them, so skipping this
-            # leaks a row per giftable for the process's life across every
-            # Host generation.
-            for ctx in self._giftables:
-                _unregister_behavior(ctx)
-            self._giftables.clear()
-            if _inside_turn():
-                self.park_release(lambda: _host.pancake_host_release(raw))
-            else:
+            def release_host() -> None:
                 _host.pancake_host_release(raw)
+                for ctx in self._giftables.values():
+                    _unregister_behavior(ctx)
+                self._giftables.clear()
+                for ctx in self._displaced_giftables:
+                    _unregister_behavior(ctx)
+                self._displaced_giftables.clear()
+                for ctx in self._hosted.values():
+                    _unregister_behavior(ctx)
+                self._hosted.clear()
+            if _inside_turn():
+                self.park_release(release_host)
+            else:
+                release_host()
 
     def __del__(self):
         self.release()
@@ -227,15 +286,15 @@ class Host:
         return bytes(out).decode("ascii")
 
     def publish_giftable(self, name: str, behavior: Behavior) -> None:
-        """Publish ``behavior`` under ``name`` on every session of this host
-        — those open now and any accepted later — so a recipient can withdraw a
-        gift naming it on a session it dialed itself (the exporter half of a
-        three-party handoff, ADR-0009). The replay onto future sessions is
-        host-internal."""
+        """Host ``behavior`` once and bind ``name`` as a Host-wide alias.
+
+        Fetch lazily projects the actor onto a session. A deposited gift keeps
+        that exact actor when a recipient later withdraws over its own exporter
+        session (ADR-0009)."""
         # A giftable is bound to no single session: its forwards always go
         # through the host, and a turn it runs belongs to whichever session
         # the deliver arrived on.
-        ctx = _register_behavior(_BehaviorEntry(run=behavior, session=None, resolve_local=None))
+        ctx = _register_behavior(_BehaviorEntry(run=behavior, resolve_local=None))
         data = name.encode()
         buf, ptr = _byte_buf(data)
         try:
@@ -248,7 +307,12 @@ class Host:
             # must drop it here or the registry pins the behavior forever.
             _unregister_behavior(ctx)
             raise
-        self._giftables.append(ctx)
+        prior = self._giftables.get(name)
+        if prior is not None:
+            # Replacement moves discovery only. Existing capabilities and
+            # deposited gifts can still call the old actor.
+            self._displaced_giftables.append(prior)
+        self._giftables[name] = ctx
         self.schedule_kick()
 
     # ── Session registry ────────────────────────────────────────────────────
@@ -263,9 +327,8 @@ class Host:
         self._sessions.pop(ptr, None)
 
     def exporter_for(self, ref: Ref) -> "Optional[Session]":
-        """The direct exporter :class:`Session` a redeemed-handoff reply ``ref``
-        routes to, or ``None`` when it names no live redeemed route -- an
-        ordinary far reply, or an exporter connection already gone.
+        """The live :class:`Session` homing remote ``ref``, or ``None`` for a
+        local, stale, foreign-Host, or closed-session capability.
 
         The answer is deterministic (ADR-0088): the reply's own token carries
         which connection it lives on, so :meth:`Session.send_redeeming` resolves
@@ -273,8 +336,9 @@ class Host:
         no capture window and no dependence on which dial finished first, so it
         is right with several redeems in flight, and it finds an exporter a
         prior redeem already dialed -- a cache hit that opens no new connection.
-        Binding-internal: :meth:`Session.send_redeeming` calls it."""
-        c_ref = _ref_to_c(ref._wire())
+        :meth:`Session.send_redeeming` suppresses its own sending session and
+        surfaces only a different exporter. Binding-internal."""
+        c_ref = _ref_to_c(ref._live())
         out = ctypes.c_void_p()
         _check_host(_host.pancake_host_reference_exporter(
             self.raw, ctypes.byref(c_ref), ctypes.byref(out),
@@ -284,10 +348,12 @@ class Host:
         # session this binding no longer holds, which reads as no route.
         return self._sessions.get(out.value) if out.value else None
 
-    def close_exporters(self) -> None:
-        """Close every exporter connection this host dialed for redeems.
-        Binding-internal: :meth:`Session.close` sweeps them."""
-        for conn in [c for c in self._sessions.values() if c.host_dialed]:
+    def close_sessions(self) -> None:
+        """Close every session this Host holds -- the ones an application
+        opened and the ones the Host dialed for redeems alike. Each close
+        releases that session's handle, so this must run before the Host
+        handle goes. Binding-internal: :meth:`release` sweeps them."""
+        for conn in list(self._sessions.values()):
             conn.close_transport()
 
     # ── The vow table ──────────────────────────────────────────────────────────
@@ -368,10 +434,10 @@ class Host:
     def park_release(self, release: "Callable[[], None]") -> None:
         """Park a C release the host refused inside a behavior callback; the
         next drain — the head of :meth:`kick_actions`, or the feed's unwind —
-        runs it where it is legal. The parked list is module-level (see
-        ``_parked_releases``), so a Host finalized mid-turn still gets its
-        release run. Binding-internal."""
-        _parked_releases.append(release)
+        runs it where it is legal. The parked list is thread-local (see
+        ``_parked_releases``), so independent Host threads cannot drain one
+        another's callback-time releases. Binding-internal."""
+        _parked_releases().append(release)
 
     def drain_parked_releases(self) -> None:
         """Run every parked release, always outside a callback frame where the
@@ -379,13 +445,14 @@ class Host:
         right after a feed returns. Binding-internal."""
         if _inside_turn():
             return
-        while _parked_releases:
-            _parked_releases.pop()()
+        releases = _parked_releases()
+        while releases:
+            releases.popleft()()
 
     def pending_release_count(self) -> int:
         """How many releases are parked — test observability for the mid-turn
         close park. Binding-internal."""
-        return len(_parked_releases)
+        return len(_parked_releases())
 
     def schedule_kick(self) -> None:
         """Kick the action drain from a synchronous verb: schedule it as its

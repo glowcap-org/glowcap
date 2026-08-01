@@ -32,6 +32,15 @@ const wait = @import("../support/wait.zig");
 
 const frame_cap = 4096;
 
+/// Session options for a real loopback dial. The budgets are finite on purpose:
+/// an unbounded CapTP wait against a partner that goes quiet does not fail the
+/// suite, it wedges the test binary, which reads as a hang rather than a bug.
+const dial_opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+};
+
 // ── The theorem: three-party handoff across two connections of one loop ─────
 
 /// The gifted object, published by the exporter on its gifter leg.
@@ -115,9 +124,9 @@ const Desk = struct {
     }
 };
 
-fn publishDesk(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishDesk(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish("desk", Desk, .{ .state = state });
+    _ = try served.publish(vat, "desk", Desk, .{ .state = state });
 }
 
 /// The loop's serve hook: the bridge's serve, then the top-level follow-up a
@@ -185,9 +194,9 @@ const ExporterState = struct {
     g_conn: ?*HostSession = null,
 };
 
-fn publishExporterTarget(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishExporterTarget(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     _ = ctx;
-    _ = try served.publish("target", Widget, .{});
+    _ = try served.publish(vat, "target", Widget, .{});
 }
 
 fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
@@ -195,7 +204,7 @@ fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) a
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
     if (state.g_conn != null) return;
     state.g_conn = conn.session;
-    _ = try conn.session.served.publish("target", Widget, .{});
+    _ = try conn.session.served.publish(&conn.session.host.vat, "target", Widget, .{});
     const desk = try state.host.fetch(conn.session, "desk");
     try state.host.vowOn(desk, .{ .ctx = state, .func = onGifterDesk });
     try bridge.drainActions();
@@ -500,17 +509,17 @@ const SelfFlood = struct {
         if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
         var i: usize = 0;
         while (i < runaway_budget + 2) : (i += 1) {
-            try turn.vat.tell(self.amp, .{ .verb = "hit", .args = &.{} });
+            try turn.tell(self.amp, .{ .verb = "hit", .args = &.{} });
         }
         return .{ .boolean = true };
     }
 };
 
-fn publishRunaway(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishRunaway(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     _ = ctx;
-    const amp = try served.vat.spawn(Counter, .{});
-    _ = try served.publish("flood", SelfFlood, .{ .amp = amp });
-    _ = try served.publish("echo", Counter, .{});
+    const amp = try vat.spawn(Counter, .{});
+    _ = try served.publish(vat, "flood", SelfFlood, .{ .amp = amp });
+    _ = try served.publish(vat, "echo", Counter, .{});
 }
 
 test "budget runaway over the bridge: the flooding connection closes typed, a sibling keeps answering" {
@@ -561,7 +570,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, .{ .frame_cap = frame_cap });
+    }, .ephemeral, dial_opts);
     defer sibling_conn.deinit();
     const echo = try sibling_conn.fetch("echo");
 
@@ -573,7 +582,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
             .transport = tcp.transport_name,
             .designator = designator,
             .hints = model.Hints.emptyFalse(),
-        }, .ephemeral, .{ .frame_cap = frame_cap });
+        }, .ephemeral, dial_opts);
         defer flood_conn.deinit();
         const flood = try flood_conn.fetch("flood");
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -694,7 +703,7 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, .{ .frame_cap = frame_cap });
+    }, .ephemeral, dial_opts);
     defer client.deinit();
     _ = try client.fetch("echo");
 

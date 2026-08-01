@@ -46,10 +46,10 @@ batch of sends leaves the wire together; the triad delegates to
 [`BlockingSession`](../../../src/driver/blocking_session.zig), which owns the answer
 bookkeeping over the engine's `allocateAnswer`.
 
-The C ABI carries the same seam: `pancake_peer_send_deliver`
-([`src/c_abi/ocapn/peer.zig`](../../../src/c_abi/ocapn/peer.zig)) takes an
-optional answer target, and the owning TCP session (ADR-0062) wraps it as the
-non-blocking `send`/settle pair a binding drives.
+The retired raw C peer carried the same seam through
+`pancake_peer_send_deliver`, taking an optional answer target. ADR-0096 later
+retired that mirror; the byte-fed Host now owns the binding-facing
+send/settle pair.
 
 Every binding renders the triad in its own idiom, and in each one *the handle a
 send returns is a valid target for the next send*: Rust's `RemotePromise`

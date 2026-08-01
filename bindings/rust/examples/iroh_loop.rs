@@ -55,7 +55,7 @@ async fn run() -> Result<(), Fail> {
 	let accept_task = tokio::task::spawn_local(async move {
 		let mut served: Vec<Session> = Vec::new();
 		while let Ok(session) = accept_server.accept().await {
-			if session.publish("greeter", greeter).await.is_err() {
+			if session.publish("greeter", greeter).is_err() {
 				continue;
 			}
 			served.push(session);

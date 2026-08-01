@@ -490,10 +490,69 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     return body;
 }
 
+/// Whether the front of `bytes` can hold a whole frame yet, resuming from
+/// where the last ask left off.
+///
+/// A CapTP frame is one record, so this is the balance walk `readBalanced`
+/// already runs over nested records, kept resumable: length-prefixed leaves are
+/// stepped over by their declared length rather than read, so a payload byte
+/// that happens to spell a delimiter cannot move the depth. The resume point is
+/// only ever a position between elements, so a leaf that is still arriving is
+/// re-stepped from its length prefix on the next ask, which costs the prefix
+/// and nothing else.
+///
+/// `need_more` is the only answer that withholds the decoder, and it is given
+/// only after consuming every available byte with the record still open, where
+/// no closing delimiter exists to be found. Everything else, including bytes
+/// this walk cannot classify, hands the question to the decoder.
+pub fn scanStream(bytes: []const u8, state: *framing.StreamScan, max_frame_bytes: usize) framing.StreamScan.Verdict {
+    if (state.settled) return .ready;
+    var cursor = state.cursor;
+    var depth: u32 = state.depth;
+    if (depth == 0) {
+        if (cursor >= bytes.len) return .need_more;
+        // Not a record: the decoder owns that verdict.
+        if (bytes[cursor] != '<') return state.settle();
+        cursor += 1;
+        depth = 1;
+    }
+    while (cursor < bytes.len) {
+        if (cursor > max_frame_bytes) return state.settle();
+        const between = cursor;
+        const byte = bytes[cursor];
+        cursor += 1;
+        switch (byte) {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if (depth == 0) return state.settle();
+            },
+            '0'...'9', ':', '"', '\'' => {
+                cursor = between;
+                skipByteStringLike(bytes, &cursor, max_frame_bytes) catch |err| switch (err) {
+                    Error.Incomplete => return state.park(between, depth),
+                    else => return state.settle(),
+                };
+            },
+            // A `D`-tagged binary64 is eight raw payload bytes after the
+            // marker; stepping over them is what stops a payload byte equal to
+            // a delimiter from moving the depth.
+            'D' => {
+                if (bytes.len - cursor < 8) return state.park(between, depth);
+                cursor += 8;
+            },
+            else => {},
+        }
+    }
+    return state.park(cursor, depth);
+}
+
 /// Decode the one message at the front of `bytes`, returning its borrowed body
 /// and the number of bytes it consumed, or a structural verdict. This is the
-/// single stream framer: the decoder *is* the framer, so there is no second
-/// boundary scanner to disagree with it.
+/// single stream framer: the decoder *is* the framer, so nothing else reports a
+/// frame boundary. `scanStream` in this module runs ahead of it on a growing
+/// buffer, but it only answers whether a whole frame could be there yet; it
+/// never names where one ends, so it has nothing to disagree with.
 ///
 /// `max_frame_bytes` caps an accepted frame, and the cap is enforced *during*
 /// the decode (ADR-0029): a length prefix that declares a body past the cap is

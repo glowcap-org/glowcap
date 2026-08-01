@@ -1,124 +1,86 @@
-# apps/accountability-on-pancake
+# Accountability
 
-An accountability application built on pancake as its CapTP substrate. It has the
-same shape as `conformance/accountability-on-goblins`: KERI-anchored identity, a
-signed Episode per capability invocation, and a Merkle transparency log. The wire
-underneath is pancake's own `engine.Peer`, not Goblins.
+This application records who made a capability call without asking the host to
+trust a caller-supplied name.
 
-Two native pancake peers complete an OCapN handshake over a real loopback TCP
-socket. The host publishes an Affordance behind a capability; the caller imports
-it and eventual-sends an `invoke`. Every accepted invocation produces a signed,
-transparency-logged Episode attributing the **attested** caller. Application
-vocabulary (Affordance, Episode, KERI AID, Vat) lives entirely above pancake;
-the app imports the `pancake` module and never reaches into the core.
+The caller signs its request. The host checks that signature against the
+caller's current key, follows the caller's key history back to a
+self-certifying identifier, and records accepted calls in a signed,
+Merkle-rooted log. A forged signature or retired key is refused and leaves no
+accepted-call record.
 
-## Running
+Run the native Zig scenario:
 
 ```sh
 zig build accountability
 ```
 
-One command, no extra runtime: it builds the app against the `pancake` module
-and runs both peers on a `std.Io.Threaded` backend (host on a concurrent fiber,
-caller on the main one).
+It needs no additional runtime. The command creates signed records and Merkle
+roots under `.data/`; that directory is generated and gitignored.
 
-## What It Proves
+## What happens
 
-The run walks eight steps and asserts each:
+1. The caller creates an identity from its first signing key, then rotates to
+   the next key it had already committed to.
+2. The caller records its intent and sends a signed request, together with the
+   key-event history needed to check it.
+3. The host derives the claimed identity from that history, validates each key
+   change, and requires the request to use the current key.
+4. An accepted call produces a signed outcome record—an *Episode*—and appends
+   its hash to a Merkle transparency log.
+5. The run audits the records, then confirms that a tampered signature and a
+   retired key are both refused.
 
-1. Host and caller each **incept** a KERI AID (self-certifying, from an
-   inception event).
-2. The caller **rotates** its key under pre-rotation discipline.
-3. The host **publishes** the Affordance behind an OCapN capability; a session
-   opens over TCP.
-4. The caller writes an **Attempt** Episode _before_ the wire send (intent is
-   durable first), then invokes.
-5. The host **verifies the caller's signature** over the AID the caller claims
-   and the request it is making, then resolves the call. Because the AID is part
-   of the signed bytes, a captured signature cannot be re-presented under a
-   different AID. See "Where the demo stops short" below for what that check
-   does not cover.
-6. A caller the host **cannot attest** (a tampered signature) is **refused**:
-   the refusal travels back as a broken promise with a typed reason, and the
-   host writes no Episode for it. This is the load-bearing accountability property.
-7. The host's **Outcome** Episode attributes the _true_ caller's AID.
-8. Every Episode **audits** (countersignature + payload signature), and the
-   transparency roots are stable.
+The identity scheme follows a deliberately small KERI-shaped model. Its
+self-certifying identifier is called an AID. The service being invoked is
+called an Affordance. Both concepts belong to this application; pancake only
+carries the capability call and its result.
 
-### Where the demo stops short
-
-The host checks that whoever holds the presented key signed this exact subject
-and request. It does not check that the key belongs to the AID being claimed:
-doing that means reading the caller's key event log, walking its rotations, and
-arriving at the key that is current now. This demo does not exchange key event
-logs, so a caller who signs under its own key can still name another AID as the
-subject and the host will attribute it there.
-
-A production deployment closes that by resolving the AID before it attributes
-anything, whether from a log the caller presents or from a witness it already
-trusts.
-
-## Files
-
-| File                                                         | Role                                                                       |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `zig/main.zig`                                               | The eight-step driver: two peers, one TCP session, two invocations.        |
-| `zig/identity.zig`                                           | KERI-shaped identity: incept, rotate, sign, verify (above pancake).        |
-| `zig/episode.zig`                                            | Episode emission + audit: ephemeral-key signing, KEL countersignature.     |
-| `zig/log.zig`                                                | Merkle transparency log over Episode hashes.                               |
-| `zig/accountable.zig`                                        | The store that records an Episode and flushes it to disk.                  |
-| `zig/host.zig`                                               | Standalone host for cross-language demos (listens, serves one connection). |
-| `zig/three_party_test.zig`                                   | Three-party attribution: C attributes B, not A, after a handoff.           |
-| `deno/caller.ts`                                             | Deno caller: signs with Ed25519, invokes the Zig host over an OCapN session on the `tcp` netlayer. |
-| `deno/demo.ts`                                               | Cross-seam orchestrator: starts the Zig host, runs Deno + Python callers.  |
-| `python/caller.py`                                           | Python caller: signs with PyNaCl Ed25519, invokes the Zig host.            |
-| [`why-this-couldnt-be-http.md`](why-this-couldnt-be-http.md) | Why the three-party accountability story needs OCapN, not HTTP.            |
-
-## Generated State
-
-`.data/` holds the durable Episode logs and transparency roots written at run
-time. It is generated state (gitignored), never committed.
-
-## Posture
-
-- The integration seam is the documented one: a consumer wraps pancake's runtime
-  `Peer` and records Episodes around the send/recv boundary. Here the Affordance
-  records its Outcome inside the actor turn; the caller records Attempt/Outcome
-  around its own send.
-- It is a worked application under `apps/`, run by its own
-  `zig build accountability` step and exercised by `zig build check` as an
-  application contract, so it needs no runtime beyond Zig.
-- It is meant to be edited: change it when it stops teaching the right boundary.
-
-## Cross-language (Zig host + Deno and Python callers)
-
-The same Affordance that runs natively in Zig is reachable from a Deno caller
-over the real C ABI (the `libpancake_ocapn` + transport archives):
+## Cross-language callers
 
 ```sh
 zig build demo-accountability
 ```
 
-This builds and installs the `accountability-host` binary, then runs the Deno
-orchestrator (`deno/demo.ts`) with the host's path threaded for you. The hosts
-bind ephemeral ports by default;
-`zig build demo-accountability -Dport=9099` pins the port, rebinding it for each
-caller's fresh host. Attach mode is rejected here: a host serves exactly one
-caller and exits, so there is no long-lived server to join.
+This starts a fresh Zig host for a Deno caller and, when
+[PyNaCl](https://pynacl.readthedocs.io/) is installed, a Python caller. Each
+language builds the same kind of identity and key history. The Zig host
+re-derives the caller's AID, accepts a current-key request, and refuses both a
+bad signature (`UnattestedCaller`) and a retired key (`UnboundCaller`).
 
-The demo starts a fresh Zig host for each caller, connects from Deno and Python,
-generates an Ed25519 identity (Web Crypto / PyNaCl), signs the request, and
-invokes. The host verifies the signature and returns `ack:read-thermostat`. A
-tampered signature is refused as a broken promise (`UnattestedCaller`). Same
-application, three languages, over a real OCapN session on the `tcp` netlayer.
+The command needs Deno. Python is optional and is reported as skipped when
+PyNaCl is unavailable. `-Dport=9099` pins the port, but attach mode is not
+supported: each host serves one caller and exits.
 
-## Three-party introduction (in-memory protocol proof)
+## Attribution after an introduction
 
 ```sh
 zig build accountability-three-party
 ```
 
-Proves the central claim: when A introduces B to C via a three-party handoff
-(ADR-0009), C's Affordance attributes **B** (the true caller), not A (the
-introducer). Uses the `cross_peer` handoff machinery, the accountability
-application's KERI attestation, and `actors.Vat` on each peer.
+This scenario has A introduce B to C. When B invokes C's capability, C's record
+attributes B—the caller—not A, the introducer. It runs three vats in memory and
+also exercises the invalid key-history cases. A three-vat version over TCP is
+not implemented.
+
+## Limits
+
+This is an application example, not a complete KERI implementation:
+
+- There are no witness receipts. A controller could withhold a later rotation
+  and present an older key history as current.
+- The host does not compare histories for the same AID across sessions, so it
+  cannot detect two parties being shown conflicting histories.
+- Each event has one signing key and one pre-rotation commitment. Events use a
+  JSON body rather than KERI's CESR encoding.
+- The generated log and root live together under `.data/`. Detecting a rewritten
+  log requires an auditor to retain or publish a trusted root elsewhere.
+
+Those limits matter to deployment. They do not change what the example checks:
+the host will not record an accepted call unless the presented history binds
+the request's signing key to the claimed identity.
+
+See [Design and verification](design.md) for the exact validation walk, refusal
+cases, and source map. [HTTP and capability
+accountability](http-comparison.md) separates what OCapN supplies from the
+identity checks this application adds.

@@ -12,7 +12,7 @@ use crate::Result;
 
 /// A listening server, the host-side counterpart of [`crate::connect`]. Call
 /// [`Server::accept`] for each partner; every accepted [`Session`] shares the
-/// server's one [`Host`] (its retained identity and gift registry), so
+/// server's one [`Host`] (its retained identity and handoff router), so
 /// the server is one Host serving many partners. Dropping the server stops
 /// accepting; live sessions are unaffected.
 pub struct Server {
@@ -60,7 +60,7 @@ impl Server {
 		self.listener.local_addr().map_err(io_err)
 	}
 
-	/// This server's [`Host`], one retained identity and gift registry
+	/// This server's [`Host`], one retained identity and session directory
 	/// across every accepted session. Pass it to
 	/// [`crate::connect`] as `Some(server.host())` so a capability fetched on a dialed
 	/// session and returned to an accepted one shares one Host (the gifter
@@ -79,8 +79,8 @@ pub async fn listen<A: ToSocketAddrs>(addr: A) -> Result<Server> {
 }
 
 /// [`listen`] on a caller-supplied Host — how a server shares one identity and
-/// gift registry with sessions it dials (the gifter half of a three-party
-/// handoff), or speaks a non-default codec ([`Host::with_codec`]).
+/// live-session directory with sessions it dials (the gifter half of a
+/// three-party handoff), or speaks a non-default codec ([`Host::with_codec`]).
 pub async fn listen_with_host<A: ToSocketAddrs>(addr: A, host: Host) -> Result<Server> {
 	let listener = TcpListener::bind(addr).await.map_err(io_err)?;
 	// This Host also dials (the gifter side of a handoff), and its dials sign
@@ -135,7 +135,7 @@ impl KeyedTcpServer {
 		self.listener.local_addr().map_err(io_err)
 	}
 
-	/// This server's Host — one retained identity and gift registry across every
+	/// This server's Host — one retained identity and handoff router across every
 	/// accepted session. The identity seed is the keyed-tcp designator.
 	pub fn host(&self) -> Host {
 		self.host.clone()
@@ -215,7 +215,6 @@ mod tests {
 						};
 						Ok(Argument::String(format!("hello {who}")))
 					})
-					.await
 					.unwrap();
 					ready_tx.send(()).unwrap();
 					conn.serve().await;
@@ -264,7 +263,6 @@ mod tests {
 					// and returns the real client.
 					let conn = server.accept().await.unwrap();
 					conn.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
-						.await
 						.unwrap();
 					ready_tx.send(()).unwrap();
 					conn.serve().await;

@@ -40,10 +40,12 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     defer pair.deinit();
 
     // p2's vat publishes a counter at export 7; p1 holds it as import 7.
-    var server = actors.Vat.initOver(allocator, &pair.p2);
+    var server = actors.Vat.init(allocator);
     defer server.deinit();
+    var server_port = actors.Port.init(allocator, &pair.p2);
+    defer server_port.deinit();
     const counter = try server.spawn(Counter, .{ .n = 10 });
-    try server.bindExport(counter, 7);
+    try server_port.bindExport(counter, 7);
     // The pairing is hand-wired (p1 learns position 7 out-of-band, below), so
     // the bound position takes an explicit grant; a marshaled introduction
     // would have granted it instead.
@@ -52,27 +54,29 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
 
     // p1's vat eventual-sends counter.add(5) to the far ref, no wire message by
     // hand, just `send` to a far Ref.
-    var client = actors.Vat.initOver(allocator, &pair.p1);
+    var client = actors.Vat.init(allocator);
     defer client.deinit();
+    var client_port = actors.Port.init(allocator, &pair.p1);
+    defer client_port.deinit();
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
-    const promise = try client.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const promise = try client_port.send(&client, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
     var result: i64 = 0;
-    try client.on(promise, .{ .ctx = &result, .func = capture.captureInt });
+    try client_port.on(&client, promise, .{ .ctx = &result, .func = capture.captureInt });
 
     // Deliver flows p1 -> p2; the server vat runs the actor and resolves.
     try shuttle(&pair.p1, &pair.p2);
     {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
         defer event.deinit();
-        try std.testing.expect(try server.serve(&event));
+        try std.testing.expect(try server_port.serve(&server, &event));
     }
     // Resolution flows p2 -> p1; the client vat fires the far promise's listener.
     try shuttle(&pair.p2, &pair.p1);
     {
         var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
         defer event.deinit();
-        try std.testing.expect(try client.serve(&event));
+        try std.testing.expect(try client_port.serve(&client, &event));
     }
 
     try std.testing.expectEqual(@as(i64, 15), result);
@@ -88,12 +92,12 @@ test "near-call to a far ref is rejected, only send reaches a far object" {
 
 /// Replay one captured deliver frame into the host peer and serve every
 /// surfaced event through the vat, exactly as a driver pumps inbound traffic.
-fn replayAndServe(host: *engine.Peer, vat: *actors.Vat, frame: *const pancake.foundation.Frame) !void {
+fn replayAndServe(host: *engine.Peer, vat: *actors.Vat, port: *actors.Port, frame: *const pancake.foundation.Frame) !void {
     try host.recvBorrowed(frame.view());
     while (host.pollEvent()) |event_in| {
         var event = event_in;
         defer event.deinit();
-        if (!try vat.serve(&event)) return error.EventNotServed;
+        if (!try port.serve(vat, &event)) return error.EventNotServed;
     }
 }
 
@@ -106,35 +110,39 @@ test "serve materializes inbound deliver args in the turn arena: a steady-state 
     // their own allocator, so the engine's owned-frame copy stays out of the
     // measurement.
     var counting = CountingAllocator{ .backing = allocator };
-    var server = actors.Vat.initOver(counting.allocator(), &pair.p2);
+    var server = actors.Vat.init(counting.allocator());
     defer server.deinit();
+    var server_port = actors.Port.init(counting.allocator(), &pair.p2);
+    defer server_port.deinit();
     const counter = try server.spawn(Counter, .{ .n = 0 });
-    try server.bindExport(counter, 7);
+    try server_port.bindExport(counter, 7);
     // Hand-wired pairing: the client addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
-    var client = actors.Vat.initOver(allocator, &pair.p1);
+    var client = actors.Vat.init(allocator);
     defer client.deinit();
+    var client_port = actors.Port.init(allocator, &pair.p1);
+    defer client_port.deinit();
 
     // Capture one answer-less deliver (`tell` requests no reply, so serving
     // it queues nothing outbound) and replay the same frame for every turn.
-    try client.tell(.{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 1 }} });
+    try client_port.tell(&client, .{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 1 }} });
     _ = try pair.p1.step();
     var frame = pair.p1.takeOutbound() orelse return error.ExpectedFrame;
     defer frame.deinit();
 
     // Warm up: grow the turn arena's capacity and the vat's tables.
     const warmup = 8;
-    for (0..warmup) |_| try replayAndServe(&pair.p2, &server, &frame);
+    for (0..warmup) |_| try replayAndServe(&pair.p2, &server, &server_port, &frame);
 
     // Steady state: the args slice and verb symbol bump-allocate from the turn
     // arena, which resets with retained capacity at each outermost turn, so a
     // hosted turn makes zero allocations on the vat allocator.
     const turns = 16;
     counting.allocs = 0;
-    for (0..turns) |_| try replayAndServe(&pair.p2, &server, &frame);
+    for (0..turns) |_| try replayAndServe(&pair.p2, &server, &server_port, &frame);
     try std.testing.expectEqual(@as(usize, 0), counting.allocs);
 
     // And every replayed turn really ran the actor.
@@ -149,15 +157,17 @@ test "binding two actors to the same export position fails loud instead of orpha
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
 
-    var server = actors.Vat.initOver(allocator, &pair.p2);
+    var server = actors.Vat.init(allocator);
     defer server.deinit();
+    var server_port = actors.Port.init(allocator, &pair.p2);
+    defer server_port.deinit();
     const first = try server.spawn(Counter, .{ .n = 1 });
     const second = try server.spawn(Counter, .{ .n = 2 });
 
-    try server.bindExport(first, 7);
+    try server_port.bindExport(first, 7);
     // Which local object answers export position 7 is authority: a second bind to
     // the same position would silently orphan `first`, so it is rejected.
-    try std.testing.expectError(actors.Error.AlreadyPublished, server.bindExport(second, 7));
+    try std.testing.expectError(actors.Error.AlreadyPublished, server_port.bindExport(second, 7));
 }
 
 /// Captures a `.give` resolution's projection into fixed buffers so the test
@@ -198,14 +208,16 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 
     // The client vat asks a far object a question; the partner will answer it
     // with an introduction instead of a value.
-    var client = actors.Vat.initOver(allocator, &pair.p1);
+    var client = actors.Vat.init(allocator);
     defer client.deinit();
+    var client_port = actors.Port.init(allocator, &pair.p1);
+    defer client_port.deinit();
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
-    const promise = try client.send(remote, .{ .verb = "introduce", .args = &.{} });
+    const promise = try client_port.send(&client, remote, .{ .verb = "introduce", .args = &.{} });
     var captured = GiveCapture{};
-    try client.on(promise, .{ .ctx = &captured, .func = GiveCapture.fire });
+    try client_port.on(&client, promise, .{ .ctx = &captured, .func = GiveCapture.fire });
 
     try shuttle(&pair.p1, &pair.p2);
     const answer = blk: {
@@ -246,7 +258,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     {
         var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
         defer event.deinit();
-        try std.testing.expect(try client.serve(&event));
+        try std.testing.expect(try client_port.serve(&client, &event));
     }
 
     try std.testing.expect(captured.fired);
@@ -281,32 +293,36 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
 
-    var server = actors.Vat.initOver(allocator, &pair.p2);
+    var server = actors.Vat.init(allocator);
     defer server.deinit();
+    var server_port = actors.Port.init(allocator, &pair.p2);
+    defer server_port.deinit();
     const counter = try server.spawn(Counter, .{ .n = 200 });
-    try server.bindExport(counter, 7);
+    try server_port.bindExport(counter, 7);
     // Hand-wired pairing: the client addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
     var interceptor = ClaimBigReplies{};
-    server.setResolveInterceptor(.{ .ctx = &interceptor, .func = ClaimBigReplies.fire });
+    server_port.setResolveInterceptor(.{ .ctx = &interceptor, .func = ClaimBigReplies.fire });
 
-    var client = actors.Vat.initOver(allocator, &pair.p1);
+    var client = actors.Vat.init(allocator);
     defer client.deinit();
+    var client_port = actors.Port.init(allocator, &pair.p1);
+    defer client_port.deinit();
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
 
     // First call replies 205: the interceptor claims it, so the client's
     // promise stays unsettled — nothing crossed the wire back.
-    const claimed_promise = try client.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const claimed_promise = try client_port.send(&client, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var claimed_result: i64 = 0;
-    try client.on(claimed_promise, .{ .ctx = &claimed_result, .func = capture.captureInt });
+    try client_port.on(&client, claimed_promise, .{ .ctx = &claimed_result, .func = capture.captureInt });
     try shuttle(&pair.p1, &pair.p2);
     {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
         defer event.deinit();
-        try std.testing.expect(try server.serve(&event));
+        try std.testing.expect(try server_port.serve(&server, &event));
     }
     try std.testing.expectEqual(@as(usize, 1), interceptor.claimed);
     _ = try pair.p2.step();
@@ -316,23 +332,23 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     // Second call replies 5 (fresh counter at 0 plus 5, under the 100
     // threshold): unclaimed, the ordinary resolve flows and the listener fires.
     const small = try server.spawn(Counter, .{ .n = 0 });
-    try server.bindExport(small, 8);
+    try server_port.bindExport(small, 8);
     try pair.p2.exportObject(8);
     try pair.p1.importObject(8);
-    const passed_promise = try client.send(.{ .far = model.FarRef.object(8) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const passed_promise = try client_port.send(&client, .{ .far = model.FarRef.object(8) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var passed_result: i64 = 0;
-    try client.on(passed_promise, .{ .ctx = &passed_result, .func = capture.captureInt });
+    try client_port.on(&client, passed_promise, .{ .ctx = &passed_result, .func = capture.captureInt });
     try shuttle(&pair.p1, &pair.p2);
     {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
         defer event.deinit();
-        try std.testing.expect(try server.serve(&event));
+        try std.testing.expect(try server_port.serve(&server, &event));
     }
     try shuttle(&pair.p2, &pair.p1);
     {
         var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
         defer event.deinit();
-        try std.testing.expect(try client.serve(&event));
+        try std.testing.expect(try client_port.serve(&client, &event));
     }
     try std.testing.expectEqual(@as(usize, 1), interceptor.claimed);
     try std.testing.expectEqual(@as(i64, 5), passed_result);
@@ -368,17 +384,21 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
     // The position is exported at peer level — the engine admits deliveries —
     // but no actor is bound to it (`peer.exportObject` without
     // `vat.bindExport`, the hand-wired embedder shape).
-    var server = actors.Vat.initOver(allocator, &pair.p2);
+    var server = actors.Vat.init(allocator);
     defer server.deinit();
+    var server_port = actors.Port.init(allocator, &pair.p2);
+    defer server_port.deinit();
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
-    var client = actors.Vat.initOver(allocator, &pair.p1);
+    var client = actors.Vat.init(allocator);
     defer client.deinit();
+    var client_port = actors.Port.init(allocator, &pair.p1);
+    defer client_port.deinit();
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
-    const promise = try client.send(remote, .{ .verb = "get" });
+    const promise = try client_port.send(&client, remote, .{ .verb = "get" });
     var captured = BrokenCapture{};
-    try client.on(promise, .{ .ctx = &captured, .func = BrokenCapture.fire });
+    try client_port.on(&client, promise, .{ .ctx = &captured, .func = BrokenCapture.fire });
 
     // The server vat owns the event (it answers for the position) and breaks
     // the answer — a `false` here is the silent drop that stranded the
@@ -387,13 +407,13 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
     {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
         defer event.deinit();
-        try std.testing.expect(try server.serve(&event));
+        try std.testing.expect(try server_port.serve(&server, &event));
     }
     try shuttle(&pair.p2, &pair.p1);
     {
         var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
         defer event.deinit();
-        try std.testing.expect(try client.serve(&event));
+        try std.testing.expect(try client_port.serve(&client, &event));
     }
     try std.testing.expect(captured.fired);
     try std.testing.expect(captured.broken);

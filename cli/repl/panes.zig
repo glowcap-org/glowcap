@@ -135,7 +135,7 @@ pub fn drawTablesStrip(win: Window, ctx: *Ctx, flash: Flash, frame: std.mem.Allo
         printLine(win, 0, 0, "CapTP  session=none  (dial …)", theme.styleMuted());
         return;
     }
-    const st = &ctx.session.?.peer.session_state;
+    const st = &ctx.session.?.peer().session_state;
     const style = if (flash != .none) theme.styleFlash() else theme.styleChrome();
     if (win.height <= 1) {
         printFmt(win, 0, 0, style, frame, "CapTP  ex={d}  im={d}  an={d}/{d}", .{
@@ -174,7 +174,7 @@ pub fn drawTablesRail(
         if (inner.height > 1) printLine(inner, 1, 0, "dial an ocapn:// locator", theme.styleMuted());
         return;
     }
-    const st = &ctx.session.?.peer.session_state;
+    const st = &ctx.session.?.peer().session_state;
     const h = @max(1, inner.height / 3);
     const h2 = @max(1, (inner.height - h) / 2);
     const h3 = inner.height -| (h + h2);
@@ -290,6 +290,7 @@ fn styleForBlockKind(kind: blocks_mod.Kind) vaxis.Style {
 const blocks_mod = @import("blocks.zig");
 const links_mod = @import("links.zig");
 const select_mod = @import("select.zig");
+const width_mod = @import("width.zig");
 
 /// Draw expandable block store (CapTP lab ECS path).
 /// `range` is screen-cell anchors when a drag/linger highlight is visible.
@@ -317,6 +318,8 @@ pub fn drawTranscriptBlocks(
     const line_count = store.flatLineCount();
     const start = layout.transcriptStart(store.scroll_off, line_count, view_h);
     const sel_style = theme.styleSelected();
+    // Selection geometry is measured in the cells this screen draws.
+    const cells = width_mod.ofScreen(win.screen);
 
     var flat: usize = 0;
     var row: u16 = 0;
@@ -327,14 +330,14 @@ pub fn drawTranscriptBlocks(
             if (flat >= start and row < inner.height) {
                 const screen_row = origin_y + row;
                 const span = if (range) |r|
-                    select_mod.contentSpan(r.a, r.b, screen_row, origin_x, select_mod.charCount(line))
+                    select_mod.contentSpan(r.a, r.b, screen_row, origin_x, line, cells)
                 else
                     null;
                 var style = styleForBlockKind(b.kind);
                 if (!b.expanded and b.hasMore()) style = theme.styleExpandable();
                 printLine(inner, row, 0, line, style);
                 if (span) |sp| {
-                    const slice = select_mod.sliceLine(line, sp.start, sp.end_excl);
+                    const slice = select_mod.sliceLine(line, sp.start, sp.end_excl, cells);
                     var c: u16 = @intCast(sp.start);
                     const end_c: u16 = @intCast(sp.end_excl);
                     while (c < end_c and c < inner.width) : (c += 1) {
@@ -351,9 +354,10 @@ pub fn drawTranscriptBlocks(
                         if (spans[si].start < line.len) {
                             const sl = spans[si].slice(line);
                             // The scanner reports byte offsets; the screen
-                            // counts characters, so a link after any accented
-                            // text would otherwise underline the wrong cells.
-                            const col = select_mod.charCount(line[0..spans[si].start]);
+                            // counts cells, so a link after any accented or
+                            // wide text would otherwise underline the wrong
+                            // cells.
+                            const col = select_mod.cellCount(line[0..spans[si].start], cells);
                             printLine(inner, row, @intCast(@min(col, inner.width)), sl, theme.styleLink());
                         }
                     }

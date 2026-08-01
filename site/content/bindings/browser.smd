@@ -29,7 +29,7 @@ Load the wasm module and you have the whole `@pancake/stack` surface:
 import { init } from "@pancake/web";
 
 const stack = await init({
-	wasm: fetch("/pancake_driver.wasm"),
+	wasm: fetch("/pancake_host.wasm"),
 	// a page cannot open raw TCP, so a relay carries the bytes
 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
 });
@@ -43,7 +43,7 @@ console.log(await session.send(greeter, "greet", ["world"]));
 When you hold the key and address as separate pieces instead,
 `stack.keyedTcpLocator(key, hostname, port)` builds the same string.
 
-`init` instantiates `pancake_driver.wasm` (built by `zig build wasm-driver`) and
+`init` instantiates `pancake_host.wasm` (built by `zig build wasm-driver`) and
 hands back the stack module itself. From there `connect`, `fetch`, `send`,
 `spawn`, and `publish` work exactly as on the
 [TypeScript page]($link.page('bindings/ts')). The one browser-specific part is how
@@ -74,5 +74,5 @@ The [TypeScript page]($link.page('bindings/ts')) is the full API, and the
 browser uses every verb of it except `listen`. For how those bytes get carried or
 bridged, read [the relay]($link.page('relay')) and
 [WebRTC]($link.page('transports/webrtc')). The
-[`@pancake/web` README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/web/README.md)
+[`@pancake/web` README](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/web/README.md)
 covers installing the package and serving the wasm.

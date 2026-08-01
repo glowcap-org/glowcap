@@ -5,7 +5,7 @@
 // and vows stay on `Session`; this module owns the conn byte path
 // (handshake, serve loop, feed, flush, feed-refusal, EOF / `break_far_vows`).
 
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import { enterDeliver, exitDeliver } from "./trampoline.ts";
@@ -30,10 +30,11 @@ export interface PumpHandle {
 	readonly released: boolean;
 	/** True once the keyed handshake completed (`pancake_host_session_is_open`). */
 	readonly sessionOpen: boolean;
-	/** Identity of the Session this pump drives, exposed to the trampoline as the
-	 * arriving connection for a host-wide giftable's turn (so it can reply to its
-	 * live caller through `currentSession()`). */
+	/** Identity of the Session this pump drives, exposed to every hosted
+	 * trampoline as the arriving connection for `currentSession()`. */
 	readonly deliverOwner: object;
+	/** Host identity that owns the Vat entered by this delivery. */
+	readonly deliverHost: object;
 	/** The Session `#closing` flag alone (not `#released`). */
 	closingFlag: boolean;
 	/** Teardown has begun: `closingFlag || released`. */
@@ -119,15 +120,14 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
  * session held behind its handshake open. */
 export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 	if (h.released) return;
-	// Behaviors — including host-wide giftables with no session of their own —
-	// fire synchronously inside this call, so name the arriving connection for
+	// Behaviors fire synchronously inside this call, so name the arriving Port for
 	// the trampoline across it. Saved and restored (not cleared) to mirror the
 	// trampoline's currentTurn idiom and stay correct if feed were ever entered
 	// re-entrantly; at this sole synchronous entry prev is null, so the restore
 	// is equivalent to clearing. A redeem dial's own handshake feed is not
 	// nested inside this bracket: the action drain that runs it (kickActions)
 	// fires after exitDeliver, as a separate top-level feed.
-	const prevDeliver = enterDeliver(h.deliverOwner);
+	const prevDeliver = enterDeliver(h.deliverOwner, h.deliverHost);
 	let rc: number;
 	try {
 		rc = driverS.pancake_host_session_feed_bytes(

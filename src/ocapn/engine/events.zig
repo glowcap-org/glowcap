@@ -46,8 +46,10 @@ pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
 /// materialization (`decodeOwned`) happens only when the caller asks.
 pub const AnswerOverride = union(enum) {
     none,
-    /// OCapN V1.0 resolver-callback deliver surfaced as a semantic
-    /// resolve (`Event.tag == .resolve`).
+    /// A deliver to one of our resolver exports, surfaced as a semantic
+    /// resolve on the answer that export settles (`Event.tag == .resolve`).
+    /// Either mint reaches it: a V1.0 resolver callback (ADR-0010) or the
+    /// listener export an outbound `op:listen` nominated (ADR-0095).
     resolver_callback: model.AnswerPosition,
     /// Resolver-only deliver carrying its virtual inbound answer
     /// (`Event.tag == .deliver`).

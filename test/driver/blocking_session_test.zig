@@ -16,7 +16,7 @@ const support_actors = @import("../support/actors.zig");
 /// A finite handshake budget for every dial in this file. Unbounded is the
 /// library default and the wrong thing in a test: a partner that connects and
 /// then goes quiet would park the suite instead of failing it.
-const handshake_budget_ms: i32 = 10_000;
+const handshake_budget: driver.Budget = .{ .ms = 10_000 };
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -30,6 +30,15 @@ const crypto = pancake.foundation.crypto;
 const ip = std.Io.net;
 
 const frame_cap = 4096;
+
+/// Session options for a real loopback dial. The budgets are finite on purpose:
+/// an unbounded CapTP wait against a partner that goes quiet does not fail the
+/// suite, it wedges the test binary, which reads as a hang rather than a bug.
+const dial_opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+};
 
 /// The published actor: answers `greet(name)` with a static greeting.
 const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
@@ -56,7 +65,7 @@ const Board = struct {
     pub fn handle(self: *Board, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
         if (!std.mem.eql(u8, msg.verb, "create")) return error.NoSuchMethod;
-        const cap = try driver.spawnAt(turn.vat, Task, .{});
+        const cap = try driver.spawnAt(turn, Task, .{});
         return cap.arg();
     }
 };
@@ -81,7 +90,7 @@ fn serveBoardOnce(server: *driver.Server) anyerror!void {
 fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
     defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -111,8 +120,8 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    defer server.close() catch {};
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -136,7 +145,7 @@ fn hostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -182,7 +191,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -209,7 +218,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
 fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
     defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -244,8 +253,8 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    defer server.close() catch {};
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -297,7 +306,7 @@ fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
     defer allocator.free(write_buf);
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var cv = try driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, uri, .ephemeral, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, uri, .ephemeral, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -344,7 +353,7 @@ fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     try std.testing.expectError(driver.Error.FetchBroken, cv.fetch("nobody-published-this"));
@@ -395,7 +404,7 @@ const LocalPing = struct {
 fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
     defer conn.deinit();
 
     const cap = try conn.spawn(LocalPing, .{});
@@ -418,8 +427,8 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    defer server.close() catch {};
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -446,7 +455,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     const cap = try cv.publish("greeter", Greeter, .{});
@@ -454,7 +463,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
     // Pump until the client's deliver reaches the greeter's export, dropping
     // the event instead of serving it, the abort below is the only answer.
     outer: while (true) {
-        while (cv.served.peer.pollEvent()) |event_value| {
+        while (cv.served.port.peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
@@ -468,7 +477,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
         _ = try cv.conn.pump();
     }
 
-    try cv.served.peer.sendCopying(.{ .abort = .{ .kind = .unauthorized, .message = abort_diagnostic } });
+    try cv.served.port.peer.sendCopying(.{ .abort = .{ .kind = .unauthorized, .message = abort_diagnostic } });
     cv.conn.flush() catch {};
 }
 
@@ -485,7 +494,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget_ms);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -535,7 +544,7 @@ test "connectUri fails closed on a URI whose transport has no registered residen
     // the dial refuses rather than silently falling back to tcp.
     try std.testing.expectError(
         driver.Error.UnknownTransport,
-        driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf, handshake_budget_ms),
+        driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf, handshake_budget),
     );
 }
 
@@ -543,7 +552,7 @@ test "connectUri fails closed on a URI whose transport has no registered residen
 //
 // A `driver.Served` owns no socket: the caller feeds inbound frames with
 // `feedBorrowed` and drains outbound with `takeOutbound`, owning the loop
-// itself. This is the sans-io driving mode `libpancake_driver` and a browser
+// itself. This is the sans-io driving mode `libpancake_host` and a browser
 // ride. The test shuttles a real eventual-send and its resolution between two
 // byte-fed vats over an already-open in-memory session, with no `net.Connection`
 // on either side, so the byte-fed path serves identically to the socket path.
@@ -568,12 +577,12 @@ fn captureFedInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 
 /// Encode `from`'s pending outbound and hand every frame to `to`, borrowed. The
 /// byte-fed analogue of the socket shuttle: no sockets, frames moved by value.
-fn shuttleFed(from: *driver.Served, to: *driver.Served) !void {
-    try from.driveFed();
+fn shuttleFed(from: *driver.Served, from_vat: *actors.Vat, to: *driver.Served, to_vat: *actors.Vat) !void {
+    try from.driveFed(from_vat);
     while (from.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        try to.feedBorrowed(frame.view());
+        try to.feedBorrowed(to_vat, frame.view());
     }
 }
 
@@ -585,8 +594,10 @@ test "byte-fed Served serves an eventual-send with no socket (ADR-0072)" {
     // Both sides are byte-fed: no `net.Connection`, the test owns the loop.
     var server = driver.Served.over(allocator, &pair.p2);
     defer server.deinit();
-    const adder = try server.vat.spawn(Adder, .{ .n = 10 });
-    try server.vat.bindExport(adder, 7);
+    var server_vat = actors.Vat.init(allocator);
+    defer server_vat.deinit();
+    const adder = try server_vat.spawn(Adder, .{ .n = 10 });
+    try server.port.bindExport(adder, 7);
     // Hand-wired pairing: the client addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try pair.p2.exportObject(7);
@@ -594,17 +605,19 @@ test "byte-fed Served serves an eventual-send with no socket (ADR-0072)" {
 
     var client = driver.Served.over(allocator, &pair.p1);
     defer client.deinit();
+    var client_vat = actors.Vat.init(allocator);
+    defer client_vat.deinit();
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
-    const promise = try client.vat.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const promise = try client.port.send(&client_vat, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
     var result: i64 = 0;
-    try client.vat.on(promise, .{ .ctx = &result, .func = captureFedInt });
+    try client.port.on(&client_vat, promise, .{ .ctx = &result, .func = captureFedInt });
 
     // The deliver flows client -> server (the server's `feedBorrowed` runs the
     // actor and encodes the resolve); the resolve flows server -> client (the
     // client's `feedBorrowed` fires the promise listener). No socket touched.
-    try shuttleFed(&client, &server);
-    try shuttleFed(&server, &client);
+    try shuttleFed(&client, &client_vat, &server, &server_vat);
+    try shuttleFed(&server, &server_vat, &client, &client_vat);
 
     try std.testing.expectEqual(@as(i64, 15), result);
 }
@@ -625,30 +638,34 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
 
     var server = driver.Served.over(allocator, &p_server);
     defer server.deinit();
+    var server_vat = actors.Vat.init(allocator);
+    defer server_vat.deinit();
     var client = driver.Served.over(allocator, &p_client);
     defer client.deinit();
+    var client_vat = actors.Vat.init(allocator);
+    defer client_vat.deinit();
 
     // Shuttle the handshake frames between the two byte-fed vats until both
     // sessions open — the full connection lifecycle, driven by the caller.
     var i: usize = 0;
     while (i < 16 and !(p_server.sessionIsOpen() and p_client.sessionIsOpen())) : (i += 1) {
-        try shuttleFed(&client, &server);
-        try shuttleFed(&server, &client);
+        try shuttleFed(&client, &client_vat, &server, &server_vat);
+        try shuttleFed(&server, &server_vat, &client, &client_vat);
     }
     try std.testing.expect(p_server.sessionIsOpen());
     try std.testing.expect(p_client.sessionIsOpen());
 
     // Serve real work over the byte-fed, self-opened session.
-    const adder = try server.vat.spawn(Adder, .{ .n = 100 });
-    try server.vat.bindExport(adder, 9);
+    const adder = try server_vat.spawn(Adder, .{ .n = 100 });
+    try server.port.bindExport(adder, 9);
     try p_server.exportObject(9);
     try p_client.importObject(9);
     const remote: actors.Ref = .{ .far = model.FarRef.object(9) };
-    const promise = try client.vat.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    const promise = try client.port.send(&client_vat, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var result: i64 = 0;
-    try client.vat.on(promise, .{ .ctx = &result, .func = captureFedInt });
-    try shuttleFed(&client, &server);
-    try shuttleFed(&server, &client);
+    try client.port.on(&client_vat, promise, .{ .ctx = &result, .func = captureFedInt });
+    try shuttleFed(&client, &client_vat, &server, &server_vat);
+    try shuttleFed(&server, &server_vat, &client, &client_vat);
     try std.testing.expectEqual(@as(i64, 105), result);
 }
 
@@ -659,8 +676,8 @@ const TwoSpawner = struct {
     pub fn handle(self: *TwoSpawner, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
         if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
-        const granted = try driver.spawnAt(turn.vat, Greeter, .{});
-        const reserved = try driver.spawnAt(turn.vat, Greeter, .{});
+        const granted = try driver.spawnAt(turn, Greeter, .{});
+        const reserved = try driver.spawnAt(turn, Greeter, .{});
         const items = try turn.arena.alloc(model.Argument, 2);
         items[0] = granted.arg();
         items[1] = .{ .integer = @intCast(reserved.position) };
@@ -683,7 +700,7 @@ fn serveGrantOnMarshalOnce(server: *driver.Server) anyerror!void {
 fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
     defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -709,7 +726,7 @@ fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloc
     // tears the session down, so the probe's vow breaks instead of reaching
     // the actor. (`importObject` is only this side's own bookkeeping; it moves
     // no authority on the host.)
-    try conn.peer.importObject(reserved_position);
+    try conn.peer().importObject(reserved_position);
     const probed = conn.call(
         .{ .far = model.FarRef.object(reserved_position) },
         .{ .verb = "greet" },
@@ -731,8 +748,8 @@ test "driver loopback: a spawned capability is unreachable until first marshaled
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    defer server.close() catch {};
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -899,7 +916,7 @@ test "faultToClosed: a non-transport fault during a blocking call breaks far vow
 /// which leaves nothing to inspect afterwards. A partner that completes connect
 /// and then never speaks must break the handshake, not park the fiber
 /// (ADR-0081, contract 2).
-fn silentPartnerHandshakeTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+fn silentPartnerHandshakeTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator, budget: driver.Budget) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -918,7 +935,7 @@ fn silentPartnerHandshakeTimesOut(io: std.Io, address: ip.IpAddress, allocator: 
 
     var vat = driver.BlockingSession.over(allocator, &peer, conn);
     defer vat.deinit();
-    vat.handshake_timeout_ms = 200;
+    vat.handshake = budget;
 
     const ident: driver.Identity = .ephemeral;
     const self_locator: model.PeerLocator = .{
@@ -942,7 +959,93 @@ test "driver loopback: a silent partner's keyed handshake breaks with HandshakeT
     defer listener.deinit();
     const address = listener.localAddress();
 
-    try silentPartnerHandshakeTimesOut(io, address, allocator);
+    try silentPartnerHandshakeTimesOut(io, address, allocator, .{ .ms = 200 });
+}
+
+test "an expired handshake budget times out at once instead of reading zero as forever" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    defer listener.deinit();
+    const address = listener.localAddress();
+
+    // `.ms = 0` is a budget that has already expired, in every build mode. The
+    // OS poll vocabulary underneath reads zero as forever, so if this guard
+    // regresses the test does not fail — it parks, which is why the suite runs
+    // under a timeout wrapper.
+    try silentPartnerHandshakeTimesOut(io, address, allocator, .{ .ms = 0 });
+    try silentPartnerHandshakeTimesOut(io, address, allocator, .{ .ms = -1 });
+}
+
+test "owning connect: a silent partner's handshake breaks with HandshakeTimedOut through the pump" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Bind but never accept: the kernel completes connect into the backlog
+    // while the peer stays silent through the whole handshake window. This is
+    // the owning tier's twin of the manual-dial test above — the budget here
+    // is `Host.pumpHandshake`'s deadline arithmetic, not the borrowing tier's.
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    defer listener.deinit();
+    var buf: [64]u8 = undefined;
+    var tcp_resident = tcp.Resident{ .io = io };
+    try std.testing.expectError(driver.Error.HandshakeTimedOut, driver.connect(
+        allocator,
+        &.{tcp_resident.netlayer()},
+        tcp.locator(&buf, listener.localAddress()),
+        .ephemeral,
+        .{ .frame_cap = frame_cap, .handshake = .{ .ms = 200 }, .settle = .{ .ms = 200 } },
+    ));
+
+    // An already-expired budget times out before the first poll, every build mode.
+    try std.testing.expectError(driver.Error.HandshakeTimedOut, driver.connect(
+        allocator,
+        &.{tcp_resident.netlayer()},
+        tcp.locator(&buf, listener.localAddress()),
+        .ephemeral,
+        .{ .frame_cap = frame_cap, .handshake = .{ .ms = 0 }, .settle = .{ .ms = 200 } },
+    ));
+}
+
+/// A raw TCP client that completes connect and then says nothing for longer
+/// than the accepter's handshake budget: the ADR-0081 slowloris, aimed at the
+/// owning accept path so its failure unwind runs under the testing allocator
+/// (the accept-side handshake failure once double-freed the wire buffers).
+fn silentRawDialer(io: std.Io, address: ip.IpAddress) anyerror!void {
+    var addr = address;
+    const stream = try std.Io.net.IpAddress.connect(&addr, io, .{ .mode = .stream });
+    defer stream.close(io);
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(800), .real) catch {};
+}
+
+test "owning accept: a connect-then-silent dialer times out and the unwind stays memory-clean" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+        .frame_cap = frame_cap,
+        .handshake = .{ .ms = 200 },
+        .settle = .{ .ms = 200 },
+    });
+    defer server.close() catch {};
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
+
+    var dialer = try io.concurrent(silentRawDialer, .{ io, address });
+    defer dialer.await(io) catch {};
+
+    try std.testing.expectError(driver.Error.HandshakeTimedOut, server.accept());
 }
 
 /// Host half that completes the keyed handshake and publishes, then never
@@ -961,7 +1064,8 @@ fn silentPartnerSettleTimesOut(io: std.Io, address: ip.IpAddress, allocator: std
     var buf: [64]u8 = undefined;
     var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{
         .frame_cap = frame_cap,
-        .settle_timeout_ms = 200,
+        .handshake = .{ .ms = 10_000 },
+        .settle = .{ .ms = 200 },
     });
     defer conn.deinit();
     try std.testing.expectError(driver.Error.WaitTimedOut, conn.fetch("root"));
@@ -975,8 +1079,8 @@ test "driver loopback: a partner that opens then stalls breaks settle with WaitT
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
-    defer server.close();
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
+    defer server.close() catch {};
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -993,10 +1097,14 @@ test "byte-fed compose: beginSendNamed chains fetch then send, and the fetch bre
 
     var server = driver.Served.over(allocator, &pair.p2);
     defer server.deinit();
-    _ = try server.publish("greeter", Greeter, .{});
+    var server_vat = actors.Vat.init(allocator);
+    defer server_vat.deinit();
+    _ = try server.publish(&server_vat, "greeter", Greeter, .{});
 
     var client = driver.Served.over(allocator, &pair.p1);
     defer client.deinit();
+    var client_vat = actors.Vat.init(allocator);
+    defer client_vat.deinit();
 
     // Happy path: one begin, then pump — no shadow continuation in the caller.
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -1004,13 +1112,13 @@ test "byte-fed compose: beginSendNamed chains fetch then send, and the fetch bre
     var capture = driver.SettleCapture{ .arena = arena.allocator() };
     var flag = driver.SettleFlag{ .inner = .{ .ctx = &capture, .func = driver.SettleCapture.fire } };
     var pending: driver.PendingSend = undefined;
-    try client.beginSendNamed(&pending, "greeter", .{ .verb = "greet", .args = &.{.{ .string = "carol" }} }, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
+    try client.beginSendNamed(&client_vat, &pending, "greeter", .{ .verb = "greet", .args = &.{.{ .string = "carol" }} }, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
     defer pending.deinit();
 
     var i: usize = 0;
     while (i < 8 and !flag.done) : (i += 1) {
-        try shuttleFed(&client, &server);
-        try shuttleFed(&server, &client);
+        try shuttleFed(&client, &client_vat, &server, &server_vat);
+        try shuttleFed(&server, &server_vat, &client, &client_vat);
     }
     try std.testing.expect(flag.done);
     try std.testing.expectEqual(driver.PendingSend.Stage.delivering, pending.stage);
@@ -1024,12 +1132,12 @@ test "byte-fed compose: beginSendNamed chains fetch then send, and the fetch bre
     var broken_capture = driver.SettleCapture{ .arena = broken_arena.allocator() };
     var broken_flag = driver.SettleFlag{ .inner = .{ .ctx = &broken_capture, .func = driver.SettleCapture.fire } };
     var broken_pending: driver.PendingSend = undefined;
-    try client.beginSendNamed(&broken_pending, "nobody", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &broken_flag, .func = driver.SettleFlag.fire });
+    try client.beginSendNamed(&client_vat, &broken_pending, "nobody", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &broken_flag, .func = driver.SettleFlag.fire });
     defer broken_pending.deinit();
     i = 0;
     while (i < 8 and !broken_flag.done) : (i += 1) {
-        try shuttleFed(&client, &server);
-        try shuttleFed(&server, &client);
+        try shuttleFed(&client, &client_vat, &server, &server_vat);
+        try shuttleFed(&server, &server_vat, &client, &client_vat);
     }
     try std.testing.expect(broken_flag.done);
     try std.testing.expectEqual(driver.PendingSend.Stage.fetching, broken_pending.stage);
@@ -1043,22 +1151,26 @@ test "byte-fed compose: beginTellNamed fires void after the tell, and a cancel b
 
     var server = driver.Served.over(allocator, &pair.p2);
     defer server.deinit();
-    _ = try server.publish("greeter", Greeter, .{});
+    var server_vat = actors.Vat.init(allocator);
+    defer server_vat.deinit();
+    _ = try server.publish(&server_vat, "greeter", Greeter, .{});
 
     var client = driver.Served.over(allocator, &pair.p1);
     defer client.deinit();
+    var client_vat = actors.Vat.init(allocator);
+    defer client_vat.deinit();
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     var capture = driver.SettleCapture{ .arena = arena.allocator() };
     var flag = driver.SettleFlag{ .inner = .{ .ctx = &capture, .func = driver.SettleCapture.fire } };
     var pending: driver.PendingSend = undefined;
-    try client.beginTellNamed(&pending, "greeter", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
+    try client.beginTellNamed(&client_vat, &pending, "greeter", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
     defer pending.deinit();
     var i: usize = 0;
     while (i < 8 and !flag.done) : (i += 1) {
-        try shuttleFed(&client, &server);
-        try shuttleFed(&server, &client);
+        try shuttleFed(&client, &client_vat, &server, &server_vat);
+        try shuttleFed(&server, &server_vat, &client, &client_vat);
     }
     try std.testing.expect(flag.done);
     try std.testing.expectEqual(driver.PendingSend.Stage.delivering, pending.stage);
@@ -1073,9 +1185,9 @@ test "byte-fed compose: beginTellNamed fires void after the tell, and a cancel b
     var cancel_capture = driver.SettleCapture{ .arena = cancel_arena.allocator() };
     var cancel_flag = driver.SettleFlag{ .inner = .{ .ctx = &cancel_capture, .func = driver.SettleCapture.fire } };
     var cancel_pending: driver.PendingSend = undefined;
-    try client.beginSendNamed(&cancel_pending, "greeter", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &cancel_flag, .func = driver.SettleFlag.fire });
+    try client.beginSendNamed(&client_vat, &cancel_pending, "greeter", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &cancel_flag, .func = driver.SettleFlag.fire });
     defer cancel_pending.deinit();
-    client.vat.breakFarVows("cancelled");
+    client.port.breakFarVows("cancelled");
     try std.testing.expect(cancel_flag.done);
     try std.testing.expectEqual(driver.PendingSend.Stage.fetching, cancel_pending.stage);
     const cancelled = try cancel_capture.finish();

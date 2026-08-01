@@ -19,7 +19,7 @@ use tokio::net::TcpStream;
 
 use crate::host::{check_host, Host, HostShared};
 use crate::session::{io_err, Session, HANDSHAKE_TIMEOUT};
-use crate::sys::driver as ffi;
+use crate::sys::host as ffi;
 use crate::{sys, Error, Result};
 
 /// A resolved dial from `pancake_host_plan_dial`: language sum over the C
@@ -162,6 +162,7 @@ pub(crate) async fn dial_parsed_locator(
 	reachability: Option<Reachability>,
 	handshake_timeout: Option<Duration>,
 ) -> Result<Session> {
+	let owns_host = !redeem && host.is_none();
 	let dial_host = if redeem {
 		host.ok_or_else(|| {
 			Error::with_detail(
@@ -181,7 +182,7 @@ pub(crate) async fn dial_parsed_locator(
 		(sys::DIAL_POSTURE_EXPLICIT_NONE, 0)
 	};
 	let plan = plan_dial(transport, designator, direct_addresses_hint, policy, value)?;
-	match plan {
+	let mut session = match plan {
 		DialPlan::PeerId {
 			addresses,
 			reach_kind,
@@ -237,10 +238,12 @@ pub(crate) async fn dial_parsed_locator(
 		}
 		DialPlan::Signaling => Err(Error::with_detail(
 			sys::ERR_INVALID_ARGUMENT,
-			"webrtc signaling dial cannot be opened from a bare locator; use a handoff give"
+			"webrtc signaling dial requires a signaling-aware adapter; a bare locator cannot open it"
 				.to_string(),
 		)),
-	}
+	}?;
+	session.set_owns_host(owns_host);
+	Ok(session)
 }
 
 /// Dial an exporter a DIAL action names, keyed with the host's retained
@@ -276,7 +279,7 @@ pub(crate) async fn dial_exporter(
 /// Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report.
 pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Result<()> {
 	use crate::host::{check_host, try_spawn_local};
-	use crate::sys::driver as ffi;
+	use crate::sys::host as ffi;
 
 	let mut view: ffi::PancakePendingDial = unsafe { core::mem::zeroed() };
 	let result = async {
@@ -293,7 +296,6 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Resul
 			Rc::clone(host),
 		))
 		.await?;
-		session.mark_host_dialed();
 		let raw_conn = session.raw_conn();
 		let serving = session.serve();
 		try_spawn_local(async move {
@@ -340,9 +342,12 @@ pub async fn connect(
 /// own deadline, or one that means to wait indefinitely, says so.
 ///
 /// `handshake_timeout` bounds the OCapN handshake once the byte channel is
-/// open; `None` waits unbounded, which this project's rule for CapTP waits
-/// treats as a hang rather than a slow success, so ask for it only with a
-/// deadline of your own around the call. It does not cover opening the channel:
+/// open. `None` waits unbounded, and so does a zero budget: zero is how the C
+/// ABI and the sibling bindings spell "no bound", so a configured millisecond
+/// count threaded through here means what it means everywhere else. This
+/// project's rule for CapTP waits treats an unbounded one as a hang rather than
+/// a slow success, so ask for it only with a deadline of your own around the
+/// call. It does not cover opening the channel:
 /// a TCP connect keeps the OS's own timeout, and an iroh dial-by-id keeps its
 /// discovery retry budget (ADR-0082), both spent before the handshake starts.
 pub async fn connect_with_timeout(

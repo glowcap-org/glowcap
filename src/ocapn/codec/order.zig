@@ -7,28 +7,21 @@
 
 const std = @import("std");
 
-/// Byte-slice total order used as the canonical sort key comparator.
-pub fn lessByteSlice(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
-}
-
-/// Mutable twin of `lessByteSlice` for in-place sorts of owned buffers.
-pub fn lessByteSliceMut(_: void, a: []u8, b: []u8) bool {
-    return std.mem.lessThan(u8, a, b);
+/// Byte-slice total order used as the canonical sort key comparator. `Key` is
+/// `[]const u8` or `[]u8` (the Syrup set encoder sorts owned buffers in
+/// place); one definition serves both so the two cannot drift.
+pub fn lessByteSlice(comptime Key: type) fn (void, Key, Key) bool {
+    return struct {
+        fn less(_: void, a: Key, b: Key) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.less;
 }
 
 /// Refuse two equal adjacent keys. Callers pass keys already in sorted order
 /// (or the sorted index order for `sortIndicesByKeys`). `Err` must include
-/// `error.UnsupportedArgument`.
-pub fn refuseAdjacentEqualKeys(comptime Err: type, keys: []const []const u8) Err!void {
-    if (keys.len < 2) return;
-    for (keys[1..], 1..) |key, i| {
-        if (std.mem.eql(u8, keys[i - 1], key)) return error.UnsupportedArgument;
-    }
-}
-
-/// As `refuseAdjacentEqualKeys` for owned mutable slices (Syrup set encode).
-pub fn refuseAdjacentEqualKeysMut(comptime Err: type, keys: []const []u8) Err!void {
+/// `error.UnsupportedArgument`; `keys` is a slice of `[]const u8` or `[]u8`.
+pub fn refuseAdjacentEqualKeys(comptime Err: type, keys: anytype) Err!void {
     if (keys.len < 2) return;
     for (keys[1..], 1..) |key, i| {
         if (std.mem.eql(u8, keys[i - 1], key)) return error.UnsupportedArgument;

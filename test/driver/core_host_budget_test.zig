@@ -38,7 +38,7 @@ const Counter = struct {
 };
 
 /// A behavior whose one inbound `flood` queues more local turns than the
-/// budget admits — on its *own* vat, so the breach belongs to the fed
+/// budget admits on its Port ingress, so the breach belongs to the fed
 /// connection's own dispatch.
 const SelfFlood = struct {
     amp: actors.Ref,
@@ -46,13 +46,13 @@ const SelfFlood = struct {
         if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
         var i: usize = 0;
         while (i < flood_turns) : (i += 1) {
-            try turn.vat.tell(self.amp, .{ .verb = "hit", .args = &.{} });
+            try turn.tell(self.amp, .{ .verb = "hit", .args = &.{} });
         }
         return .{ .boolean = true };
     }
 };
 
-/// A behavior whose one inbound `flood` floods a *sibling* connection's vat
+/// A behavior whose one inbound `flood` floods a *sibling* connection's ingress
 /// through the host's enqueueing `tell` (legal under the callback latch).
 const SiblingFlood = struct {
     host: *Host,
@@ -97,8 +97,8 @@ test "a fed frame whose own dispatch amplifies past the budget fails that feed" 
     defer server.deinit();
 
     const pair = try openPair(&client, &server, "127.0.0.1:7001");
-    const amp = try pair.b.served.vat.spawn(Counter, .{});
-    _ = try pair.b.served.publish("trigger", SelfFlood, .{ .amp = amp });
+    const amp = try pair.b.host.vat.spawn(Counter, .{});
+    _ = try pair.b.served.publish(&pair.b.host.vat, "trigger", SelfFlood, .{ .amp = amp });
 
     const trigger = try fetchRef(pair, "trigger");
     _ = try client.send(pair.a, trigger, .{ .verb = "flood", .args = &.{} });
@@ -131,22 +131,31 @@ test "a fed connection flooding a sibling condemns the sibling with a close acti
 
     // The sibling's amplification target, and the fed connection's trigger
     // that floods it through the host's enqueueing `tell`.
-    const amp = try pair_b.b.served.publish("amp", Counter, .{});
-    _ = try pair_a.b.served.publish("trigger", SiblingFlood, .{
+    const amp = try pair_b.b.served.publish(&pair_b.b.host.vat, "amp", Counter, .{});
+    _ = try pair_a.b.served.publish(&pair_a.b.host.vat, "trigger", SiblingFlood, .{
         .host = &server,
         .sibling = pair_b.b,
         .target = amp.nearRef(),
     });
-    _ = try pair_a.b.served.publish("echo", Counter, .{});
+    _ = try pair_a.b.served.publish(&pair_a.b.host.vat, "echo", Counter, .{});
 
     const trigger = try fetchRef(pair_a, "trigger");
     _ = try client_a.send(pair_a.a, trigger, .{ .verb = "flood", .args = &.{} });
+    const condemned_ingress = pair_b.b.served.port.ingress;
 
     // Feed the flood by hand: the fed verb must SUCCEED — the breach belongs
     // to the sibling the flood landed on, not to the connection that fed it.
     var flood_frame = (try pair_a.a.takeOutbound()) orelse return error.NoDeliverQueued;
     defer flood_frame.deinit();
     try server.feed(pair_a.b, flood_frame.view());
+
+    // Condemnation owns cleanup before the fallible abort/CLOSE notification:
+    // the Port can no longer enqueue and no queued ingress survives for an
+    // embedder release to clean up later.
+    try std.testing.expectError(
+        actors.Error.UnknownIngress,
+        server.vat.tellFromIngress(condemned_ingress, amp.ref, .{ .verb = "hit" }),
+    );
 
     // The pump condemned the sibling and queued the embedder's close signal.
     var saw_close = false;

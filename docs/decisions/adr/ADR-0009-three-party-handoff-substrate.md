@@ -19,11 +19,15 @@ superseded_by: [ADR-0056]
 # ADR-0009 Three-party handoff substrate
 
 > **Scope of supersession.**
-> [ADR-0056](ADR-0056-vat-scoped-gift-registry.md) replaces only the
-> session-owned gift tables with the vat-scoped registry. The Syrup signing
-> domain, the `desc:sig-envelope` shape, replay rejection, and the cross-peer
-> routing design recorded here remain current, and living docs cite this
-> record for them.
+> [ADR-0056](ADR-0056-vat-scoped-gift-registry.md) historically replaced the
+> session-owned gift tables with a vat-scoped registry; that authority choice
+> is superseded by [ADR-0100](ADR-0100-session-owned-handoff-authority.md), so
+> session-owned gifts and replay counters are current again. The Syrup signing
+> domain, the `desc:sig-envelope` shape, replay rejection, and three-session
+> choreography remain current. The original free-function router and copied-key
+> provenance do not: `engine.Node` routes the live sessions, and
+> [ADR-0100](ADR-0100-session-owned-handoff-authority.md) makes withdrawal
+> resolve the Gifter–Exporter Peer and borrow its key and gift table directly.
 
 ## Context
 
@@ -63,12 +67,10 @@ rides as the gcrypt `sig-val eddsa r s` shape.
 
 [`src/foundation/crypto.zig`](../../../src/foundation/crypto.zig) owns the
 Ed25519 `sign` / `verify` over caller-supplied canonical bytes, the fixed-width
-`PeerKey` / `Signature`, and the SHA256² Public Identifier derivation. The core
-treats a signature as opaque bytes: verification is an **injected hook**
-(`SignatureVerifier` in
-[`src/ocapn/engine/cross_peer.zig`](../../../src/ocapn/engine/cross_peer.zig))
-supplied by the caller, so the no-I/O core depends on no crypto. Signatures
-cover the **decoded fields** of the signed object, not its encoded bytes, so
+`PeerKey` / `Signature`, and the SHA256² Public Identifier derivation. The
+engine verifies with the authenticated live session key while remaining sync
+and no-I/O. Signatures cover the **decoded fields** of the signed object, not
+its encoded bytes, so
 re-rendering the same record produces a signature-preserving frame: the
 cross-codec re-encode contract
 ([ADR-0003](ADR-0003-codec-interoperability-posture.md)). Entropy is not in the
@@ -76,31 +78,26 @@ core: a key seed and the `gift-id` come from the adapter boundary.
 
 ### Session-owned gift table
 
-The exporter session is the authority for whether a withdrawal is allowed
-([`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig)).
-`depositGift` records a `GiftEntry { gift_id, recipient_key, withdrawn }` and
-rejects duplicate ids. `validateInboundWithdraw` checks gift existence, that the
-gift is not already withdrawn, that the asserted `recipient_key` matches the
-deposited one, and that the `handoff_count` is strictly greater than the last
-accepted count for that receiving session: a replay or out-of-order withdrawal
-fails loud with `HandoffReplay`. `applyInboundWithdraw` records the count (the
-one fallible step) then marks the gift withdrawn, so the apply stays atomic.
-`SessionLimits` caps the deposited-gift and seen-handoff-count tables against a
-hostile peer ([ADR-0025](ADR-0025-session-table-cap-policy.md)).
+Every `engine.Peer` owns one `engine.bootstrap.GiftRegistry`. The
+Gifter–Exporter Peer owns deposited rows; the Receiver–Exporter Peer owns the
+accepted and emitted scalar handoff counts. Validation checks gift existence,
+recipient provenance when the deposit supplied it, receiving-session names,
+and a strictly increasing `handoff_count`. Settlement queues its owned answer
+before the infallible commit removes the gift. An early verified receive parks
+only the fixed certificate subset and exact gift id needed after deposit, not
+the signatures, locator, or raw signed envelope. Row and retained-byte limits
+bound hostile waiting. ADR-0100 owns the current authority and lifetime detail.
 
-### Cross-peer routing is caller-orchestrated
+### Cross-peer routing
 
 A `Peer` owns exactly one direct session, so a three-vat handoff spans several
 peers: the gifter-to-recipient session, the recipient-to-exporter session, and the
-exporter session that authorizes the withdrawal. Routing lives in free functions
-in [`src/ocapn/engine/cross_peer.zig`](../../../src/ocapn/engine/cross_peer.zig)
-`deliverGive` (the exporter records the gift, then the gifter sends the signed
-give to the recipient) and `withdrawGift` (the injected verifier checks the
-recipient's signature, then the recipient sends the receive to the exporter,
-whose session authorizes it). Each takes a `*Peer` per participating session;
-this is **not** inside the per-peer dispatcher. The borrow checker enforces that
-no two participants alias, so there is no shared mutable state and no lock
-discipline.
+exporter session that authorizes the withdrawal. `engine.Node` owns the sans-I/O
+live-session directory and routes redemption actions among those Peers;
+`driver_core.Host` pumps them. The deposit and replay tables remain on their
+owning Peers. Node keeps only authority-neutral exact-gift scheduler keys, so a
+deposit or gifter close wakes the affected Receiver–Exporter Peers without
+moving capability authority into the router.
 
 ### Relayed-resolution forwarding
 
@@ -146,32 +143,18 @@ Implemented choreography:
 
 ### Signature verification and gifter-key provenance
 
-Handoff signature verification runs in the engine on an injected
-`SignatureVerifier` seam (same pattern as `op:start-session`). pancake ships
-the canonical signable-bytes encoders;
+Handoff signature verification runs in the engine against the live session
+keys. pancake ships the canonical signable-bytes encoders;
 [`codec.syrup`](../../../src/ocapn/codec/syrup/encode.zig) provides
 `canonicalHandoffGiveSignedBytes` and `canonicalHandoffReceiveSignedBytes`,
 single-sourced against the wire encoders so the signing domain can never drift
-from what goes on the wire. `cross_peer.withdrawGift` verifies each certificate
-over its full canonical envelope through that injected verifier, not over the
-gift-id field alone, because a single field is forgeable by replay across
-envelopes. Production paths wire `foundation.crypto`;
-`testOnlyAcceptingVerifier` is for in-process tests and trusted substrates only.
-
-The exporter's gift record carries the depositing gifter's session public key as
-opaque provenance. `Session.depositGift` records a `gifter_key` beside the
-recipient key, and `Session.giftGifterKey` reads it back, so a withdrawal routes
-each certificate to the right key: the give to the gifter key the exporter
-recorded at deposit, and the receive to the recipient key the give names. The
-exporter learns that gifter key automatically from the handshake. The session
-records its partner's session public key when it applies the partner's
-`op:start-session` and exposes it as `Session.partnerSessionKey`, and
-`cross_peer.deliverGive` falls back to that learned key when none is threaded
-explicitly. The session stores the key as opaque bytes and runs no crypto;
-verification is the injected hook's job. `test/engine/cross_peer_test.zig`
-proves an end-to-end real-Ed25519 withdrawal authorized against the key the
-exporter learned from the handshake, and refuses a give signed by any other key
-with `SignatureRejected`.
+from what goes on the wire. `bootstrap.resolveForWithdraw` verifies both full
+canonical envelopes, not the gift-id field alone. It resolves the signed side
+and session name through the Host's authenticated live-session directory, then
+uses that Gifter–Exporter Peer's handshake key for the give and the give's
+recipient key for the receive. No gift row copies a gifter key.
+`test/engine/cross_peer_test.zig` proves the real-Ed25519 path and refuses a
+certificate signed by another key.
 
 The live boundary now includes a three-party handoff against Goblins with
 pancake as the recipient: `zig build goblins-handoff` enlivens a Goblins
@@ -187,9 +170,8 @@ the bootstrap handoff registry used by the OCapN conformance peer.
   Cap'n Proto structural exporter locators (`#f` / `direct-addresses`). That
   Cap'n Proto path is pancake-to-pancake completeness, not a Goblins parity
   claim.
-- Real cryptographic verification: the injected `SignatureVerifier` is the seam;
-  production defaults to `foundation.crypto`; the bundled accept-everything
-  verifier is for in-process tests and trusted substrates only.
+- Real cryptographic verification uses `foundation.crypto` and the live
+  session keys selected by `bootstrap.resolveForWithdraw`.
 - The handshake substrate, bootstrap-fetch, and the `op:start-session` Ed25519
   signing the deposit / withdraw `op:deliver`s reuse,
   [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
@@ -223,12 +205,12 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 - [`src/foundation/crypto.zig`](../../../src/foundation/crypto.zig) owns Ed25519
   sign / verify, `PeerKey` / `Signature`, and the SHA256² identifier derivation;
   it allocates nothing and compiles to `wasm32`.
-- [`src/ocapn/engine/cross_peer.zig`](../../../src/ocapn/engine/cross_peer.zig)
-  owns the `SignatureVerifier` injection seam for host-driven handoff routing.
-- [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) owns the
-  gift table, `validateInboundWithdraw` / `applyInboundWithdraw`
-  (validate-then-apply, atomic), monotonic handoff-count replay rejection, and
-  the deposited-gift / handoff-count caps.
+- [`src/ocapn/engine/bootstrap.zig`](../../../src/ocapn/engine/bootstrap.zig)
+  owns gift validation, canonical signature verification, pending-withdraw
+  materialization, and validate-queue-commit settlement.
+- Each `engine.Peer` owns its gift registry and scalar replay counters;
+  `engine.Node` owns only the live-session route and authority-neutral wake
+  dependencies described by ADR-0100.
 - [`src/ocapn/codec/syrup/mod.zig`](../../../src/ocapn/codec/syrup/mod.zig)
   renders and parses the three `desc:*` records; the signature rides as the
   gcrypt `sig-val`.
@@ -249,11 +231,13 @@ verification, regardless of its own wire shape.
 
 ## Notes
 
-[ADR-0056](ADR-0056-vat-scoped-gift-registry.md) supersedes the session-owned
-gift table decided here: gift and handoff-count authority now lives in the
-vat-scoped `engine.bootstrap.GiftRegistry`, and a re-deposit replaces the prior
-row instead of being rejected. The wire shapes, decoded-field signing,
-cross-peer routing, and gifter-key provenance in this ADR remain in force.
+[ADR-0100](ADR-0100-session-owned-handoff-authority.md) supersedes
+[ADR-0056](ADR-0056-vat-scoped-gift-registry.md)'s vat-scoped authority:
+gift and handoff-count state lives on the owning CapTP Peers again, and a
+same-session re-deposit replaces the prior row instead of being rejected. The
+wire shapes, decoded-field signing, and cross-peer routing in this ADR remain
+in force; withdrawal now resolves and borrows provenance from the live
+Gifter–Exporter Peer rather than a copied key.
 
 [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) is the sibling
 Syrup-profile work; the `handoff_replay` and `invalid_handoff_signature` abort

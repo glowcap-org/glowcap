@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The CI gate sequence, forge-neutral: the same commands a contributor runs.
-# The GitHub mirror (.github/workflows/check.yml) runs this inside the
-# committed devcontainer image. The Codeberg origin has no project workflow.
+# The checks workflow (.github/workflows/check.yml) runs this inside the
+# committed devcontainer image. The sequence itself names no forge.
 # The project gate itself stays `zig build check`; this script sequences it
 # with cross-language sibling gates that need the non-Zig runtimes the image
 # carries (the wider sibling list in .agents/rules/cli.md stays excluded
@@ -34,10 +34,20 @@ gate() {
   local rc=0
   python3 tools/run-with-timeout.py --kill-after 30s "$GATE_TIMEOUT" "$@" || rc=$?
   if [ "$rc" -ne 0 ]; then
+    # Name the gate on every failure, not only on a wedge. A gate's own output
+    # is the tool's, and a tool that fails for an environment reason says
+    # nothing about which of two dozen gates was running — so the sequence
+    # says it, or the reader is left grepping a log for a command they cannot
+    # identify.
+    echo "ci/gates.sh: gate failed (exit $rc): $*" >&2
     if wedged_rc "$rc"; then
-      echo "ci/gates.sh: '$*' exceeded $GATE_TIMEOUT and was killed — likely a wedged socket wait" >&2
+      echo "  It exceeded $GATE_TIMEOUT and was killed — likely a wedged socket wait" >&2
       echo "  (a stale peer on a fixed interop port, or an orphaned test process from a dead run)." >&2
       echo "  Sweep for orphans (pkill -f '.zig-cache/o/.*/test'), confirm no concurrent gate is running, and retry." >&2
+    elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
+      echo "  The command could not be run at all (not found, or not executable)." >&2
+    else
+      echo "  This is the gate's own failure, not the deadline's. Run it alone to see its output." >&2
     fi
     exit "$rc"
   fi
@@ -57,9 +67,17 @@ gate zig build check
 # chose. It stays out of `zig build check` because it spawns a nested
 # `zig build`, and check's steps run in parallel over one cache — two builders
 # racing that cache is the hazard .agents/rules/cli.md documents. Sequential
-# here it is safe. The budget applies per target, so the cost grows with the
-# number of targets rather than being split thinner among them.
-gate zig build fuzz
+# here it is safe.
+#
+# The run count is set here rather than left at the step's default, because the
+# budget applies per target and the cost therefore grows with the number of
+# targets. At the default the sweep runs for over an hour, which no per-gate
+# deadline short enough to catch a wedged socket would ever admit — and an hour
+# of CPU on every push is not a proportionate thing to ask of a forge. What CI
+# owes is that every target still builds and searches clean; depth is what a
+# local or nightly run with a larger -Dfuzz-runs is for, and the escapes each
+# target was validated against are recorded in its own header either way.
+gate zig build fuzz -Dfuzz-runs=25K
 # The two sidecars' own Rust unit tests. Both cover something no Zig test can
 # reach: iroh's connect timeout actually firing, and the WebRTC inbound buffer
 # making a fast sender wait rather than growing without limit. cargo is already
@@ -94,6 +112,14 @@ gate zig build goblins-handoff
 # that catches a pancake-side change to the signed give bytes (goblins-handoff
 # forwards a Goblins-minted give verbatim, so it cannot).
 gate zig build goblins-gift
+# The gifter direction in its harder position: the give arrives in a listener
+# fire on a promise pancake introduced, rather than in an answer the recipient
+# asked for. Only a live partner can say whether it reads one there.
+gate zig build goblins-relayed-give
+# The third handoff role: a live Goblins pair deposits into and withdraws from
+# a *pancake* gift registry, so pancake answering both verbs is proved against
+# somebody else's implementation rather than only the upstream suite.
+gate zig build goblins-exporter
 # Live inbound op:gc-exports from Goblins after echo drops a near export — the
 # one automated distributed-GC proof against somebody else's implementation.
 gate zig build goblins-gc
@@ -101,6 +127,11 @@ gate zig build goblins-gc
 # live Goblins vat dials it. Without this row every binding is only ever the
 # client against Goblins.
 gate zig build deno-goblins-listen
+# The relay's live-Goblins leg: a browser peer holds the keyed session through
+# the byte-transparent reference relay. The relay links no codec, so a re-framed
+# byte would fail the signed handshake against a real partner (needs deno +
+# racket + goblins, and the wasm Host built above).
+gate zig build goblins-relay
 gate zig build fixture-gen-check
 gate zig build ocapn-findings-check
 gate zig build ocapn-conformance

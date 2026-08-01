@@ -13,7 +13,7 @@
          "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_abi_version*
-                     pancake_encode_peer_locator*
+                     pancake_locator_record_encode*
                      pancake_uri_parse_peer*
                      pancake_uri_parse_sturdyref*
                      pancake_uri_format_peer*
@@ -40,14 +40,14 @@
   (values out0 out1 out2))
 (define-pancake pancake_last_error (_fun _pointer _size -> _size))
 (define-pancake pancake_managed_frame_release (_fun _PancakeManagedFrame-pointer -> _void))
-(define-pancake pancake_encode_peer_locator*
+(define-pancake pancake_locator_record_encode*
   (_fun _pointer _size _pointer _size _pointer _size _pointer _pointer -> _int32)
-  #:c-id pancake_encode_peer_locator)
-(define (pancake_encode_peer_locator transport transport-len designator designator-len direct-addresses direct-addresses-len)
+  #:c-id pancake_locator_record_encode)
+(define (pancake_locator_record_encode transport transport-len designator designator-len direct-addresses direct-addresses-len)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (out0 out1)
-               (pancake_encode_peer_locator* transport transport-len designator designator-len direct-addresses direct-addresses-len out0 out1))))
-(define-pancake pancake_peer_locator_bytes_release (_fun _pointer _size -> _void))
+               (pancake_locator_record_encode* transport transport-len designator designator-len direct-addresses direct-addresses-len out0 out1))))
+(define-pancake pancake_locator_record_bytes_release (_fun _pointer _size -> _void))
 (define-pancake pancake_uri_parse_peer*
   (_fun _pointer _size _pointer -> _int32)
   #:c-id pancake_uri_parse_peer)

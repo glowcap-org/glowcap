@@ -74,32 +74,28 @@ here.
   into each driver, which is worse because the copies become scattered and
   duplicate `clonePeerLocator`.
 - **Actor-local eventual-send boundary copy: `Vat.send` / `Vat.tell`'s local arm
-  into the vat's `queue_arena`.** Actor-local, not wire-path: this is the far
+  into one ingress queue chunk.** Actor-local, not wire-path: this is the far
   path's `Peer.sendCopying` contract replayed inside one vat. A queued local
-  turn runs at the next `drive`, whose first outermost turn resets the turn
+  turn runs at a later `drive`, whose first outermost turn resets the turn
   arena — the very arena the documented handler pattern builds outgoing args in
-  — so an owning queue plus borrowed input again requires exactly one copy. The
-  clone (verb plus deep args, via `model.cloneArgumentSlice`) lands in one
-  vat-owned bump arena and dies with the queue: one bounded reset
-  (`retain_with_limit` at the vat's declared steady bytes, see the footprint
-  budget below) when the outermost `drive` has fully drained it (nested drives
-  leave it alone), so steady capacity amortizes, nothing is freed per message,
-  and a burst's capacity is returned instead of pinned. The settle
+  — so an owning queue plus borrowed input again requires exactly one copy.
+  Before cloning, `model.measureArgumentSliceOwnedBytes` walks the same complete
+  ownership shape and adds the verb and queue row; admission can therefore
+  refuse a per-ingress turn, byte, or chunk limit before any queue mutation.
+  The clone (verb plus deep args, via `model.cloneArgumentSlice`) lands in the
+  selected chunk's bump arena. A completed chunk is reclaimed independently of
+  other ingresses; one Vat-wide spare retains at most
+  `steady_spare_arena_bytes`, and an empty ingress retains no chunk. The settle
   side pays the mirror-image copy, and it is arena-homed on both paths. Each
   settle clone defends two hazards: a listener may open a top-level turn
   (`near` or `drive`) whose depth-0 turn-arena reset would free a turn-arena
   value mid-call, and the value may borrow the settling actor's own mutable
   state, which a listener-run turn can mutate or `become`-free under the
-  borrow — so the clone can be re-homed, never deleted. `Vat.settleLocal`
-  clones the one fulfilled argument into the same `queue_arena`: it runs only
-  inside `drive`, and that arena resets only when the outermost `drive` has
-  fully drained, which cannot happen while the listener is still on that
-  drive's stack. `Vat.serve`'s far-resolve arm clones into a dedicated
-  `settle_arena` instead, reset when its `settle_depth` guard returns to zero
-  (a far listener can re-enter `serve` through a driver pump,
-  `BlockingSession.step` → `drainEvents`); the queue arena is unsafe there
-  because `serve` runs outside any drive, so a listener-opened `drive` is
-  *outermost* and its full-drain reset would free the value mid-call. The far
+  borrow — so the clone can be re-homed, never deleted. Local and far fulfilled
+  listeners clone into the same depth-guarded `settle_arena`, reset when
+  `settle_depth` returns to zero. That guard covers both a local listener opening
+  a nested drive and a far listener re-entering `serve` through a driver pump
+  (`BlockingSession.step` → `drainEvents`). The far
   send's verb-splice scratch is no longer a per-send allocation at common
   arity: `farDeliverTo` splices `[verb, args…]` in a stack buffer up to seven
   args and falls back to one immediately-freed gpa spine only above that
@@ -176,28 +172,39 @@ here.
   persistent actor's incremental `become`, bounded by the map the application
   builds, and freed when the last version or snapshot holding a node drops it.
   Rebuilding the whole value each turn instead would make `become` O(size).
-- **Bounded inbound spill: `net.Spill` (ADR-0041).** Read buffers size the
-  steady state, so an admissible frame larger than the read buffer pays one
-  extra bounded copy (read buffer into spill) and one allocation per oversize
-  burst, freed when the spill drains. The fast path (frame fits the buffer)
-  stays a zero-copy borrow with no allocation. Boundedness is the codec's
-  cap-during-scan verdict plus a defensive incomplete-at-cap mirror in each
-  consumer. Deleting this relocates the cost into `max_frame_bytes`-sized
-  per-connection read buffers, which is the exact scaling problem ADR-0041
-  removed.
+- **Bounded inbound spill: `foundation.Spill` (ADR-0041).** Where stream bytes
+  wait when they have arrived but do not yet make a whole frame. It lives in
+  `foundation` because both tiers that read a stream need one and neither can
+  import the other: `net` folds a parser over a live byte stream, and
+  `driver_core` is byte-fed and imports no transport. It is bytes and nothing
+  else, which is what lets them share it, and the reader-shaped fill
+  (`net.absorbFrom`) stays up in `net` because the core holds no transport
+  type. Each tier names what a drained spill keeps, and that number is the only
+  thing they differ on.
+  At the `net` tier (`net.Spill`, retaining `net.spill_retain_bytes` of
+  nothing) read buffers size the steady state, so an admissible frame larger
+  than the read buffer pays one extra bounded copy (read buffer into spill) and
+  one allocation per oversize burst, freed when the spill drains. The fast path
+  (frame fits the buffer) stays a zero-copy borrow with no allocation.
+  Boundedness is the codec's cap-during-scan verdict plus a defensive
+  incomplete-at-cap mirror in `codec.dispatch.framePrefix`. Deleting this
+  relocates the cost into `max_frame_bytes`-sized per-connection read buffers,
+  which is the exact scaling problem ADR-0041 removed.
 - **Byte-fed session stream tail: `HostSession.feed_tail`
-  (`driver_core.Host.feedBytes`).** The spill posture above, replayed at the
-  byte-fed host tier as the one owner of the unconsumed stream tail — the
+  (`driver_core.Host.feedBytes`).** The same `foundation.Spill`, at the
+  byte-fed host tier, as the one owner of the unconsumed stream tail — the
   buffer four binding pumps each used to keep by hand. The steady path (no
   pending tail) parses the borrowed chunk in place with zero copies and
   stashes only a partial frame's leftover; while a tail is pending, each
   chunk pays one bounded coalesce copy into it, the delimiter's
   contiguous-bytes price the bindings paid before, now paid once. Bounded by
   the cap-during-scan verdict plus the embedder's own read size (a big read's
-  frames coalesced behind the handshake hello wait here too), with retained
-  capacity returned past `steady_feed_tail_bytes` when the tail drains, and
-  freed with the shell. Deleting it hands the tail back to every binding,
-  which is the exact hand-copied choreography this owner removed.
+  frames coalesced behind the handshake hello wait here too). Straddling a
+  chunk boundary is ordinary traffic here rather than the exception it is over
+  a read buffer, so this tier keeps `steady_feed_tail_bytes` of capacity on a
+  full drain instead of freeing outright, and the shell frees the rest.
+  Deleting it hands the tail back to every binding, which is the exact
+  hand-copied choreography this owner removed.
 - **Shared read-buffer pool and the tail-to-spill copy (ADR-0054).** The
   completion loop's read buffers are a backend-owned shared pool
   (`Options.read_buffers`, default 256, each 16 KiB; io_uring provided buffers),
@@ -239,6 +246,29 @@ here.
   when a writable fully drains the queue, which also frees burst capacity
   above `steady_outbound_bytes`. It is one buffer, not two, because
   the iroh path copies into the sidecar rather than lending the kernel a slice.
+- **WebRTC callback bridge: one bounded inbound deque and one bounded outbound
+  batch per peer (ADR-0089).** `webrtc` 0.14 delivers DataChannel messages through
+  a serialized callback rather than a borrowed stream read. The callback copies
+  each message once into the peer's inbound `VecDeque`; `try_read` copies its
+  contiguous prefix once into caller storage. The pinned crate's read loop awaits
+  one callback before reading the next, so checking the 1 MiB bound before that
+  callback parks limits overshoot to one at-most-64-KiB message and lets SCTP flow
+  control throttle the partner. A full drain shrinks retained capacity to 16 KiB.
+  The outbound side pays one copy into `BytesMut` (plus its bounded amortized grow
+  moves), counts queued and in-flight bytes together under 1 MiB, and splits the
+  moved batch into 16 KiB `Bytes` views without another copy. The batch allocation
+  dies when sent, so a burst does not pin its high-water capacity; a write larger
+  than available room admits a prefix so retry can progress. This is **name**:
+  deleting either boundary copy would require the callback or async send task to
+  retain caller storage past the call. The two-worker Tokio runtime and readiness
+  queue are endpoint-owned, not per peer; readiness retains at most one pending
+  row per ready peer and coalesces its event bits. Its self-pipe writes are
+  best-effort only under one invariant: `WouldBlock` means unread bytes already
+  fill the pipe, so the read fd is already poll-readable and no wake was lost.
+  The same `Readiness.nudge` technique is used when an event is published and
+  when a bounded record drain leaves backlog; interrupted writes retry. The
+  exported fd is the socketpair half whose write direction is shut down, so a
+  consumer cannot manufacture a wake byte.
 - **Pinned tcp stream wrapper: `net.tcp` per connection (ADR-0043).** A
   transport-generic `Connection` borrows `*std.Io.Reader` / `*std.Io.Writer` and
   is moved by value, but `std.Io.Reader`'s vtable recovers its concrete
@@ -267,6 +297,22 @@ here.
   are never bridge-owned: the loop's fixed slots hold them inline and the
   host adopts without freeing (`Host.openAcceptedOver` over
   `engine.Node.registerPeerOver`).
+- **Owning host face wires: one `Wire` shell plus two `frame_cap` buffers per
+  session, and per-host poll scratch (`driver.PollHost`, ADR-0090).** The blocking
+  application tier, not the 500k loop tier. Each session's transport binding
+  is one heap `Wire` (the `net.Connection`, the read/write buffers its
+  reader/writer own, the core shell pointer), freed only by its owner — the
+  view's `deinit` or host teardown; an EOF marks the wire closed and breaks
+  that session's vows without freeing, because a view still holds the
+  pointers (the close/release split). The pump's readiness wait fills three
+  host-owned scratch lists (pollfds, wire pointers, and the borrowed
+  connection pointers `net.waitAnyReadable` takes) sized to the live wires,
+  so the wait allocates nothing once they have grown; a `connect`
+  bundle adds one core `Host` (node, identity, tables) per session, the
+  named price of the front door redeeming handoffs. Frames written to a wire
+  are freed after the write; the read path parses borrowed reader bytes
+  through `Host.feedBytes` with no copy beyond the core's own feed-tail
+  contract.
 - **Owned inbound frame: `ownedFrameFromView` (`Peer.recvBorrowed`).** A
   borrowed `FrameView` is transient; a surfaced event must outlive it, so the
   bytes are copied once into an owned `Frame`. Word-shaped frames need
@@ -290,8 +336,11 @@ here.
   validate/apply.   That owned-fallback copy is _turn-scratch_, not session-lived:
   it feeds the shared owned validate/apply and dies when the turn ends, so it is
   materialized into the session's **`recv_scratch`** bump arena and reclaimed
-  with one `reset(.retain_capacity)` at the end of every `recordRecvView`,
-  `recordRecv`, and `recordResolverCallbackResolve`. The
+  with one `reset(.{ .retain_with_limit = steady_recv_scratch_bytes })` at the
+  end of every recv entry point: `recordRecv`, `recordRecvView`,
+  `recordInboundDeliverView`, and `recordResolverCallbackResolve`. Retaining
+  the whole capacity instead would pin one burst's peak for the session's
+  life, which is the hazard the footprint budget below exists to stop. The
   inbound GC validators' duplicate-position fold
   (`checkGcExportDecrement` / `checkGcAnswerDecrement` in `validateRecv`) —
   a fixed stack for typical small vectors, spilling to a map only above the
@@ -315,7 +364,10 @@ here.
   (projecting to `resource_exhausted`) instead of grinding. It is the
   codec-neutral backstop for the byte-level ascending-element refusal the
   Syrup decoder gets for free; Cap'n Proto's pointer wire form cannot prove
-  set uniqueness without it, and a set-free frame pays nothing. On a Syrup
+  set uniqueness without it, and a set-free frame pays nothing. The owned fallback arm and the send-side
+  fold run the same comparison spine through `argumentsEqualBounded` (the
+  owned entry points project through `view.*.fromOwned`, so there is one
+  spine, one hasher, and one budget discipline). On a Syrup
   frame the fold therefore re-verifies what decode already refused: one named
   redundant walk per inbound set, kept so the invariant is codec-neutral
   instead of a per-codec trust.
@@ -372,13 +424,31 @@ here.
   rule drains after every top-level call, so steady state is one feed's settles,
   and the fire cannot strand: every vow mint and fallible enqueue reserves one
   queue slot per live vow, so the fire's infallible append never fails. Bounded
-  by the application's own unsettled sends.
+  by the application's own unsettled sends. Session mint also reserves one
+  flush and one close notification slot per live shell. Those irreversible
+  notifications use intrusive pending bits and infallible pushes, never a
+  linear dedup scan or an allocation after a frame/close verdict exists. Before
+  destructively popping a Node action, the Host reserves its largest possible
+  action-queue consequence; action drain can therefore report OOM without
+  losing the Node action. The action FIFO retains its historical reservation
+  peak until Host teardown because a drain must not revoke capacity promised to
+  a future vow fire or session notification.
 - **Crypto fixed-width materialization: `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`.** `std.crypto` Ed25519 operates on fixed-size
   arrays (`[32]u8` / `[64]u8`) while the wire exposes `[]const u8`.
   Materializing the array from a borrowed slice is an inherent, bounded copy at
   the verification boundary. `std.crypto` offers no allocator pattern to avoid
   it.
+- **Borrowed handoff canonicalization: one owned signing-domain buffer per
+  certificate; Cap'n Proto lazy hints add call-scoped projection scratch.** An
+  immediate withdrawal never owns the inbound handoff tree. Give and receive
+  verification each allocate only the canonical byte product the crypto API
+  consumes. A Syrup-forwarded give carries its exact signed envelope, so receive
+  canonicalization bypasses typed hints and the split signature is joined on the
+  stack. Cap'n Proto carries typed lazy hints instead; projecting a non-empty
+  hint list for the Syrup canonical encoder temporarily owns its bounded
+  entries/bytes and frees them before return. If the withdrawal parks, the
+  separate pending-row materialization is the lifetime-boundary copy.
 - **Authoritative session state: the owned locator clone (`owned.zig`'s
   module-private `clonePeerLocator`), plus the per-session
   byte key arena.** Session tables are the source of truth and outlive any
@@ -389,50 +459,93 @@ here.
   position-keyed `SlotTable` / `AnswerTable`; the _Session's_ `bootstrap`
   registry is an O(1) `StringHashMap` whose swissnum key bytes live in one
   per-session **`key_arena`** (alongside the partner key/designator bytes),
-  freed wholesale at teardown. The one reverse read
-  (`bootstrapSwissForExport`, the gifted-near withdraw resolving an export back
-  to its swissnum) walks that registry linearly. That cost is named: it runs
-  only on a cross-session withdrawal and is bounded by the names the
-  application itself registered, so it earns no second index. The _monotonic_ tables never remove a row, so a
-  bump arena is the right owner.   Deliberately excluded from the arena: the FIFO-evicting `sturdyref_cache`
+  freed wholesale at teardown. Host-wide publication is a separate O(1)
+  `StringHashMap`; exact gifts retain the deposited Vat target and perform no
+  swiss reverse lookup at withdrawal. The _monotonic_ session tables never
+  remove a row, so a bump arena is the right owner. Deliberately excluded from
+  the arena: the FIFO-evicting `sturdyref_cache`
   (plus its side swissnum→index map) and individually-removed
   `pending_enlivens` keep their swissnum bytes on the gpa with precise
   per-row frees, because a bump arena cannot reclaim an evicted or removed
   row and would leak under churn. Third-party import **host designators**
   are interned in `key_arena` (session-lifetime; shared across rows that
   name the same introducing host) — only the listen cell is freed per row.
-- **Vat-scoped gift registry: gpa rows with per-row frees
-  (`engine.bootstrap.GiftRegistry`, ADR-0056).** The single gift / handoff-count
-  authority. Every `Peer` owns a private registry (`own_gift_registry`, freed in
-  `Peer.deinit`); a host serving several direct sessions to one vat points its
-  peers at one shared registry instead, keeps it alive past every peer's
-  `deinit`, and owns any cross-thread locking; the registry carries no lock.
-  Its tables are _not_ monotonic: a re-deposit of the same gift id replaces the
-  prior row by freeing its recipient key, gifter key, and gifted reference, so
-  the rows live on the gpa with precise per-row frees, never in a bump arena (an
-  arena cannot reclaim an overwritten row and would leak every re-deposit). Each
-  deposit dupes the gift id, recipient key, and gifter key and adopts the gifted
-  reference; each first-seen recipient session dupes its session id (bounded by
-  `max_seen_handoff_counts`); every row is freed precisely, on overwrite or
-  registry deinit. A consumed gift's whole row is removed at withdraw after the
-  handoff count is recorded: id/recipient/gifter keys are freed; a
-  `.verbatim_cap` payload is **moved** out to the settle message (not
-  `cloneReference`), then freed after `sendCopying` via
-  `freeSettledWithdrawOwned`. A process-lifetime registry pins neither a
-  capability nor a row per handoff it ever served; replay stays blocked by the
-  monotonic `handoff_counts`, not a retained marker. Because a consumed row is
-  gone, the row count _is_ the live-gift count, so `max_deposited_gifts` bounds
+- **Version-neutral resolver-export link: one POD row per live listen
+  (`Session.outbound_resolver_link`).** Bounded by the application's own
+  listens (`engine.listen.listenOnPromise`, ADR-0095) plus V1.0's synthesized
+  resolver mints, dropped when the answer is released on the outbound
+  `op:gc-answers` path, and freed with the session. No owned bytes; the map
+  backings are the whole cost.
+- **Session-owned gift registry: gpa rows with per-row frees
+  (`engine.bootstrap.GiftRegistry`).** Every `Peer` owns its CapTP session's
+  deposits and scalar accepted/emitted handoff counters; `Peer.deinit` destroys
+  all three. A withdraw resolves the still-open Gifter–Exporter session and
+  borrows that peer's registry, so closing either required `Peer` destroys its
+  rows without Host-wide replay or gift maps. Failure remains closed while no
+  replacement session reuses the same names; ADR-0097 owns fresh keys and
+  reconnect-incarnation isolation. A re-deposit of the same session-local gift
+  id replaces the prior row by freeing its recipient key and gifted reference.
+  The rows live on the gpa with precise per-row frees,
+  never in a bump arena (an arena cannot reclaim an overwritten row and would
+  leak every re-deposit). Each deposit dupes the gift id. A provenance-only row
+  also dupes its recipient key, a verbatim-cap row adopts its gifted reference,
+  and an exact local gift stores only the Vat target id. Validation and gift
+  lookup borrow an immediate withdrawal; the inbound handoff is materialized
+  only when it must park across the frame lifetime. An already-deposited gift
+  still builds the ordinary owned
+  outbound message before mutation. Only after that message is queued does an
+  infallible commit remove the gift, free its id/recipient key and original
+  payload, and record the count. An early verified receive records its count
+  when the bounded pending row is admitted, before waiting, and reuses that
+  accepted counter when the gift arrives. Queue OOM rolls back a fresh Port
+  projection and leaves the gift retryable. A session registry pins neither a
+  capability nor a row per handoff it has already served; replay stays blocked
+  by the session's monotonic accepted count, not a retained marker. Because a
+  consumed row is gone, the row count _is_ the live-gift count, so
+  `max_deposited_gifts` bounds
   `gifts.count()` directly — no parallel counter to drift — and a node that has
   served many completed handoffs keeps accepting new deposits.
-- **Parked withdraw: one owned handoff-receive per early `withdraw-gift`
-  (`Peer.pending_withdraws`, ADR-0056).** A `withdraw-gift` whose gift has no
-  live deposit must outlive the borrowed frame that carried it, so the receive
-  is materialized once onto the peer's gpa and parked. `Peer.step` retries
-  parked entries against the gift registry and frees each when its withdraw
-  settles; the rest are freed at `Peer.deinit`. Bounded by
-  `max_pending_withdraws` (loud `PendingWithdrawCapExceeded` on overflow).
+- **Parked withdraw: one compact verified claim per early
+  `withdraw-gift` (`Peer.pending_withdraws`, ADR-0100).** The exporter resolves
+  the give's gifter session, verifies both signatures and the receiving-session
+  names, then advances the receiver session's replay counter before it waits. A
+  verified receive whose gift has no live deposit must outlive the borrowed
+  frame that carried it. The parked row therefore retains only its handoff
+  count, fixed recipient/gifter/session names, and one exact owned gift id. It
+  does not retain either signature, the exporter locator, receiving names, or
+  the raw signed envelope. Exact gift-id bytes across all parked rows share the
+  session's `max_frame_bytes` cap, in addition to `max_pending_withdraws`; either
+  overflow is a loud `PendingWithdrawCapExceeded`. `Peer.step` retries the
+  accepted claim without rejecting it as its own replay and frees its gift id
+  when it settles; teardown frees the rest.
   Refusing the early withdraw instead would break the protocol's
   deposit-may-arrive-second contract, which the upstream OCapN suite pins.
+  `Node.handoff_waiters` is authority-neutral scheduler state: one outer row per
+  Gifter–Exporter `PeerId`, one gift-group row per 128-bit BLAKE3 tag, one inner
+  row per receiver, plus at most one queued change per gift group. The fixed-size tag prevents an
+  attacker-selected gift-id length from being copied into coordination state;
+  exact signed bytes and the registry key remain the authority, so a collision
+  only causes an extra bounded retry. Each receiver groups its pending rows by
+  the same key. Admission reserves this relation before replay commits;
+  settlement or receiver teardown removes it. The first group can allocate both
+  nested map backings and changed-list capacity; later deposit and close marking
+  allocate nothing. Removing the final group frees the outer map and
+  changed-list backing; while any group remains, those tables and each live
+  group's receiver map may retain their historical peak capacity. The Host
+  reserves one dirty-FIFO slot and one flush plus one close action slot per live
+  session when the shell is minted. It consumes one exact change and drives its
+  receivers before taking another, so each Peer needs one scalar wake rather
+  than an allocation-bearing queue. Deposit work is proportional to receivers
+  waiting for that gift, and each receiver looks up only that gift's pending
+  group; gifter close is proportional to that gifter's live groups. The FIFO
+  backings retain the Host's historical peak live-session capacity until Host
+  teardown.
+- **Replaced publications retain their actors in the Host Vat.** The Host's
+  keyed alias row changes in place, so replacement allocates no graveyard row
+  and inbound fetch remains O(1). Existing Port projections and deposited
+  gifts still name the displaced actor directly. Actor reclamation therefore
+  waits for Host teardown today; the missing alias-removal verb changes
+  discovery only and does not by itself become an actor-deletion API.
 - **Listener fan-out: POD fire carriers over the stored resolution or a live
   object export; zero payload copies.** When a promise with N listeners
   resolves, each fire is queued as one POD carrier (`engine.Outbound.listener_fire`,
@@ -499,10 +612,13 @@ here.
   and bounded per answer by `max_listeners_per_target` (ADR-0050).
 - **Boxed handoff argument: the handoff arm of `view.zig`'s `Argument.toOwned`
   (one alloc per `desc:handoff-*` _argument_).** The owned `Argument.handoff` arm is
-  `*Handoff`, not inline: a handoff payload is ~160 bytes and would otherwise
-  set the size of _every_ `Argument`, so an ordinary integer arg in a deliver
-  list would pay for the handoff arm it never uses (`Argument` 168 → 88 bytes,
-  `Resolution` 176 → 96; measured by `bench/frame_view_bench.zig`). The cost is
+  `*Handoff`, not inline: a handoff payload is the largest arm by far and would
+  otherwise set the size of _every_ `Argument`, so an ordinary integer arg in a
+  deliver list would pay for the handoff arm it never uses. Boxed, `Argument`
+  holds at 40 bytes and `Resolution` at 48, and those are a gate rather than a
+  measurement: `test/model/model_test.zig` asserts the ceilings at comptime, so
+  un-boxing fails the build. `bench/frame_view_bench.zig` prints the same
+  numbers as `model_layout` but proves nothing on its own. The cost is
   one `create(Handoff)` only when a handoff actually appears as an argument,
   which is rare and limited to three-party work. It is freed once in
   `freeArgument`. The borrowed `model.view.Argument` keeps its handoff inline;
@@ -516,7 +632,8 @@ here.
   message itself _moves_ into the rewrite; the one allocation is the synthesized
   frame, which the frame-based event model requires (a borrowed frame can't
   carry a message that never arrived on the wire). Bounded by
-  `max_local_deliveries`.
+  `max_local_deliveries`. Named, not measured: the cap has a test, the
+  one-allocation count does not.
 - **Relayed-resolution forwarding: lower, store once, then fire from the store
   (ADR-0009, ADR-0069).** `Peer.applyRelayedResolution` lowers any node-local
   foreign-import token in the application-supplied resolution in place
@@ -530,14 +647,35 @@ here.
   import is refused (`Error.UnexpectedMessage`, the answer-side
   `validateInboundResolve` rule mirrored) with the refused resolution freed.
   There is no clone of the resolution anywhere on the single-store relayed
-  path. The introducing-session proxy (`Node.proxyForeignPromiseFulfill`)
+  path (named, not measured: its two sibling claims have dedicated budget
+  tests, this one is held by behavior tests alone). The introducing-session proxy (`Node.proxyForeignPromiseFulfill`)
   keeps **one** home `op:listen` per home wire (shared across recipient
   introduces). Host peek then one `toOwned` makes the Node the fire owner;
   N=1 **moves** into `applyRelayedResolution`, N>1 each recipient store
   materializes via `materializeResolutionForStore` — never a public
   `cloneResolution` spine and never N home listens. A late `op:listen` fires
   the same way, from the store; the stored resolution is freed once (on
-  import GC co-eviction or session teardown).
+  import GC co-eviction or session teardown). A fulfillment naming a bare far
+  object takes the handoff arm instead of the store
+  (`Node.giftRelayedCapability`): one `enrollForeign` token for the capability,
+  then per recipient one pending-gift row, one queued `need_gift_id` action,
+  and one decoded give boxed into a `model.Handoff` that recipient's store
+  owns (`Peer.applyRelayedHandoffGive`). Per recipient, not per capability,
+  because a give is signed for one recipient's session key; the minted give
+  bytes are freed as `originateGive` returns, and each boxed handoff is freed
+  by the store's single-owner path. The enrolled token's row is the named
+  permanent cost: nothing above the node ever sees it, so unlike a fetched
+  capability's token there is no `Host.gcRelease` that can drop it, and it is
+  freed with the home peer. That is also what makes the deposit safe — the
+  import cannot be released between the enroll and the later `provideGiftId`
+  that deposits it. Bounded by the introductions the application itself makes,
+  and by `Node.max_proxy_recipients` per home promise. Every other
+  session-scoped shape — a
+  promise, a near, a capability nested in a container — settles broken, with
+  one gpa dupe of the reason per recipient through `Node.breakRelayedSlot`,
+  because each store owns what it holds. All of it is bounded by the proxy
+  row's recipient count, and the refused resolution itself is freed at the
+  refusal.
 - **Sturdyref enliven dedup: one swissnum dupe per in-flight row (ADR-0012).**
   `Session.notePendingEnliven` `dupe`s the swiss-number into a session-owned
   pending row; on fulfillment the pending row's swissnum _moves_ into the
@@ -555,15 +693,83 @@ here.
   round-trip, not correctness. Each owned swissnum is freed once on
   overwrite-evict, `finishPendingEnliven`, or `Session.deinit`.
 - **Host session-pair indexes: gpa maps with precise per-row frees
-  (`driver_core.Host.partner_by_key`, `dialed_by_designator`, ADR-0012).**
-  O(1) dial and post-handshake partner-key refuse at the 500k-connection Host
-  tier (ADR-0076). `partner_by_key` stores fixed `[32]u8` keys by value and
-  updates when the verified partner key is learned in `hostBeforeServe` (before
-  apply; `HostSession.indexed_partner_key` keeps unindex O(1)).
-  `dialed_by_designator` borrows each dialed session's `role.dialed` bytes,
-  reserved at mint and inserted at enroll. Both clear on unindex / condemn /
-  release — never a bump arena, because rows leave individually. Bounded by
-  live non-condemned sessions.
+  (`driver_core.Host.partner_by_side`, `dialed_by_designator`, ADR-0012).**
+  O(1) dial and post-handshake partner-key refusal at the 500k-connection Host
+  tier (ADR-0076). `partner_by_side` stores the OCapN side derived from each
+  verified partner key and routes an early withdraw to the live gifter session.
+  `HostSession.indexed_partner_key` retains the exact key so a side-name lookup
+  confirms key equality and unindex remains O(1); there is no second key-index
+  map. `dialed_by_designator` borrows each dialed session's `role.dialed` bytes,
+  reserved at mint and inserted at enroll. Both maps clear on unindex, condemn,
+  or release — never a bump arena, because rows leave individually. They are
+  bounded by live non-condemned sessions.
+- **Host connection identity: one owned byte block per `HostSession`
+  (`driver_core.Host.mintShell`, ADR-0098).** The sturdyref peer check needs the
+  actual connection transport; the partner's signed locator cannot supply that
+  fact. A dialed shell copies the transport and selected designator into one
+  allocation, replacing the designator-only block it already required, so the
+  check adds no dialed-session allocation. An accepted shell owns one block
+  containing its transport symbol. The slices are borrowed by session indexes
+  and freed together only after unindexing. The byte count is the caller's
+  transport plus, for a dial, its selected designator; no hints or complete
+  locator are retained here.
+- **Import identity memo: one lazily-created map per session
+  (`session.ImportTable.identities`).** A live import row may carry the
+  node-unique routing token from ADR-0069, the opaque Host capability id from
+  ADR-0096, or both while the application surfaces migrate. Both identities
+  must die with the import row: the partner may reuse a released numeric
+  position, and a memo outliving the row would revive the previous object.
+  The same 24-byte value also counts how many wire retains have been surfaced
+  as Host handles, so one borrowed reference cannot be lifted repeatedly into
+  matching GC authority. The map remains behind one pointer and null until a
+  row needs either identity, preserving the ordinary session's one-word,
+  zero-heap cost. Its rows are bounded by the import table cap and freed with
+  that table.
+- **Host capability registry: one reusable slot plus three Host-wide indexes
+  per live lifted target (`driver_core.capability.Registry`, ADR-0096).** The
+  canonical target index makes repeated observation of one live import reuse
+  one Host id; the id index rejects stale ids and raw ids minted by another
+  Host; the intrusive peer list makes session close invalidate only capabilities
+  homed there rather than scanning every Host row. A first remote lift can
+  therefore allocate six times: slot storage, target index, id index, peer-head
+  index, the import identity-map owner, and that map's backing. A
+  repeated lift and every lower allocate zero. Each reusable Host slot is held
+  to 80 bytes and each import identity row to 24 bytes by comptime budgets.
+  Final release removes the target and id indexes. The C adapter maps one
+  process-wide monotonic source through a process-keyed 64-bit permutation, so
+  two Hosts never issue the same opaque scalar, adjacent mints do not expose the
+  sequence, and retirement never makes an old scalar live again. Native scoped
+  refs use a Host-local monotonic source and likewise never reuse an id in that
+  Host. A custom issuer's zero or live-id collision retries before publication
+  under a bounded retry count. Session close removes the same rows
+  through the peer list. Slot storage keeps
+  the Host's simultaneous-live high-water capacity, while target and peer rows
+  are removed precisely, so ordinary capability churn retains neither live
+  authority nor per-release tombstones. Model-to-C projection records each
+  successful lift so a later allocation failure can roll the whole partial
+  projection back with an exact wire GC release. Unsupported model arms are
+  rejected by a complete preflight before the first lift. The
+  common path holds eight receipts on the stack; a value carrying more than
+  eight references spills one receipt array into the projection's existing
+  scratch arena. This is **name**: rollback must remember the exact completed
+  lifts, and recording them in the same traversal avoids a second tree walk.
+- **Freed export ranges: one `u64` queue per node
+  (`engine.Node.freed_export_bases`).** Each session gets a disjoint export
+  range carved out of the node's own slot, so the ranges are a fixed budget: a
+  node that never took a released session's range back would spend its slot by
+  churning connections alone, and then either refuse every new session or carry
+  into the next node's numbers. `Node.removePeer` gives the range back, reading
+  it off the peer that held it, and `takeExportBase` hands out the oldest freed
+  one before drawing a fresh one, so the slot bounds *live* sessions rather
+  than the node's lifetime. The draw and the return sit on the same side of the
+  boundary, which is why no layer above keeps a copy of a session's base. Oldest-first
+  because reusing the range just freed would seat a new session on a released
+  one's numbers immediately. Read from a cursor and compacted in place once the
+  handed-back prefix outgrows what is still queued, so capacity tracks the
+  ranges actually outstanding, and freed with the node. The give-back is
+  best-effort: the release path has nowhere to report an allocation failure to,
+  and a range that fails to return costs one slot out of a million, never
+  correctness.
 - **Canonical set ordering: encode-once per set element on outbound encode.**
   A set is unordered, so its wire form must not depend on the order the model
   held it in; canonical order is defined over _encoded bytes_. Syrup encodes
@@ -642,7 +848,7 @@ here.
 
 The 500k-connection destination is a budget gated by the build (ADR-0045), so a
 field added to session state is a withdrawal from it, not free. `engine.Peer`
-carries a `comptime` ceiling on `@sizeOf(Peer)` (one kilobyte), and
+carries a `comptime` ceiling on `@sizeOf(Peer)` (`peer_session_struct_budget_bytes`, 1064), and
 `test/engine/footprint_budget_test.zig` holds a warmed session's core state at
 or under 2 KiB per session. If your change trips either gate, the fix is to
 weigh the bytes and raise the budget deliberately — in the constant and in
@@ -653,14 +859,18 @@ The engine's four peer queues each bound their retained backing at
 `steady_queue_bytes = 4096` (`src/ocapn/engine/mod.zig`): capacity a burst grew
 above the bound is freed at the drain point, at the named price of one growth
 re-allocation when the next burst begins. The actor layer holds the same
-posture at one-vat-per-connection scale (file-level constants in
-`src/actors/vat/mod.zig`, shared by the sibling vat modules): `steady_turn_arena_bytes`, `steady_queue_arena_bytes`,
-and `steady_settle_arena_bytes` (each 4096) bound the three vat arenas via
-`reset(.retain_with_limit)` at their existing reset boundaries, and
-`steady_list_bytes` (4096) bounds the `queue` / `moved_replies` ArrayLists via
-`clearAndFree` above the bound at their drain points.
-`test/actors/vat_footprint_budget_test.zig` holds a burst-then-quiescent vat
-back under these bounds.
+posture at Vat scale (file-level constants in `src/actors/vat/mod.zig`, shared
+by the sibling vat modules). `steady_turn_arena_bytes` and
+`steady_settle_arena_bytes` bound the two long-lived arenas at 4096 bytes.
+Queue payload lives in independently reclaimable chunk arenas; an empty ingress
+retains none, while the Vat keeps at most one spare chunk whose arena is bounded
+by `steady_spare_arena_bytes` (4096). `steady_list_bytes` (4096) bounds the
+`moved_replies` ArrayList and sets the fixed queue-row target, with the chunk
+header separately measured. The pending-vow map is the scheduling-order-safe
+price of refusing listeners for already settled local vows. The allocation
+budget proves a warmed local queue batch performs zero general-purpose
+allocations, and `test/actors/vat_footprint_budget_test.zig` holds a
+burst-then-quiescent Vat back under the arena and one-spare bounds.
 
 The session's inbound scratch arena holds the same posture with a deliberately
 smaller bound. `Session.recv_scratch` materializes one turn's set-uniqueness
@@ -670,8 +880,8 @@ fold, owned-fallback message, and GC dedup, so a single admissible inbound frame
 beside the field) bounds what each recv entry point's `reset(.retain_with_limit)`
 keeps, returning a burst's peak instead of pinning megabytes per session for the
 connection's life. It is smaller than the 4096 above because the session answers
-to the 2 KiB core-state budget, not the vat's one-per-connection tier, so the
-arena must leave room for the tables beside it.
+to the 2 KiB core-state budget, while the actor arenas belong to the one
+Host-wide Vat. The session arena must leave room for the tables beside it.
 `test/engine/deliver_set_scratch_budget_test.zig` holds a big-set frame's scratch
 back under the bound.
 
@@ -687,13 +897,16 @@ every other footprint gate.
 
 The byte-fed host tier (ADR-0076) adds the third per-connection static
 allocation: `driver_core.mintShell` wraps each `Peer` in one `HostSession` shell,
-which embeds a `Served` and its `Vat` inline while the `Peer` lives behind a
-pointer. A `comptime` assertion in `src/driver/core/host.zig` holds
-`@sizeOf(HostSession)` at or under `host_session_struct_budget_bytes` (768; the
-shell measures 664), so a field added to the shell, to `Served`, or to the
-embedded `Vat` fails the build instead of silently growing every connection at
-500k. The number moves in the constant and in `docs/ladder.md` step 2 together,
-like the `Peer` and `Conn` ceilings beside it.
+which embeds a `Served` Port while the Host owns one shared Vat and the `Peer`
+lives behind a pointer. A `comptime` assertion in `src/driver/core/host.zig`
+holds `@sizeOf(HostSession)` at or under `host_session_struct_budget_bytes`.
+The Host session ceiling is 464 bytes: Debug reaches it, native ReleaseFast is
+432 bytes, and narrower targets may be smaller. The ceiling fell from 768 when
+the Vat moved to Host scope, banking 304
+bytes per connection; the 448-byte Vat is charged once per Host. A field added
+to the shell or `Served` therefore fails the build instead of silently growing
+every connection at 500k. The number moves in the constant and in
+`docs/ladder.md` step 2 together, like the `Peer` and `Conn` ceilings beside it.
 
 ## Allocator Discipline
 

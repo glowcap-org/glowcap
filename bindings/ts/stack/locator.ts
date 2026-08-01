@@ -265,7 +265,7 @@ export function encodePeerLocator(opts: {
 	const designator = utf8.encode(opts.designator);
 	const addrs = utf8.encode(opts.directAddresses ?? "");
 	const outLoc = new Uint8Array(8), outLen = new Uint8Array(8);
-	check(s.pancake_encode_peer_locator(
+	check(s.pancake_locator_record_encode(
 		ab(transport),
 		BigInt(transport.length),
 		ab(designator),
@@ -280,6 +280,6 @@ export function encodePeerLocator(opts: {
 	try {
 		return readBytes(ptr, len);
 	} finally {
-		s.pancake_peer_locator_bytes_release(ptr, len);
+		s.pancake_locator_record_bytes_release(ptr, len);
 	}
 }

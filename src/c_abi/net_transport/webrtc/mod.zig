@@ -13,22 +13,20 @@
 //! does. The core archives never import this file and stay cargo-free.
 //!
 //! Unlike iroh, a WebRTC peer has no dialable address, so there is no
-//! `connect(addr)`. The caller drives an out-of-band signaling exchange first:
-//! the offerer produces an SDP offer, the answerer an SDP answer, and both
-//! trickle ICE candidates until the channel opens (`pancake_webrtc_peer_wait_open`).
-//! Then `pancake_webrtc_peer_read` / `_write` move raw session bytes, which the
-//! host frames itself (feed them to its peer's stream-input path), the same
-//! shape the iroh and TCP consumers use. Phase 2 carries the signaling strings
-//! through the caller; a later phase routes them through an OCapN capability.
+//! `connect(addr)`. The caller drives signaling, but channel establishment and
+//! byte I/O use the same reactor discipline: one netlayer readiness fd reports
+//! stable peer-id OPEN/CANDIDATE/READABLE/WRITABLE/CLOSED events, and every
+//! drain or try-I/O call returns immediately.
 //!
 //! Symbol names deliberately avoid the sidecar's own `pancake_webrtc_sidecar_*`
 //! exports, so the private byte-level seam and this public ABI share no prefix
 //! and link into one library without colliding.
 //!
-//! Threading: a `PancakeWebrtcPeer` is single-owner — serialize every call on
-//! one onto one thread. `pancake_webrtc_peer_read` blocks the calling thread
-//! until bytes arrive or the channel closes, so a host that must not park runs
-//! it on a thread of its own.
+//! Threading: a `PancakeWebrtcNetlayer` and its peers are single-owner. Signaling
+//! submissions complete synchronously and may wait on the sidecar runtime, so a
+//! host performs them outside its reactor turn. Once submitted, channel progress,
+//! candidates, byte I/O, and closure are readiness-driven and never park the
+//! reactor. Release every peer before releasing its netlayer.
 
 const std = @import("std");
 
@@ -48,6 +46,20 @@ const PancakeContext = c.PancakeContext;
 /// the netlayer resident's byte-fed `Peer`. Owned by the caller; released with
 /// `pancake_webrtc_peer_release`.
 pub const PancakeWebrtcPeer = opaque {};
+pub const PancakeWebrtcNetlayer = opaque {};
+
+pub const PANCAKE_WEBRTC_EV_OPEN: u32 = webrtc.ev_open;
+pub const PANCAKE_WEBRTC_EV_CANDIDATE: u32 = webrtc.ev_candidate;
+pub const PANCAKE_WEBRTC_EV_READABLE: u32 = webrtc.ev_readable;
+pub const PANCAKE_WEBRTC_EV_WRITABLE: u32 = webrtc.ev_writable;
+pub const PANCAKE_WEBRTC_EV_CLOSED: u32 = webrtc.ev_closed;
+
+/// One readiness record. `subject` is `pancake_webrtc_peer_id(peer)` and is
+/// never reused during this netlayer's lifetime.
+pub const PancakeWebrtcReadyEvent = extern struct {
+    subject: usize,
+    events: u32,
+};
 
 const setLastError = c.setLastError;
 
@@ -70,7 +82,16 @@ const PeerPayload = struct {
     allocator: std.mem.Allocator,
 };
 
+const NetlayerPayload = struct {
+    resident: webrtc.Resident,
+    allocator: std.mem.Allocator,
+};
+
 fn payloadFromOpaque(p: ?*PancakeWebrtcPeer) ?*PeerPayload {
+    return @ptrCast(@alignCast(p orelse return null));
+}
+
+fn netlayerFromOpaque(p: ?*PancakeWebrtcNetlayer) ?*NetlayerPayload {
     return @ptrCast(@alignCast(p orelse return null));
 }
 
@@ -87,29 +108,96 @@ pub export fn pancake_webrtc_clear_last_error() void {
     c.lastErrorClear();
 }
 
-/// Create a peer in one of the two signaling roles: `is_offerer` nonzero makes
-/// the offerer (which creates the data channel and produces the SDP offer),
-/// zero the answerer (which receives the channel and produces the answer). The
-/// handle is written to `*out_peer`; the caller frees it with
-/// `pancake_webrtc_peer_release`.
-pub export fn pancake_webrtc_peer_new(is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
-    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c.library_allocator, is_offerer, slot);
+/// Create the shared WebRTC runtime and readiness endpoint. Every peer is
+/// created from this netlayer and must be released before the netlayer.
+pub export fn pancake_webrtc_netlayer_new(out_netlayer: ?*?*PancakeWebrtcNetlayer) i32 {
+    const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
+    return netlayerNewIn(c.library_allocator, slot);
 }
 
-/// As `pancake_webrtc_peer_new`, but the handle allocates through `context`'s
-/// allocator instead of the library allocator. Released the same way, with
-/// `pancake_webrtc_peer_release`.
-pub export fn pancake_webrtc_peer_new_in(context: ?*PancakeContext, is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
+pub export fn pancake_webrtc_netlayer_new_in(context: ?*PancakeContext, out_netlayer: ?*?*PancakeWebrtcNetlayer) i32 {
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator(), is_offerer, slot);
+    const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
+    return netlayerNewIn(c_ctx.allocator(), slot);
 }
 
-fn peerNewIn(alloc: std.mem.Allocator, is_offerer: i32, slot: *?*PancakeWebrtcPeer) i32 {
+fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeWebrtcNetlayer) i32 {
+    slot.* = null;
+    const payload = alloc.create(NetlayerPayload) catch return PANCAKE_ERR_INTERNAL;
+    payload.* = .{
+        .resident = webrtc.Resident.init() catch {
+            alloc.destroy(payload);
+            setLastError("webrtc netlayer_new: the sidecar could not create an endpoint", .{});
+            return PANCAKE_ERR_IO;
+        },
+        .allocator = alloc,
+    };
+    slot.* = @ptrCast(payload);
+    return PANCAKE_OK;
+}
+
+/// Borrow the netlayer's single read-only readiness fd. Register it once; do
+/// not close it.
+pub export fn pancake_webrtc_netlayer_readiness_fd(netlayer: ?*PancakeWebrtcNetlayer) i32 {
+    const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
+    return payload.resident.readinessFd();
+}
+
+/// Drain pending stable peer-id events without blocking. The fd wake bytes are
+/// consumed before the authoritative queue, preserving concurrent wakeups.
+pub export fn pancake_webrtc_netlayer_drain_ready(
+    netlayer: ?*PancakeWebrtcNetlayer,
+    out_events: ?[*]PancakeWebrtcReadyEvent,
+    out_cap: usize,
+    out_count: ?*usize,
+) i32 {
+    const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const dest = out_events orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_count orelse return PANCAKE_ERR_NULL_POINTER;
+    if (out_cap == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+
+    var raw: [128]webrtc.ReadyEvent = undefined;
+    var count: usize = 0;
+    while (count < out_cap) {
+        const want = @min(out_cap - count, raw.len);
+        const n = payload.resident.drainReady(raw[0..want]) catch return PANCAKE_ERR_INTERNAL;
+        for (raw[0..n]) |event| {
+            dest[count] = .{ .subject = event.subject, .events = event.events };
+            count += 1;
+        }
+        if (n < want) break;
+    }
+    slot.* = count;
+    return PANCAKE_OK;
+}
+
+/// Release the readiness endpoint after every peer created from it is released.
+pub export fn pancake_webrtc_netlayer_release(netlayer: ?*PancakeWebrtcNetlayer) void {
+    const payload = netlayerFromOpaque(netlayer) orelse return;
+    const alloc = payload.allocator;
+    payload.resident.deinit();
+    alloc.destroy(payload);
+}
+
+/// Create a peer in one of the two signaling roles from `netlayer`.
+pub export fn pancake_webrtc_peer_new(netlayer: ?*PancakeWebrtcNetlayer, is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
+    const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
+    return peerNewIn(nl.allocator, nl, is_offerer, out_peer);
+}
+
+/// As `pancake_webrtc_peer_new`, allocating the peer shell through `context`.
+pub export fn pancake_webrtc_peer_new_in(context: ?*PancakeContext, netlayer: ?*PancakeWebrtcNetlayer, is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
+    const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
+    const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
+    return peerNewIn(c_ctx.allocator(), nl, is_offerer, out_peer);
+}
+
+fn peerNewIn(alloc: std.mem.Allocator, nl: *NetlayerPayload, is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
+    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = null;
     const payload = alloc.create(PeerPayload) catch return PANCAKE_ERR_INTERNAL;
     payload.* = .{
-        .peer = webrtc.Peer.init(is_offerer != 0) catch {
+        .peer = nl.resident.newPeer(is_offerer != 0) catch {
             alloc.destroy(payload);
             setLastError("webrtc peer_new: the sidecar could not create a peer connection", .{});
             return PANCAKE_ERR_IO;
@@ -192,56 +280,60 @@ pub export fn pancake_webrtc_peer_next_local_candidate(peer: ?*PancakeWebrtcPeer
     return if (candidate == null) PANCAKE_ERR_WOULD_BLOCK else PANCAKE_OK;
 }
 
-/// Block until the data channel opens, or `timeout_ms` elapses. `PANCAKE_OK`
-/// once open, `PANCAKE_ERR_WOULD_BLOCK` on timeout.
-pub export fn pancake_webrtc_peer_wait_open(peer: ?*PancakeWebrtcPeer, timeout_ms: u64) i32 {
-    const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    return if (payload.peer.waitOpen(timeout_ms)) PANCAKE_OK else PANCAKE_ERR_WOULD_BLOCK;
+/// Stable readiness identity for this peer, unique for the netlayer's lifetime.
+pub export fn pancake_webrtc_peer_id(peer: ?*PancakeWebrtcPeer) usize {
+    const payload = payloadFromOpaque(peer) orelse return 0;
+    return @intFromEnum(payload.peer.id());
 }
 
-/// Blocking read of raw inbound session bytes into `(buf, len)`: `PANCAKE_OK`
-/// with the count read written to `*out_read`, `PANCAKE_ERR_CLOSED` on a clean
-/// end of stream, or `PANCAKE_ERR_IO` on a fault. `out_read` is untouched on any
-/// non-OK return. The host frames these bytes itself.
-pub export fn pancake_webrtc_peer_read(peer: ?*PancakeWebrtcPeer, buf: ?[*]u8, len: usize, out_read: ?*usize) i32 {
+/// Non-blocking channel-open check. Retry after OPEN or CLOSED readiness.
+pub export fn pancake_webrtc_peer_is_open(peer: ?*PancakeWebrtcPeer) i32 {
+    const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    payload.peer.checkOpen() catch |err| return switch (err) {
+        error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
+        error.Closed => PANCAKE_ERR_CLOSED,
+    };
+    return PANCAKE_OK;
+}
+
+/// Non-blocking read of raw inbound bytes. Retry after READABLE readiness.
+pub export fn pancake_webrtc_peer_try_read(peer: ?*PancakeWebrtcPeer, buf: ?[*]u8, len: usize, out_read: ?*usize) i32 {
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_read orelse return PANCAKE_ERR_NULL_POINTER;
-    const n = payload.peer.read(dest[0..len]) catch |err| return switch (err) {
+    const n = payload.peer.tryRead(dest[0..len]) catch |err| return switch (err) {
+        error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
         error.Closed => PANCAKE_ERR_CLOSED,
-        error.Failed => ioError("peer_read: the channel faulted"),
+        error.Failed => ioError("peer_try_read: the channel faulted"),
     };
     slot.* = n;
     return PANCAKE_OK;
 }
 
-/// Write `len` raw session bytes from `buf`: `PANCAKE_OK` with the count written
-/// to `*out_written` (the whole slice, since the sidecar send is all-or-nothing),
-/// or `PANCAKE_ERR_IO` on a fault. `out_written` is untouched on any non-OK
-/// return.
-pub export fn pancake_webrtc_peer_write(peer: ?*PancakeWebrtcPeer, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
+/// Copy a prefix into the bounded send queue and return immediately. Advance by
+/// `out_written`; after `PANCAKE_ERR_WOULD_BLOCK`, retry the remaining slice on
+/// WRITABLE readiness.
+pub export fn pancake_webrtc_peer_try_write(peer: ?*PancakeWebrtcPeer, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const src = buf orelse return PANCAKE_ERR_NULL_POINTER;
-    const n = payload.peer.write(src[0..len]) catch |err| return switch (err) {
-        error.Failed => ioError("peer_write: the channel faulted"),
+    const slot = out_written orelse return PANCAKE_ERR_NULL_POINTER;
+    const n = payload.peer.tryWrite(src[0..len]) catch |err| return switch (err) {
+        error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
+        error.Closed => PANCAKE_ERR_CLOSED,
+        error.Failed => ioError("peer_try_write: the channel faulted"),
     };
-    slot: {
-        const slot = out_written orelse break :slot;
-        slot.* = n;
-    }
+    slot.* = n;
     return PANCAKE_OK;
 }
 
 /// Close the channel and connection without releasing the handle, waking any
-/// parked reader with end of stream. Idempotent. The shutdown lever for a host
-/// whose read parks on another thread; the handle is still released with
-/// `pancake_webrtc_peer_release`.
+/// readiness owner with CLOSED. Idempotent; release still frees the handle.
 pub export fn pancake_webrtc_peer_close(peer: ?*PancakeWebrtcPeer) void {
     const payload = payloadFromOpaque(peer) orelse return;
     payload.peer.close();
 }
 
-/// Release the peer, closing its channel and shutting down its runtime.
+/// Release the peer, closing its channel. Release before its netlayer.
 pub export fn pancake_webrtc_peer_release(peer: ?*PancakeWebrtcPeer) void {
     const payload = payloadFromOpaque(peer) orelse return;
     const alloc = payload.allocator;

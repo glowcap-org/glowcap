@@ -226,7 +226,13 @@ fn measureGcStorm(io: std.Io, allocator: std.mem.Allocator, q: usize, samples: u
     }
     const taken = buf[0..samples];
     std.mem.sort(u64, taken, {}, std.sort.asc(u64));
-    const wave = taken[taken.len / 2];
+    // The fastest wave, not the median. What this measures is the shape of the
+    // work, and the fastest observation is the one least polluted by whatever
+    // else the machine was doing. A median only discards an isolated spike; a
+    // second build running alongside inflates every sample, and the ratio then
+    // reds the gate for a regression that is not there. The answered-send gate
+    // beside this one already takes a minimum for the same reason.
+    const wave = taken[0];
     return .{
         .q = q,
         .wave_ns = wave,

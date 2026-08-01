@@ -30,6 +30,12 @@ pub const Ctx = struct {
     identity_path: []const u8 = "",
     secret: ?crypto.SecretKey = null,
     /// Live session for REPL / MCP multi-command context.
+    /// The dial transport a retained session keeps reaching through. The
+    /// session's host resolves later dials against this slice — a redeem
+    /// reaches an exporter this way (ADR-0090) — so both the resident and the
+    /// one-element slice must outlive the session, not the dialing frame.
+    dial_resident: pancake.net.tcp.Resident = undefined,
+    dial_netlayers: [1]pancake.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
     /// Last listen locator minted in this process (owned).
     last_locator: ?[]const u8 = null,

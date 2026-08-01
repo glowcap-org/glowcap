@@ -13,12 +13,16 @@ pub const Span = struct {
     }
 };
 
-/// Link covering column `col` (byte index; ASCII-safe for ocapn/https URLs), if any.
-pub fn atCol(line: []const u8, col: usize, out: []Span) ?Span {
+/// The link covering byte `offset` of `line`, if any.
+///
+/// Offsets, not screen columns: a scanned span is a byte range, and a caller
+/// holding a pointer position converts it first (`select.byteAtCell`). Naming
+/// the unit here is what keeps a cell from being compared against a byte.
+pub fn atByte(line: []const u8, offset: usize, out: []Span) ?Span {
     const n = scan(line, out);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (col >= out[i].start and col < out[i].start + out[i].len) return out[i];
+        if (offset >= out[i].start and offset < out[i].start + out[i].len) return out[i];
     }
     return null;
 }
@@ -69,12 +73,12 @@ test "scan ocapn and https" {
     try std.testing.expect(spans[1].kind == .https);
 }
 
-test "atCol picks the link under the column" {
+test "atByte picks the link under the offset" {
     var spans: [4]Span = undefined;
     const line = "dial ocapn://tcp.localhost/x see https://example.com/a";
-    try std.testing.expect(atCol(line, 0, &spans) == null);
-    const a = atCol(line, 5, &spans) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(atByte(line, 0, &spans) == null);
+    const a = atByte(line, 5, &spans) orelse return error.TestUnexpectedResult;
     try std.testing.expect(a.kind == .ocapn);
-    const b = atCol(line, 40, &spans) orelse return error.TestUnexpectedResult;
+    const b = atByte(line, 40, &spans) orelse return error.TestUnexpectedResult;
     try std.testing.expect(b.kind == .https);
 }

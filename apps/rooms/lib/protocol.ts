@@ -39,29 +39,67 @@ export const LEAVE = "leave";
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
- * A member publishes a giftable `dm` on the registering session and listens for
- * redeem on that Host. `register(nick, locator, inboxCap)` tells the directory
- * to `fetch("dm")` on that session, stamp `locator` as the gift exporter
- * location, and `notify("registered", nick)` once ready. A second `register`
- * for the same nick replaces the prior intro. `introduce(nick)` returns that
- * `dm` reference as a `desc:handoff-give`: the caller redeems by dialing the
- * member *directly*. */
+ * `register(nick, locator, inboxCap)` claims a name and tells the directory to
+ * stamp `locator` as the gift exporter location, answering
+ * `notify("registered", nick)`. A second `register` for the same nick replaces
+ * the prior intro when it comes from the connection holding it, and is refused
+ * `nick-taken` when it comes from another while that connection is open — a
+ * registration is a claim on a name, and only its holder or its ending frees it.
+ * `introduce(nick)` returns the inbox that member offered for *this* caller (see
+ * `offerInbox`) as a `desc:handoff-give`: the caller redeems by dialing the
+ * member *directly*, and is refused `introduction-pending` until there is one. A
+ * caller that has not registered cannot be introduced at all: the directory reads
+ * the asker's name off its registration, never from the message.
+ *
+ * `locator` is a claim, and how far the directory can stand behind it depends on
+ * the registering connection. Keyed — `keyed-tcp`, `iroh`, `webrtc`,
+ * `keyed-relay` — and the handshake has verified the partner holds the key its
+ * designator names, so a locator naming a different designator is refused
+ * `not-your-locator`. Unkeyed and there is nothing to check it against, so the
+ * directory repeats a claim it cannot vouch for: everyone it introduces will
+ * dial what the registrant asked them to. The transport a member reaches the
+ * directory over is not the one others reach the member over — a browser peer
+ * arrives over relayed TCP while being reachable at a keyed-relay designator —
+ * so this is not a property of the member's own transport, and keying the
+ * directory's connections is what would close it. */
 export const REGISTER = "register";
 export const INTRODUCE = "introduce";
 
-/** The verb a member's exported `dm` object answers: `dm(from, text, reply?)`
- * delivers one direct message and names its sender. The whole point of the
- * introduction is that this call travels on the caller's own direct connection
- * to the member, never through the room. `from` is the sender's display nick;
- * the authority to reach this inbox at all is the redeemed capability, not the
- * label.
+/** Offer the directory an inbox to introduce one named peer to:
+ * `offerInbox(forNick, inbox)`.
+ *
+ * This is where a direct message gets its sender. The member minted this inbox
+ * for one peer, and the directory hands it to that peer alone, so the inbox a
+ * message arrives on is who sent it and no message has to name anybody.
+ *
+ * The inbox must answer on a connection this member has not seen yet: a peer
+ * reaches it by redeeming the introduction, which dials this endpoint and opens a
+ * fresh session. Publish it host-wide, then offer the position that name holds on
+ * the directory's own connection; an object published on one session has no name
+ * the redeeming connection can reach.
+ *
+ * An offer is filed under the offering connection's own registration, so a member
+ * decides who may reach *it* and nothing else; an unregistered caller is refused.
+ * Offering again for the same peer replaces the previous inbox.
+ *
+ * The directory asks for one it needs with `notify("mintInboxFor", peer)` on the
+ * member's register inbox. A member may also offer unasked, which is what a client
+ * watching the roster does as members appear.
+ *
+ * Nicks match case-insensitively, so key your own inbox table the same way. */
+export const OFFER_INBOX = "offerInbox";
+
+/** The verb a member's exported inbox answers: `dm(text, reply?)`
+ *
+ * There is no sender argument; the inbox is the sender (see `offerInbox`). The
+ * call travels on the caller's own direct connection to the member, never through
+ * the room.
  *
  * `reply` is an optional capability the sender hosts on this same direct
- * connection: a `dm(from, text)` inbox the member answers over the arriving
- * connection (`currentSession()`), so the two talk both ways without the member
- * ever dialing the sender — which matters when the sender is a browser that
- * cannot be dialed. A sender that wants no replies omits it; a member that does
- * not reply ignores it. */
+ * connection: a `dm(text)` inbox the member answers over the arriving connection
+ * (`currentSession()`), so the two talk both ways without the member ever dialing
+ * the sender. That matters when the sender is a browser that cannot be dialed. A
+ * sender that wants no replies omits it. */
 export const DM = "dm";
 
 /** The one callback verb, on whatever inbox a client hands over.
@@ -71,8 +109,13 @@ export const DM = "dm";
  * a room `"opened"` / `"closed"` / `"count"` (where `name` is the room and
  * `count` its members), and a member becoming `"registered"` / `"unregistered"`
  * for direct messages (where `name` is the member's nick and `count` is 1 or 0).
- * A member's own register inbox also hears `notify("registered", nick)` once
- * register has fetched `dm`, the signal that its nick is introducible.
+ * A member's own register inbox also hears `notify("registered", nick)`, the
+ * signal that its name is granted. It hears
+ * `notify("mintInboxFor", peer)` when someone has asked to be introduced and
+ * the member has offered no inbox for them yet: mint one and `offerInbox` it.
+ * It hears `notify("introducible", peer)` when a peer it was waiting on has
+ * offered an inbox, so an `introduce` that was refused `introduction-pending`
+ * is worth retrying.
  *
  * A room also pushes an ephemeral typing signal on this same inbox as
  * `notify("room", "", "typing", nick, on)`: `nick` is the member who started or

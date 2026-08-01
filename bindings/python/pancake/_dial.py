@@ -23,7 +23,7 @@ from typing import Optional, Union
 
 from . import _constants as _abi
 from ._errors import PancakeError, _check_host
-from ._ffi_driver import _DialPlan, _PendingDial, _host
+from ._ffi_host import _DialPlan, _PendingDial, _host
 from ._ffi_ocapn import _byte_buf
 from ._host import Host
 from ._locator import parse_locator
@@ -99,7 +99,7 @@ def _plan_dial(transport_name: str, designator: str, hint: str,
         )
     if plan.shape == _abi.DIAL_SHAPE_SIGNALING:
         raise PancakeError(_ERR_INVALID_ARGUMENT,
-            "webrtc signaling dial shape cannot be opened from a bare locator; use a handoff give")
+            "webrtc signaling dial shape requires a signaling-aware adapter; a bare locator cannot open it")
     raise PancakeError(_ERR_INVALID_ARGUMENT, f"unknown dial shape {plan.shape}")
 
 
@@ -160,9 +160,11 @@ async def dial_parsed_locator(
         if host is None:
             raise PancakeError(_ERR_INVALID_ARGUMENT, "handoff redeem requires a shared host")
         dial_host = host
+        owns_host = False
         policy, value = _abi.DIAL_POSTURE_REDEEM, 0
     else:
         dial_host = host if host is not None else Host(codec=codec or "syrup")
+        owns_host = host is None
         if reachability is not None:
             policy, value = _abi.DIAL_POSTURE_EXPLICIT, int(reachability)
         else:
@@ -180,15 +182,19 @@ async def dial_parsed_locator(
             # rather than assigning refuses a value outside the enum here, where
             # the locator that produced it is still in hand.
             reach = _iroh.Reachability(plan.reach_value)
-        return await _iroh._connect_iroh_with_host(
+        iroh_session = await _iroh._connect_iroh_with_host(
             designator, plan.addresses, reach, dial_host, handshake_timeout_ms,
         )
+        iroh_session.owns_host = owns_host
+        return iroh_session
     reader, writer = await asyncio.open_connection(plan.host, plan.port)
     transport = _StreamTransport(reader, writer)
     try:
-        return await Session.establish_dialed_locator(
+        session = await Session.establish_dialed_locator(
             dial_host, transport_name, designator, transport, handshake_timeout_ms,
         )
+        session.owns_host = owns_host
+        return session
     except BaseException:
         transport.close()
         raise
@@ -226,7 +232,6 @@ async def run_dial_ticket(host: Host, ticket: int) -> None:
         designator = _view_str(view.designator, view.designator_len)
         hint = _view_str(view.hint, view.hint_len)
         session = await dial_exporter(transport, designator, hint, host)
-        session.host_dialed = True
         session.serve()
         _check_host(_host.pancake_host_dialed(host.raw, ticket, session.raw))
     except Exception as error:  # noqa: BLE001 — a failed dial breaks the redeems
@@ -252,7 +257,7 @@ async def connect(uri: str, reachability: "Optional[int]" = None,
     nothing but the locator. An iroh locator with no posture fails closed
     rather than guessing one.
 
-    ``host`` shares one identity and gift registry across a server and its
+    ``host`` shares one identity and live-session directory across a server and its
     dialed sibling sessions — the gifter half of a three-party handoff (read
     it as ``server.host``). ``codec`` picks the wire grammar for a dial on a
     fresh Host; a supplied ``host`` already carries one, and a conflicting
@@ -267,9 +272,9 @@ async def connect(uri: str, reachability: "Optional[int]" = None,
     retry budget (ADR-0082) before the handshake starts."""
     loc = parse_locator(uri)
     # Fail closed on options a branch cannot honor: dropping a shared Host
-    # silently would dial on a different identity than `host`, so a capability
-    # fetched here and re-gifted is not recognized against the shared gift
-    # registry; and the codec is the Host's, so a conflict is an error at the
+    # silently would dial on a different identity and outside the live-session
+    # directory that a later handoff uses to find this dial's session-owned
+    # gift table; and the codec is the Host's, so a conflict is an error at the
     # call that caused it.
     if host is not None and codec is not None and codec != host.codec:
         raise PancakeError(

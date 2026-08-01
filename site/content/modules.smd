@@ -12,7 +12,7 @@ module a job belongs to. You do not have to keep the layering in your head; the
 build keeps it for you. Each layer is its own module with a one-way import
 table, so a reach across layers is a compile error. The diagram above is the
 map, and
-[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
+[architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 is the full account.
 
 ## Four names that confuse newcomers
@@ -22,11 +22,13 @@ is the full account.
 | **Peer** | Caller-owned engine handle: feed inbound frames, `step`, drain outbound, read events. No sockets. |
 | **Session** | One-partner application object: `connect` / `listen`, `fetch`, blocking `call`. Owns one live conversation. |
 | **Host** | Multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
-| **Bridge** | Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_driver`. |
+| **Bridge** | Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_host`. |
 
-Ordinary apps stay on `Session`. Introductions and many peers need a Host (Zig
-`Bridge`, or a binding's host). Three-party introductions that settle as a live
-capability are covered in [Concepts]($link.page('concepts')).
+Ordinary apps stay on `Session`, introductions included. An introduction settles
+as a live capability inside the call, because every `Session` rides a Host
+underneath: `driver.PollHost` in native Zig, or the binding's own host
+elsewhere. The `Bridge` and completion-loop pairing is the scale path.
+Three-party introductions are covered in [Concepts]($link.page('concepts')).
 
 ## The protocol core
 
@@ -38,7 +40,7 @@ you can test it without a host runtime.
 - **model** is the CapTP vocabulary, independent of the bytes that carried it.
 - **codec** turns model values into wire bytes and back.
   [Syrup](https://github.com/ocapn/syrup) is the Goblins floor;
-  [Cap'n Proto](https://capnproto.org/) is the second spelling, and the
+  [Cap'n Proto](https://capnproto.org/) is the second encoding, and the
   [Codecs]($link.page('codecs')) page compares them. Sibling codecs cannot
   import each other.
 - **session** is the authority: import, export, and answer tables, and what is
@@ -73,7 +75,7 @@ you can test it without a host runtime.
 The [Surfaces]($link.page('surfaces')) page is the consumer's view of these.
 
 - **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
-  release. `libpancake_driver` is the multi-session host the bindings wrap.
+  release. `libpancake_host` is the multi-session host the bindings wrap.
 - **driver** is native Zig above `driver/core`: one-session `Session`, and
   `Bridge` + Host over `net.TcpLoop` / iroh Backend.
 

@@ -1,7 +1,7 @@
 //! The browser binding's WebAssembly entry surface (ADR-0070).
 //!
 //! A freestanding `wasm32` module that exposes the byte-fed CapTP Host
-//! (`libpancake_driver`, ADR-0072) and the shared `libpancake_ocapn` vocabulary
+//! (`libpancake_host`, ADR-0072) and the shared `libpancake_ocapn` vocabulary
 //! to a JavaScript host that instantiates it in a browser. The Host is sans-io
 //! and draws no entropy, so the browser drives it exactly as a C embedder does:
 //! feed inbound frames, drain outbound frames, honor the action queue, and
@@ -16,7 +16,7 @@
 
 const std = @import("std");
 const shared = @import("c_abi_shared");
-const driver = @import("c_abi_driver");
+const driver = @import("c_abi_host");
 
 comptime {
     // Pull both export families into the wasm module: the shared ocapn
@@ -25,7 +25,7 @@ comptime {
     // target (see `c_abi_shared.library_allocator`), so `pancake_host_new`
     // works here without a caller-supplied `PancakeContext`.
     _ = @import("c_abi");
-    _ = @import("c_abi_driver");
+    _ = @import("c_abi_host");
 }
 
 /// Allocate `len` bytes in wasm linear memory and return the offset (0 on
@@ -104,6 +104,7 @@ const layout_specs = [_]LayoutSpec{
     .{ .name = "DIAL_PLAN", .T = driver.PancakeDialPlan },
     .{ .name = "ACCEPT_PLAN", .T = driver.PancakeAcceptPlan },
     .{ .name = "PENDING_DIAL", .T = driver.PancakePendingDial },
+    .{ .name = "PARTNER_IDENTITY", .T = driver.PancakePartnerIdentity },
 };
 
 /// Total u32 words the descriptor writes: per struct, three header words

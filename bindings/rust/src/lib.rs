@@ -4,9 +4,9 @@
 //! The raw C ABI lives in the private `sys` module; nothing in it escapes.
 //! What you use is the application surface every pancake binding speaks —
 //! [`connect`]/[`listen`], a [`Session`] with `fetch`/`send`/`tell`/
-//! `spawn`/`publish`, a [`Ref`] capability, real Rust enums for
-//! [`Reference`]/[`Argument`], and `Result` for fallible calls — over the
-//! byte-fed host archive `libpancake_driver` (ADR-0072). The [`Host`] owns
+//! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
+//! enum, and `Result` for fallible calls — over the
+//! byte-fed host archive `libpancake_host` (ADR-0072). The [`Host`] owns
 //! `engine.Node` (router) and every CapTP decision; Goblins' `mycapn` is two
 //! roles — endpoint ≈ Host, router tables ≈ `engine.Node` (ADR-0079). This
 //! crate moves bytes and honors the host's action queue. This is the dogfood
@@ -25,7 +25,7 @@
 //!
 //! | Feature | Module | Archive linked | Default |
 //! | --- | --- | --- | --- |
-//! | (always) | crate root + [`Locator`] | `libpancake_ocapn` + `libpancake_driver` | yes |
+//! | (always) | crate root + [`Locator`] | `libpancake_ocapn` + `libpancake_host` | yes |
 //! | `tcp` | [`tcp`] | `libpancake_net_transport_tcp` | yes |
 //! | `inproc` | [`inproc`] | `libpancake_net_transport_inproc` | yes |
 //! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
@@ -47,9 +47,9 @@ mod session;
 #[cfg(feature = "async")]
 mod session_shared;
 #[cfg(feature = "async")]
-pub use session::{Redeemed, Session, HANDSHAKE_TIMEOUT};
+pub use session::{PartnerIdentity, Redeemed, Session, HANDSHAKE_TIMEOUT};
 #[cfg(feature = "async")]
-pub use session_shared::{Caretaker, Ref};
+pub use session_shared::Caretaker;
 #[cfg(feature = "async")]
 mod host;
 #[cfg(feature = "async")]
@@ -470,69 +470,53 @@ impl Drop for Context {
 	}
 }
 
-/// A capability reference.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Reference {
-	/// A local export this session hosts.
-	Near {
-		id: u64,
-		promise: bool,
-	},
-	/// A partner-hosted capability this host holds, under a node-unique token
-	/// (ADR-0069) — the id the application sees is never a raw wire position.
-	Far {
-		id: u64,
-		promise: bool,
-	},
-	/// A pipeline promise on an answer.
-	Promise {
-		answer: u64,
-	},
-	Sturdy,
-	Broken,
+/// An opaque capability identity in one Host. It is never a wire position and
+/// its shape does not reveal whether the target is local, remote, or routed
+/// through a handoff. The raw id and C layout stay private to the binding.
+#[derive(Debug, Clone)]
+pub struct Ref {
+	id: u64,
+	#[cfg(feature = "async")]
+	#[allow(dead_code)]
+	guard: Option<std::rc::Rc<crate::gc::ImportGuard>>,
+	released: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
-impl Reference {
-	/// The common case: call a partner object you hold as import `id`.
-	pub fn far(id: u64) -> Reference {
-		Reference::Far { id, promise: false }
+impl PartialEq for Ref {
+	fn eq(&self, other: &Self) -> bool {
+		self.id == other.id
 	}
 }
 
-/// The wire identity a capability in hand takes: a local `Near` export or a
-/// partner-held `Far` token. These are the only two shapes a [`Ref`] holds. A
-/// pipeline promise is a [`RemotePromise`], and a sturdyref or broken reference
-/// arrives as a plain wire value, so those three [`Reference`] variants are
-/// unconstructible here. This mirrors the Python binding's `Near | Far` and
-/// makes a `Ref`'s `near`/`far` views total: exactly one is set.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LiveRef {
-	/// A local export this session hosts.
-	Near { id: u64, promise: bool },
-	/// A partner-held capability this host holds.
-	Far { id: u64, promise: bool },
-}
+impl Eq for Ref {}
 
-impl LiveRef {
-	/// Widen to the full wire [`Reference`] for marshaling.
-	pub fn reference(&self) -> Reference {
-		match *self {
-			LiveRef::Near { id, promise } => Reference::Near { id, promise },
-			LiveRef::Far { id, promise } => Reference::Far { id, promise },
-		}
+impl Ref {
+	pub fn released(&self) -> bool {
+		self.released.get()
 	}
-}
 
-impl TryFrom<&Reference> for LiveRef {
-	type Error = ();
+	#[cfg(feature = "async")]
+	pub(crate) fn mark_released(&self) {
+		self.released.set(true);
+	}
 
-	/// A capability is a `Near` or a `Far`; a promise, sturdyref, or broken
-	/// reference is not one, and lifts to `Err`.
-	fn try_from(r: &Reference) -> std::result::Result<LiveRef, ()> {
-		match *r {
-			Reference::Near { id, promise } => Ok(LiveRef::Near { id, promise }),
-			Reference::Far { id, promise } => Ok(LiveRef::Far { id, promise }),
-			_ => Err(()),
+	#[cfg(feature = "async")]
+	pub(crate) fn id(&self) -> u64 {
+		self.id
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) fn guard(&self) -> Option<&crate::gc::ImportGuard> {
+		self.guard.as_deref()
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) fn bare_id(id: u64) -> Ref {
+		Ref {
+			id,
+			#[cfg(feature = "async")]
+			guard: None,
+			released: std::rc::Rc::new(std::cell::Cell::new(false)),
 		}
 	}
 }
@@ -540,41 +524,21 @@ impl TryFrom<&Reference> for LiveRef {
 // The C marshaling layer: used only by the async host tier, so it compiles
 // only with it — dead-code linting stays live instead of blanket-allowed.
 #[cfg(feature = "async")]
-impl Reference {
+impl Ref {
 	pub(crate) fn to_sys(&self) -> Result<sys::PancakeReference> {
-		let (kind, sub, id) = match *self {
-			Reference::Near { id, promise } => (sys::REF_NEAR, sub(promise), id),
-			Reference::Far { id, promise } => (sys::REF_FAR, sub(promise), id),
-			Reference::Promise { answer } => (sys::REF_PROMISE, 0, answer),
-			Reference::Sturdy | Reference::Broken => {
-				return Err(Error::from_code(sys::ERR_UNSUPPORTED_VALUE))
-			}
-		};
-		Ok(sys::PancakeReference {
-			kind,
-			sub_kind: sub,
+		Ok(sys::PancakeReference { id: self.id })
+	}
+
+	pub(crate) fn from_sys(r: &sys::PancakeReference) -> Ref {
+		Ref::bare_id(r.id)
+	}
+
+	pub(crate) fn tracked_id(id: u64, guard: std::rc::Rc<crate::gc::ImportGuard>) -> Ref {
+		Ref {
 			id,
-		})
-	}
-
-	pub(crate) fn from_sys(r: &sys::PancakeReference) -> Reference {
-		let promise = r.sub_kind == sys::REF_SUB_PROMISE;
-		match r.kind {
-			sys::REF_NEAR => Reference::Near { id: r.id, promise },
-			sys::REF_FAR => Reference::Far { id: r.id, promise },
-			sys::REF_PROMISE => Reference::Promise { answer: r.id },
-			sys::REF_STURDY => Reference::Sturdy,
-			_ => Reference::Broken,
+			guard: Some(guard),
+			released: std::rc::Rc::new(std::cell::Cell::new(false)),
 		}
-	}
-}
-
-#[cfg(feature = "async")]
-fn sub(promise: bool) -> u32 {
-	if promise {
-		sys::REF_SUB_PROMISE
-	} else {
-		sys::REF_SUB_OBJECT
 	}
 }
 
@@ -588,7 +552,7 @@ pub enum Argument {
 	String(String),
 	Symbol(String),
 	Void,
-	Reference(Reference),
+	Reference(Ref),
 	List(Vec<Argument>),
 	Set(Vec<Argument>),
 	Tagged {
@@ -714,8 +678,8 @@ impl From<()> for Argument {
 	}
 }
 
-impl From<Reference> for Argument {
-	fn from(r: Reference) -> Argument {
+impl From<Ref> for Argument {
+	fn from(r: Ref) -> Argument {
 		Argument::Reference(r)
 	}
 }
@@ -836,7 +800,7 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 		sys::ARG_SYMBOL => {
 			Argument::Symbol(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned())
 		}
-		sys::ARG_REFERENCE => Argument::Reference(Reference::from_sys(&c.reference)),
+		sys::ARG_REFERENCE => Argument::Reference(Ref::from_sys(&c.reference)),
 		sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)),
 		sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)),
 		sys::ARG_TAGGED => Argument::Tagged {
@@ -1000,7 +964,7 @@ mod tests {
 				negative: false,
 				digits: "1208925819614629174706176".into(),
 			},
-			Argument::Reference(Reference::far(5)),
+			Argument::Reference(Ref::bare_id(5)),
 			Argument::Void,
 		]);
 		let mut arena = SendArena::default();

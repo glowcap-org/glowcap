@@ -13,12 +13,20 @@ tags: [
   bindings,
   minimality,
 ]
-decision: "The C ABI ships as composable per-family archives linked à la carte (`libpancake_ocapn` (sans-io peer + shared vocabulary), `libpancake_net` (net-core base), and one archive per transport (`libpancake_net_transport_{tcp,inproc,iroh}`)) each exporting only its `pancake_<family>_*` symbols and its own last-error reader, sharing core types by header layout; the single `libpancake` / `pancake.h` umbrella is dropped. The packaging contract (archive set, export families, the build-declared archive DAG, and per-archive headers) is fixed and composition-model-agnostic. It ships now with Model A (self-contained companion archives that embed their lower layers as local symbols, the proven ADR-0055 mechanism); Model B (a base that exports an internal linkable net-core seam so transports carry no duplicate) is the committed end state, reached by an internal-only migration that changes no header, no consumer link recipe, and no exported family. Within that packaging, a symbol earns its place on the surface only by a domain-specific minimality bar derived from the OCapN/CapTP operation set (a distinct protocol op, the primitive a binding consumes, or a named easy-path constructor over an explicit one) and the structural invariants that bound it (constructor-twin completeness, one error channel per archive, one freeing verb per handle) are gated in `tools/check/meta_check.zig`."
+decision: "The C ABI ships as composable per-family archives linked à la carte: `libpancake_ocapn` for shared vocabulary, `libpancake_host` as the sole CapTP application surface, `libpancake_net` as the net-core base, and one archive per transport. Archives share core types by header layout and export only their own symbol family; the single umbrella artifact is dropped."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0096]
 ---
 
 # ADR-0059 Composable C ABI archives
+
+> **Amendment (ADR-0096).** The archive split stands, but the raw C peer and
+> owning TCP session families are retired. `libpancake_ocapn` now carries only
+> shared vocabulary, `libpancake_host` is the one CapTP application surface,
+> and transports carry connections/listeners only. Native Zig keeps
+> `engine.Peer`; it is not mirrored into C.
 
 ## Context
 
@@ -74,6 +82,9 @@ The C ABI is a set of composable archives. Each archive is built in both static
 exports, and shares core types with the others _by layout_ (a transport header
 `#include`s `pancake_ocapn.h`). The single `libpancake` / `pancake.h` umbrella
 is dropped; there is no "everything" artifact.
+
+The table below records the acceptance-time package split. The 2026-07-10
+amendment removes the `pancake_peer_*` family; it is not a current inventory.
 
 | Archive | Exported family | I/O |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
@@ -149,6 +160,9 @@ ninety, or whether three of them are one function wearing three names. pancake's
 surface is therefore held to a domain-specific minimality bar derived from the
 OCapN/CapTP operation set it must reach. A symbol earns its place only by one of
 three tests, and nothing else:
+
+The following were the acceptance-time criteria for the now-retired raw Peer
+family, not current API guidance:
 
 1. **Distinct protocol operation**: it performs a CapTP/OCapN move no other
    export performs (`send_deliver`, `register_export`, `start_session`, the

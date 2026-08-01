@@ -1,244 +1,216 @@
-# pancake Architecture
+# Architecture
 
-pancake is an OCapN / CapTP core you use as a library. This page names the
-layers, what each owns, and the memory and C ABI contracts between them.
-Protocol evidence lives in live Goblins (`conformance/goblins-peer/`), the
-upstream OCapN suite, and `test/oracle/` (see
-[`test/oracle/README.md`](../test/oracle/README.md)).
+Most applications use `driver.Session`, a view onto one connection owned by a
+`driver.PollHost`. It presents fetch, call, publish, and handoff as ordinary
+operations. The runtime ownership and protocol layers are separate views:
 
-## Core boundary
+```text
+Host: identity, routing, sessions
+├── one Vat: actors, state, turns
+└── sessions
+    └── Port: that session's projection and ingress
+        └── Peer: that session's CapTP state
+```
 
-The canonical core owns protocol semantics and nothing else: no sockets, no
-`std.Io`, no background tasks, no hidden scheduler, and no process-level
-runtime object. Dispatch runs in a layer called `engine`, not `runtime`,
-because it is caller-driven rather than an ambient executor.
+A Host and a Vat are not aliases. The Host owns network identity and routing;
+the Vat it owns supplies one actor graph and scheduler. Each session's Port
+projects that graph into session-local export positions and attributes inbound
+work to its own ingress. `engine.Peer` remains the protocol state for one
+session.
 
-The layering is compiler-enforced: each `src/` layer is a build.zig module
-with a one-way import table, so a cross-layer reach is a compile error
-(ADR-0040). The same rule runs one level deeper, so Syrup and Cap'n Proto
-cannot import each other and only the codec root knows both (ADR-0048). The
-four layers that are the OCapN / CapTP protocol itself, model, codec,
-session, and engine, live under `src/ocapn/` (ADR-0044), and `src/root.zig`
-curates the one public `pancake` namespace over all of them.
+The layers below separate protocol decisions from encoding, I/O, and
+application scheduling.
 
-Adapters feed inbound frames, call `Peer.step`, drain outbound frames, and
-poll events; they may use `std.Io`, native transports, or host callbacks,
-but add no CapTP behavior of their own.
+```text
+application
+    driver.Session / driver.PollHost
+    actors.Vat
+    engine.Peer
+    session
+    codec
+    model
+    foundation
 
-## Netlayer (`net`)
+network I/O enters through net and the driver
+```
 
-`net` is the one layer where `std.Io` enters; `arch-check` keeps every other
-layer free of it (ADR-0040). CapTP stays transport-agnostic above it.
+Read this page from the top down if you are choosing an API. Read it from the
+bottom up if you are adding a codec, transport, or binding.
 
-One decoder (`decodePrefix`) finds frame boundaries (ADR-0029).
-`Connection.pumpOver` folds that parser over a borrowed reader/writer
-(ADR-0030, ADR-0043). Residents plug in through a vtable: `tcp`,
-`keyed-tcp` (ADR-0075), `inproc` (ADR-0047), iroh QUIC (ADR-0055), and a
-`webrtc` DataChannel (ADR-0089).
-Inbound frames are capped; oversize bursts use a bounded spill so memory
-does not scale with `max_frame_bytes` (ADR-0041). Outbound pending bytes
-park reads at a high-water mark (ADR-0042). Shared read buffers are
-ADR-0054. The blocking pump is one fiber (ADR-0053); streaming partners
-belong on the completion loop (ADR-0057 for iroh). Crossed hellos are
-resolved in the host core below, not here (ADR-0068).
+## The protocol core
 
-Open edges (cleartext TCP, no TLS-on-TCP, discovery limits, no
-Goblins-over-iroh): [boundaries](boundaries.md#netlayer).
+The core is synchronous and has no I/O. A caller gives `engine.Peer` an inbound
+frame, asks it to advance, and takes events and outbound frames back. The peer
+does not open sockets, start tasks, or choose a scheduler.
 
-## Actors and local time-travel (`actors`, `persistent`)
+| Layer | Responsibility |
+| --- | --- |
+| `foundation` | Owned frames, borrowed frame views, limits, crypto, and shared utilities. |
+| `model` | Values and messages that can cross an OCapN session. |
+| `codec` | Syrup and Cap'n Proto framing and encoding. |
+| `session` | Imports, exports, answers, promises, handoff, and protocol validation. |
+| `engine` | The caller-driven state machine around one session. |
 
-The `actors` layer owns opt-in local time-travel. A `Vat` can snapshot its
-local actor heap and restore it later. The snapshot shares each actor's state
-rather than copying it, behind a reference count, so the cost is one count per
-actor and not one byte per byte. Mutable actors are copied only when a turn
-would first write to shared state; persistent actors replace their state
-outright with `become` (ADR-0060). Time-travel is local only: a snapshot never
-captures
-session state, and a restore never rewinds a peer.
+Session state decides whether a reference is valid and what it names. A codec
+only parses and renders that decision. This is why changing codecs cannot mint
+authority or change CapTP behavior.
 
-The sibling `persistent` leaf supplies one refcounted-HAMT `PersistentMap`
-(ADR-0061), so a persistent actor's incremental `become` runs in O(log n)
-with structural sharing; it imports nothing and does not sit on the public
-namespace.
+The module graph enforces the split. Protocol modules cannot import adapters,
+and Syrup and Cap'n Proto cannot import one another. The architecture check also
+rejects `std.Io`, threads, and platform calls in the portable core
+([ADR-0040](decisions/adr/ADR-0040-layer-modules-as-import-law.md),
+[ADR-0048](decisions/adr/ADR-0048-codec-sibling-isolation.md)).
 
-## Application surface (`driver`)
+## From a peer to an application
 
-The `driver` layer sits above the actor turn loop and the netlayer; it is the
-one place allowed to touch `std.Io` and the actor vat at the same time.
+`engine.Peer` is useful when the application already owns an event loop or is
+embedding pancake behind another runtime. Most Zig programs start higher.
 
-Four names, from narrowest to widest:
+| API | Use it when |
+| --- | --- |
+| `driver.Session` | You want one owned connection and blocking application calls. Handoffs are redeemed before a call returns. |
+| `driver.PollHost` | You want one identity across several file-descriptor-backed sessions. |
+| `driver.BlockingSession` | You own the connection and buffers and want the lower-level blocking path. A call may return a handoff for you to redeem. |
+| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own its I/O. This is the core exposed to bindings. |
+| `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
-| Name | Owns |
-| ---- | ---- |
-| `engine.Peer` | One conversation's sans-io engine: feed, `step`, drain, events |
-| `driver.Session` | One partner for an app: `connect` / `listen`, `fetch`, blocking `call` |
-| `Host` (`driver_core`) | Many sessions, one identity, vows, handoff router, crossed hellos |
-| `driver.Bridge` | Answers the Host action queue over a completion loop (bindings use `libpancake_driver`) |
+The actor layer sits between the protocol peer and these application APIs.
+`actors.Vat` hosts local objects, turns incoming calls into actor turns, and
+settles their results. It also provides attenuation, revocation, and optional
+snapshots. A snapshot covers local actor state only; it never rewinds a network
+session. Persistent actor state uses a structurally shared map, so changing one
+entry does not copy the whole map
+([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
+[ADR-0061](decisions/adr/ADR-0061-persistent-collections-module.md)).
 
-`driver.BlockingSession` binds a `Served` (sans-io vat-serve core) to a live
-`net.Connection` over one caller-owned `Peer`. Owning `Session` sits above
-that: `call` returns fulfilled, broken, or `.give` (a typed three-party
-introduction). With a Host in play, that give settles as the introduced
-capability inside the wait: no separate redeem verb for ordinary app code
-(ADR-0072, ADR-0079). Human teaching of the hard move lives on the site
-Concepts page (`zig build docs-serve`) and in example chapter 02.
+Local eventual-sends enter ingress-attributed queues. The Vat measures the
+complete owned-clone charge before mutation, applies per-ingress turn and byte
+limits, and rotates runnable ingresses one turn at a time while retaining FIFO
+within each one. Queue chunks reclaim independently, with at most one bounded
+spare for the whole Vat. The actor layer owns this admission and scheduling;
+the standard Host owns one Vat, and each session Port supplies its ingress
+identity but does not own a queue
+([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)).
 
-### Options vocabulary (ADR-0082)
+## Transports and connection loops
 
-Several Options structs share field names because they share a concept. They
-are not merged into one mega-struct:
+The `net` layer turns a byte stream into complete frames. Its transport
+implementations are plain TCP, keyed TCP, in-process pipes, iroh, and WebRTC.
+The protocol above sees the same `Connection` contract for each one.
 
-| Surface | Owns | Shared names |
-|---------|------|--------------|
-| `session.SessionLimits` | CapTP table and admission caps | `max_frame_bytes`, `queue_cap`, … |
-| `Host.Options.limits` | Full limits projected onto every minted peer | same `SessionLimits` |
-| `SessionOptions.frame_cap` | One owned session's admission | maps to `max_frame_bytes` |
-| `completion.Loop.Options.frame_cap` | Read-buffer pool sizing | not peer admission |
-| `Loop.Options.outbound_high_water` / `fan_in_throttle` / `park_kill_ms` | Backpressure and reclaim | loop I/O only |
-| `Loop.Options.drain_kill_ms` | How long a condemned connection waits for its partner to read the abort | finite by default, unlike `park_kill_ms` |
-| `Host.Options.bootstrap_durability` | Registry posture (`ephemeral` live; `durable_bootstrap` panics at init until an embedder store) | Host only |
+Inbound frames have a size limit. A frame larger than the current read buffer
+uses one bounded spill buffer rather than forcing every connection to retain a
+maximum-sized buffer. Read buffers are pooled across the completion loop.
+Outbound backpressure stops reads when queued reply bytes cross their limit.
 
-Default Host admission is 1 MiB; the loop's `frame_cap` defaults to 64 KiB.
-Raise either for larger frames or bigger steady-state chunks.
-`driver.ResilientClient` sits above the loop: it classifies `DialError`s,
-rebuilds dial plus handshake as a new CapTP session, and budgets discovery at
-3000 ms times 24 attempts. Embedder metrics ride `Loop.Options.on_park` and
-`ResilientClient.on_dial_outcome`.
+The simple blocking pump runs on one fiber. Applications that must keep reading
+while a partner streams use the TCP or iroh completion loop. A WebRTC resident
+owns one sidecar runtime and readiness fd shared by stable endpoint-scoped peer
+ids. Peer creation and SDP/ICE submissions are synchronous control operations;
+after submission, channel establishment, candidates, byte I/O, and closure are
+readiness events with non-blocking try-I/O. The explicit blocking connection is
+the `BlockingSession` tier, not the scale path. The generic Host adapter which
+binds those peer events to sessions is not built. Crossed connections, where
+both peers dial at once, are resolved by the host because the choice depends on
+peer identity rather than transport mechanics.
 
-Below all of this sit the explicit-ownership escapes, thin wrappers such as
-`connectTcp` that still hand the caller the allocator, buffers, and peer
-directly. A consumer who outgrows the surface entirely reaches the raw peer
-through `BlockingSession.peer`.
+[Known limitations](boundaries.md#transports-and-peer-identity) compares the
+security and reachability of the transports.
 
-## Session representation
+## Limits belong to the layer they protect
 
-Session state is authoritative, and it is data-oriented. The protocol hands
-out dense, monotonically increasing integer positions
-(`next_export_position++`, `next_outbound_answer++`, plus positions the
-partner allocates), and the session spends them as table keys instead of
-re-deriving them by scanning.
+Three options contain the phrase “frame cap,” but they limit different things:
 
-- Exports, imports, and inbound/outbound answers are each O(1) position-keyed
-  maps, not linearly scanned lists, and CapTP's three position namespaces
-  stay three separate tables rather than one merged map (ADR-0080). They do
-  agree on what a reference *is*, though. A near export, a far import, a
-  promise, and an answer are all one `Slot` type. The four wire descriptors are
-  computed from that slot when a frame is rendered rather than stored beside
-  it, so pipelining, resolution, and handoff all read one shape.
-  `ImportTable` separately caps partner-driven imports.
-- An answer row keeps its hot state-machine fields inline; its pipelining
-  payload hangs off a pointer allocated only once an answer actually accrues
-  one. Byte-keyed tables are hashed too: the `bootstrap` registry lives in
-  one per-session byte arena, and the handoff `gifts` table is vat-scoped
-  with precise per-row frees, since a re-deposit replaces a row (ADR-0056).
-- The steady-state inbound path validates directly against the borrowed codec
-  projection. It only builds an owned copy when a deliver has to be queued for
-  pipelining. So a deliver to a live export costs exactly one allocation, which
-  `test/engine/alloc_budget_test.zig` asserts. Argument sequences expose a
-  forward iterator for the same reason: a loop that
-  instead re-scans the list with random-access lookups is quadratic.
-- Recursive argument walks are bounded by `SessionLimits.max_nesting_depth`,
-  so an attacker-nested inbound frame fails loudly instead of overflowing
-  the stack (ADR-0025), and dispatch runs an exhaustive
-  `switch (session.state)` admission check so a new state variant can never
-  silently inherit "admit everything."
-- Float equality follows the OCapN same-value rule (the semantics JavaScript
-  spells `Object.is`), not IEEE `==`: every NaN equals every other NaN, and
-  `+0.0` is distinct from `-0.0` (ADR-0021).
+| Option | What it limits | Default |
+| --- | --- | --- |
+| `driver.PollHost.Options.frame_cap` | One owned session's buffers and protocol admission. | 64 KiB |
+| `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
+| `completion.Loop.Options.frame_cap` | Buffers in the shared read pool, not protocol admission. | 64 KiB |
 
-pancake never reuses a position it allocates itself, so its own positions
-stay stable keys for the session's life. A partner is not bound by that
-policy: CapTP lets a peer reuse an answer position once garbage-collected.
-The slot tables still need no generational handle, though, because a
-position-keyed row is removed at GC entirely, so a partner's reuse always
-lands on a cleared, indistinguishable table. The tables are hashed rather
-than flat vectors for a related reason: a hostile peer could otherwise name
-a sparse import position and force a flat array to grow to that index, a
-memory denial-of-service the hash avoids.
+Raising one does not raise the others.
 
-## Memory contract
+`driver.ResilientClient` adds reconnect policy above the loop. It classifies
+dial failures, opens a new CapTP session, and applies its own discovery budget.
+The protocol core has no reconnect policy.
 
-`Frame` owns wire bytes; `FrameView` borrows wire bytes for a bounded call
-scope, and session state must never retain borrowed wire memory. The decode
-split follows the same rule: `decodeBody` projects a borrowed semantic view
-over frame bytes, while `decodeOwned` materializes an owned value only when
-persistence, tests, or a cross-boundary handoff requires one.
+## Session tables
 
-`FrameShape` also records whether a frame is plain bytes or word-aligned
-storage, where word-aligned means an address divisible by eight and a length to
-match. Syrup frames are bytes and Cap'n Proto frames are words. A core that
-serves both keeps the difference visible rather than flattening every frame
-into anonymous bytes.
+CapTP names imports, exports, and answers with integer positions. pancake keeps
+each namespace in its own hash table:
 
-## Copy budget
+- direct lookup stays constant-time;
+- a sparse number from a hostile peer cannot force a giant array;
+- garbage collection removes an answer row before its position can be reused;
+- imports retain a separate cap because the remote peer chooses their count.
 
-A copy must be named at the boundary where it happens; it is never the
-default way a frame moves.
+A near reference, far reference, promise, and answer share one internal slot
+representation. The codec derives the corresponding wire descriptor only when
+it renders a frame. This keeps pipelining, settlement, and handoff on the same
+state.
 
-- `Frame.initOwned` and `Frame.initExternal` both adopt existing storage
-  without copying, the latter calling a supplied release hook on `deinit`;
-  `Frame.view` never allocates or copies.
-- `Peer.sendCopying` names its queueing cost right in its name.
-  `Peer.recvBorrowed` retains transient borrowed wire bytes with exactly one
-  named copy, while `Peer.feedOwned` and `Peer.step` move an already-owned
-  frame into the surfaced event with zero copies.
-- A surfaced `Event` keeps its originating frame in the negotiated codec, so
-  the C ABI hands back those exact bytes without decoding and re-encoding
-  them.
-- `test/support/frame.zig` is the one place allowed to copy caller bytes
-  into frame-owned allocations, for tests and fixtures; production `Frame`
-  has no copy constructor.
-- An outbound C ABI call returns a managed frame with a release callback.
+Recursive values are limited by `SessionLimits.max_nesting_depth`. Session
+state also decides which messages are legal while negotiating, open, or closed.
+An invalid transition is refused before it can mutate a table.
 
-## C ABI Contract
+pancake never reuses positions it allocates itself. A partner may reuse an
+import position after release. The final decrement removes every sturdyref
+cache entry and clears the import row's routing generation. An old host route
+then fails closed even if its map row is reclaimed after the partner reuses the
+position.
 
-Opaque handles, fixed-width codes, `ptr + len` views, explicit release,
-callbacks with caller context. There is no umbrella library: you link the
-archives you need and no others (ADR-0059). Two are always there,
-`libpancake_ocapn` and `libpancake_net`, alongside `libpancake_driver` for the
-byte-fed host. Then one archive per transport you actually use:
-`libpancake_net_transport_tcp`, `libpancake_net_transport_inproc`,
-`libpancake_net_transport_iroh`, `libpancake_net_transport_webrtc`.
-Allocation goes through a `PancakeContext` (ADR-0031).
-For the full archive table, a link recipe, and a first program, see
-[consuming-from-c](consuming-from-c.md).
+## Frame ownership and copies
 
-Each language binding drives the same three-step cycle against the C ABI. It
-feeds inbound bytes in with `pancake_host_session_feed_bytes`, lets the host
-run whatever that produced with `pancake_host_pump_drain`, and takes outbound
-frames back out with `pancake_host_session_take_outbound`.
+`Frame` owns its bytes. `FrameView` borrows bytes for one bounded call. Session
+state may never retain memory borrowed from an inbound frame.
 
-That middle step calls the hooks the binding registered. A binding must not
-pop the raw action queue itself, and `meta-check` refuses one that tries.
-Each binding's own
-async runtime schedules the cycle, so pancake runs no background loop of its
-own, and callback indirection composes poorly with async/await.
+The codec follows the same rule. `decodeBody` projects a borrowed view;
+`decodeOwned` creates an owned value when data must survive the frame. Syrup
+frames are byte-aligned, while Cap'n Proto frames require eight-byte alignment.
+`FrameShape` keeps that difference visible.
 
-## Examples as contract
+Production code moves frames by ownership:
 
-Examples are build targets, not snippets.
-[`examples/README.md`](../examples/README.md) indexes the Zig chapters and C
-programs (`frame_view`, `context_alloc`, `echo_peer`, `compose_transports`,
-host embedder pump). `zig build check` runs them.
+- `Frame.initOwned` and `Frame.initExternal` adopt existing storage;
+- `Frame.view` borrows without allocating;
+- `Peer.feedOwned` and `Peer.step` move an owned frame into an event;
+- `Peer.recvBorrowed` makes the one copy required to retain borrowed input;
+- `Peer.sendCopying` names its queueing copy in the API.
 
-## Product surfaces (`cli/`, `apps/`) and dev tools
+A delivered call to a live export makes exactly one owned-frame allocation.
+The allocation and footprint checks under `test/engine/` protect that budget.
+Test fixtures have their own copying helper; production `Frame` has no general
+copy constructor.
 
-The installable `pancake` binary consumes the public `pancake` module. It is not
-a new protocol layer and not part of `libpancake_*`
-([ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md)). Sources
-live at repo-root `cli/`. Argv parse, scoped help, and completion share
-`cli/cmd/`; CapTP leaves also feed REPL lines and curated MCP `tools/call`.
-I/O, identity files, XDG state-dir locking, MCP stdio lifecycle, and `app rooms-peer`
-presence stay in this adapter. The `rooms-peer` install name is a thin forwarder
-to `pancake app rooms-peer`. When the job is to call a peer, host a temporary
-listener, open a REPL, or script CapTP from a shell, this binary is the
-surface: walkthrough in [`docs/cli.md`](cli.md). Present edges:
-`docs/shipped.md` and `docs/boundaries.md`.
+## C ABI and bindings
 
-First-party product apps that ship as their own binaries live under
-[`apps/`](../apps/), not under maintainer tooling
-([ADR-0085](decisions/adr/ADR-0085-repository-product-and-devtool-layout.md)).
-Demos stay in [`apps/`](../apps/). The usual dev-tool verbs
-are top-level [`test/`](../test/), [`tools/check/`](../tools/check/) (build
-checks), and [`tools/gen/`](../tools/gen/) (codegen), with
-[`tools/c-abi/`](../tools/c-abi/) for the C-ABI operator toolkit.
+The C ABI uses opaque handles, fixed-width result codes, `ptr + len` views,
+caller-supplied callback contexts, and explicit release. Allocation goes
+through `PancakeContext`.
+
+There is no umbrella library. A C program links the core and only the host and
+transport archives it needs. [The C guide](consuming-from-c.md) has the archive
+table, build commands, and a complete program.
+
+Bindings drive the byte-fed host in a three-part cycle:
+
+1. feed bytes with `pancake_host_session_feed_bytes`;
+2. let the host run resulting work with `pancake_host_pump_drain`;
+3. take outbound frames with `pancake_host_session_take_outbound`.
+
+The binding's runtime schedules that cycle and performs the actual I/O. pancake
+does not create a background runtime inside Python, Racket, Rust, or
+TypeScript.
+
+## Other entry points
+
+The installable `pancake` command is an application of the public library, not
+another protocol layer. It owns terminal behavior, identity files, MCP stdio,
+and room presence. [The CLI guide](cli.md) covers it.
+
+First-party applications live under [`apps/`](../apps/). Compilable teaching
+programs live under [`examples/`](../examples/README.md). Build checks and code
+generators live under [`tools/`](../tools/README.md).
+
+Protocol claims are checked against the upstream OCapN suite, live Goblins
+peers, and the in-tree reference corpus. [Community review](community-review.md)
+states exactly what that evidence covers.

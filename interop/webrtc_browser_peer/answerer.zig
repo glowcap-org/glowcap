@@ -188,7 +188,9 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var peer = try webrtc.Peer.init(false); // answerer
+    var resident = try webrtc.Resident.init();
+    defer resident.deinit();
+    var peer = try resident.newPeer(false); // answerer
     defer peer.deinit();
 
     // Announce the key the browser pins before any SDP flows.
@@ -206,7 +208,13 @@ pub fn main(init: std.process.Init) !void {
     var sdp_buf: [16 * 1024]u8 = undefined;
     var len: usize = 0;
     var rounds: usize = 0;
+    var opened = false;
     while (rounds < 600) : (rounds += 1) {
+        var events: [16]webrtc.ReadyEvent = undefined;
+        const count = try resident.pollReady(&events, 50);
+        for (events[0..count]) |event| {
+            if (event.subject != @intFromEnum(peer.id())) return error.UnexpectedReadySubject;
+        }
         if (!answered and offer_seen.load(.acquire)) {
             var alen: usize = 0;
             if (peer.createAnswer(&sdp_buf, &alen)) |answer| {
@@ -217,8 +225,14 @@ pub fn main(init: std.process.Init) !void {
         while (try peer.nextLocalCandidate(&cand_buf, &len)) |candidate| {
             writeCandidate(io, allocator, candidate);
         }
-        if (peer.waitOpen(50)) break;
+        peer.checkOpen() catch |err| switch (err) {
+            error.WouldBlock => continue,
+            error.Closed => return error.ChannelClosed,
+        };
+        opened = true;
+        break;
     }
+    if (!opened) return error.ChannelBringUpTimeout;
 
     try serveKeyed(io, &peer, allocator, secret);
     // The browser has left; unblock the reader's stdin wait and collect it.

@@ -51,6 +51,17 @@ pancake protects (performance, architecture, cross-binding interop).
   gates and documented boundaries that justify leaving it.
 - **Names and structure are architecture.** A misleading module or type name is
   a boundary bug, not cosmetics.
+- **Order a findings list by severity and blast radius together.** Severity
+  says what has to be fixed; blast radius says in what order, because a finding
+  that moves a type, an owner, or a boundary decides the shape the others get
+  fixed into. Take the severe ones that stand alone straight away. Where a fix
+  sits inside a pending structural change, do the structural one first: its
+  interim spelling is not "quick", it is rework with a delay, and the honest
+  move when the reshaping change is too big for the session is to name which
+  findings are waiting on it rather than spend the session on spellings that
+  will be torn up. [`ladder.md`](../../docs/ladder.md) already argues this for
+  the route to 1.0 ("The order is an argument, not a wish list"); a review's
+  findings deserve the same argument.
 - **No half measures on touched surfaces.** If you open a layer, leave it
   sharper, code, tests, docs, and examples aligned in the same change.
 - **Compound for the next agent.** Accurate living-state docs and passing gates

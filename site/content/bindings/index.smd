@@ -9,7 +9,7 @@
 
 The bindings give four languages the same application surface over one C ABI,
 one of the [ways to consume pancake]($link.page('surfaces')). Each binding
-mirrors the archive set: a core over `libpancake_ocapn` / `libpancake_driver`,
+mirrors the archive set: a core over `libpancake_ocapn` / `libpancake_host`,
 plus per-transport modules loaded à la carte. The capability ideas behind the
 surface live in [Concepts]($link.page('concepts')).
 
@@ -18,7 +18,7 @@ surface live in [Concepts]($link.page('concepts')).
 ## One surface, four idioms
 
 A `Session` gives you the verbs in the
-[bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md).
+[bindings contract](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md).
 A `Host` is the multi-session product behind introductions
 ([modules]($link.page('modules'))). A `Ref` is a capability in hand; pass it as
 an argument and authority moves.
@@ -35,23 +35,19 @@ an argument and authority moves.
 The TypeScript binding also runs in the browser, where `@pancake/web` compiles
 the same `Session` surface to WebAssembly. The browser side always dials
 rather than listens, and [In the browser]($link.page('bindings/browser')) is
-the whole story.
+the browser setup guide.
 
 Stay at the level you need: synchronous verbs, the language's own async sockets,
 or the Goblins-shaped actor layer on top with near-call and eventual-send
 ([modules]($link.page('modules'))).
 
-## Getting the archives
+## Use a binding from a checkout
 
-There are no prebuilt archives yet: run `zig build` in a checkout, then point
-`PANCAKE_LIB_DIR` at the output or let the binding find `zig-out/lib`. For an
-encrypted transport, add the optional [iroh]($link.page('transports/iroh'))
-module.
+The packages and archives are not published yet. Pin a pancake checkout, run
+`zig build`, and use the binding in that checkout. Bindings find
+`zig-out/lib` by default; set `PANCAKE_LIB_DIR` if the archives live elsewhere.
 
-```sh
-zig build bindings        # rust + deno + bun + python + racket smokes
-zig build rust-dogfood    # just Rust
-```
-
-Needs `cargo`, `deno`, `bun`, `python3`, and `racket` on PATH (or the
-[devcontainer](https://codeberg.org/jimisaacs/pancake/src/branch/main/.devcontainer/)).
+The [binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md)
+has the path for each language. Add the optional
+[iroh]($link.page('transports/iroh')) archive only when you need encrypted
+peer-to-peer transport.

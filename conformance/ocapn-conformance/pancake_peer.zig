@@ -5,8 +5,8 @@
 //!
 //! The Host owns every protocol-policy seam the suite exercises through the
 //! library rather than this file: crossed-hellos tiebreak (`Host.CrossedHellos`,
-//! ADR-0030), one node identity reused as every session's signing key, and a
-//! shared gift registry. What stays here is what the Host cannot know: the
+//! ADR-0030), one node identity reused as every session's signing key, and the
+//! live-session directory that reaches each Peer-owned gift table. What stays here is what the Host cannot know: the
 //! conformance actors, and the three suite-specific interceptors the harness
 //! requires on the serve path:
 //!
@@ -203,7 +203,7 @@ const PromiseResolver = struct {
 
     pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = msg;
-        const peer = turn.vat.peer orelse return error.NotConnected;
+        const peer = (turn.port orelse return error.NotConnected).peer;
         const answer_position = model.AnswerPosition.from((try peer.session_state.allocateExport()).int());
         try peer.session_state.installInboundAnswer(answer_position);
         const resolver_export = try peer.session_state.allocateExport();
@@ -226,9 +226,9 @@ const Unimplemented = struct {
 };
 
 fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
-    const peer = turn.vat.peer orelse return error.NotConnected;
+    const peer = (turn.port orelse return error.NotConnected).peer;
     const export_position = try peer.session_state.allocateExport();
-    try turn.vat.bindExport(ref, export_position.int());
+    try (turn.port orelse return error.NotConnected).bindExport(ref, export_position.int());
     return export_position.int();
 }
 
@@ -312,7 +312,7 @@ const GifterWait = struct {
 /// Publish the five bootstrap actors on every accepted session and allocate its
 /// conformance state. Runs at adoption, before any inbound frame is served, so
 /// a partner's first fetch cannot race the registration.
-fn publishConf(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishConf(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const shared: *Shared = @ptrCast(@alignCast(ctx.?));
     const session: *HostSession = @fieldParentPtr("served", served);
 
@@ -326,11 +326,11 @@ fn publishConf(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     // enroll; flip stateless GC on without disturbing it.
     served.serve_options.gc_stateless = true;
 
-    _ = try served.publish(ECHO, Echo, .{});
-    _ = try served.publish(GREETER, Greeter, .{});
-    _ = try served.publish(CAR_FACTORY_BUILDER, CarFactoryBuilder, .{});
-    _ = try served.publish(PROMISE_RESOLVER, PromiseResolver, .{ .conf = conf });
-    _ = try served.publish(STURDYREF_ENLIVENER, Unimplemented, .{});
+    _ = try served.publish(vat, ECHO, Echo, .{});
+    _ = try served.publish(vat, GREETER, Greeter, .{});
+    _ = try served.publish(vat, CAR_FACTORY_BUILDER, CarFactoryBuilder, .{});
+    _ = try served.publish(vat, PROMISE_RESOLVER, PromiseResolver, .{ .conf = conf });
+    _ = try served.publish(vat, STURDYREF_ENLIVENER, Unimplemented, .{});
 }
 
 fn confFreeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
@@ -376,7 +376,7 @@ fn confServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) an
 fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot) anyerror!void {
     _ = bridge;
     const shared: *Shared = @ptrCast(@alignCast(ctx.?));
-    const designator = shell.session.served.peer.session_state.partnerDesignator() orelse return;
+    const designator = shell.session.served.port.peer.session_state.partnerDesignator() orelse return;
     var i: usize = 0;
     while (i < shared.pending.items.len) {
         const p = shared.pending.items[i];
@@ -397,7 +397,7 @@ fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot) an
 /// resolver: push the matching `op:resolve` on its paired answer. Returns false
 /// for any deliver to a target that is not a live resolver.
 fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
-    const peer = conf.session.served.peer;
+    const peer = conf.session.served.port.peer;
     const allocator = conf.shared.allocator;
     const body = event.view() catch return false;
     const deliver = switch (body) {
@@ -438,7 +438,7 @@ fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
 /// carries no answer, so a throwaway inbound answer absorbs the redeem outcome
 /// the suite never reads.
 fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
-    const peer = conf.session.served.peer;
+    const peer = conf.session.served.port.peer;
     const shared = conf.shared;
     const allocator = shared.allocator;
     const body = event.view() catch return false;
@@ -473,7 +473,7 @@ fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
 /// (`GifterWait`). If the exporter session is already open, fetch now; else dial
 /// it and defer the fetch to `on_open`.
 fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
-    const peer = conf.session.served.peer;
+    const peer = conf.session.served.port.peer;
     const shared = conf.shared;
     const allocator = shared.allocator;
     const body = event.view() catch return false;
@@ -598,7 +598,7 @@ fn findSessionByDesignator(shared: *Shared, designator: []const u8) ?*HostSessio
     while (it.next()) |conf| {
         const session = conf.*.session;
         if (!session.sessionOpen()) continue;
-        const partner = session.served.peer.session_state.partnerDesignator() orelse continue;
+        const partner = session.served.port.peer.session_state.partnerDesignator() orelse continue;
         if (std.mem.eql(u8, partner, designator)) return session;
     }
     return null;

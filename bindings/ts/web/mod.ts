@@ -2,7 +2,7 @@
 //
 // A browser tab becomes a real OCapN peer: the same sans-io protocol core the
 // native archives link, compiled to wasm32 (`zig build wasm-driver` →
-// `pancake_driver.wasm`), with the byte channel on a WebSocket. The proof
+// `pancake_host.wasm`), with the byte channel on a WebSocket. The proof
 // (`zig build web-peer-test`) covers the keyed handshake, fetch and call, and
 // a host call back into a wasm-hosted object. `init` instantiates the module,
 // builds the runtime adapter over it (FFI over linear memory, sockets over
@@ -12,7 +12,7 @@
 // top of it.
 //
 //   import { init } from "@pancake/web";
-//   const stack = await init({ wasm: await fetch("/pancake_driver.wasm") });
+//   const stack = await init({ wasm: await fetch("/pancake_host.wasm") });
 //   const session = await stack.connect(locator);
 //
 // The one seam a page may need to shape is `wsUrl`: how a dial's host:port
@@ -30,7 +30,7 @@ export type WasmSource =
 	| Promise<Response>;
 
 export interface WebInitOptions {
-	/** The `pancake_driver.wasm` module: compiled module, raw bytes, or a
+	/** The `pancake_host.wasm` module: compiled module, raw bytes, or a
 	 * `fetch` response (streamed when the host supports it). */
 	wasm: WasmSource;
 	/** Map a dial's host:port to its WebSocket URL; defaults to

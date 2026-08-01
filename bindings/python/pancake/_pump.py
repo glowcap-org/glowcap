@@ -1,5 +1,5 @@
 """Internal: the byte-fed embedder pump choreography over the host
-(``libpancake_driver``, ADR-0072).
+(``libpancake_host``, ADR-0072).
 
 Owns the connection byte path the embedder contract leaves to the binding:
 read raw bytes off the transport, hand them to the core's stream delimiter
@@ -25,8 +25,9 @@ from ._errors import (
     _check_host,
     _host_last_error,
 )
-from ._ffi_driver import _host
+from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf, _LastAbort, _lib, _ManagedFrame
+from ._trampoline import _enter_deliver, _exit_deliver
 
 _OK = _abi.OK
 _WOULD_BLOCK = _abi.WOULD_BLOCK
@@ -100,7 +101,11 @@ async def _feed(session, chunk: bytes) -> None:
         return
     n = len(chunk)
     ptr = ctypes.cast(ctypes.c_char_p(chunk), ctypes.c_void_p) if n else None
-    rc = _host.pancake_host_session_feed_bytes(session.raw, ptr, n)
+    prior = _enter_deliver(session)
+    try:
+        rc = _host.pancake_host_session_feed_bytes(session.raw, ptr, n)
+    finally:
+        _exit_deliver(prior)
     session.host.drain_parked_releases()
     if rc != _OK:
         await _raise_feed_refusal(session, rc)

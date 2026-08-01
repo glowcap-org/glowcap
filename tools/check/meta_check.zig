@@ -6,6 +6,7 @@ const std = @import("std");
 const Build = std.Build;
 const Step = Build.Step;
 const bans = @import("meta_check/bans.zig");
+const binding_runtime_proof = @import("meta_check/binding_runtime_proof.zig");
 const binding_spine = @import("meta_check/binding_spine.zig");
 const docs = @import("meta_check/docs.zig");
 const project_shape = @import("meta_check/project_shape.zig");
@@ -16,6 +17,7 @@ const captp_io_spine = @import("meta_check/captp_io_spine.zig");
 const captp_product = @import("meta_check/captp_product.zig");
 const zig_docs = @import("meta_check/zig_docs.zig");
 const fuzz = @import("meta_check/fuzz.zig");
+const namespaces = @import("meta_check/namespaces.zig");
 const util = @import("meta_check/util.zig");
 
 /// Create the `meta-check` build step.
@@ -52,7 +54,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     // into a regular file and the brand forks silently; see checkUiCore for
     // the rest of that contract.
     try scaffolding.expectSymlink(io, gpa, root, &violations, "site/assets/tokens.css", "../../ui/tokens.css");
-    try scaffolding.expectSymlink(io, gpa, root, &violations, "apps/rooms/deno/ui/tokens.css", "../../../../ui/tokens.css");
+    try scaffolding.expectSymlink(io, gpa, root, &violations, "apps/rooms/web/ui/tokens.css", "../../../../ui/tokens.css");
 
     try scaffolding.checkCursorRuleOverlay(io, gpa, root, &violations);
     try scaffolding.checkRequiredSubstrings(io, gpa, root, &violations);
@@ -61,12 +63,15 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.checkAgentPersonas(io, gpa, root, &violations);
     try scaffolding.checkAgentsRouting(io, gpa, root, &violations);
     try docs.checkMarkdownLinks(io, gpa, root, &violations);
+    try docs.checkAdrRelations(io, gpa, root, &violations);
+    try docs.checkAdrEvidenceLinks(io, gpa, root, &violations);
     try docs.checkSiteContentLinks(io, gpa, root, &violations);
+    try docs.checkSiteTransportTabs(io, gpa, root, &violations);
     try docs.checkSiteNavParity(io, gpa, root, &violations);
     try docs.checkSitePageMetadata(io, gpa, root, &violations);
     try docs.checkResidentRoster(io, gpa, root, &violations);
     try docs.checkQuickStartSnippet(io, gpa, root, &violations);
-    try docs.checkStabilityTierParity(io, gpa, root, &violations);
+    try docs.checkStabilityEvidenceParity(io, gpa, root, &violations);
     try docs.checkDanglingReferenceLinks(io, gpa, root, &violations);
     try docs.checkMermaidBlocks(io, gpa, root, &violations);
     try ui.checkUiCore(io, gpa, root, &violations);
@@ -78,7 +83,6 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try c_abi.checkAbiReturnShape(io, gpa, root, &violations);
     try c_abi.checkCAbiSurfaceShape(io, gpa, root, &violations);
     try c_abi.checkAbiExportsConsumed(io, gpa, root, &violations);
-    try c_abi.checkPeerEventSendParity(io, gpa, root, &violations);
     try binding_spine.checkBindingConstants(io, gpa, root, &violations);
     try binding_spine.checkBindingHostActionDrains(io, gpa, root, &violations);
     try binding_spine.checkBindingHostActionSpine(io, gpa, root, &violations);
@@ -92,11 +96,15 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try binding_spine.checkBindingEmbedderSpineDocs(io, gpa, root, &violations);
     try binding_spine.checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try binding_spine.checkBindingReflectedFfiWired(io, gpa, root, &violations);
+    try binding_spine.checkPythonSigsFactoryArity(io, gpa, root, &violations);
+    try binding_runtime_proof.check(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarAbi(io, gpa, root, &violations);
     try binding_spine.checkWebrtcSidecarAbi(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarPins(io, gpa, root, &violations);
     try binding_spine.checkSidecarSteadyBytes(io, gpa, root, &violations);
     try captp_product.checkApplicationSurfaceVerbs(io, gpa, root, &violations);
+    try captp_product.checkDriverRootShadow(io, gpa, root, &violations);
+    try project_shape.checkGatedStepsRideCheck(io, gpa, root, &violations);
     try captp_product.checkPancakeCliSkillAuthority(io, gpa, root, &violations);
     try captp_product.checkPancakeMcpSkillAuthority(io, gpa, root, &violations);
     try captp_product.checkCaptpAgentDogfoodRouting(io, gpa, root, &violations);
@@ -121,8 +129,10 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try project_shape.checkOracleCorpusRegistry(io, gpa, root, &violations);
     try project_shape.checkProtocolCheatsheet(io, gpa, root, &violations);
     try project_shape.checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
+    try project_shape.checkRepositoryUrl(io, gpa, root, &violations, b.build_root.path orelse ".");
     try project_shape.checkPathIoCopies(io, gpa, root, &violations);
     try project_shape.checkConnOverheadQuotes(io, gpa, root, &violations);
+    try project_shape.checkHostSessionBudgetQuotes(io, gpa, root, &violations);
     try fuzz.checkVendoredRunnerLicense(io, gpa, root, &violations);
     try fuzz.checkVendoredTestRunner(io, gpa, root, &violations, b.graph.zig_lib_directory.path orelse ".");
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
@@ -151,6 +161,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try c_abi.checkUnwiredHostPluginApis(io, gpa, root, &violations);
     try c_abi.checkHostActionArmLockstep(io, gpa, root, &violations);
     try zig_docs.checkZigDocSymbolClaims(io, gpa, root, &violations);
+    try namespaces.checkBareKeyedTables(io, gpa, root, &violations);
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("meta-check: {s}\n", .{msg});
@@ -161,6 +172,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 test {
     // Pull the check modules' unit tests into the meta-check test artifact.
     _ = bans;
+    _ = binding_runtime_proof;
     _ = binding_spine;
     _ = c_abi;
     _ = docs;

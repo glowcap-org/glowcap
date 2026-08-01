@@ -49,7 +49,7 @@ let resolveRemoteId!: (designator: string) => void;
 const remoteId = new Promise<string>((res) => (resolveRemoteId = res));
 
 async function main(): Promise<void> {
-	const stack = await init({ wasm: fetch("/pancake_driver.wasm") });
+	const stack = await init({ wasm: fetch("/pancake_host.wasm") });
 	const host = new stack.Host();
 	const myDesignator = host.designator();
 	const peer = new RtcPeer({ offerer });

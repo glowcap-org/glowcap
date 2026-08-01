@@ -22,6 +22,11 @@
 //! merely notices the file appearing passes for a target that searched nothing.
 //! There is such a file in this repository's cache with a run count of zero.
 //!
+//! The counter is read straight out of the coverage file's own header, the
+//! `n_runs` field of `std.Build.abi.fuzz.SeenPcsHeader`. A file whose header does
+//! not describe the file fails the sweep and says so, rather than counting as a
+//! zero and reappearing later as "this target searched nothing."
+//!
 //! Usage, which the build step fills in:
 //!
 //!     pancake-fuzz <path-to-zig> --fuzz=<budget>
@@ -119,7 +124,29 @@ pub fn main(init: std.process.Init) !void {
         }
 
         const runs_after = totalRuns(io, cwd);
-        if (runs_after <= runs_before) {
+        // A coverage file this program cannot read as a header is not a zero to
+        // be summed past: the number it was asked for would be meaningless, and
+        // a meaningless number that happens to have grown would report a search
+        // that may never have happened. Loud here, where the reason is known.
+        if (runs_before.unreadable != 0 or runs_after.unreadable != 0) {
+            std.debug.print(
+                \\
+                \\the fuzzer's run counter could not be read: {d} of the {d} files in
+                \\`{s}` do not match `std.Build.abi.fuzz.SeenPcsHeader`.
+                \\
+                \\That header is the declared interface between Zig's build runner
+                \\and its fuzzer, and this program reads `n_runs` out of it to know
+                \\a target really searched. If the layout moved with a Zig upgrade,
+                \\`readRunCount` in this file is what needs teaching.
+                \\
+            , .{
+                @max(runs_before.unreadable, runs_after.unreadable),
+                @max(runs_before.files, runs_after.files),
+                coverage_dir,
+            });
+            std.process.exit(1);
+        }
+        if (runs_after.n_runs <= runs_before.n_runs) {
             std.debug.print(
                 \\
                 \\this target reported success but the fuzzer's run counter did
@@ -133,7 +160,7 @@ pub fn main(init: std.process.Init) !void {
             , .{target.name});
             std.process.exit(1);
         }
-        std.debug.print("      {d} runs\n", .{runs_after - runs_before});
+        std.debug.print("      {d} runs\n", .{runs_after.n_runs - runs_before.n_runs});
     }
 
     std.debug.print("\nno findings across {d} targets.\n", .{targets.len});
@@ -194,6 +221,18 @@ fn fileExists(io: std.Io, cwd: std.Io.Dir, path: []const u8) bool {
     return true;
 }
 
+/// What the coverage directory says about how much searching has happened.
+const Runs = struct {
+    /// Inputs the fuzzer has tried, summed over every coverage file it could
+    /// read.
+    n_runs: u128 = 0,
+    /// Files in the directory, and how many of them did not read as a header.
+    /// The caller fails on any of the second kind: the count it asked for is
+    /// only as good as the layout it was read through.
+    files: usize = 0,
+    unreadable: usize = 0,
+};
+
 /// How many inputs the fuzzer has tried, summed over every coverage file.
 ///
 /// Only the running target's file advances, so the difference across one run is
@@ -204,18 +243,24 @@ fn fileExists(io: std.Io, cwd: std.Io.Dir, path: []const u8) bool {
 /// The layout is `std.Build.abi.fuzz.SeenPcsHeader`, the declared interface
 /// between Zig's build runner and its fuzzer rather than an internal detail.
 /// Even so, `readRunCount` verifies each file's length against what its own
-/// header implies, so a layout change becomes a loud miscount rather than a
-/// quiet wrong number.
-fn totalRuns(io: std.Io, cwd: std.Io.Dir) u128 {
-    var dir = cwd.openDir(io, coverage_dir, .{ .iterate = true }) catch return 0;
+/// header implies, and a file that fails that check is counted here rather than
+/// summed as a zero, so a layout change fails the sweep with its own reason
+/// instead of looking like a target that searched nothing.
+fn totalRuns(io: std.Io, cwd: std.Io.Dir) Runs {
+    var dir = cwd.openDir(io, coverage_dir, .{ .iterate = true }) catch return .{};
     defer dir.close(io);
-    var total: u128 = 0;
+    var tally: Runs = .{};
     var it = dir.iterate();
-    while (it.next(io) catch return total) |entry| {
+    while (it.next(io) catch return tally) |entry| {
         if (entry.kind != .file) continue;
-        total += readRunCount(io, dir, entry.name) orelse 0;
+        tally.files += 1;
+        if (readRunCount(io, dir, entry.name)) |n| {
+            tally.n_runs += n;
+        } else {
+            tally.unreadable += 1;
+        }
     }
-    return total;
+    return tally;
 }
 
 /// The run count out of one coverage file, or null if the file is not one.

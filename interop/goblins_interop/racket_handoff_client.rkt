@@ -50,7 +50,7 @@
   ;; The introduction: Alice returns Bob's greeter as a handoff give. The binding
   ;; redeems it transparently, so this resolves to an ordinary capability.
   (define greeter (session-send conn introducer 'get-greeter))
-  (unless (or (far-ref? greeter) (near-ref? greeter))
+  (unless (ref? greeter)
     (fail (format "introduction did not redeem to a capability: ~a" greeter)))
   (printf "racket-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref\n")
 

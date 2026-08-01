@@ -24,6 +24,8 @@ const frame_cap = common.frame_cap;
 const timer_ms = common.timer_ms;
 const redial_cooldown_wakes = common.redial_cooldown_wakes;
 const dial_timeout_ms = common.dial_timeout_ms;
+const max_nick = common.max_nick;
+const max_dm_inboxes = common.max_dm_inboxes;
 const emitStdout = common.emitStdout;
 const emitStdoutFmt = common.emitStdoutFmt;
 
@@ -97,16 +99,26 @@ const PeerState = struct {
     /// again (owned keys). The outbox drain stops at their DM lines without
     /// advancing the offset, so nothing is dropped while the cooldown runs.
     ///
-    /// A countdown rather than a verdict, because a negative result has no
-    /// object whose death can clear it. A capability caches the thing it names
-    /// and is repaired when that thing reports gone; a *refusal* names
-    /// something that was never there, so the only thing that can invalidate it
-    /// is a clock. This used to clear only when our own room session dropped —
-    /// which for a healthy long-lived session never happens, so a peer who was
-    /// briefly offline stayed unreachable forever, and because the drain stops
-    /// without advancing, every later line behind it stopped too, including
-    /// room posts.
+    /// A countdown rather than a verdict: a refusal names something that was
+    /// never there, so no object's death can clear it. One event clears it early:
+    /// `notify("introducible", peer)` says that peer has now offered us an inbox.
+    /// Everything else waits out the clock, because a peer who was
+    /// briefly offline must not stay unreachable for the life of a healthy
+    /// session: the drain stops at their DM line without advancing, so every
+    /// later line behind it stops too, including room posts.
     failed_introduces: std.StringHashMapUnmanaged(u32) = .{},
+    /// The published name of the inbox offered for each peer, by nick. Key and
+    /// value are both borrowed from the `DmInboxRow` the host owns, so this map
+    /// frees neither. It outlives a room-session teardown because the giftable
+    /// does, so a re-registration re-offers that inbox instead of minting a
+    /// second one under a name nothing can withdraw.
+    ///
+    /// Nothing unpublishes a giftable, so each row costs one Host alias and one
+    /// actor for the life of the process, plus a lazy export on each Port that
+    /// discovers or receives it. The peer asking is the one who chose the nick.
+    /// `max_dm_inboxes` bounds the count and `max_nick` the length;
+    /// `inboxNameFor` refuses past either.
+    dm_inbox_names: std.StringHashMapUnmanaged([]const u8) = .{},
 
     fn stopRequested() bool {
         return signals.stopRequested();
@@ -155,6 +167,7 @@ const PeerState = struct {
 
     fn deinitTables(self: *PeerState) void {
         self.clearDmTables();
+        self.dm_inbox_names.deinit(self.gpa);
         self.dm_caps.deinit(self.gpa);
         self.pending_introduces.deinit(self.gpa);
         self.failed_introduces.deinit(self.gpa);
@@ -180,23 +193,104 @@ const RoomInbox = struct {
     }
 };
 
-/// Giftable inbox: partners call `dm(from, text)` after redeeming an introduce.
+/// One peer's inbox: partners call `dm(text)` after redeeming an introduce.
+/// `peer` is the nick the directory minted this inbox for, which is why the
+/// message need not name its sender.
 const DmInbox = struct {
     state: *PeerState,
+    peer: []const u8,
+    swiss: []const u8,
 
     pub fn handle(self: *DmInbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "dm")) return error.NoSuchMethod;
-        const from = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "";
-        const text = if (msg.args.len > 1 and msg.args[1] == .string) msg.args[1].string else "";
-        if (from.len > 0 and text.len > 0) {
-            recordInbox(self.state.io, self.state.gpa, self.state.dir, "msg", "dm", from, text, from) catch {};
+        const text = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "";
+        if (text.len > 0) {
+            recordInbox(self.state.io, self.state.gpa, self.state.dir, "msg", "dm", self.peer, text, self.peer) catch {};
         }
         return .{ .void = {} };
     }
+
+    pub fn deinit(self: *DmInbox, _: std.mem.Allocator) void {
+        self.state.gpa.free(self.peer);
+        self.state.gpa.free(self.swiss);
+    }
 };
 
-/// Directory `register` readiness: `notify("registered", nick)`.
+/// The name of the inbox published for `peer`, minting and registering one the
+/// first time; null only if the host refused the registration. The name is
+/// unguessable because a guessable one would let anyone fetch the inbox by name
+/// on a connection they opened themselves.
+fn inboxNameFor(state: *PeerState, peer: []const u8) ?[]const u8 {
+    if (state.dm_inbox_names.get(peer)) |name| return name;
+    if (peer.len > max_nick) {
+        log.err(state.io, "refusing a dm inbox for a nick over {d} bytes", .{max_nick});
+        return null;
+    }
+    if (state.dm_inbox_names.count() >= max_dm_inboxes) {
+        log.err(state.io, "already holding {d} dm inboxes; refusing one for \"{s}\"", .{ max_dm_inboxes, peer });
+        return null;
+    }
+
+    var raw: [16]u8 = undefined;
+    state.io.randomSecure(&raw) catch return null;
+    const swiss = std.fmt.allocPrint(state.gpa, "dm-{s}-{s}", .{ peer, std.fmt.bytesToHex(raw, .lower) }) catch return null;
+    const owned_peer = state.gpa.dupe(u8, peer) catch {
+        state.gpa.free(swiss);
+        return null;
+    };
+    // The map borrows the actor-owned bytes; the actor and publication live for
+    // the Host's life.
+    state.dm_inbox_names.put(state.gpa, owned_peer, swiss) catch {
+        state.gpa.free(owned_peer);
+        state.gpa.free(swiss);
+        return null;
+    };
+    _ = state.host.publishGiftable(swiss, DmInbox, .{ .state = state, .peer = owned_peer, .swiss = swiss }) catch |err| {
+        log.err(state.io, "publishing a dm inbox for \"{s}\" failed: {s}", .{ peer, @errorName(err) });
+        std.debug.assert(state.dm_inbox_names.remove(owned_peer));
+        // `publishGiftable` consumes the behavior state on every outcome;
+        // DmInbox.deinit owns both allocations after the call begins.
+        return null;
+    };
+    return swiss;
+}
+
+/// Offer the directory an inbox for `peer`, the answer to its `mintInboxFor`.
+///
+/// `tell`, so nothing waits on an answer the directory does not send. A refusal
+/// is therefore invisible here, and the cost of one is that the peer stays
+/// unreachable until the directory asks again. It does ask again on their next
+/// `introduce`, since it only asks when it has no inbox filed.
+fn offerInboxFor(state: *PeerState, peer: []const u8) void {
+    if (state.phase != .joined) return;
+    const session = state.phase.joined.session;
+    const directory = state.phase.joined.directory;
+    const swiss = inboxNameFor(state, peer) orelse return;
+    const position = state.host.publishedPosition(session, swiss) catch |err| {
+        log.err(state.io, "reading the dm inbox position failed: {s}", .{@errorName(err)});
+        return;
+    } orelse {
+        log.err(state.io, "the dm inbox for \"{s}\" holds no position on the room session", .{peer});
+        return;
+    };
+    state.host.tell(session, directory, .{
+        .verb = "offerInbox",
+        .args = &.{
+            .{ .string = peer },
+            .{ .reference = .{ .near = model.NearRef.object(position) } },
+        },
+    }) catch |err| {
+        log.err(state.io, "offerInbox for \"{s}\" failed: {s}", .{ peer, @errorName(err) });
+        return;
+    };
+    _ = flushBridge(state, .host);
+}
+
+/// The directory's channel to this member: `notify("registered", nick)` once the
+/// name is granted, `notify("mintInboxFor", peer)` when someone wants to reach us
+/// and has no inbox yet, and `notify("introducible", peer)` when a peer we were
+/// refused has offered us one.
 const RegInbox = struct {
     state: *PeerState,
 
@@ -204,21 +298,24 @@ const RegInbox = struct {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
         const kind = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "";
+        const peer = if (msg.args.len > 1 and msg.args[1] == .string) msg.args[1].string else "";
         if (std.mem.eql(u8, kind, "registered")) {
             // Outside `.joined` this no-ops: a late notify after teardown must
             // not write status "joined" with the wire down.
             if (phase_mod.noteRegistered(&self.state.phase)) {
                 self.state.writeStateNow("joined");
             }
+        } else if (std.mem.eql(u8, kind, "mintInboxFor") and peer.len > 0) {
+            offerInboxFor(self.state, peer);
+        } else if (std.mem.eql(u8, kind, "introducible") and peer.len > 0) {
+            // Our introduce to them was refused because they had minted us no
+            // inbox; they have now. Drop the refusal cooldown so the next wake
+            // retries rather than waiting it out.
+            if (self.state.failed_introduces.fetchRemove(peer)) |kv| self.state.gpa.free(kv.key);
         }
         return .{ .void = {} };
     }
 };
-
-fn publishDm(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
-    const state: *PeerState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish("dm", DmInbox, .{ .state = state });
-}
 
 fn refOf(resolution: actors.Resolution) ?model.Reference {
     return switch (resolution) {
@@ -330,7 +427,7 @@ fn subscribeRoom(state: *PeerState, room: model.Reference) void {
         state.requestAbandonJoin();
         return;
     };
-    const inbox = session.served.spawn(RoomInbox, .{ .state = state }) catch |err| {
+    const inbox = session.served.spawn(&session.host.vat, RoomInbox, .{ .state = state }) catch |err| {
         log.err(state.io, "inbox spawn failed: {s}", .{@errorName(err)});
         state.requestAbandonJoin();
         return;
@@ -353,13 +450,6 @@ fn subscribeRoom(state: *PeerState, room: model.Reference) void {
     state.join_attempts = 0;
     g_ever_joined = true;
     state.writeStateNow("joined");
-    // Publish `dm` on this dialed room session so the directory can fetch it
-    // during register. The Bridge still auto-publishes on accepted desks for
-    // inbound redeem.
-    _ = session.served.publish("dm", DmInbox, .{ .state = state }) catch |err| {
-        log.err(state.io, "publish dm on room session failed: {s}", .{@errorName(err)});
-    };
-    _ = flushBridge(state, .host);
     registerWithDirectory(state);
 }
 
@@ -371,7 +461,7 @@ fn registerWithDirectory(state: *PeerState) void {
     if (joined.reg != .pending or state.member_locator.len == 0) return;
     const session = joined.session;
     const directory = joined.directory;
-    const inbox = session.served.spawn(RegInbox, .{ .state = state }) catch |err| {
+    const inbox = session.served.spawn(&session.host.vat, RegInbox, .{ .state = state }) catch |err| {
         log.err(state.io, "register inbox spawn failed: {s}", .{@errorName(err)});
         return;
     };
@@ -597,7 +687,7 @@ fn drainOutbox(state: *PeerState) void {
                 if (state.dm_caps.get(parsed.peer)) |dm| {
                     state.host.tell(session, dm, .{
                         .verb = "dm",
-                        .args = &.{ .{ .string = state.nick }, .{ .string = parsed.text } },
+                        .args = &.{.{ .string = parsed.text }},
                     }) catch |err| {
                         log.err(state.io, "dm tell failed: {s}", .{@errorName(err)});
                         evictDmCap(state, parsed.peer);
@@ -922,7 +1012,7 @@ fn runStack(
 
     // Direct demos stamp address hints on the registered locator so a redeem
     // dial reaches the member without Discovery. Discovery peers advertise a
-    // bare node id — the same shape `web.ts` uses for browser DM members — so
+    // bare node id — the same shape `serve.ts` uses for browser DM members — so
     // redeem uses Discovery rather than private container/LAN binds the public
     // recipient cannot reach.
     var addrs_buf: [512]u8 = undefined;
@@ -966,9 +1056,10 @@ fn runStack(
         .hint = hint,
     };
     defer state.deinitTables();
+    // No per-session publish hook: an inbox belongs to one named peer, and the
+    // host's giftable registry already puts each on every connection, including
+    // the ones a redeem opens later.
     var bridge = IrohBridge.init(gpa, &host, io, &loop, .{
-        .publish = publishDm,
-        .publish_ctx = &state,
         .on_open = onOpen,
         .on_open_ctx = &state,
     });

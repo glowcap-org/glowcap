@@ -41,7 +41,7 @@ export function outUsize(buf: Uint8Array): bigint {
 	return L.getUsize(new DataView(buf.buffer), 0);
 }
 
-/** Read a true 64-bit out-cell (a vow id, an export position): u64 on every
+/** Read a true 64-bit out-cell (a vow id or opaque Host capability id): u64 on every
  * target, so this one reads 8 bytes unconditionally. */
 export function outU64(buf: Uint8Array): bigint {
 	return new DataView(buf.buffer).getBigUint64(0, true);

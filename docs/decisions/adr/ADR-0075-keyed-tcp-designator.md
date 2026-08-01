@@ -6,6 +6,8 @@ tags: [net, driver, engine, identity]
 decision: "TCP gains a `keyed-tcp` netlayer whose designator is the listener's Ed25519 key in canonical hex, with the socket address riding the `direct-addresses` hint, verified fail-closed at the handshake by one shared dial-side pin (`engine.Peer.expectPartnerKey`) that iroh inherits."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0097]
 ---
 
 # ADR-0075 Keyed TCP Designator
@@ -99,7 +101,8 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
   and sturdyrefs through `view.BorrowedHints` (and `toOwned`).
   Syrup start-session also keeps `acceptable_location_raw` for the signing
   domain. Session authority does not store partner structured hints for
-  dial-from-hello: see [boundaries.md § Netlayer](../../boundaries.md#netlayer)
+  dial-from-hello: see
+  [Known limitations § Transports and peer identity](../../boundaries.md#transports-and-peer-identity)
   and [community-review.md](../../community-review.md).
 - Binding-level `keyed-tcp` dial/host surfaces and per-binding restart gates
   are shipped (`listen_keyed_tcp` / `keyed_tcp_locator` / `connect` on a

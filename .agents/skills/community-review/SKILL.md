@@ -94,7 +94,7 @@ bounces here never reaches the wire.
 
 The positions are public and settled, and pancake argues with neither:
 
-- **Codeberg**, which hosts the origin, bans projects that "mostly consist of
+- **Codeberg** bans projects that "mostly consist of
   code written by 'generative AI'-tools" (Terms of Use § 2 (1) 7, member vote,
   July 2026). pancake falls within that wording. The
   [announcement](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html)

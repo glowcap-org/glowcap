@@ -12,7 +12,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::host::{check_host, drain_pending_releases, host_last_error};
 use crate::session_shared::{io_err, SessionShared, READ_CHUNK};
-use crate::sys::driver as ffi;
+use crate::sys::host as ffi;
+use crate::trampoline::DeliverGuard;
 use crate::{sys, AbortDomain, AbortInfo, Error, Result};
 
 /// Drive a freshly opened connection's keyed handshake to an open session.
@@ -70,12 +71,6 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 			tokio::select! {
 				biased;
 				_ = shared.closed.notified() => return Ok(()),
-				_ = shared.gc_wakeup.notified() => {
-					// A finalizer parked tokens; release them on this, the
-					// pumping task.
-					shared.drain_gc();
-					shared.host.kick_actions().await;
-				}
 				read = reader.read(&mut chunk) => {
 					match read {
 						Ok(0) => return Ok(()), // clean EOF
@@ -130,6 +125,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
 	let mut refusal: Option<i32> = None;
 	if !shared.released.get() {
+		let _deliver = DeliverGuard::enter(shared);
 		let rc = unsafe {
 			ffi::pancake_host_session_feed_bytes(
 				shared.ptr.get(),

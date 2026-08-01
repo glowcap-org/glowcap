@@ -1,5 +1,5 @@
 // The browser runtime adapter (ADR-0070): the stack's FFI seam implemented
-// over a WebAssembly instance of `pancake_driver.wasm`, and its socket seam
+// over a WebAssembly instance of `pancake_host.wasm`, and its socket seam
 // implemented over WebSocket. Installed by `mod.ts`'s `init` before the stack
 // loads, so `internal/ffi/runtime.ts` resolves this adapter instead of probing
 // for Deno or Bun.
@@ -216,7 +216,7 @@ export function makeWebAdapter(
 		if (typeof fn !== "function") {
 			throw new Error(
 				`pancake wasm module exports no "${name}": only the ocapn and driver ` +
-					"families live in pancake_driver.wasm (the transport archives are native-only)",
+					"families live in pancake_host.wasm (the transport archives are native-only)",
 			);
 		}
 		return (...args: unknown[]) => {

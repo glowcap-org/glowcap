@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the byte-fed embedder pump choreography over the host
-;; (libpancake_driver, ADR-0072 / ADR-0079).
+;; (libpancake_host, ADR-0072 / ADR-0079).
 ;;
 ;; Owns the connection byte path the embedder contract leaves to the binding:
 ;; the keyed handshake, read raw bytes off the transport, hand them to the
@@ -17,7 +17,7 @@
          racket/lazy-require
          "constants.rkt"
          "ffi-ocapn.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "ffi-shared.rkt"
          "errors.rkt"
          "value.rkt"
@@ -52,6 +52,7 @@
          drain-effects?
          no-drain-effects
          current-defer-drain-effects
+         current-deliver-session
          HANDSHAKE-TIMEOUT-MS
          drain-outbound!
          write-pending!
@@ -64,6 +65,12 @@
          run-handshake!
          session-last-abort
          break-far-vows-bytes!)
+
+;; The session whose inbound feed is running. Hosted callbacks fire
+;; synchronously inside that FFI call, so trampolines can identify the Port
+;; that delivered a turn even after the Port that first projected the actor
+;; has closed.
+(define current-deliver-session (make-parameter #f))
 
 ;; What one locked drain hands back to run once the host lock releases: the
 ;; connections whose outbound was drained, and the deferred fires — settled
@@ -188,15 +195,17 @@
       (lambda ()
         (define buf (pin-immobile got))
         (define rc
-          (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got)))
+          (parameterize ([current-deliver-session c])
+            (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
+        (define captured (and (not (= rc OK)) (capture-feed-refusal c rc)))
+        (host-drain-parked-releases! m)
         (cond
           [(= rc OK)
-           (host-drain-parked-releases! m)
            (values (drain-host-actions! m) #f)]
           [else
            ;; Park the abort on the FIFO and mark `c` touched so the shared
            ;; drain spine writes it — refusal is a flush, not a private exit.
-           (values (drain-effects (list c) '()) (capture-feed-refusal c rc))]))))
+           (values (drain-effects (list c) '()) captured)]))))
   (when refusal (raise-feed-refusal refusal)))
 
 ;; The feed refusal choreography, split around the host lock. Under the lock

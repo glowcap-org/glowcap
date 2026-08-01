@@ -2,9 +2,14 @@
     .name = .pancake,
     .version = "0.1.0",
     .dependencies = .{
+        // Lazy on purpose: libvaxis backs the CapTP lab REPL in the product
+        // CLI and nothing in the `pancake` library module. A consumer that
+        // depends on pancake as a package must not fetch a terminal UI it
+        // never links, so the CLI steps resolve it and library builds do not.
         .vaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis.git#d63a23c593c9b82f0b2886840161fa1f1df983e9",
             .hash = "vaxis-0.6.0-BWNV_DsLCgCcKudOoFkyrSgjxUeLAOSf1LxwezEeVieH",
+            .lazy = true,
         },
     },
     .fingerprint = 0x4ff9c4c7afc73bfa,
@@ -15,6 +20,12 @@
         "src",
         "include",
         "tools",
+        // `build()` names these from steps a package consumer never runs, but
+        // a manifest that omits a path its own build file references is a
+        // packaged build that cannot describe itself.
+        "cli",
+        "test",
+        "examples",
         "LICENSE-THIRD-PARTY",
         "LICENSE-APACHE",
         "README.md",

@@ -394,3 +394,52 @@ test "the projection cap refuses the overflowing op:get loudly" {
         peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>1\"c14+>", .shape = .byte }),
     );
 }
+
+test "a projection is dropped when its answer position was released and reasked" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // The partner asks a question (answer 11), then projects a field of it
+    // onto answer 12.
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
+    {
+        var event = peer.pollEvent().?;
+        defer event.deinit();
+    }
+    try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
+
+    // It then releases 12 and asks something else at the same number. A partner
+    // names its own answer positions, so reusing one is its right.
+    try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[12+]>", .shape = .byte });
+    while (peer.pollEvent()) |ev| {
+        var e = ev;
+        e.deinit();
+    }
+    try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) == null);
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]12+f>");
+    try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
+
+    // Now the projected-from answer settles. The projection is moot: answering
+    // 12 here would answer the partner's *new* question with the old one's
+    // field, and the application's real reply to it would then be refused as a
+    // second resolve, taking the session down.
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
+        .{ .key = "name", .value = .{ .string = "tabby" } },
+    } } } } });
+    const wire = try peer_fixture.drainOutbound(&peer, allocator);
+    defer allocator.free(wire);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve11+") != null);
+    // Answer 11's own resolve carries the struct, so the tell is that nothing
+    // resolves 12 — the position the partner reasked.
+    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+") == null);
+    try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(12)).?.status);
+
+    // And the new question can still be answered, which is the whole point.
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(12), .resolution = .{ .fulfill = .{ .string = "the real reply" } } } });
+    const second = try peer_fixture.drainOutbound(&peer, allocator);
+    defer allocator.free(second);
+    try std.testing.expect(std.mem.indexOf(u8, second, "the real reply") != null);
+}

@@ -42,7 +42,7 @@ const RecipientState = struct {
     host: *Host,
     bridge: *TcpBridge,
     alice_conn: ?*HostSession = null,
-    swiss: []const u8,
+    sturdyref: model.SturdyRef,
     greeter_done: *std.atomic.Value(bool),
     ok: *std.atomic.Value(bool),
 
@@ -127,7 +127,7 @@ fn recipientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) 
     if (state.alice_conn != null) return;
     state.alice_conn = conn.session;
     std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
-    const vow = try state.host.enliven(conn.session, state.swiss);
+    const vow = try state.host.enliven(conn.session, state.sturdyref);
     try state.host.vowOn(vow, .{ .ctx = state, .func = RecipientState.onEnlivened });
     try bridge.drainActions();
 }
@@ -183,14 +183,6 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
         .on_open_ctx = &state,
     });
     defer bridge.deinit();
-    state = .{
-        .host = &host,
-        .bridge = &bridge,
-        .swiss = swiss,
-        .greeter_done = &greeter_done,
-        .ok = &ok,
-    };
-
     loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
@@ -205,8 +197,15 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
     const alice_port = try std.fmt.parseInt(u16, alice_port_str, 10);
     var alice_designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const alice_addr = try tcp.parseHostPort(host_addr, alice_port);
-    const alice_designator = tcp.locator(&alice_designator_buf, alice_addr).designator;
-    try bridge.dialOutbound(tcp.transport_name, alice_designator, "");
+    const alice_locator = tcp.locator(&alice_designator_buf, alice_addr);
+    state = .{
+        .host = &host,
+        .bridge = &bridge,
+        .sturdyref = .{ .peer = alice_locator, .swissnum = swiss },
+        .greeter_done = &greeter_done,
+        .ok = &ok,
+    };
+    try bridge.dialOutbound(alice_locator.transport, alice_locator.designator, "");
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &greeter_done, &loop_err });

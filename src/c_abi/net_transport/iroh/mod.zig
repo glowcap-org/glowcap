@@ -29,8 +29,16 @@
 //! reachability: a `direct` endpoint dials by id plus hints, a discovery
 //! endpoint resolves the partner by id alone.
 //!
+//! Those same calls are the raw byte channel a byte-transparent relay needs for
+//! an iroh leg (ADR-0086). One leg composes `pancake_iroh_netlayer_new`, its
+//! `readiness_fd` and `drain_ready`, the `_start_connect` /
+//! `_finish_connect` lifecycle, `_conn_try_read` / `_conn_try_write`, then
+//! `_conn_release` and `pancake_iroh_netlayer_release`.
+//! There is no channel object over them, because the wait a channel needs is
+//! your own reactor's, and only the caller can hold it.
+//!
 //! Symbol names deliberately avoid the sidecar's own `pancake_iroh_sidecar_*`
-//! exports (`pancake_iroh_sidecar_connect`, `pancake_iroh_sidecar_conn_close`,
+//! exports (`pancake_iroh_sidecar_connect_blocking`, `pancake_iroh_sidecar_conn_close`,
 //! …): this public surface is `pancake_iroh_netlayer_*` and
 //! `pancake_iroh_conn_{try_read,try_write}` / `_release`, so the private
 //! byte-level seam and the public loop-level ABI share no prefix and the two
@@ -103,21 +111,16 @@ const NetlayerPayload = struct {
     /// The allocator the netlayer and every connection made from it use, so a
     /// connection frees through the same policy as the netlayer that minted it.
     allocator: std.mem.Allocator,
-    /// Routing table for the readiness loop: a readiness record names a
-    /// connection by its sidecar handle (a `usize`), and the host needs the
-    /// owning `ConnPayload` to act on it. Populated by `try_accept` /
-    /// `try_connect`, pruned by `conn_release`, so a record for a freed
-    /// connection routes to nothing rather than a dangling pointer.
-    loop_conns: std.AutoHashMapUnmanaged(usize, *ConnPayload) = .{},
 };
 
-/// One loop connection: the sidecar handle (surfaced as `*anyopaque`, the loop
-/// routing key) plus a back-pointer to the netlayer that owns the routing table,
-/// so `release` can prune itself. No read/write buffers and no spill: the host
+/// One loop connection: the sidecar handle, its stable readiness identity, and
+/// a back-pointer to the netlayer whose endpoint owns it. No read/write buffers
+/// and no spill: the host
 /// frames the raw bytes this hands out (the peer's stream-input path), the same
 /// shape `tcp` uses, so framing state lives in the host's peer.
 const ConnPayload = struct {
     allocator: std.mem.Allocator,
+    conn_id: usize,
     conn: *anyopaque,
     netlayer: *NetlayerPayload,
 };
@@ -146,6 +149,7 @@ pub const PANCAKE_IROH_EV_READABLE: u32 = iroh.loop_ev_readable;
 pub const PANCAKE_IROH_EV_WRITABLE: u32 = iroh.loop_ev_writable;
 pub const PANCAKE_IROH_EV_CLOSED: u32 = iroh.loop_ev_closed;
 pub const PANCAKE_IROH_EV_ACCEPT: u32 = iroh.loop_ev_accept;
+pub const PANCAKE_IROH_EV_CONNECT: u32 = iroh.loop_ev_connect;
 
 /// Reachability postures, mirroring the header's `PANCAKE_IROH_REACH_*`.
 /// Defined from the resident's `Reachability` enum so the compiler holds the
@@ -164,12 +168,11 @@ pub const PANCAKE_IROH_REACH_LOCAL_DISCOVERY: u32 = @intFromEnum(iroh.Reachabili
 pub const PANCAKE_IROH_REACH_REDEEM_DEFAULT: u32 = PANCAKE_IROH_REACH_DISCOVERY;
 
 /// One readiness record handed to the host by `pancake_iroh_netlayer_drain_ready`:
-/// the connection that became ready and the `PANCAKE_IROH_EV_*` bitset. `conn`
-/// is null for an accept record (claim it with `pancake_iroh_netlayer_try_accept`)
-/// and otherwise the `PancakeIrohConn` the host drives. The `extern struct`
-/// counterpart of the header's `PancakeIrohReadyEvent`.
+/// the subject that became ready and the `PANCAKE_IROH_EV_*` bitset. `subject`
+/// is zero for accept, a caller request id for connect completion, and otherwise
+/// the stable id returned by `pancake_iroh_conn_id`.
 pub const PancakeIrohReadyEvent = extern struct {
-    conn: ?*PancakeIrohConn,
+    subject: usize,
     events: u32,
 };
 
@@ -286,22 +289,11 @@ pub export fn pancake_iroh_netlayer_close(netlayer: ?*PancakeIrohNetlayer) void 
     nl.resident.close();
 }
 
-/// Release the netlayer, its endpoint, and the runtime. Prefer releasing every
-/// connection first; any still live are drained here so their back-pointers
-/// never touch a freed routing table.
+/// Release the netlayer, its endpoint, and the runtime. Every connection made
+/// from it must already be released.
 pub export fn pancake_iroh_netlayer_release(netlayer: ?*PancakeIrohNetlayer) void {
     const nl = nlFromOpaque(netlayer) orelse return;
     const alloc = nl.allocator;
-    // Drain any connection the caller failed to release first: each still points
-    // at this netlayer, so freeing the map (or the payload) out from under them is
-    // a HashMap.remove alignment panic inside destroyConn. destroyConn prunes the
-    // row, so the iterator is rebuilt each pass.
-    while (nl.loop_conns.count() > 0) {
-        var it = nl.loop_conns.iterator();
-        const entry = it.next() orelse break;
-        destroyConn(entry.value_ptr.*);
-    }
-    nl.loop_conns.deinit(alloc);
     nl.resident.deinit();
     nl.threaded.deinit();
     alloc.destroy(nl);
@@ -336,7 +328,7 @@ pub export fn pancake_iroh_netlayer_node_id(
 }
 
 /// Write this endpoint's comma-separated direct socket addresses into `out`
-/// (the hint string a partner passes to `pancake_iroh_netlayer_connect`) and
+/// (the hint string a partner passes to `pancake_iroh_netlayer_start_connect`) and
 /// the byte count into `out_len`. A buffer too small for the list is
 /// `PANCAKE_ERR_BUFFER_TOO_SMALL`; an endpoint with no direct addresses writes
 /// zero bytes and returns `PANCAKE_OK`. No terminator is written.
@@ -359,19 +351,25 @@ pub export fn pancake_iroh_netlayer_direct_addrs(
 
 // ── Connections ──────────────────────────────────────────────────────────────
 
-/// Close the connection and free the handle; do not use `conn` afterward. The
-/// connection also prunes itself from its netlayer's routing table so a later
-/// readiness record naming it routes to nothing. No call ever parks on the
-/// connection, so this free cannot race a parked read; the sidecar's own free
-/// fences the QUIC streams as a backstop.
+/// Close the connection and free the handle; do not use `conn` afterward.
+/// A later readiness record may still carry its stable id; the host drops that
+/// record because its own id-to-connection row is already gone. No call ever
+/// parks on the connection, so this free cannot race a parked read.
 pub export fn pancake_iroh_conn_release(conn: ?*PancakeIrohConn) void {
     const payload = connFromOpaque(conn) orelse return;
     destroyConn(payload);
 }
 
+/// Stable readiness identity for this connection. It is unique for the
+/// netlayer's lifetime and is not derived from the handle allocation address.
+pub export fn pancake_iroh_conn_id(conn: ?*PancakeIrohConn) usize {
+    const payload = connFromOpaque(conn) orelse return 0;
+    return payload.conn_id;
+}
+
 // ── The event-driven loop surface (ADR-0057) ─────────────────────────────────
 
-/// The netlayer's single OS readiness fd — the borrowed read end of the
+/// The netlayer's single read-only OS readiness fd — the borrowed read end of the
 /// sidecar's wakeup channel, readable whenever fresh readiness records are
 /// pending. Register it once with your poller (`poll`/`epoll`/`kqueue`, or a
 /// language runtime's reactor); when it signals, call
@@ -383,16 +381,17 @@ pub export fn pancake_iroh_netlayer_readiness_fd(netlayer: ?*PancakeIrohNetlayer
     return nl.resident.readinessFd();
 }
 
-/// Drain the pending readiness records into `out_events` (`out_cap` entries,
+/// Clear the fd's coalesced wake bytes, then drain pending readiness records
+/// into `out_events` (`out_cap` entries,
 /// caller-owned) without blocking: `PANCAKE_OK` with the drained count (0 when
 /// none are ready) written to `out_count`, or a `PANCAKE_ERR_*` on fault
 /// (`out_count` untouched). Call it when `readiness_fd` signals, then again until
 /// it drains fewer than `out_cap` records (more may be queued than one call
-/// drains), before re-parking on the fd. Records for connections already
-/// released are skipped, so a host can release a connection at any time without
-/// racing this call, the drain touches only the endpoint, never a per-connection
-/// buffer. Run it on one thread per netlayer, serialized against `_release` of
-/// the netlayer.
+/// drains), before re-parking on the fd. A record for a connection already
+/// released still carries only its stable id, so the host can discard it
+/// without dereferencing freed storage. The drain touches only the endpoint,
+/// never a per-connection buffer. Run it on one thread per netlayer, serialized
+/// against `_release` of the netlayer.
 pub export fn pancake_iroh_netlayer_drain_ready(
     netlayer: ?*PancakeIrohNetlayer,
     out_events: ?[*]PancakeIrohReadyEvent,
@@ -403,8 +402,8 @@ pub export fn pancake_iroh_netlayer_drain_ready(
     const dest_ptr = out_events orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_count orelse return PANCAKE_ERR_NULL_POINTER;
     if (out_cap == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const n = drainReady(nl, dest_ptr[0..out_cap]);
-    if (n < 0) return @intCast(n);
+    const n = drainInto(nl, dest_ptr[0..out_cap]);
+    if (n < 0) return PANCAKE_ERR_INTERNAL;
     slot.* = @intCast(n);
     return PANCAKE_OK;
 }
@@ -419,6 +418,7 @@ pub export fn pancake_iroh_netlayer_try_accept(
 ) i32 {
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = null;
     const raw = nl.resident.loopTryAccept() orelse return PANCAKE_ERR_WOULD_BLOCK;
     const payload = registerNbConn(nl, raw) orelse {
         nl.resident.loopConnClose(raw);
@@ -428,32 +428,59 @@ pub export fn pancake_iroh_netlayer_try_accept(
     return PANCAKE_OK;
 }
 
-/// Dial a partner by endpoint id and return a connection driven by this
-/// netlayer's readiness loop. `node_id` is the partner's canonical id (borrowed
-/// for the call); `addr_hints` is its comma-separated direct-address list
-/// (borrowed; empty cannot dial a `DIRECT` netlayer, which runs no lookup
-/// service, but suffices for a discovery posture). The dial itself blocks the
-/// calling thread (run it off your event loop); subsequent `conn_try_read` /
-/// `conn_try_write` are non-blocking. Release with `pancake_iroh_conn_release`.
-pub export fn pancake_iroh_netlayer_try_connect(
+/// Admit one non-blocking dial. `request_id` must be nonzero and unique among
+/// this netlayer's live requests. PANCAKE_OK promises exactly one EV_CONNECT
+/// carrying that id; a synchronous error promises no event.
+pub export fn pancake_iroh_netlayer_start_connect(
     netlayer: ?*PancakeIrohNetlayer,
+    request_id: usize,
     node_id: ?[*]const u8,
     node_id_len: usize,
     addr_hints: ?[*]const u8,
     addr_hints_len: usize,
+) i32 {
+    const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const id_ptr = node_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const hints: []const u8 = if (addr_hints) |h|
+        h[0..addr_hints_len]
+    else if (addr_hints_len == 0)
+        &.{}
+    else
+        return PANCAKE_ERR_NULL_POINTER;
+    if (request_id == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const target = iroh.DialResolver.resolve(iroh.transport_name, id_ptr[0..node_id_len], hints) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    nl.resident.loopStartConnectResolved(request_id, target.id, target.hints) catch |err| return dialErrorToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Consume one terminal dial after EV_CONNECT. Connection allocation and
+/// registration happen here, on the readiness owner thread.
+pub export fn pancake_iroh_netlayer_finish_connect(
+    netlayer: ?*PancakeIrohNetlayer,
+    request_id: usize,
     out_conn: ?*?*PancakeIrohConn,
 ) i32 {
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
-    const id_ptr = node_id orelse return PANCAKE_ERR_NULL_POINTER;
-    const hints: []const u8 = if (addr_hints) |h| h[0..addr_hints_len] else &.{};
-
-    const raw = nl.resident.loopConnect(id_ptr[0..node_id_len], hints) catch |err| return dialErrorToCode(err);
+    slot.* = null;
+    const raw = nl.resident.loopFinishConnect(request_id) catch |err| return dialErrorToCode(err);
     const payload = registerNbConn(nl, raw) orelse {
         nl.resident.loopConnClose(raw);
         return PANCAKE_ERR_INTERNAL;
     };
     slot.* = @ptrCast(payload);
+    return PANCAKE_OK;
+}
+
+/// Cancel one admitted dial. Its sole EV_CONNECT still arrives and must be
+/// finished, which consumes the endpoint-owned terminal row.
+pub export fn pancake_iroh_netlayer_cancel_connect(
+    netlayer: ?*PancakeIrohNetlayer,
+    request_id: usize,
+) i32 {
+    const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (request_id == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    nl.resident.loopCancelConnect(request_id);
     return PANCAKE_OK;
 }
 
@@ -497,76 +524,51 @@ pub export fn pancake_iroh_conn_try_write(conn: ?*PancakeIrohConn, buf: ?[*]cons
     return PANCAKE_OK;
 }
 
-/// Wrap a freshly accepted/dialed raw loop handle in a `ConnPayload` and route
-/// it in the netlayer's table. Returns null (caller frees the raw handle) on
-/// allocation failure.
+/// Wrap a freshly accepted/dialed raw loop handle in a `ConnPayload`. Returns
+/// null (caller frees the raw handle) on allocation failure.
 fn registerNbConn(nl: *NetlayerPayload, raw: *anyopaque) ?*ConnPayload {
     const payload = nl.allocator.create(ConnPayload) catch return null;
-    payload.* = .{
-        .allocator = nl.allocator,
-        .conn = raw,
-        .netlayer = nl,
-    };
-    nl.loop_conns.put(nl.allocator, @intFromPtr(raw), payload) catch {
+    const conn_id = nl.resident.loopConnId(raw);
+    if (conn_id == 0) {
         nl.allocator.destroy(payload);
         return null;
+    }
+    payload.* = .{
+        .allocator = nl.allocator,
+        .conn_id = conn_id,
+        .conn = raw,
+        .netlayer = nl,
     };
     return payload;
 }
 
-/// Drain pending readiness records into `dest`, mapping each sidecar handle to
-/// its owning `ConnPayload` and dropping records for connections already
-/// released. Never drains more than `dest` can hold, so no record is lost to a
-/// short output buffer. Returns the number of routable records written.
-fn drainInto(nl: *NetlayerPayload, dest: []PancakeIrohReadyEvent) usize {
+/// Drain pending readiness records into `dest` without translating their stable
+/// subjects. Never drains more than `dest` can hold, so no record is lost to a
+/// short output buffer.
+fn drainInto(nl: *NetlayerPayload, dest: []PancakeIrohReadyEvent) isize {
     var raw: [128]iroh.ReadyEvent = undefined;
     var out_n: usize = 0;
     while (out_n < dest.len) {
         const want = @min(dest.len - out_n, raw.len);
         const n = nl.resident.drainReady(raw[0..want]);
-        if (n <= 0) break;
+        if (n < 0) return n;
+        if (n == 0) break;
         const count: usize = @intCast(n);
         for (raw[0..count]) |rec| {
-            if (rec.events & PANCAKE_IROH_EV_ACCEPT != 0) {
-                dest[out_n] = .{ .conn = null, .events = rec.events };
-                out_n += 1;
-            } else if (nl.loop_conns.get(rec.conn)) |payload| {
-                dest[out_n] = .{ .conn = @ptrCast(payload), .events = rec.events };
-                out_n += 1;
-            }
-            // A record for a freed connection routes to nothing, skip it.
+            dest[out_n] = .{ .subject = rec.subject, .events = rec.events };
+            out_n += 1;
         }
         if (count < want) break;
     }
-    return out_n;
-}
-
-/// The body of `drain_ready`: clear the fd's coalesced wakeup bytes first (so a
-/// record enqueued concurrently keeps its byte and re-signals the fd), then
-/// drain the ready-queue. Draining bytes before records is the order that never
-/// loses a wakeup. The read end is non-blocking, so the byte-drain loop ends at
-/// the first `WouldBlock`.
-fn drainReady(nl: *NetlayerPayload, dest: []PancakeIrohReadyEvent) isize {
-    const fd = nl.resident.readinessFd();
-    if (fd < 0) return PANCAKE_ERR_INTERNAL;
-    var wake: [256]u8 = undefined;
-    while (true) {
-        _ = std.posix.read(fd, &wake) catch break;
-    }
-    return @intCast(drainInto(nl, dest));
+    return @intCast(out_n);
 }
 
 // ── Connection payload lifecycle ─────────────────────────────────────────────
 
-/// Release a loop connection: prune the routing entry first, so a readiness
-/// record drained after this — for the connection we are about to free — finds
-/// nothing and is skipped, never a dangling pointer; then free the sidecar
-/// handle and the payload.
+/// Release a loop connection and its sidecar handle. The host removes its
+/// stable-id routing row before calling this function.
 fn destroyConn(payload: *ConnPayload) void {
     const alloc = payload.allocator;
-    // tolerant: already pruned when netlayer_release drains leftovers, or when
-    // a readiness path raced a release; never assert-remove into a torn map.
-    _ = payload.netlayer.loop_conns.remove(@intFromPtr(payload.conn));
     payload.netlayer.resident.loopConnClose(payload.conn);
     alloc.destroy(payload);
 }

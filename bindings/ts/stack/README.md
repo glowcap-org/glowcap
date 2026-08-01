@@ -1,7 +1,7 @@
 # @pancake/stack
 
 The core multi-runtime JavaScript/TypeScript consumer of the pancake C ABI archives: a full OCapN
-node over the byte-fed host archive `libpancake_driver` (ADR-0072). It covers values, capabilities,
+node over the byte-fed host archive `libpancake_host` (ADR-0072). It covers values, capabilities,
 actors, and locator URIs. It exposes the async `Session` and `Server` over the runtime's own
 networking, plus the two built-in transports (`tcp`, `inproc`). The optional encrypted-QUIC
 transport ships separately as [`@pancake/iroh`](../iroh/README.md).
@@ -34,12 +34,12 @@ The public surface is one core module plus one module per built-in transport, de
 to an archive and opens only that archive through the runtime shim's `dlopen`, so importing the core
 never loads a transport and importing one transport never loads another.
 
-| Import                            | File                                         | Archive it opens                                                                                                                                                                   |
-| --------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pancake/stack`                  | [`mod.ts`](mod.ts)                           | `libpancake_driver` (the byte-fed host: `Host`, `Session`/`Server`, `connect`/`listen`) plus `libpancake_ocapn`'s shared vocabulary (values, locator URIs, the allocation context) |
-| `@pancake/stack/transport/tcp`    | [`transport/tcp.ts`](transport/tcp.ts)       | `libpancake_net_transport_tcp`: the blocking `Netlayer`/`Listener`/`Endpoint` frame shuttle                                                                                        |
-| `@pancake/stack/transport/inproc` | [`transport/inproc.ts`](transport/inproc.ts) | `libpancake_net_transport_inproc`: the socket-free in-process `Netlayer`/`Listener`/`Endpoint`                                                                                     |
-| `@pancake/stack/ffi`              | [`ffi.ts`](ffi.ts)                           | the native seam (`ffi`, `Ptr`, `Symbols`, `libPath`, ABI constants) a transport-companion package such as `@pancake/iroh` plugs into, not for applications                         |
+| Import                            | File                                         | Archive it opens                                                                                                                                                                 |
+| --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pancake/stack`                  | [`mod.ts`](mod.ts)                           | `libpancake_host` (the byte-fed host: `Host`, `Session`/`Server`, `connect`/`listen`) plus `libpancake_ocapn`'s shared vocabulary (values, locator URIs, the allocation context) |
+| `@pancake/stack/transport/tcp`    | [`transport/tcp.ts`](transport/tcp.ts)       | `libpancake_net_transport_tcp`: the blocking `Netlayer`/`Listener`/`Endpoint` frame shuttle                                                                                      |
+| `@pancake/stack/transport/inproc` | [`transport/inproc.ts`](transport/inproc.ts) | `libpancake_net_transport_inproc`: the socket-free in-process `Netlayer`/`Listener`/`Endpoint`                                                                                   |
+| `@pancake/stack/ffi`              | [`ffi.ts`](ffi.ts)                           | the native seam (`ffi`, `Ptr`, `Symbols`, `libPath`, ABI constants) a transport-companion package such as `@pancake/iroh` plugs into, not for applications                       |
 
 The optional encrypted-QUIC transport is a separate package, [`@pancake/iroh`](../iroh/README.md),
 so a consumer that never speaks iroh never installs the Rust-sidecar artifact. `connect` reaches it

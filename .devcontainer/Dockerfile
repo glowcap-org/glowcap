@@ -6,7 +6,7 @@ FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b
 
 LABEL org.opencontainers.image.title="pancake-dev:local" \
       org.opencontainers.image.description="pancake-dev devcontainer: Zig, Goblins conformance, dogfood toolchains." \
-      org.opencontainers.image.source="https://codeberg.org/jimisaacs/pancake" \
+      org.opencontainers.image.source="https://github.com/jimisaacs/pancake" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Paths must match pins.sh (see check-env-sync.sh).
@@ -34,11 +34,20 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       python3-pip python3-venv strace tar unzip valgrind xz-utils util-linux
 
 # ==============================================================================
-# ADDED: Create the vscode user space to prevent Cursor setup script race conditions
+# The vscode user space, created before any bind mount lands in it.
+#
+# Every directory a devcontainer.json bind targets must exist here first. Docker
+# creates a missing mount path itself, as root, and it creates the missing
+# *parents* the same way — so binding `.local/share/opencode` into an image with
+# no `.local` leaves `.local` and `.local/share` owned by root, and the first
+# tool that wants `.local/state` fails with EACCES before any gate runs.
 # ==============================================================================
 RUN groupadd --gid 1000 vscode \
 && useradd --uid 1000 --gid 1000 -m -s /bin/bash vscode \
 && mkdir -p /home/vscode/.cache \
+     /home/vscode/.config \
+     /home/vscode/.local/share \
+     /home/vscode/.local/state \
 && chown -R vscode:vscode /home/vscode
 # ==============================================================================
 

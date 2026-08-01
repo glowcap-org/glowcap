@@ -42,8 +42,8 @@ test "table-cap exhaustion projects to resource-exhausted and close" {
         session.Error.InboundAnswerCapExceeded,
         session.Error.ListenerCapExceeded,
         session.Error.ImportCapExceeded,
-        session.Error.HandoffCountCapExceeded,
         session.Error.DepositedGiftCapExceeded,
+        session.Error.PendingWithdrawCapExceeded,
     }) |err| {
         const a = abort_projection.abortForError(err).?;
         try std.testing.expectEqual(model.AbortKind.resource_exhausted, a.kind);

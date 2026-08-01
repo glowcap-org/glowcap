@@ -8,13 +8,9 @@
 ;; optional and loads lazily, so this module exports one table-building
 ;; function the hand-written sibling (`ffi-iroh.rkt`) calls with the opened
 ;; library and the config cstruct pointer type it declares — the generated
-;; module stays below the hand module, so no require cycle forms. The
-;; blocking dial is emitted without an out-cell wrapper because
-;; `pancake-iroh.rkt` runs it on a plain OS thread (so the place's green
-;; threads keep serving while a dial parks) with a preallocated cell; its
-;; `#:blocking?` mark stays, deactivating that thread for the callout so
-;; the collector never waits on a parked dial. Every other row returns
-;; immediately.
+;; module stays below the hand module, so no require cycle forms.
+;; Every row returns immediately; outbound dial completion arrives through
+;; the same request-correlated readiness stream as connection I/O.
 (require ffi/unsafe
          "ffi-shared.rkt")
 (provide iroh-ffi-table)
@@ -38,6 +34,8 @@
               _size 0)
    'conn-release
    (get-ffi-obj 'pancake_iroh_conn_release L (_fun _pointer -> _void))
+   'conn-id
+   (get-ffi-obj 'pancake_iroh_conn_id L (_fun _pointer -> _size))
    'netlayer-readiness-fd
    (get-ffi-obj 'pancake_iroh_netlayer_readiness_fd L (_fun _pointer -> _int32))
    'netlayer-drain-ready
@@ -46,8 +44,13 @@
    'netlayer-try-accept
    (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_try_accept L (_fun _pointer _pointer -> _int32))
               _pointer #f)
-   'netlayer-try-connect
-   (get-ffi-obj 'pancake_iroh_netlayer_try_connect L (_fun #:blocking? #t _pointer _pointer _size _pointer _size _pointer -> _int32))
+   'netlayer-start-connect
+   (get-ffi-obj 'pancake_iroh_netlayer_start_connect L (_fun _pointer _size _pointer _size _pointer _size -> _int32))
+   'netlayer-finish-connect
+   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_finish_connect L (_fun _pointer _size _pointer -> _int32))
+              _pointer #f)
+   'netlayer-cancel-connect
+   (get-ffi-obj 'pancake_iroh_netlayer_cancel_connect L (_fun _pointer _size -> _int32))
    'conn-try-read
    (wrap-out1 (get-ffi-obj 'pancake_iroh_conn_try_read L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)

@@ -18,8 +18,8 @@
 //! A transport that is not a blocking `std.Io` stream, such as a callback or
 //! datagram API, can drive the peer directly through
 //! `engine.Peer.recvStreamPrefix` and `takeOutbound`. That is also how a language
-//! binding runs a peer over its own async sockets through the C ABI's
-//! `pancake_peer_recv_stream`.
+//! binding runs a Host session over its own async sockets through the byte-fed
+//! C Host ABI.
 //!
 //! ## High-fan-out completion loop
 //!
@@ -31,6 +31,7 @@
 //! A Windows IOCP backend is not implemented. `TcpLoop` is the portable loop
 //! already bound to the host platform Backend plus `tcp.DialResolver`.
 
+const codec = @import("codec");
 const connection = @import("connection.zig");
 const frame_stream = @import("frame_stream.zig");
 const loop_mod = @import("completion/loop.zig");
@@ -38,9 +39,22 @@ const loop_mod = @import("completion/loop.zig");
 pub const Connection = connection.Connection;
 pub const Progress = connection.Progress;
 pub const pumpOver = connection.pumpOver;
+pub const waitAnyReadable = connection.waitAnyReadable;
+pub const classifyApplyError = connection.classifyApplyError;
 
 pub const FrameStream = frame_stream.FrameStream;
+/// Where stream bytes wait when they have arrived but do not yet make a whole
+/// frame. Shared with the byte-fed host tier as `foundation.Spill`; at this tier
+/// it is the bounded overflow behind a read buffer (ADR-0041).
 pub const Spill = frame_stream.Spill;
+/// What a drained spill keeps here: nothing. See `frame_stream.spill_retain_bytes`.
+pub const spill_retain_bytes = frame_stream.spill_retain_bytes;
+/// Fill a spill from a `std.Io.Reader`, the reader-shaped half of
+/// `Spill.absorbBytes` that `foundation` cannot hold because it is core.
+pub const absorbFrom = frame_stream.absorbFrom;
+/// The resumable frame-boundary scan `readFrameFrom` carries between reads, so
+/// a frame arriving in pieces is walked once rather than once per read.
+pub const StreamScan = codec.framing.StreamScan;
 pub const readFrameFrom = frame_stream.readFrameFrom;
 
 /// The one monotonic elapsed-time source for every adapter deadline. See

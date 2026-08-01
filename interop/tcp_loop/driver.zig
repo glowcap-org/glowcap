@@ -162,7 +162,7 @@ const Barrier = struct {
 /// running" rather than as the regression they are. Generous against a loopback
 /// server so an ordinary slow machine still passes, and finite so a broken one
 /// reports.
-const client_budget_ms: i32 = 30_000;
+const client_budget: driver.Budget = .{ .ms = 30_000 };
 
 /// One client lifecycle: dial, keyed handshake, fetch, `calls_per_conn`
 /// asserted calls, then (in the measured wave) hold the connection open until
@@ -172,9 +172,9 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Ba
     defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, client_budget_ms);
+    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, client_budget);
     defer cv.deinit();
-    cv.settle_timeout_ms = client_budget_ms;
+    cv.settle = client_budget;
 
     const greeter = try cv.fetch("greeter");
     var i: usize = 0;
@@ -233,9 +233,9 @@ fn backpressureOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerro
     defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, client_budget_ms);
+    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, client_budget);
     defer cv.deinit();
-    cv.settle_timeout_ms = client_budget_ms;
+    cv.settle = client_budget;
 
     const greeter = try cv.fetch("greeter");
 

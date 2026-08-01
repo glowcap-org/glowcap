@@ -29,12 +29,20 @@
 ;; way the interop clients fix the echo swiss). 32 ASCII bytes, like the echo cap.
 (define GREETER-SWISS
   (string->bytes/latin-1 "pancakeGiftGreeterSwissnum000001"))
+(define VENDOR-SWISS
+  (string->bytes/latin-1 "pancakeGiftVendorSwissnum0000001"))
 
 ;; Greeter behavior, replies with the caller's name embedded, so the recipient
 ;; proves the handoff carried real data end to end, not just a live reference.
 (define (^greeter _bcom)
   (lambda (name)
     (format "hello ~a, from goblins-bob" name)))
+
+;; Return the greeter from an ordinary call. The binding gift matrix fetches
+;; this vendor, not the greeter itself, so the capability it re-gifts proves
+;; reply lifting composes with handoff.
+(define (^vendor _bcom greeter)
+  (lambda () greeter))
 
 (define argv (current-command-line-arguments))
 
@@ -62,7 +70,9 @@
    (define mycapn (spawn-mycapn tcp-netlayer))
    (define nonce-registry ($ mycapn 'get-registry))
    (define greeter (spawn ^greeter))
+   (define vendor (spawn ^vendor greeter))
    ($ nonce-registry 'register greeter GREETER-SWISS)
+   ($ nonce-registry 'register vendor VENDOR-SWISS)
    (on (<- tcp-netlayer 'our-location)
        (lambda (_location)
          (emit-ndjson

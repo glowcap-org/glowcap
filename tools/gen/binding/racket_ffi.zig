@@ -25,7 +25,7 @@ comptime {
 }
 
 const c = @import("c_abi");
-const cd = @import("c_abi_driver");
+const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
@@ -39,7 +39,7 @@ const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/racket/private/ffi-ocapn-gen.rkt", .generate = generateOcapn },
-    .{ .path = "bindings/racket/private/ffi-driver-gen.rkt", .generate = generateDriver },
+    .{ .path = "bindings/racket/private/ffi-host-gen.rkt", .generate = generateDriver },
     .{ .path = "bindings/racket/private/ffi-tcp-gen.rkt", .generate = generateTcp },
     .{ .path = "bindings/racket/private/ffi-inproc-gen.rkt", .generate = generateInproc },
     .{ .path = "bindings/racket/private/ffi-iroh-gen.rkt", .generate = generateIroh },
@@ -100,8 +100,9 @@ fn rktReturnType(comptime T: type) []const u8 {
 }
 
 /// The wrapper out-cell (ctype, init) of a slot parameter — a one-pointer to
-/// a scalar or to a pointer — or null when the parameter is a caller-provided
-/// buffer, handle, or struct view rather than a cell the wrapper allocates.
+/// a scalar, pointer, or opaque Host reference — or null when the parameter is
+/// a caller-provided buffer, handle, or struct view rather than a cell the
+/// wrapper allocates.
 const Cell = struct {
     ctype: []const u8,
     init: []const u8,
@@ -125,6 +126,10 @@ fn slotCell(comptime T: type) ?Cell {
                     },
                     .init = "0",
                 },
+                .@"struct" => break :blk if (p.child == c.PancakeReference)
+                    .{ .ctype = "_PancakeReference", .init = "(make-PancakeReference 0)" }
+                else
+                    null,
                 else => break :blk null,
             }
         },
@@ -372,12 +377,12 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
 fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
     return renderEager(gpa, .{
         .M = cd,
-        .archive = "pancake_driver",
+        .archive = "pancake_host",
         .lib_var = "driver-lib",
         .definer = "define-driver",
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_driver, the byte-fed host
-        \\;; archive. The hand-written sibling (`ffi-driver.rkt`) owns the prose and
+        \\;; The raw `ffi/unsafe` table of libpancake_host, the byte-fed host
+        \\;; archive. The hand-written sibling (`ffi-host.rkt`) owns the prose and
         \\;; the bespoke pending-dial wrapper over the starred raw, and re-provides
         \\;; this module. The behavior/pump callback types and the plan/dial cstructs
         \\;; live in `ffi-shared.rkt`, the binding's types leaf.
@@ -438,13 +443,9 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
         \\;; optional and loads lazily, so this module exports one table-building
         \\;; function the hand-written sibling (`ffi-iroh.rkt`) calls with the opened
         \\;; library and the config cstruct pointer type it declares — the generated
-        \\;; module stays below the hand module, so no require cycle forms. The
-        \\;; blocking dial is emitted without an out-cell wrapper because
-        \\;; `pancake-iroh.rkt` runs it on a plain OS thread (so the place's green
-        \\;; threads keep serving while a dial parks) with a preallocated cell; its
-        \\;; `#:blocking?` mark stays, deactivating that thread for the callout so
-        \\;; the collector never waits on a parked dial. Every other row returns
-        \\;; immediately.
+        \\;; module stays below the hand module, so no require cycle forms.
+        \\;; Every row returns immediately; outbound dial completion arrives through
+        \\;; the same request-correlated readiness stream as connection I/O.
         \\(require ffi/unsafe
         \\         "ffi-shared.rkt")
         \\(provide iroh-ffi-table)
@@ -497,11 +498,9 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\;; optional and loads lazily, so this module exports one table-building
         \\;; function the hand-written sibling (`ffi-webrtc.rkt`) calls with the
         \\;; opened library -- the generated module stays below the hand module, so
-        \\;; no require cycle forms. A webrtc peer is an opaque handle with no
-        \\;; config struct, so the table takes only the library. The blocking
-        \\;; `peer-wait-open` and `peer-read` keep their `#:blocking?` mark so the
-        \\;; place's green threads keep serving while a call parks; every other row
-        \\;; returns immediately.
+        \\;; no require cycle forms. WebRTC handles are opaque and the readiness
+        \\;; record buffer crosses as a raw pointer, so the table takes only the
+        \\;; library. Every row returns immediately; the endpoint fd owns wakeups.
         \\(require ffi/unsafe
         \\         "ffi-shared.rkt")
         \\(provide webrtc-ffi-table)

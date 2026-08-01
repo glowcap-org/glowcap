@@ -6,6 +6,8 @@ tags: [captp, session, abort, c-abi]
 decision: "Outbound op:abort commits through Peer.commitAbortOutbound with AbortDisposition: encode onto outbound, then close when disposition is .close. App-queued aborts always .close after a successful push; failure projection passes InboundAbort.disposition (handshake refusals stay .keep_negotiating). Encode/push failure on .close still closes without masking the original error. pancake_peer_send_abort is the typed C veneer. CapTP lifecycle stays negotiating | open | closed."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0100]
 ---
 
 # ADR-0083 Outbound abort closes the CapTP session
@@ -27,7 +29,9 @@ wrong, and boring C ABI surface: one CapTP commit path, one thin export.
 `Peer.commitAbortOutbound(abort, disposition)` is the shared commit:
 
 1. Encode and push the abort frame onto `outbound`.
-2. If `disposition` is `.close` and the push succeeded, `session_state.close()`.
+2. If `disposition` is `.close` and the push succeeded,
+   `Peer.closeSession()`, which closes CapTP and retires that Peer's gifts,
+   replay counters, and parked-withdraw scheduler dependencies (ADR-0100).
 
 App-queued aborts call it with `.close` from `emitOutboundMessage` (after
 `recordSend`, on `step`). Failure projection (`emitAbortForError`) passes

@@ -50,8 +50,8 @@ pub const Symbol = struct {
     section: ?[]const u8 = null,
 };
 
-/// A whole export family a binding's table omits for one reason (the raw
-/// `pancake_peer_*` tier, say). The inventory walk accepts an export that
+/// A whole export family a binding's table omits for one reason. The inventory
+/// walk accepts an export that
 /// matches a family prefix instead of demanding a row per symbol.
 pub const OmittedFamily = struct {
     prefix: []const u8,

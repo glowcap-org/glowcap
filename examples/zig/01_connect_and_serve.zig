@@ -1,8 +1,10 @@
 //! 01 — The application surface: connect, listen, fetch, call, serve, close.
 //!
 //! This chapter is the surface an application actually rides — the same nine
-//! verbs every binding exposes, in native Zig. Chapter 02 widens this surface
-//! to the multi-session CapTP `Host` tier; chapters 03–05 then go one layer
+//! verbs every binding exposes (connect, listen, fetch, publish, spawn, send,
+//! tell, serve, close), in native Zig, plus `call`: the blocking
+//! send-and-await this chapter's client uses. Chapter 02 shows several
+//! sessions under one identity; chapters 03–05 then go one layer
 //! deeper apiece underneath, down to the raw engine. Each side holds one owning
 //! `driver.Session` over a real TCP socket with the keyed, authenticated
 //! `op:start-session`
@@ -11,7 +13,7 @@
 //! fetches the actor by name, `call`s it, and switches on the settled outcome.
 //! There are no export positions, no manual flush, and no hand-rolled receive
 //! loop. One `frame_cap` option sizes the owned buffers and the session's
-//! frame limit together; the buffer-explicit spelling of the same surface
+//! frame limit together; the buffer-explicit form of the same surface
 //! lives in `connect_explicit_buffers.zig`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
@@ -57,10 +59,10 @@ pub fn main(init: std.process.Init) !void {
     // Listen on a designator, the peer's name on its transport: for tcp a
     // `host:port`, with port 0 letting the OS pick one.
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
-        .handshake_timeout_ms = 10_000,
-        .settle_timeout_ms = 10_000,
+        .handshake = .{ .ms = 10_000 },
+        .settle = .{ .ms = 10_000 },
     });
-    defer server.close();
+    defer server.close() catch {};
 
     var addr_buf: [64]u8 = undefined;
     // `try`: a bound listener that cannot report a dialable designator is a
@@ -71,11 +73,12 @@ pub fn main(init: std.process.Init) !void {
 
     // `pancake.Session` is the front-door alias for the owning
     // `driver.Session` this call hands back.
-    // Finite budgets, not the zero defaults: those mean "wait forever", and a
-    // peer that never answers would park this program with no way out.
+    // Finite budgets, named on purpose: the compiler requires a choice here,
+    // and writing `.unbounded` would park this program with no way out
+    // against a peer that never answers.
     var session: *pancake.Session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{
-        .handshake_timeout_ms = 10_000,
-        .settle_timeout_ms = 10_000,
+        .handshake = .{ .ms = 10_000 },
+        .settle = .{ .ms = 10_000 },
     });
     const greeter = try session.fetch("greeter");
 

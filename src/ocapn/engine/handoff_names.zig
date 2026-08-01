@@ -39,19 +39,18 @@ pub fn sessionName(side_a: [32]u8, side_b: [32]u8) [32]u8 {
 /// So the exporter derives these from its own key and the partner key its
 /// handshake established, which are the two ends of that very session.
 ///
-/// Deriving rather than reading is what makes the replay counter safe. That
-/// counter lives in a registry shared by every session on the host, and a peer
-/// that could choose its key would set another pair's counter to `maxInt(u64)`
-/// and refuse their handoffs for the life of the process. A partner key comes
-/// from an authenticated handshake, so no peer can present another's.
+/// Deriving rather than trusting the wire binds the receive to the live
+/// Receiver–Exporter session. That session's `Peer` owns one monotonic replay
+/// scalar, so another session cannot redirect a receive into its replay
+/// namespace by supplying different names.
 pub const ExpectedReceiver = struct {
-    /// The withdrawing partner's side name. The exporter keys the replay
-    /// counter by this rather than by the name the receive carries.
+    /// The withdrawing partner's side name. The exporter checks the receive
+    /// against this derivation rather than trusting the name it carries.
     side: [32]u8,
     /// The session name the receive must carry, or null when this side sent no
     /// keyed `op:start-session` and so cannot say which of its own keys the
-    /// partner addressed. The side above is derived either way, so the counter
-    /// is unforgeable whether or not this one is known.
+    /// partner addressed. The side above is derived either way, so the receive
+    /// is still bound to the withdrawing partner when this name is unavailable.
     session: ?[32]u8,
 
     /// Derive from the withdrawing session's partner key alone, for a session

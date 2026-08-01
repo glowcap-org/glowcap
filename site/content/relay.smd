@@ -11,7 +11,7 @@ A relay carries a peer's keyed CapTP session over a WebSocket to a peer that has
 socket. It is there for the browser. A browser opens no listening socket and dials
 no raw TCP or QUIC connection, so it has no netlayer of its own, and the relay stands
 in as the byte carrier. Only bytes cross it
-([ADR-0086](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
+([ADR-0086](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
 
 ## Byte transparency
 
@@ -33,7 +33,7 @@ the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
 `?locator=<ocapn-uri>` opens an iroh channel. The rooms app embeds the same
 pump behind its own `/relay?target=<locator>` route and classifies the
 locator through the same `pancake_host_plan_dial` a native dial uses; that
-spelling is the app's, not the reference contract. Either way the relay then
+route shape is the app's, not the reference contract. Either way the relay then
 pipes the WebSocket to whatever it dialed.
 
 [The browser names the peer it wants; the relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
@@ -49,7 +49,7 @@ When both ends are browsers, neither can be dialed. A browser registers its key 
 the relay and leaves an inbound socket held there. A second browser, holding an
 introduction that names that key, cold-dials it, and the relay bridges the dialer to
 the held socket
-([ADR-0088](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
 The room that made the introduction carries no part of the session.
 
 [One browser registers and waits; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
@@ -61,23 +61,18 @@ backpressure and their teardown.
 
 A relay carries other peers' sessions, so it bounds what it holds. Backpressure on
 both legs caps the bytes in flight: a stalled reader stops the relay reading its
-partner, and the stall reaches the sender instead of the middle
-(`zig build deno-relay-backpressure-test`). A silent session is reclaimed on an idle
-timeout (`zig build deno-relay-idle-test`). A relayed connection costs buffers and no session
-state, since the relay holds no session of its own. `zig build relay-scaling`
-measures the figure on your machine and holds thousands of relayed sessions at
-once. An embedding app adds its own ceilings on
+partner, and the stall reaches the sender instead of accumulating in the
+middle. An idle timeout reclaims silent sessions. A relayed connection costs
+buffers but no CapTP session state. An embedding app adds its own ceilings on
 the live-session and held-registration counts as admission policy, which the
 [rooms demo]($link.page('examples')) sets. The relay counts bytes and sessions, never
 messages, because it reads none.
 
 ## One contract, every runtime
 
-The relay is a small contract an embedder runs in its own runtime. `@pancake/relay`
-is the Deno reference, and Python, Rust, and Racket carry the same one. One harness
-runs the same three checks (forwarding, backpressure, idle reclaim) against every
-runtime's relay (`zig build bindings-relay`), so a browser peer holds the same keyed
-session whichever runtime carries it.
+The relay is a small contract an embedder runs in its own runtime.
+`@pancake/relay` is the Deno reference; Python, Rust, and Racket provide the
+same forwarding, backpressure, and idle-reclaim behavior.
 
 ## Not a netlayer
 
@@ -88,20 +83,8 @@ and no locator names it. The cold-dial rendezvous does put a `keyed-relay` symbo
 on a locator, `ocapn://<key>.keyed-relay`, but that locator names the waiting
 peer's key, not the relay, and the relay registers no transport resident of its
 own. That rendezvous is settled in
-[ADR-0088](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md). A peer with its own socket dials a
+[ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md). A peer with its own socket dials a
 [transport]($link.page('transports')) directly and never touches a relay.
-
-## See it run
-
-Every claim here is a check step. Each needs `deno`, and the iroh leg also needs
-`cargo`:
-
-```sh
-zig build bindings-relay        # the cross-runtime matrix: forwarding + backpressure + idle reclaim, every runtime
-zig build deno-relay-test       # a browser peer holds a keyed session through the Deno reference relay
-zig build bindings-relay-iroh   # the same session, dialing a live iroh endpoint over QUIC through each relay
-zig build rooms-web-dm-tabs     # two browser tabs cold-dial each other by relay rendezvous
-```
 
 ## Running one
 
@@ -115,11 +98,11 @@ deno run --allow-net --allow-ffi --allow-env --allow-read \
 
 It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
 reclaims a silent session once its idle timeout passes (`PANCAKE_RELAY_IDLE_MS`,
-one minute by default). Target allow-lists and admission caps are left to the app
-embedding it. The rooms relay
-([`relay_server.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/deno/relay_server.ts))
-shows what a hardened embedding adds. The
-[relay README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/relay/README.md)
+one minute by default). Target allowlists and admission caps are left to the
+embedding app. The rooms relay
+([`relay.ts`](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/web/relay.ts))
+shows how an embedding adds target policy and admission limits. The
+[relay README](https://github.com/jimisaacs/pancake/blob/main/bindings/ts/relay/README.md)
 covers the package itself, and the Python, Rust, and Racket relays take the
 same shape.
 

@@ -86,7 +86,7 @@ fn flushNewBlocks(ctx: *Ctx, store: *const blocks.Store, from: usize) !void {
 pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
     ctx.front = .repl;
     if (parsed.positionals.len > 0) {
-        try parsed.bools.put(ctx.gpa, "repl", true);
+        try parsed.setBool("repl", true);
         return ocapn.cmdDial(ctx, parsed);
     }
     // Optional locator: sessionless lab (dial inside; listen is argv-only).

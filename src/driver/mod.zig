@@ -91,18 +91,27 @@ const bridge = @import("bridge.zig");
 /// the loop type (see `bridge.zig`). One completion-loop thread serving a
 /// full multi-session CapTP host — cross-session flushes armed through
 /// `Loop.armOutbound`, the budgeted drive, and the host's action queue
-/// answered at this tier's entropy boundary (ADR-0076). The Zig multi-session
-/// CapTP spine is `driver.core.Host` + `Bridge` + `completion.Loop` — there is
-/// no parallel blocking multi-session Host type.
+/// answered at this tier's entropy boundary (ADR-0076). This is the Zig
+/// multi-session CapTP *scale* spine; the blocking application tier is the
+/// owning face `driver.PollHost` (ADR-0090) over that same core. Neither is a
+/// second core of its own — that is the type that stays deleted.
 pub const Bridge = bridge.Bridge;
 
 const session = @import("session.zig");
+/// The owning host face (ADR-0090): one identity, a blocking poll-multiplexed
+/// pump over the byte-fed core. `connect`/`listen` build one underneath; an
+/// app that wants several sessions under one identity builds it explicitly.
+pub const PollHost = @import("host.zig").PollHost;
 /// The owning, one-call application session `connect`/`listen` hand back
 /// (see `session.zig`), re-exported so callers reach them as
 /// `driver.Session`, `driver.connect`, `driver.listen`.
 pub const Session = session.Session;
 pub const Server = session.Server;
 pub const SessionOptions = session.SessionOptions;
+/// How long a CapTP wait may take. Deliberately has no default in
+/// `SessionOptions`: an unbounded wait against a partner that goes silent parks
+/// the caller forever, so the choice is spelled rather than inherited.
+pub const Budget = driver_core.Budget;
 pub const connect = session.connect;
 pub const connectUriOwned = session.connectUriOwned;
 pub const listen = session.listen;

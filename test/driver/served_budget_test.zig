@@ -31,8 +31,10 @@ test "drivePostBatch refuses a batch past its budget and the residual drains und
     defer pair.deinit();
     var served = driver.Served.over(allocator, &pair.p1);
     defer served.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
 
-    const counter = try served.vat.spawn(Counter, .{});
+    const counter = try vat.spawn(Counter, .{});
 
     // Queue more local turns than the budget admits. The budget is the
     // caller's number — an operator knob, never the partner's.
@@ -40,17 +42,17 @@ test "drivePostBatch refuses a batch past its budget and the residual drains und
     const queued: usize = budget + 3;
     var i: usize = 0;
     while (i < queued) : (i += 1) {
-        _ = try served.vat.send(counter, .{ .verb = "hit", .args = &.{} });
+        _ = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
     }
 
     // The over-budget batch is the runaway verdict, not a partial success.
-    try std.testing.expectError(error.LocalTurnLimitExceeded, served.drivePostBatch(budget));
+    try std.testing.expectError(error.LocalTurnLimitExceeded, served.drivePostBatch(&vat, budget));
 
     // The refusal left the residual queue intact: a later post-batch with
     // room drains it to quiescence, and every queued turn ran exactly once —
     // read back through an ordinary near-call.
-    try served.drivePostBatch(queued);
-    const hits = try served.vat.near(counter, .{ .verb = "hit", .args = &.{} });
+    try served.drivePostBatch(&vat, queued);
+    const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });
     try std.testing.expectEqual(@as(i64, @intCast(queued + 1)), hits.integer);
 }
 
@@ -60,12 +62,14 @@ test "drivePostBatch within budget drains and settles the local send's listener"
     defer pair.deinit();
     var served = driver.Served.over(allocator, &pair.p1);
     defer served.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
 
-    const counter = try served.vat.spawn(Counter, .{});
-    const vow = try served.vat.send(counter, .{ .verb = "hit", .args = &.{} });
+    const counter = try vat.spawn(Counter, .{});
+    const vow = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
 
     var result: i64 = 0;
-    try served.vat.on(vow, .{ .ctx = &result, .func = capture.captureInt });
-    try served.drivePostBatch(actors.Vat.max_batch_local_turns);
+    try vat.on(vow, .{ .ctx = &result, .func = capture.captureInt });
+    try served.drivePostBatch(&vat, actors.Vat.max_batch_local_turns);
     try std.testing.expectEqual(@as(i64, 1), result);
 }

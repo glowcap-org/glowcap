@@ -40,11 +40,11 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
 
 /// A publish callback for `driver.Bridge` options: publishes one fresh `Actor`
 /// behind `swiss` on every adopted connection.
-pub fn publisher(comptime swiss: []const u8, comptime Actor: type) fn (?*anyopaque, *driver.Served) anyerror!void {
+pub fn publisher(comptime swiss: []const u8, comptime Actor: type) fn (?*anyopaque, *driver.Served, *actors.Vat) anyerror!void {
     return struct {
-        fn publish(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+        fn publish(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
             _ = ctx;
-            _ = try served.publish(swiss, Actor, .{});
+            _ = try served.publish(vat, swiss, Actor, .{});
         }
     }.publish;
 }
@@ -196,7 +196,7 @@ pub fn AcceptServeOne(
         ) anyerror!void {
             var scaffold = try PeerScaffold.init(allocator, frame_cap);
             defer scaffold.deinit();
-            var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, 0);
+            var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .unbounded);
             defer cv.deinit();
             if (banner) |line| std.debug.print("{s}\n", .{line});
             _ = try cv.publish(swiss, Actor, .{});

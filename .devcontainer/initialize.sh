@@ -12,6 +12,6 @@ mkdir -p "${HOME}/.claude" "${HOME}/.config/gh" \
   "${HOME}/.config/agents"
 
 # rooms-net is the fixed-name network this container shares with the rooms app
-# (apps/rooms/deno/deploy) so a bot here reaches the room's internal
+# (apps/rooms/web/deploy) so a bot here reaches the room's internal
 # CapTP by name. Create it if missing so compose can attach; ignore "exists".
 docker network create rooms-net 2>/dev/null || true

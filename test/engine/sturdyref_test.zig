@@ -55,6 +55,38 @@ test "sturdyref cache cap of zero disables caching" {
     try std.testing.expectEqual(@as(usize, 0), s.sturdyref_cache.items.len);
 }
 
+test "sturdyref cache forgets every swissnum when its import is fully released" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+
+    // Two wire retains keep position 7 alive across the first release. Two
+    // swissnums may legitimately have enlivened to the same object, and both
+    // must leave together when the position loses its meaning.
+    try s.registerImport(.from(7));
+    try s.registerImport(.from(7));
+    try s.registerImport(.from(8));
+    try s.cacheSturdyrefEnlivenment("alpha", .{ .import_position = .from(7), .kind = .object });
+    try s.cacheSturdyrefEnlivenment("alias", .{ .import_position = .from(7), .kind = .object });
+    try s.cacheSturdyrefEnlivenment("other", .{ .import_position = .from(8), .kind = .object });
+
+    try s.recordSend(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
+    try std.testing.expect(s.sturdyrefCacheLookup("alpha") != null);
+    try std.testing.expect(s.sturdyrefCacheLookup("alias") != null);
+
+    try s.recordSend(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
+    try std.testing.expect(s.sturdyrefCacheLookup("alpha") == null);
+    try std.testing.expect(s.sturdyrefCacheLookup("alias") == null);
+    try std.testing.expectEqual(@as(u64, 8), s.sturdyrefCacheLookup("other").?.far.import_position.int());
+
+    // If the partner reuses 7, neither old swissnum short-circuits to the new
+    // object. A fresh enliven may cache the position under its new meaning.
+    try s.registerImport(.from(7));
+    try std.testing.expect(s.sturdyrefCacheLookup("alpha") == null);
+    try s.cacheSturdyrefEnlivenment("new", .{ .import_position = .from(7), .kind = .object });
+    try std.testing.expectEqual(@as(u64, 7), s.sturdyrefCacheLookup("new").?.far.import_position.int());
+}
+
 test "in-flight enliven dedup tracks and clears the outstanding answer" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -238,7 +270,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     // export); the codec's perspective flip lands it on p1 as a far import of
     // that export, which `recordEnlivenment` caches.
     const enlivened = try sturdyref.recordEnlivenment(allocator, &p1.session_state, ref, match.settled);
-    model.freeReference(allocator, enlivened);
+    defer model.freeReference(allocator, enlivened);
     try std.testing.expectEqual(cap_export, enlivened.far.import_position.int());
     try std.testing.expectEqual(@as(?model.AnswerPosition, null), p1.session_state.pendingEnlivenAnswer("swiss"));
 
@@ -248,8 +280,28 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     try std.testing.expectEqual(cap_export, cached.cached.far.import_position.int());
     try std.testing.expectEqual(model.RefKind.object, cached.cached.far.kind);
 
-    // The repeat enliven reuses the same session-local import row. This does not
-    // exercise a handoff or prove target identity across two network paths.
+    // Introduce that same export through an ordinary deliver on the same
+    // session. The receiver must recognize the direct reference and the
+    // sturdyref-enlivened reference as the same import, rather than minting a
+    // path-shaped identity for either one.
+    try p1.session_state.registerExport(.from(9));
+    try p2.session_state.registerImport(.from(9));
+    try p2.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(9) },
+        .args = &.{.{ .reference = .{ .near = model.NearRef.object(cap_export) } }},
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    try p1.feedOwned(p2.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    var direct_event = p1.pollEvent().?;
+    defer direct_event.deinit();
+    const direct_message = try direct_event.decodeOwned(allocator);
+    defer model.freeMessage(allocator, direct_message);
+    const direct = direct_message.deliver.args[0].reference;
+
+    // Repeated enlivenment and a direct introduction therefore agree within
+    // one session. A three-party path can still introduce a node token, so
+    // arbitrary-path Pass Invariant Equality remains a separate boundary.
     try std.testing.expect(model.referencesStructurallyEqual(enlivened, cached.cached));
-    try std.testing.expect(model.referencesStructurallyEqual(cached.cached, .{ .far = .{ .import_position = .from(cap_export), .kind = .object } }));
+    try std.testing.expect(model.referencesStructurallyEqual(enlivened, direct));
 }

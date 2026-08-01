@@ -66,7 +66,7 @@ try {
 	//    host:port reaches its bytes; here the host accepts WebSocket on the
 	//    dialed port itself.
 	const wasmBytes = await Deno.readFile(
-		new URL("../../../../zig-out/wasm/pancake_driver.wasm", import.meta.url),
+		new URL("../../../../zig-out/wasm/pancake_host.wasm", import.meta.url),
 	);
 	const stack = await init({
 		wasm: wasmBytes,

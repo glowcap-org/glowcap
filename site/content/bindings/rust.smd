@@ -9,9 +9,10 @@
 
 The Rust binding gives you typed `Session`, `Reference`, and `Argument` over the
 pancake archives
-([`lib.rs`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/src/lib.rs)).
-Cargo features select transports (`tcp` / `inproc` default; `iroh` opt-in), and
-the [Bindings]($link.page('bindings')) page covers install.
+([`lib.rs`](https://github.com/jimisaacs/pancake/blob/main/bindings/rust/src/lib.rs)).
+Cargo features select transports (`tcp` and `inproc` by default, `iroh`
+opt-in). The package is not published yet; start from the
+[checkout instructions]($link.page('bindings')).
 
 ## The same round-trip
 
@@ -25,7 +26,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > ```rust
 > use pancake::{connect, tcp_locator, Argument};
 >
-> // tcp: the peer is a place, a cleartext host and port.
+> // Plain TCP uses a cleartext host and port.
 > let partner = tcp_locator("127.0.0.1", 9099);
 >
 > let session = connect(&partner, None, None).await?;
@@ -45,8 +46,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > // Cargo.toml: pancake = { …, features = ["iroh"] }
 > use pancake::{connect, Argument, Reachability};
 >
-> // iroh reachability: the peer is a key, not a place. Discovery resolves
-> // the bare node id over the open internet; no address in hand.
+> // Discovery resolves a bare iroh node ID without an address hint.
 > let partner = "ocapn://3b6a…da29.iroh";
 >
 > let session = connect(partner, Some(Reachability::Discovery), None).await?;
@@ -62,10 +62,8 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 > session.close();
 > ```
 
-The iroh snippet needs the `iroh` Cargo feature, and its locator is a bare node id
-plus the reachability posture; `fetch` and `send` are unchanged. For dial-by-id,
-see [iroh]($link.page('transports/iroh')), and
-[Concepts]($link.page('concepts')) covers the CapTP ideas.
+The iroh tab needs the `iroh` Cargo feature and a discovery-reachable node id.
+The session calls stay the same.
 
 ## Async
 
@@ -81,14 +79,8 @@ returning `Result<Argument, String>`. An `Err` breaks the answer with its words,
 and a panic settles it broken without crossing the C boundary.
 [Concepts]($link.page('concepts')) covers pipelining and attenuation.
 
-## Binding check and example
-
-```sh
-zig build rust-dogfood    # cargo test against the pancake archives, sync + async
-```
-
 The full surface lives in the
-[Rust binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/README.md),
+[Rust binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/rust/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/rust/client.rs)
+[rooms chat client](https://github.com/jimisaacs/pancake/blob/main/apps/rooms/clients/rust/client.rs)
 is the biggest real program on this surface.

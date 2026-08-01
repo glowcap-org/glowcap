@@ -1,23 +1,23 @@
 // Deno caller for the accountability-on-pancake cross-seam demo.
 //
-// Connects to a running Zig host, generates an Ed25519 identity, signs the
-// request with the attestation preimage `invoke|<subject>|<request>`, and invokes the
-// Affordance capability. The host verifies the attestation and returns an
-// ack, or refuses an unattested call with a broken promise. Both paths
-// are exercised.
+// Connects to a running Zig host, builds a KERI-anchored identity with a real
+// key event log (`keri.ts`), rotates it once, then invokes the Affordance
+// capability: it signs the attestation preimage `invoke|<subject>|<request>` and
+// hands over the log that binds its signing key to the AID it claims. Three
+// paths are exercised, because all three are the contract:
+//
+//   * a legitimate invocation, which the host attests, binds, and acks;
+//   * a corrupted signature, which the host cannot attest;
+//   * a key the log has already rotated away from, which the host can attest but
+//     will not bind to the claimed AID.
 //
 // Usage:
 //   deno run --allow-ffi --allow-read --allow-net caller.ts <port>
 //
 // Or driven by the demo.ts orchestrator, which starts the Zig host first.
 
-import { type AppValue, connect, tcpLocator } from "@pancake/stack";
-
-function base64urlEncode(bytes: Uint8Array): string {
-	let s = "";
-	for (const b of bytes) s += String.fromCharCode(b);
-	return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+import { type Argument, connect, tcpLocator } from "@pancake/stack";
+import { b64url, Identity } from "./keri.ts";
 
 function fail(msg: string): never {
 	console.error(`FAIL: ${msg}`);
@@ -39,39 +39,31 @@ async function main(): Promise<void> {
 	// `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
 	const affordance = await session.fetch("affordance");
 
-	// Generate an Ed25519 identity (above pancake, just like the Zig side).
-	// `generateKey` is typed `CryptoKeyPair | CryptoKey`; an asymmetric algorithm
-	// always yields a pair.
-	const keyPair = await crypto.subtle.generateKey("Ed25519", true, [
-		"sign",
-		"verify",
-	]) as CryptoKeyPair;
-	const pubRaw = new Uint8Array(
-		await crypto.subtle.exportKey("raw", keyPair.publicKey),
-	);
-	const subject = "E" + base64urlEncode(pubRaw);
-	const verkey = "D" + base64urlEncode(pubRaw);
+	// Incept an identity above pancake, just like the Zig side, then rotate it
+	// once so the log the host reads is a chain and not a lone inception event.
+	const caller = await Identity.incept();
+	await caller.rotate();
+	const retired = caller.retired ?? fail("rotation left no retired key");
 
-	console.log(`  subject (AID): ${subject}`);
+	console.log(`  subject (AID): ${caller.aid}`);
 
 	// --- Legitimate invocation -------------------------------------------------
 	const request = "read-thermostat";
 	// The subject is in the signed bytes so the host can tell that this caller
-	// really is claiming this AID, and not borrowing somebody else's.
-	const preimage = new TextEncoder().encode(`invoke|${subject}|${request}`);
-	const sigRaw = new Uint8Array(
-		await crypto.subtle.sign("Ed25519", keyPair.privateKey, preimage),
-	);
-	const sigB64 = base64urlEncode(sigRaw);
+	// really is claiming this AID, and not borrowing somebody else's. The log
+	// rides alongside so the host can check that this key speaks for that AID.
+	const preimage = `invoke|${caller.aid}|${request}`;
+	const sigRaw = await caller.current.sign(preimage);
 
 	console.log("  sending legitimate invoke…");
-	let result: AppValue;
+	let result: Argument;
 	try {
 		result = await session.send(affordance, "invoke", [
-			subject,
-			verkey,
+			caller.aid,
+			caller.current.verkey,
 			request,
-			sigB64,
+			b64url(sigRaw),
+			caller.kel,
 		]);
 	} catch (err) {
 		fail(
@@ -84,33 +76,55 @@ async function main(): Promise<void> {
 	}
 	console.log(`  result: ${result!}`);
 
-	// --- Tampered invocation (should be refused) -------------------------------
+	// --- Tampered signature (should be refused) --------------------------------
 	console.log("  sending tampered invoke (should be refused)…");
 	const badSig = new Uint8Array(sigRaw);
 	badSig[0] ^= 0xff;
-	const badSigB64 = base64urlEncode(badSig);
 
-	let refused = false;
-	let breakMsg = "";
-	try {
-		await session.send(affordance, "invoke", [
-			subject,
-			verkey,
+	const tampered = await refusal(() =>
+		session.send(affordance, "invoke", [
+			caller.aid,
+			caller.current.verkey,
 			request,
-			badSigB64,
-		]);
-	} catch (err) {
-		refused = true;
-		breakMsg = err instanceof Error ? err.message : String(err);
-	}
+			b64url(badSig),
+			caller.kel,
+		])
+	);
+	if (!tampered) fail("tampered invoke was NOT refused");
+	console.log(`  correctly refused: ${tampered}`);
 
-	if (!refused) fail("tampered invoke was NOT refused");
-	console.log(`  correctly refused: ${breakMsg}`);
+	// --- Retired key (should be refused) ---------------------------------------
+	// This signature is genuine: the caller really held this key, and it really
+	// signed this subject and request. What fails is the binding, because the log
+	// the caller hands over rotated past that key.
+	console.log("  sending invoke signed by a retired key (should be refused)…");
+	const staleSig = b64url(await retired.sign(preimage));
+	const stale = await refusal(() =>
+		session.send(affordance, "invoke", [
+			caller.aid,
+			retired.verkey,
+			request,
+			staleSig,
+			caller.kel,
+		])
+	);
+	if (!stale) fail("a retired pre-rotation key was NOT refused");
+	console.log(`  correctly refused: ${stale}`);
 
 	session.close();
 	console.log(
 		"\naccountability-on-pancake deno caller OK: same application, two languages.",
 	);
+}
+
+/** Run an invocation expecting a broken promise; the reason, or null if it settled. */
+async function refusal(send: () => Promise<unknown>): Promise<string | null> {
+	try {
+		await send();
+		return null;
+	} catch (err) {
+		return err instanceof Error ? err.message : String(err);
+	}
 }
 
 await main();

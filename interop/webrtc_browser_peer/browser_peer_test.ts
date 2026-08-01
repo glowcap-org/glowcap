@@ -27,7 +27,7 @@ import { chromium } from "playwright";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const ANSWERER = `${ROOT}zig-out/bin/pancake-webrtc-answerer`;
-const WASM = new URL("../../zig-out/wasm/pancake_driver.wasm", import.meta.url);
+const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const BUNDLE_CONFIG =
 	new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
@@ -94,7 +94,7 @@ try {
 	const pagePort = freePort();
 	Deno.serve({ port: pagePort, signal: assetServer.signal }, (req) => {
 		const url = new URL(req.url);
-		if (url.pathname === "/pancake_driver.wasm") {
+		if (url.pathname === "/pancake_host.wasm") {
 			return new Response(wasmBytes, { headers: { "content-type": "application/wasm" } });
 		}
 		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });

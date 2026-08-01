@@ -125,6 +125,24 @@ pub fn finishPendingEnliven(self: *Session, swissnum: []const u8) void {
     }
 }
 
+/// Forget every resolved sturdyref cache row that names `position`.
+///
+/// Once the import's wire count reaches zero the partner may reuse its
+/// position for another object. A cached swissnum must miss after that point
+/// and enliven again, rather than returning the old position under its new
+/// meaning. The cache is bounded and FIFO-ordered, so the removal is a small
+/// linear sweep that preserves the surviving order.
+pub fn forgetSturdyrefEnlivenmentsAt(self: *Session, position: model.ImportPosition) void {
+    var i: usize = 0;
+    while (i < self.sturdyref_cache.items.len) {
+        if (self.sturdyref_cache.items[i].far.import_position == position) {
+            removeAt(self, i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn appendSturdyrefCacheRow(self: *Session, owned: []u8, far: model.FarRef) !void {
     const index = self.sturdyref_cache.items.len;
     try self.sturdyref_cache.append(self.allocator, .{
@@ -149,10 +167,14 @@ fn findSturdyrefCacheIndex(self: *const Session, swissnum: []const u8) ?usize {
 /// Drop the oldest FIFO row and repair every surviving index in the side map
 /// so lookups stay consistent with `orderedRemove(0)`'s shift.
 fn evictOldest(self: *Session) void {
-    const evicted = self.sturdyref_cache.orderedRemove(0);
+    removeAt(self, 0);
+}
+
+fn removeAt(self: *Session, index: usize) void {
+    const evicted = self.sturdyref_cache.orderedRemove(index);
     std.debug.assert(self.sturdyref_cache_index.remove(evicted.swissnum));
     self.allocator.free(evicted.swissnum);
-    for (self.sturdyref_cache.items, 0..) |entry, i| {
+    for (self.sturdyref_cache.items[index..], index..) |entry, i| {
         self.sturdyref_cache_index.getPtr(entry.swissnum).?.* = i;
     }
 }

@@ -4,20 +4,24 @@
 //! capability in a deliver's `resolve_me_desc`, and the answer is later settled
 //! by an inbound deliver *to that resolver* rather than by a resolve message.
 //! pancake's engine speaks one resolve-shaped semantics internally (ADR-0010),
-//! so the session keeps the small set of links that bridge the two: which of our
-//! outbound answers a local resolver export settles, and which resolver import
-//! the partner gave us for each of its inbound answers.
+//! so the session keeps the links that bridge the two: which of our outbound
+//! answers a local resolver export settles, and which resolver import the
+//! partner gave us for each of its inbound answers.
+//!
+//! Only the second of those is V1.0's alone. The outbound half is the
+//! version-neutral resolver-export link in `resolver_export.zig`, because an
+//! `op:listen` notification settles a listener export by the same wire shape;
+//! what stays here is the V1.0-specific mint that pays the out-of-band
+//! wire-delta retain a synthesized resolver's mention needs.
 //!
 //! The links are authoritative session state, so they live on `Session`; this
-//! file owns the operations over them. The fields (`v1_0_outbound_resolver_link`
-//! and `v1_0_inbound_resolver_link`, each a `BiMap` holding both directions, plus
-//! `next_virtual_inbound_answer`) stay on
-//! `Session`, and `Session` aliases each
+//! file owns the V1.0 operations over them. The fields
+//! (`v1_0_inbound_resolver_link`, a `BiMap` holding both directions, plus
+//! `next_virtual_inbound_answer`) stay on `Session`, and `Session` aliases each
 //! function below so the call sites read as ordinary methods. The engine's
 //! encode-side V1.0 hooks live separately in `engine/v1_0.zig`; this is only the
 //! session bookkeeping they drive.
 
-const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
 
@@ -27,19 +31,6 @@ const Session = session.Session;
 /// native `op:resolve` and therefore needs resolver-callback translation.
 pub fn needsV1_0Translation(self: *const Session) bool {
     return self.captp_version == .v1_0;
-}
-
-/// Record that our outbound `answer` is resolved via local resolver export
-/// `resolver_export` (the id we advertised in `resolve_me_desc`). Committed
-/// after the augmented deliver is accepted. The `BiMap` holds both directions
-/// in lockstep, all-or-none, so no half-installed link can survive a failure.
-/// Re-installing an answer's resolver replaces the whole link, evicting the
-/// stale export the answer previously bound.
-pub fn installOutboundResolver(self: *Session, answer: model.AnswerPosition, resolver_export: model.ExportPosition) !void {
-    // The `BiMap` keeps both directions in lockstep and evicts any prior export
-    // that shared this answer, so re-installing an answer's resolver replaces
-    // the whole link with no half-installed row surviving a failure.
-    try self.v1_0_outbound_resolver_link.put(self.allocator, resolver_export, answer);
 }
 
 /// Mint a synthesized V1.0 resolver export for `answer` and commit, in one
@@ -54,16 +45,13 @@ pub fn installOutboundResolver(self: *Session, answer: model.AnswerPosition, res
 /// `applySend`. All-or-none: a failure after the export is minted rolls it
 /// back, since it was never handed to the partner. Returns the minted
 /// resolver export position.
+///
+/// It binds an `answer` the encode hook already holds, so it shares
+/// `bindFreshResolverExport` and its rollback rather than the whole
+/// `nominateResolverExport` verb.
 pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model.ExportPosition {
-    const resolver_export = try self.allocatePromiseExport();
-    errdefer self.releaseUnsharedExport(resolver_export);
-    try self.installOutboundResolver(answer, resolver_export);
-    // Undo the resolver link (both directions) before the export rollback: the
-    // wire-delta retain below can fail (it allocates), and a successful retain
-    // would have bumped the export past count 1, where the single-decrement
-    // `releaseUnsharedExport` no longer removes it. Removing the link first
-    // (errdefers run last-in-first-out) keeps the failure path clean.
-    errdefer std.debug.assert(self.v1_0_outbound_resolver_link.removeByKey(resolver_export));
+    const resolver_export = try self.bindFreshResolverExport(answer, .promise);
+    errdefer self.abandonResolverExport(resolver_export);
     try self.retainSentExportRef(session.slot.toReference(self.exportSlot(resolver_export).?).?);
     return resolver_export;
 }
@@ -118,11 +106,4 @@ pub fn allocateInboundAnswer(self: *Session) model.AnswerPosition {
     // cannot be reached in practice (2^63 virtual fetches on one session).
     self.next_virtual_inbound_answer += 1;
     return model.AnswerPosition.from(id);
-}
-
-/// Our outbound `answer` an inbound deliver to `resolver_export` resolves, if
-/// that export is a known resolver, the signal to translate the inbound
-/// deliver into a semantic `Resolve`.
-pub fn answerForResolverExport(self: *const Session, resolver_export: model.ExportPosition) ?model.AnswerPosition {
-    return self.v1_0_outbound_resolver_link.getByKey(resolver_export);
 }

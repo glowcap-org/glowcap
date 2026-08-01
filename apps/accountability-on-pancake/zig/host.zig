@@ -19,7 +19,7 @@ const affordance = @import("affordance.zig");
 /// A finite handshake budget for the accept below. Unbounded is the library
 /// default, and on the accepting side it means a stranger who connects and then
 /// stays silent holds this server's accept for as long as it likes.
-const handshake_budget_ms: i32 = 10_000;
+const handshake_budget: driver.Budget = .{ .ms = 10_000 };
 
 const engine = pancake.ocapn.engine;
 const driver = pancake.driver;
@@ -83,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var vat = try driver.acceptTcp(allocator, &peer, &listener, read_buf, write_buf, handshake_budget_ms);
+    var vat = try driver.acceptTcp(allocator, &peer, &listener, read_buf, write_buf, handshake_budget);
     defer vat.deinit();
 
     _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{

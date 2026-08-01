@@ -23,7 +23,7 @@
          racket/lazy-require
          racket/runtime-path
          "constants.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "ffi-shared.rkt"
          "errors.rkt"
          "vat.rkt"
@@ -40,6 +40,7 @@
   (establish-dialed-locator-session
    session-serve
    session-ptr
+   session-owns-host?
    with-host-drain)])
 
 (provide (struct-out host-port-dial)
@@ -114,7 +115,7 @@
       (PancakeDialPlan-port plan))]
     [(= shape DIAL-SHAPE-SIGNALING)
      (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
-                    "webrtc signaling dial cannot be opened from a bare locator; use a handoff give")]
+                    "webrtc signaling dial requires a signaling-aware adapter; a bare locator cannot open it")]
     [else (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
                          "unknown dial shape ~a" shape)]))
 
@@ -194,7 +195,7 @@
 ;; IROH-REACH-* posture) is required only when the locator's transport is
 ;; `iroh`; a `tcp` locator ignores it, so a plain TCP dial needs nothing but the
 ;; locator. An iroh locator with no posture fails closed rather than guessing one.
-;; `#:host` shares one CapTP host identity and gift registry across several
+;; `#:host` shares one CapTP host identity and handoff router across several
 ;; sessions — the gifter side of a three-party handoff, where the same host
 ;; both serves recipients (via `listen`/`accept`) and dials the exporter it
 ;; re-gifts from. Omit it for a standalone session with a fresh identity.
@@ -213,6 +214,10 @@
                    "#:codec ~a conflicts with the shared host's ~a" codec (host-codec shared-host)))
   (define addrs (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
   (define m (or shared-host (make-fresh-host #:codec (or codec 'syrup))))
-  (dial-parsed-locator m transport (locator-designator loc) addrs
-                       #:reachability reachability
-                       #:handshake-timeout-ms handshake-timeout-ms))
+  (define c (dial-parsed-locator m transport (locator-designator loc) addrs
+                                 #:reachability reachability
+                                 #:handshake-timeout-ms handshake-timeout-ms))
+  ;; A host this connect had to mint has no other owner, so the session it
+  ;; returns closes it; a caller-supplied one is the caller's to close.
+  (unless shared-host (set-box! (session-owns-host? c) #t))
+  c)

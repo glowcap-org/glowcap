@@ -16,7 +16,7 @@ import secrets
 
 from . import _constants as _abi
 from ._errors import PancakeError, VowBroken, _check_host
-from ._ffi_driver import _HostPumpArmFn, _HostPumpHooks, _host
+from ._ffi_host import _HostPumpArmFn, _HostPumpHooks, _host
 from ._ffi_ocapn import _byte_buf
 from ._host_action_gen import (
     Close,

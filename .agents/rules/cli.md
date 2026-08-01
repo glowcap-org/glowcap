@@ -33,8 +33,8 @@ CPU is innocent — so check for live compiles and link stragglers, wait them
 out, and re-run before suspecting the change. When
 iterating on CapTP/socket CLI tests, wrap
 with `timeout N` (tens of seconds) instead of waiting forever — a silent hang
-is almost always an unbounded wait (`handshake_timeout_ms` / `settle_timeout_ms`
-defaulting to 0), not a slow test.
+is almost always an unbounded wait (an `.unbounded` handshake or settle
+budget), not a slow test.
 
 A *failed* `ocapn-conformance` run can leave its pancake peer behind on the
 fixed port, and the next run inherits it: the symptom is one unrelated
@@ -81,7 +81,8 @@ zig build docs              # generate the Zig API reference (autodoc) under zig
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
 zig build oracle-check
-zig build check-external     # core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions and handoff roles, upstream-Syrup corpus parity (needs uv + racket + goblins)
+zig build check-external     # core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role and the relayed give, upstream-Syrup corpus parity (needs uv + racket + goblins)
+zig build consumer-check     # build a downstream package against the pancake module — the README's fetch-and-import path, as a check; part of check
 zig build cross-check        # compile-only: full library for macOS (kqueue) + sans-io core for wasm32 + the browser-binding wasm Host, part of check
 zig build wasm-driver        # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
 zig build wasm-driver-test   # prove the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno)
@@ -106,6 +107,7 @@ zig build deno-relay-iroh-test # one row: a browser peer holds a live iroh sessi
 zig build python-relay-iroh-test # one row: a browser peer holds a live iroh session through the Python relay, dialing iroh via the Python binding's dial_locator_for_relay (needs deno + uv + cargo)
 zig build rust-relay-iroh-test # one row: a browser peer holds a live iroh session through the Rust relay, dialing iroh via the binding's IrohNetlayer::connect_owned behind an opt-in iroh feature (needs deno + cargo)
 zig build racket-relay-iroh-test # one row: a browser peer holds a live iroh session through the Racket relay, dialing iroh via the binding's dial-locator-for-relay (needs deno + cargo + racket)
+zig build goblins-relay     # live Goblins through the byte-transparent relay: a browser peer holds a keyed OCapN session with a real Goblins vat through the Deno reference relay (needs deno + racket + goblins)
 zig build rust-dogfood      # Rust C ABI dogfood against the pancake archives (needs cargo)
 zig build deno-dogfood      # Deno C ABI dogfood against the pancake archives (needs deno)
 zig build bun-dogfood       # Bun C ABI dogfood against the pancake archives, same multi-runtime JS binding as Deno (needs bun)
@@ -123,6 +125,8 @@ zig build racket-goblins-interop # live keyed conversation: Racket binding vs a 
 zig build bindings-goblins-interop # per-binding live keyed conversation vs a real Goblins vat, every binding (needs racket + goblins + the runtimes)
 zig build goblins-handoff   # live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)
 zig build goblins-gift      # live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)
+zig build goblins-exporter  # live three-party handoff vs Goblins, pancake as exporter: a Goblins pair deposits into and withdraws from pancake's gift registry (needs racket + goblins)
+zig build goblins-relayed-give # live relayed give vs Goblins: pancake introduces a Goblins recipient to a promise a second Goblins vat has not settled, and the recipient reads the give out of the listener fire (needs racket + goblins)
 zig build goblins-gc        # live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)
 zig build deno-goblins-handoff # live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)
 zig build python-goblins-handoff # live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)
@@ -143,13 +147,11 @@ zig build webrtc-resident-check # type-check the WebRTC DataChannel netlayer res
 zig build webrtc-interop     # live WebRTC: two native pancake peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (ADR-0089 phase 2; needs cargo)
 zig build webrtc-mesh      # live WebRTC signaling mesh: two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089 phase 5; needs cargo)
 zig build webrtc-signaling-captp # live WebRTC signaling capability over CapTP: the exporter hosts a signaling inbox behind a keyed session, the recipient drives offer/answer/candidate over it to open a DataChannel, then holds a keyed session over it (ADR-0089 phase 5; needs cargo)
-zig build webrtc-handoff # live WebRTC three-party handoff: a gifter signs a give naming the exporter by webrtc designator, and the recipient redeems it by signaling-then-handshake, withdraws the gifted capability, and calls it over the DataChannel (ADR-0089; needs cargo)
 zig build webrtc-answerer  # build the native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6; needs cargo)
 zig build webrtc-browser-peer # prove a real headless Chromium runs @pancake/web + @pancake/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)
 zig build webrtc-browser-to-browser # prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the signaling host out of the byte path (ADR-0089 phase 6; needs deno + a Playwright Chromium)
 zig build iroh-interop      # live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)
 zig build iroh-reachability # opt-in: live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (needs cargo + internet)
-zig build iroh-mesh         # live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)
 zig build iroh-loop         # live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)
 zig build iroh-bridge-redeem # live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems via Loop.dialLocator (ADR-0076; needs cargo)
 zig build tcp-loop          # live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)
@@ -199,11 +201,12 @@ zig build demo-rooms-dm-iroh-discovery # opt-in: the same rooms DM-by-introducti
 zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-peer              # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install also ships a thin `rooms-peer` shim → `pancake app rooms-peer`. Source: `cli/app/rooms_peer.zig`
 zig build rooms-web              # serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno). `-Dport` pins the HTTP port (default 8000)
-zig build rooms-web-relay-peer   # prove a wasm browser peer drives the room directory through web.ts's /relay byte pipe (needs deno)
-zig build rooms-web-browser-peer # prove a real headless Chromium runs the @pancake/web peer through web.ts's /relay (needs deno + a Playwright Chromium)
+zig build rooms-web-relay-peer   # prove a wasm browser peer drives the room directory through serve.ts's /relay byte pipe (needs deno)
+zig build rooms-web-browser-peer # prove a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)
 zig build rooms-web-page      # prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
 zig build rooms-web-dm        # prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-tabs   # prove two browser tabs cold-dial each other by relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser on a shared relay, deno-only (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-retarget # prove a nickname changing hands cannot move a direct conversation: the member leaves, another is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)
 zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build rooms-deploy-prep  # build everything the rooms deploy container mounts: shared libraries, iroh transport, wasm Host, and the prebuilt browser bundle (needs cargo + deno)
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
@@ -214,12 +217,12 @@ zig build demo-accountability        # cross-language accountability demo: Zig h
 zig build examples
 zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from src/c_abi/ocapn
 zig build gen-header-ocapn-check    # verify that header matches src/c_abi/ocapn (fails if stale), part of check
-zig build gen-header-driver         # regenerate include/pancake_driver.h from src/c_abi/driver
-zig build gen-header-driver-check   # verify include/pancake_driver.h matches src/c_abi/driver (fails if stale), part of check
-zig build gen-ts-abi                # regenerate the TypeScript ABI mirror from src/c_abi (the ocapn, driver, and iroh transport archives): target-independent constants into bindings/ts/abi/constants.ts (@pancake/abi), 64-bit struct layouts into bindings/ts/stack/internal/abi.ts, and the driver dlopen table into bindings/ts/stack/internal/ffi/driver.ts (from the annotated symbol inventory in src/c_abi/driver/symbols.zig)
+zig build gen-header-host         # regenerate include/pancake_host.h from src/c_abi/host
+zig build gen-header-host-check   # verify include/pancake_host.h matches src/c_abi/host (fails if stale), part of check
+zig build gen-ts-abi                # regenerate the TypeScript ABI mirror from src/c_abi (the ocapn, driver, and iroh transport archives): target-independent constants into bindings/ts/abi/constants.ts (@pancake/abi), 64-bit struct layouts into bindings/ts/stack/internal/abi.ts, and the driver dlopen table into bindings/ts/stack/internal/ffi/host.ts (from the annotated symbol inventory in src/c_abi/host/symbols.zig)
 zig build gen-ts-abi-check          # verify the generated TypeScript ABI mirror files match src/c_abi (fails if stale), part of check
-zig build gen-binding-host-action   # regenerate binding HostAction decode/types from src/c_abi/driver
-zig build gen-binding-host-action-check # verify binding HostAction decode/types match src/c_abi/driver (fails if stale), part of check
+zig build gen-binding-host-action   # regenerate binding HostAction decode/types from src/c_abi/host
+zig build gen-binding-host-action-check # verify binding HostAction decode/types match src/c_abi/host (fails if stale), part of check
 zig build gen-binding-constants     # regenerate binding ABI constants from src/c_abi (the ocapn, driver, and iroh transport archives)
 zig build gen-binding-constants-check # verify binding ABI constants match src/c_abi (fails if stale), part of check
 zig build gen-binding-rust-ffi      # regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)
@@ -328,13 +331,16 @@ Human walkthrough: [`docs/cli.md`](../../docs/cli.md). Hermetic goldens:
 
 ## Product CapTP waits (cli/)
 
-`SessionOptions` defaults handshake and settle budgets to `0` (unbounded). In
-`cli/` that is a hang: dial/listen against a silent peer parks the process and
-any goldens that dial without a budget. Product paths use
-`cli/ocapn.sessionOpts()` (finite ms). Tests that dial CapTP pass an explicit
-positive `handshake_timeout_ms`. `meta-check` refuses `handshake_timeout_ms: 0`,
-`settle_timeout_ms: 0`, and empty `SessionOptions` on `connectUriOwned` /
-`driver.listen` under `cli/`; `test/cli/session_cases.zig` pins the
-silent-partner timeout. The same refusal covers `examples/zig/**`, where an
-unbounded default is worse than a hang because a reader copies it. Map `HandshakeTimedOut` / `WaitTimedOut` to exit code
-`timeout`.
+`SessionOptions.handshake` and `.settle` are `driver.Budget` and have no
+default, so omitting one is a compile error naming both fields. What still
+compiles is `.unbounded`, which is right for an in-process pair and a hang
+anywhere a partner can go silent: it parks the process and any golden that
+dials. (A `.ms` of zero or less is not the hang: it has already expired and
+times out immediately, in every build mode.) Product paths use
+`cli/ocapn.sessionOpts()` (finite ms), and tests that dial CapTP name a finite
+budget too. `meta-check` refuses `.unbounded` under `cli/` and under
+`examples/zig/**`, where it is worse than a hang because a reader copies it;
+`test/cli/session_cases.zig` pins the silent-partner timeout. The
+buffer-explicit constructors take the handshake budget positionally and are
+checked for a bounded last argument. Map `HandshakeTimedOut` / `WaitTimedOut`
+to exit code `timeout`.

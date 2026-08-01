@@ -17,7 +17,7 @@
          racket/random
          "constants.rkt"
          "ffi-shared.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "errors.rkt"
          "codec.rkt"
          "trampoline.rkt")
@@ -55,7 +55,7 @@
   (check/host rc)
   (define m (host ptr (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
                   (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) codec))
-  (register-finalizer m (lambda (q) (host-release! q)))
+  (register-finalizer m (lambda (q) (host-release! q #:close-sessions? #f)))
   m)
 
 ;; A host with a fresh random identity seed — entropy drawn at the binding
@@ -63,13 +63,50 @@
 (define (make-fresh-host #:codec [codec 'syrup] #:local-turn-budget [local-turn-budget 0])
   (make-host (crypto-random-bytes 32) #:codec codec #:local-turn-budget local-turn-budget))
 
-;; Release the host and everything it owns. The finalizer fallback for a
-;; dropped host; sessions this host minted die with it, so it runs only
-;; once nothing else can reach them.
-(define (host-release! m)
-  (unless (unbox (host-released? m))
-    (set-box! (host-released? m) #t)
-    (pancake_host_release (host-ptr m))))
+;; How `host-release!` closes the sessions it still holds. `session.rkt` fills
+;; this in when it loads: it requires this module for CapTP verbs, so the
+;; import only runs one way and this module cannot name `session-close!`.
+(define close-session-hook (box #f))
+
+;; Hosts whose explicit release was requested from inside a native callback.
+;; Pending is still live and must not suppress the finalizer.
+(define host-release-pending (make-hasheq))
+
+;; Release the host and everything it owns: close every session it still
+;; holds — the ones an application opened and the ones the host dialed to
+;; redeem handoffs alike — then free the handle. Closing a session closes that
+;; one connection; this is what closes the rest.
+;;
+;; `close-sessions?` is #f on the finalizer path. A finalizer runs on the
+;; collector's own thread, where touching a port is not safe, and a host being
+;; collected has no reachable sessions left for anyone to observe.
+(define (host-release! m #:close-sessions? [close-sessions? #t])
+  (call-with-host
+   m
+   (lambda ()
+     (unless (unbox (host-released? m))
+       (cond
+         [(inside-turn?)
+          (unless (hash-ref host-release-pending m #f)
+            (hash-set! host-release-pending m #t)
+            (host-park-release!
+             m
+             (lambda ()
+               (hash-remove! host-release-pending m)
+               (host-release! m #:close-sessions? close-sessions?))))]
+         [else
+          (let ([close! (unbox close-session-hook)])
+            (when (and close-sessions? close!)
+              ;; `hash-values` snapshots, so each close unregistering itself
+              ;; from the table does not disturb the walk.
+              (for ([c (in-list (hash-values (host-sessions m)))]) (close! c))))
+          ;; A refusal leaves the wrapper live. Only successful native teardown
+          ;; drops Racket's strong edges and crosses the terminal state.
+          (check/host (pancake_host_release (host-ptr m)))
+          (hash-clear! (host-keep m))
+          (hash-clear! (host-vows m))
+          (hash-clear! (host-sessions m))
+          (set-box! (host-released? m) #t)])))))
 
 ;; ── The reentrant host lock ───────────────────────────────────────────────────
 ;; One thread (or one green-thread scheduler) drives one host; nothing in the C
@@ -125,13 +162,10 @@
 (define (host-unregister-session! m ptr) (hash-remove! (host-sessions m) (conn-key ptr)))
 (define (host-session-for-ptr m ptr) (hash-ref (host-sessions m) (conn-key ptr) #f))
 
-;; The `session` a capability `ref` actually lives on, whenever `ref` carries a
-;; routing token this host minted: a redeemed handoff resolves to the exporter
-;; connection the host dialed to withdraw it, and a fetched capability resolves
-;; to the connection it was fetched from. Everything else answers #f — a local
-;; near capability, an ordinary far import of the session it arrived over, or a
-;; route whose connection has already gone. Binding-internal;
-;; `session-send-redeeming` is the application surface over it.
+;; The live `session` homing remote capability `ref`. A local, stale,
+;; foreign-Host, or closed-session capability answers #f. Binding-internal;
+;; `session-send-redeeming` suppresses its own sending session and surfaces only
+;; a different exporter.
 ;;
 ;; The answer comes from the reference's own routing token, not from whichever
 ;; exporter this host dialed most recently, so it is exact with several redeems
@@ -214,12 +248,11 @@
   (bytes->string/utf-8 out))
 
 ;; ── Host-wide giftables ───────────────────────────────────────────────────────
-;; Publish `behavior` under `name` on every session of this host — those open
-;; now and any accepted later — so a recipient can withdraw a gift naming it on a
-;; session it dialed itself (the exporter half of a three-party handoff). The
-;; replay onto future sessions is host-internal (`pancake_host_publish`); the
-;; binding keeps only the trampoline alive. The behavior is an ordinary actor
-;; behavior `(lambda (method . args) …)`, e.g. one built with `methods`.
+;; Host `behavior` once and bind `name` as a Host-wide alias. Fetch lazily
+;; projects the actor onto a session; a deposited gift keeps that exact actor
+;; when a recipient withdraws over its own exporter session. The binding keeps
+;; the trampoline alive. The behavior is an ordinary actor behavior
+;; `(lambda (method . args) …)`, e.g. one built with `methods`.
 (define (host-publish-giftable m name behavior)
   (define tramp (make-giftable-trampoline behavior))
   (host-retain! m tramp)

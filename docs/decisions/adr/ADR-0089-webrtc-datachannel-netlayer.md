@@ -1,19 +1,22 @@
 # ADR-0089: WebRTC DataChannel Netlayer
 
-**Status:** Decided (built in phases; live phase status in [docs/roadmap.md](../../roadmap.md))
+**Status:** Decided and implemented for signaled peers; standalone rendezvous and
+generic Host completion integration remain in
+[docs/roadmap.md](../../roadmap.md).
 **Date:** 2026-07-21
-**Decision:** pancake gains a `webrtc` netlayer: a reliable, ordered WebRTC
+**Decision:** pancake gains a `webrtc` transport: a reliable, ordered WebRTC
 DataChannel that carries a keyed OCapN session byte-for-byte between two peers,
 at least one of which is a browser. The transport is a native Rust sidecar over
 the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig
 netlayer resident over its C ABI, a companion archive
 `libpancake_net_transport_webrtc` (ADR-0059), and a browser
 `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs — the
-SDP offer/answer and ICE candidates — is exchanged through an OCapN capability,
-not a bespoke signaling server: a room or a giftable signaling object carries
-the exchange, so a `webrtc` handoff is the existing three-party handoff with a
-signaling round added before the direct dial. This closes the two gaps ADR-0088
-left open: a browser being cold-dialed, and two browsers as direct peers.
+SDP offer/answer and ICE candidates — can be exchanged through an OCapN
+capability rather than a bespoke signaling server: the shipped scenarios prove
+that exchange and the keyed session after it. Composing the resulting channel
+with generic Host adoption and three-party redemption remains open. Standalone
+cold dial likewise remains open because a bare locator carries no signaling
+authority.
 
 This ADR builds on the iroh netlayer sidecar (ADR-0055), the à-la-carte
 transport archive split (ADR-0059), the browser binding (ADR-0070, whose
@@ -52,16 +55,24 @@ piece is classified against the layer it lives in.
   `webrtc` crate behind a narrow C ABI, exactly as `transports/iroh/` wraps
   iroh (ADR-0055). `libpancake` and the core stay pure Zig; only the `webrtc-*`
   build steps need cargo on PATH, the same sibling-step posture as the Rust
-  dogfood. The sidecar owns its own tokio runtime behind an opaque handle and
-  blocks the calling thread per call, and it exposes the same readiness surface
-  the iroh sidecar does (ADR-0057) so one loop thread can serve many
-  DataChannels. Its `Cargo.lock` is committed, like iroh's, because the
+  dogfood. One endpoint owns a two-worker Tokio runtime and readiness fd shared
+  by all of its peers. Peer creation and signaling submissions are synchronous
+  control operations. Once submitted, channel establishment, candidates, byte
+  I/O, and closure surface as stable peer-id readiness events with non-blocking
+  try-I/O, so one reactor can serve many DataChannels. The private blocking byte
+  calls exist only for the native `BlockingSession` adapter. Readiness uses a
+  coalescing self-pipe: a discarded `WouldBlock` write cannot lose a wake because
+  a full pipe is already poll-readable. That one `nudge` operation serves both
+  event publication and the re-wake after a short record drain, and the fd
+  exposed to callers has its write direction shut down. Its `Cargo.lock` is
+  committed, like iroh's, because the
   `webrtc` crate pulls a large transitive tree (DTLS, SCTP, ICE, STUN, SDP) that
   must resolve identically on every machine.
 
-- **Zig netlayer resident (`src/net/transport/webrtc.zig`).** One resident
-  implements the `net.netlayer` contract (ADR-0043) over the sidecar's C ABI,
-  the same way `src/net/transport/iroh.zig` does. It is compiled as its own
+- **Zig resident (`src/net/transport/webrtc.zig`).** One resident owns the
+  sidecar endpoint and presents an established peer either as readiness-driven
+  try-I/O or as the `net.Connection` contract (ADR-0043) for the explicit
+  blocking tier. It is compiled as its own
   module outside the `pancake` root namespace, so its externs resolve only when
   the staticlib links, and a plain `zig build check` type-checks it as an
   object without cargo.
@@ -103,11 +114,12 @@ different channel; the keyed handshake binds the channel to the *designator*.
 Neither replaces the other: DTLS secures the pipe, the keyed handshake proves
 who is on the far end of it.
 
-A `webrtc` locator therefore names the designator and enough to start signaling.
-Because signaling is carried by a capability (below), the locator minted for a
-handoff does not carry a dialable address the way an iroh locator carries node
-id plus direct-address hints; it carries the designator and a reference to the
-signaling capability through which the offer/answer exchange runs.
+A bare `webrtc` locator names the designator but carries no authority through
+which to signal it. A signaling-capable application can supply that authority
+separately on an existing CapTP relationship. Generic Host adoption and
+three-party redemption do not yet perform that composition. This is why the
+dial classifier recognizes the `signaling` shape while a resident deliberately
+exposes no fake address-based `dial` or `listen` method.
 
 ## OCapN-native signaling
 
@@ -135,19 +147,15 @@ two designators it introduces, the same way a room routes a chat line. A room is
 the natural host for it (members already meet there), but any peer both parties
 can reach can carry the exchange, including a peer reached over iroh or a relay.
 
-**Composition with the three-party handoff.** A `webrtc` give is redeemed in two
-movements instead of one. The existing handoff delivers a `desc:handoff-give`
-that names an exporter and a way to reach it; the recipient dials that way and
-then runs the keyed handshake. For `webrtc`, "the way to reach it" is the
-signaling capability plus the exporter's designator. Redeeming the give runs the
-signaling exchange first (offer out, answer back, candidates both ways) to bring
-up the DataChannel, and then runs the keyed handshake over the open channel.
-The handshake, the session, and the capability graph are unchanged; only the
-transport establishment gains a signaling round. Two browsers introduced by a
-room is precisely this: the room is the introducer and the signaling host, the
-`desc:handoff-give` names the peer designator and the room's signaling
-capability, and the redeemed session runs directly over the DataChannel with the
-room out of the byte path.
+**Proposed composition with the three-party handoff.** WebRTC redemption will
+need two movements instead of one. The existing handoff delivers a
+`desc:handoff-give` that names an exporter and a way to reach it; the recipient
+dials that way and then runs the keyed handshake. For `webrtc`, the missing Host
+composition must pair the exporter's designator with separately held signaling
+authority, run the offer, answer, and candidate exchange, adopt the resulting
+DataChannel, and continue withdrawal over its keyed session. The shipped
+signaling scenarios prove that the channel and session can be established; they
+do not prove this handoff-redemption path.
 
 This keeps signaling inside the object-capability model. There is no signaling
 server to run, authenticate, or secure separately: the right to signal a peer is
@@ -156,9 +164,9 @@ other capability.
 
 ## The signaling capability: the phase-5 wire shape
 
-Phase 5 builds the signaling object. This section decides its wire shape so the
-build has a concrete target; the shape is ratified when the in-tree object and
-its scenario land, and this section moves with them if they diverge.
+Phase 5 shipped the signaling object and its offer, answer, and candidate
+scenarios. This section records that wire shape. It does not describe generic
+Host adoption or three-party handoff redemption.
 
 **One object, two verbs, keyed by designator.** The signaling object is a
 rendezvous keyed by peer designator, the same shape ADR-0088's cold-dial relay
@@ -182,24 +190,20 @@ to that sidecar peer. The object itself holds no WebRTC state and parses no
 payload. It moves opaque strings between two designators, the same
 byte-transparency the room and the relay hold.
 
-**Redeem by signaling, then handshake.** A `webrtc` `desc:handoff-give` names
-the exporter's designator and the signaling object. The redeeming recipient is
-the offerer: it registers its own signaling inbox, creates an offerer sidecar
-peer, and calls `offer(exporter, offer_sdp)`, whose promise resolves to the
-exporter's answer. Both sides then trickle candidates to each other's inbox with
-`candidate`, the channel opens, and the keyed handshake runs over it exactly as
-in phase 2. `Session.sendRedeeming` (ADR-0088) surfaces the direct session so
-the recipient hosts its reply inbox on the connection the redeemed token routes
-to. Two browsers introduced by a room is this same flow with the room as the
-signaling host and both peers running the browser arm.
+**Proposed redemption by signaling, then handshake.** A future WebRTC handoff
+path must obtain both the exporter's designator and a signaling capability. The
+redeeming recipient would act as the offerer, establish the DataChannel through
+the shipped signaling verbs, adopt the keyed session into the generic Host, and
+continue withdrawal there. The signaling fixtures stop before this composition;
+they do not turn a `desc:handoff-give` into a redeemed WebRTC capability.
 
-**The `webrtc` locator and the dial classifier.** A `webrtc` locator carries the
-designator and a reference to the signaling object, not a dialable address. This
-is why `planDial` resolves a `webrtc` locator to neither a `host_port` nor a
-`peer_id` plan, but to a third shape, `signaling`, carrying the designator and
-the signaling reference: the redeem opens the channel through the exchange above
-before the keyed handshake runs. A `webrtc` locator is therefore reached through
-a redeemed give, never a bare `connect`.
+**The `webrtc` locator and the dial classifier.** A `webrtc` locator carries a
+designator, not a dialable address or an embedded capability. `planDial` therefore
+classifies it as the third shape, `signaling`, rather than `host_port` or
+`peer_id`. A bare `connect` has no signaling authority and fails before
+pretending it can dial. A future generic Host redemption path must be given that
+authority separately, open the channel through the exchange above, and adopt
+the resulting keyed session.
 
 ## STUN/TURN posture: direct where possible, relayed only when it cannot be
 
@@ -269,10 +273,10 @@ phase gated before the next.
   Deno/Playwright harness that drives the browser peer and asserts the byte
   round-trip.
 
-- **Phase 2 — the Zig netlayer resident over the sidecar.** Grow the phase-1
-  probe into the sidecar C ABI (endpoint/conn/readiness, mirroring
+- **Phase 2 — the Zig resident over the sidecar.** Grow the phase-1
+  probe into the sidecar C ABI (endpoint/peer/readiness, mirroring
   `pancake_iroh_sidecar_*`), and write `src/net/transport/webrtc.zig` over it to
-  the `net.netlayer` contract. Signaling stays out of band at this phase (a test
+  the established-peer byte contract. Signaling stays out of band at this phase (a test
   harness carries SDP/ICE), so the proof is transport-shaped, not yet
   capability-routed. **Gate:** a `webrtc-interop` step — two native pancake
   peers hold a keyed OCapN session over a real DataChannel, plus the hermetic
@@ -285,18 +289,19 @@ phase gated before the next.
   gen-header-net-transport-webrtc-check and the FFI-layout checks folded into
   `check`.
 
-- **Phase 4 — engine transport dispatch for `webrtc`.** Teach the netlayer
-  dispatch and the dial classifier (`pancake_host_plan_dial`) to sort a `webrtc`
-  locator and open the matching channel, so a `webrtc` locator dials like any
-  other. **Gate:** a dispatch scenario that routes a `webrtc` locator to the
-  resident, alongside the existing per-transport classification tests.
+- **Phase 4 — classify signaling without faking an address dial.** The dial
+  classifier (`pancake_host_plan_dial`) recognizes `webrtc` and returns the
+  signaling shape. The resident has no address `Netlayer`, because a locator
+  alone cannot open a channel. The remaining generic Host work is a
+  signaling-aware completion adapter which is given a rendezvous capability;
+  the roadmap owns that boundary.
 
 - **Phase 5 — OCapN signaling via a capability.** Define the signaling
-  capability shape as an in-tree object, route the offer/answer/candidate
-  exchange through it, and redeem a `webrtc` give by signaling-then-handshake.
-  **Gate:** a `webrtc-mesh` step — a three-party handoff where the introducer
-  hosts signaling and the recipient reaches the exporter over a direct
-  DataChannel.
+  capability shape as an in-tree object and route the offer/answer/candidate
+  exchange through it. **Gate:** `webrtc-signaling-captp` proves the signaling
+  object over CapTP, and `webrtc-mesh` proves capability-routed signaling brings
+  up a direct DataChannel carrying a keyed session. Generic Host adoption and
+  redemption are a later composition, not evidence supplied by this phase.
 
 - **Phase 6 — the browser arm and browser-to-browser.** Ship `@pancake/webrtc`
   and prove the two end states: a browser and a native peer over a DataChannel,
@@ -311,15 +316,14 @@ phase gated before the next.
   possible, STUN for srflx, TURN as fallback) but ships no STUN or TURN server
   and hard-codes no public one. A deployment configures its own, the same way an
   iroh deployment opts into discovery.
-- **Signaling capability wire details.** The verb names, the promise-based
-  answer, and the candidate-trickle framing are decided in "The signaling
-  capability: the phase-5 wire shape" above. That shape is ratified when the
-  in-tree object and its `webrtc-mesh` scenario land, and it moves with them if
-  the implementation finds a better one.
-- **A cross-transport dial entry point.** As with the relay (ADR-0086), there is
-  no single symbol that dials every transport; `webrtc` composes into the
-  per-transport open behind the shared classifier, so a TCP-only or iroh-only
-  build never links the WebRTC sidecar.
+- **Signaling capability wire details.** The verb names, promise-based answer,
+  and candidate-trickle framing in "The signaling capability: the phase-5 wire
+  shape" are exercised by the in-tree signaling and mesh scenarios. Those
+  scenarios do not exercise generic Host handoff redemption.
+- **A signaling-aware generic dial completion.** The shared classifier can name
+  the `signaling` shape without linking WebRTC. Executing that plan requires a
+  separately supplied signaling capability and an optional WebRTC companion;
+  this ADR does not make a bare locator sufficient.
 
 ## Alternatives Considered
 
@@ -341,18 +345,18 @@ phase gated before the next.
 
 ## Consequences
 
-- The artifacts named in the layer section land across phases 2 through 6, each
-  behind its own gate.
+- The native resident, C companion, OCapN signaling scenarios, and browser arms
+  are live. A standalone rendezvous and generic Host completion adapter remain
+  explicit boundaries rather than fake locator dialing.
 - `arch-check` claims the new sidecar and archive directories the same way it
   claims the iroh ones: out of the layer DAG, still covered for file hygiene and
   the I/O bans.
 - The signaling capability adds no CapTP semantics the engine lacks; it is an
   ordinary object routed like a room. The netlayer stays transport-agnostic and
   CapTP never names `webrtc`.
-- Phase 1 leaves one self-contained artifact in the tree: the probe crate and
-  its Deno/Playwright harness behind `zig build webrtc-datachannel-test`. No Zig
-  or C ABI integration is committed until phase 2 makes it compile clean under
-  `zig build check`.
+- The phase-1 probe remains a focused Deno/Playwright transport check behind
+  `zig build webrtc-datachannel-test`; the resident and C ABI have their own
+  later-phase gates.
 
 ## References
 

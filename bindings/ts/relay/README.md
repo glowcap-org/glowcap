@@ -30,8 +30,8 @@ and the same five shapes appear in every language's relay.
    grammar and loading iroh only on the `?locator=` path (a `meta-check` gate holds that lazy load).
    Routing classification through the shared core `pancake_host_plan_dial` would link the capability
    core for one bit the parameter already carries, so only the production rooms relay
-   (`apps/rooms/deno/relay_server.ts`) does that, to keep its SSRF allow-list in lockstep with the
-   dial it admits (ADR-0086).
+   (`apps/rooms/web/relay.ts`) does that, to keep its SSRF allow-list in lockstep with the dial it
+   admits (ADR-0086).
 5. **Config** — `{ idleTimeoutMs, maxBytesPerSession }`. The embedding app supplies which targets
    may be dialed separately, as policy.
 

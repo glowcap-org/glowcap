@@ -3,7 +3,7 @@ id: ADR-0055
 status: accepted
 date: 2026-06-11
 tags: [net, netlayer, iroh, transport, identity]
-decision: "The iroh netlayer is a Rust sidecar: a separate staticlib crate (transports/iroh) wraps the iroh crate behind a narrow blocking C ABI, and one Zig resident (net/transport/iroh.zig) implements the ADR-0043 Netlayer contract over that ABI. libpancake and the core stay pure Zig; only the iroh build steps need cargo, the same sibling-step posture as the Rust dogfood. The iroh NodeId is the locator designator under the transport symbol `iroh`; the blocking BlockingSession path is the slice-1 consumer; the live proof is a pancake-to-pancake keyed session over real iroh endpoints."
+decision: "The iroh netlayer is a Rust sidecar: a separate staticlib crate (transports/iroh) wraps the iroh crate behind a narrow C ABI with explicit blocking calls for the blocking resident and one readiness fd for evented dial, accept, and stream I/O. One Zig resident (net/transport/iroh.zig) implements both the ADR-0043 Netlayer contract and the completion backend over that seam. libpancake and the core stay pure Zig; only the iroh build steps need cargo. The iroh NodeId is the locator designator under the transport symbol `iroh`; the live proof is a pancake-to-pancake keyed session over real iroh endpoints."
 supersedes: []
 superseded_by: []
 ---
@@ -25,11 +25,13 @@ question first: where does the Rust boundary sit?
 ## Decision
 
 **A sidecar staticlib, never a core dependency.** A new crate at
-`transports/iroh/` wraps the iroh endpoint behind a narrow, blocking,
-hand-written C ABI (`pancake_iroh_*`): create an endpoint (owning its tokio
-runtime behind the opaque handle), read its node id and direct addresses,
-connect by node id plus address hints, accept, and read/write/close one
-bidirectional QUIC stream per connection. The Zig side is one resident,
+`transports/iroh/` wraps the iroh endpoint behind a narrow, hand-written C ABI
+(`pancake_iroh_sidecar_*`): create an endpoint (owning its tokio runtime behind
+the opaque handle), read its node id and direct addresses, and drive one
+bidirectional QUIC stream per connection. Explicitly named blocking calls serve
+the blocking resident. Request-correlated connect completion, accept, and
+stream readiness share one endpoint readiness fd for completion consumers. The
+Zig side is one resident,
 `src/net/transport/iroh.zig`, that implements the ADR-0043 `Netlayer` contract
 over those externs, pinning its concrete stream wrappers exactly as `net.tcp`
 does. `libpancake`, the core layers, and every existing gate remain pure Zig;
@@ -45,11 +47,12 @@ already puts reachability. Slice 1 keeps the OCapN session key separate from the
 iroh node key; unifying them (one key, one identity) is real follow-up work
 named below, not an assumption baked in here.
 
-**Blocking first, by the contracts already settled.** QUIC streams are
-userspace, not fds, so the completion loop is not this transport's home,
-ADR-0051 reserved exactly this case for the Netlayer contract, and ADR-0053's
-cooperative blocking contract is the consumer shape slice 1 serves (`connectVia`
-/ `acceptVia` through the registry, `BlockingSession` above).
+**The blocking and completion contracts are both honest.** QUIC streams are
+userspace, not per-stream fds. ADR-0053's cooperative blocking contract uses
+the explicitly blocking resident (`connectVia` / `acceptVia` through the
+registry, `BlockingSession` above). ADR-0057 adapts the sidecar's single
+endpoint readiness fd into the completion loop. An evented caller never
+offloads a blocking dial merely to regain an async surface.
 
 **The proof is live.** `zig build iroh-interop` runs two pancake peers over real
 iroh endpoints on loopback: relay-less, dialed by node id with direct address

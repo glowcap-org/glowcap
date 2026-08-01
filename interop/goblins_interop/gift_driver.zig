@@ -83,9 +83,9 @@ const Introducer = struct {
     }
 };
 
-fn publishIntroducer(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+fn publishIntroducer(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const state: *GifterState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish(introducer_swiss, Introducer, .{ .state = state });
+    _ = try served.publish(vat, introducer_swiss, Introducer, .{ .state = state });
 }
 
 fn gifterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {

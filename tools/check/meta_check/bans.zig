@@ -248,10 +248,14 @@ fn appendViolation(
 /// resolve on bare platform Backends.
 const captp_io_spine_table: []const Ban = &.{
     .{
+        // The owning host face (ADR-0090) lives here and *embeds* the one
+        // `driver_core.Host`; what stays banned is the deleted `BlockingHost`
+        // shape, a parallel multi-session type that duplicated the core.
         .where = .{ .file = "src/driver/host.zig" },
-        .kind = .file_absent,
+        .kind = .forbid,
+        .needles = &.{"BlockingHost"},
         .check = "captp-io-spine",
-        .why = "`BlockingHost` is deleted; Zig multi-session CapTP is Host + Bridge + completion.Loop",
+        .why = "`BlockingHost` is deleted; the owning face embeds driver_core.Host (ADR-0090), never a parallel core",
     },
     .{
         .where = .{ .file = "src/driver/mod.zig" },
@@ -536,6 +540,7 @@ pub const transport_vocabulary_paths: []const []const u8 = &.{
     "docs/capabilities.md",
     "docs/vision.md",
     "bindings/README.md",
+    "bindings/DEVELOPING.md",
     "bindings/python/README.md",
     "bindings/rust/README.md",
     "bindings/racket/README.md",
@@ -641,6 +646,8 @@ pub const human_doc_voice_scopes = [_]HumanDocScope{
             "README.md",
             "SECURITY.md",
             "bindings/README.md",
+            "bindings/DEVELOPING.md",
+            "bindings/PACKAGING.md",
             "bindings/rust/README.md",
             "bindings/ts/README.md",
             "bindings/python/README.md",
@@ -731,22 +738,6 @@ const diagram_wire_vocabulary: []const Ban = &.{
     },
 };
 
-/// The owning one-call C session verbs (`pancake_tcp_session_*`, ADR-0062)
-/// are spelled on the tcp archive alone. A second transport must not copy
-/// that family: before an owning inproc or iroh session surface lands, the
-/// session choreography moves to one transport-neutral home and the
-/// transports keep only their connect constructors (see docs/boundaries.md,
-/// "One owning C session family").
-const session_family_home: []const Ban = &.{
-    .{
-        .where = .{ .tree = .{ .dir = "src/c_abi", .suffixes = &.{".zig"} } },
-        .kind = .forbid,
-        .needles = &.{ "pancake_inproc_session_", "pancake_iroh_session_" },
-        .check = "session-family-home",
-        .why = "a second transport does not copy the tcp session-verb family; hoist the choreography to one transport-neutral home first (docs/boundaries.md)",
-    },
-};
-
 /// The monotonic clock is consolidated onto one seam, `src/net/clock.zig`, so a
 /// component that reads wall-clock or monotonic time goes through it rather than
 /// calling the OS clock by hand. A stray `clock_gettime` anywhere else in the
@@ -784,7 +775,7 @@ const actors_layer_purity: []const Ban = &.{
 /// README names a symbol a C consumer cannot grep, so the drift fails here.
 const readme_c_verb_names: []const Ban = &.{
     .{
-        .where = .{ .file = "bindings/README.md" },
+        .where = .{ .file = "bindings/DEVELOPING.md" },
         .kind = .forbid,
         .needles = &.{"`conn_"},
         .check = "readme-c-verb-names",
@@ -844,18 +835,38 @@ const goblins_runtime_portability: []const Ban = &.{
 };
 
 /// Every migrated table, run once per gate invocation.
+/// A borrowed `Signature` is two arms because two codecs spell one value two
+/// ways: Syrup carries the halves, Cap'n Proto the concatenation. Reading
+/// either arm by name outside the type's own file is therefore a claim about
+/// which codec decoded the frame, which no consumer of a codec-neutral view is
+/// entitled to make, and the arm that is not active panics. `Signature.eql`
+/// answers across arms without allocating; every comparison goes through it.
+const signature_arm_reads: []const Ban = &.{
+    .{
+        .where = .{ .tree = .{
+            .dir = "src",
+            .suffixes = &.{".zig"},
+            .exclude = &.{"src/ocapn/model/view_records.zig"},
+        } },
+        .kind = .forbid,
+        .needles = &.{ "signature.raw", "signature.halves" },
+        .check = "signature-arm-reads",
+        .why = "compare borrowed signatures through `Signature.eql`, which is total across arms; naming an arm assumes a codec and panics on the other",
+    },
+};
+
 pub const all: []const Ban =
     captp_io_spine_table ++
     transport_vocabulary ++
     prerelease_language ++
     human_doc_voice ++
     diagram_wire_vocabulary ++
-    session_family_home ++
     clock_seam ++
     actors_layer_purity ++
     readme_c_verb_names ++
     unobserved_outcome_cap_rows ++
-    goblins_runtime_portability;
+    goblins_runtime_portability ++
+    signature_arm_reads;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 

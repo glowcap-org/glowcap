@@ -41,10 +41,13 @@
     // login/state comes from the host and survives a rebuild: Claude (skills,
     // memory, login) and the GitHub CLI login. Each resolves per-user through
     // ${localEnv:HOME}, and "initializeCommand" pre-creates the host path so the
-    // bind never materializes a root-owned empty. git and SSH are intentionally
+    // bind never materializes a root-owned empty on the host side. The
+    // container side is the Dockerfile's job: it creates every mount target's
+    // parent as vscode, because Docker creates a missing parent as root.
+    // git and SSH are intentionally
     // absent: VS Code / Cursor already copy ~/.gitconfig and forward the host SSH
-    // agent. See .devcontainer/README.md ("Sharing host configuration") for the
-    // full rationale and the git/SSH/GPG/gh-keyring notes.
+    // agent. See .devcontainer/host-configuration.md for the full rationale
+    // and the git/SSH/GPG/gh-keyring notes.
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
     // opencode keeps its login (auth.json) under its data dir and its config

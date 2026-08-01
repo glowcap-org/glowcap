@@ -14,7 +14,7 @@
 
 import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 import { Host } from "./host.ts";
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { ensureRuntimeReady, ffi, net } from "./internal/ffi/runtime.ts";
 import { ab, readBytes } from "./internal/seam.ts";
 import { checkHost, PancakeError } from "./errors.ts";
@@ -139,7 +139,7 @@ function planDial(
 	if (shape === DIAL_SHAPE_SIGNALING) {
 		throw new PancakeError(
 			INVALID_ARGUMENT,
-			`webrtc signaling dial shape ${shape} cannot be opened from a bare locator; use a handoff give`,
+			`webrtc signaling dial shape ${shape} requires a signaling-aware adapter; a bare locator cannot open it`,
 		);
 	}
 	throw new PancakeError(INVALID_ARGUMENT, `unknown dial shape ${shape}`);
@@ -274,6 +274,7 @@ export async function dialParsedLocator(
 ): Promise<Session> {
 	const redeem = opts.redeem ?? false;
 	let dialHost: Host;
+	let ownsHost = false;
 	if (redeem) {
 		if (host === undefined) {
 			throw new PancakeError(
@@ -284,8 +285,9 @@ export async function dialParsedLocator(
 		dialHost = host;
 	} else {
 		dialHost = host ?? new Host(undefined, { codec: opts.codec });
+		ownsHost = host === undefined;
 	}
-	return await dialResolved(dialHost, {
+	const session = await dialResolved(dialHost, {
 		transport,
 		designator,
 		directAddresses: directAddressesHint,
@@ -296,6 +298,8 @@ export async function dialParsedLocator(
 			? HANDSHAKE_TIMEOUT_MS
 			: opts.handshakeTimeoutMs,
 	});
+	session.ownsHost = ownsHost;
+	return session;
 }
 
 /** Dial an exporter a DIAL action names, keyed with `host`'s retained
@@ -334,7 +338,6 @@ export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
 		const designator = str(L.PENDING_DIAL_DESIGNATOR_OFF, L.PENDING_DIAL_DESIGNATOR_LEN_OFF);
 		const hint = str(L.PENDING_DIAL_HINT_OFF, L.PENDING_DIAL_HINT_LEN_OFF);
 		const session = await dialExporter(transport, designator, hint, host);
-		session.hostDialed = true;
 		// The session self-registers in the host's session table (its constructor),
 		// so `Session.sendRedeeming` resolves it deterministically from the reply's
 		// route via `Host.exporterFor` (ADR-0088) — no capture window to feed here.

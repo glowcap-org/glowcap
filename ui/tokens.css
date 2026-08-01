@@ -1,7 +1,7 @@
 /* pancake — shared UI core
    ────────────────────────────────────────────────────────────────────────────
    The one place the brand is defined. Two surfaces consume this file: the
-   documentation site (site/) and the rooms app (apps/rooms/deno/ui/). Neither
+   documentation site (site/) and the rooms app (apps/rooms/web/ui/). Neither
    defines a palette colour, a typeface, or the mark of its own.
 
    The layering is deliberate and is the reason this file stays short:

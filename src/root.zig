@@ -24,7 +24,12 @@
 //! - `driver` sits above both `actors` and `net`: `driver.connect` and
 //!   `driver.listen` each hand back an owning `Session`, so a Zig app gets
 //!   `connect`/`listen`/`fetch`/`publish`/`spawn`/`send`/`tell`/`serve`/`close`
-//!   instead of a hand-written pump loop. It composes; it adds no protocol.
+//!   (plus `call`, the blocking send-and-await) instead of a hand-written pump
+//!   loop. A `Session` is a view onto a `driver.PollHost`, which owns the identity
+//!   and the pump; you name the `Host` yourself only when several sessions
+//!   must share one identity, and that sharing is what lets an introduction
+//!   from one partner settle as a live capability from another. It composes;
+//!   it adds no protocol.
 //!
 //! Two more layers live under `src/` but not on this namespace, because a Zig
 //! consumer has no use for them here. `c_abi` is the C interface; it is

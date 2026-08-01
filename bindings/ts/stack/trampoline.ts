@@ -13,34 +13,29 @@
 // through `pancake_host_turn_break`, which settles the answer broken with the
 // actor's own words — a bare non-OK return would flatten "Revoked" into a
 // generic reason. A `Forward` return maps onto `pancake_host_turn_forward`
-// (the caretaker/attenuator primitive): a target hosted by the same session
+// (the caretaker/attenuator primitive): a target hosted by the same Host
 // composes in process, a far target defers the answer onto the forwarded
 // send's vow.
 
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64, readBytes } from "./internal/seam.ts";
 import { MAX_LOCAL_FORWARD_HOPS, OK } from "@pancake/abi";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, hostLastError, PancakeError, VowBroken } from "./errors.ts";
-import { type AppValue, type Behavior, Forward, liftArg, lowerArg, near, Ref } from "./value.ts";
+import { type Argument, type Behavior, Forward, Ref, refFromId } from "./value.ts";
 import { encodeArgs, readArgArray, refStruct } from "./codec.ts";
 import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
 
-/** One hosted object: its behavior, and — for an actor bound to a connection —
- * how to resolve a near export position on that connection to another hosted
- * entry, so a `Forward` chain (a caretaker over an attenuator) composes in
- * process. A host-wide giftable carries neither: its forwards always go
- * through the host. */
+/** One hosted object's behavior and Host-local reference resolver. The
+ * resolver lets a `Forward` chain, such as a caretaker over an attenuator,
+ * compose in process. A giftable has no resolver until a session projects it
+ * and records that Host identity in the shared hosted index. */
 export interface BehaviorEntry {
 	run: Behavior;
-	/** The connection this entry serves (identity only, for turn-ownership
-	 * checks), or null for a host-wide giftable. */
-	session: object | null;
-	/** Resolve a near export position hosted by this entry's own connection to
-	 * its entry, or undefined when this side does not host it. Null for a
-	 * giftable. */
-	resolveLocal: ((position: bigint) => BehaviorEntry | undefined) | null;
+	/** Resolve a local Host capability id to its entry, or null when the entry
+	 * has not joined the Host's local-composition index. */
+	resolveLocal: ((refId: bigint) => BehaviorEntry | undefined) | null;
 }
 
 // One encoder/decoder pair for every turn: both are stateless here, and the
@@ -48,13 +43,9 @@ export interface BehaviorEntry {
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
-// The registry: ctx id -> entry, process-global (not host-scoped). Nothing drops
-// an entry implicitly: a session-local actor (`spawn`/`publish` on a `Session`)
-// is unregistered when its connection tears down, and a host-wide giftable
-// (`Host.publishGiftable`) is unregistered by its `Host` in `release()` (see
-// `Host.#giftables`). An owner that forgets to unregister leaks a row for the
-// process's life. `free = NULL` means no native teardown callback, only this JS
-// row to reclaim.
+// The registry is process-global, but every entry is owned by one Host. The C
+// callback has free = NULL, so Host.release sweeps its ordinary actors and
+// giftables. Forgetting that sweep would leak rows for the process's life.
 const registry = new Map<bigint, BehaviorEntry>();
 let nextId = 1n;
 
@@ -66,8 +57,7 @@ export function registerBehavior(entry: BehaviorEntry): bigint {
 	return id;
 }
 
-/** Drop a hosted entry the connection no longer answers for. Binding-internal:
- * teardown clears session-local actors so the registry does not pin dead behaviors. */
+/** Drop a hosted entry after its Host is released. Binding-internal. */
 export function unregisterBehavior(id: bigint): void {
 	registry.delete(id);
 }
@@ -78,15 +68,15 @@ export function entryFor(id: bigint): BehaviorEntry | undefined {
 }
 
 // Chase a behavior's result through the locally hosted `Forward` prefix:
-// while it forwards to a near target the current entry's own connection
+// while it forwards to a near target the current entry's Host
 // hosts, run that behavior in the same turn (a caretaker over an attenuator
 // composes exactly as it does over the wire). Returns the terminal — a plain
 // value (or void), or the first `Forward` whose target is not hosted here
 // (far, promise, or an unknown near id). `runHosted` is the public face.
 function chaseLocalForwards(
 	entry: BehaviorEntry,
-	result: AppValue | Forward | void,
-): AppValue | Forward | void {
+	result: Argument | Forward | void,
+): Argument | Forward | void {
 	// The wire path defers each hop onto a fresh turn, so a forward cycle
 	// there loops asynchronously; the local chase runs hops synchronously and
 	// must bound them, or a caretaker forwarding to itself spins this loop
@@ -96,13 +86,11 @@ function chaseLocalForwards(
 		if (++hops > MAX_LOCAL_FORWARD_HOPS) {
 			throw new Error(FORWARD_CYCLE_MESSAGE);
 		}
-		const target = result.target.reference;
-		const inner = target.kind === "near" && entry.resolveLocal !== null
-			? entry.resolveLocal(target.id)
-			: undefined;
+		const target = result.target;
+		const inner = entry.resolveLocal !== null ? entry.resolveLocal(target.id) : undefined;
 		if (inner === undefined) return result;
 		entry = inner;
-		result = inner.run(result.verb, result.args) as AppValue | Forward | void;
+		result = inner.run(result.verb, result.args) as Argument | Forward | void;
 	}
 	return result;
 }
@@ -120,21 +108,23 @@ function chaseLocalForwards(
 export function runHosted(
 	id: bigint,
 	verb: string,
-	args: AppValue[],
+	args: Argument[],
 	turn: Ptr | null = null,
-): { result: AppValue | Forward | void } | undefined {
+): { result: Argument | Forward | void } | undefined {
 	const entry = registry.get(id);
 	if (entry === undefined) return undefined;
 	if (turn === null) {
 		return { result: chaseLocalForwards(entry, entry.run(verb, args)) };
 	}
-	// A session-bound actor carries its own connection; a host-wide giftable
-	// carries none, so its turn belongs to whichever session the deliver
-	// arrived on. `activeDeliverSession` names that arriving session (set around
-	// the feed the trampoline fires inside), so a giftable can reply to its live
-	// caller on the same connection through `currentSession()`.
+	// Every actor belongs to the Host Vat, so its turn belongs to whichever Port
+	// delivered this call. `activeDeliver` is bracketed around that Port's
+	// feed and keeps `currentSession()` accurate after the originating Port closes.
 	const prev = currentTurn;
-	currentTurn = { turn, session: entry.session ?? activeDeliverSession };
+	currentTurn = {
+		turn,
+		session: activeDeliver?.session ?? null,
+		hostOwner: activeDeliver?.hostOwner ?? null,
+	};
 	try {
 		return { result: chaseLocalForwards(entry, entry.run(verb, args)) };
 	} finally {
@@ -150,14 +140,14 @@ export function runHosted(
 export function sendLocal(
 	ctx: bigint,
 	verb: string,
-	args: AppValue[],
+	args: Argument[],
 	forwardFar: (
 		target: Ref,
 		verb: string,
-		args: AppValue[],
-	) => Promise<AppValue> | RemotePromise,
+		args: Argument[],
+	) => Promise<Argument> | RemotePromise,
 ): RemotePromise {
-	const begin = async (): Promise<AppValue> => {
+	const begin = async (): Promise<Argument> => {
 		try {
 			const hosted = runHosted(ctx, verb, args);
 			// Reached when the entry's connection tore down: `closeTransport`
@@ -183,8 +173,8 @@ export function sendLocal(
 export async function tellLocal(
 	ctx: bigint,
 	verb: string,
-	args: AppValue[],
-	forwardFar: (target: Ref, verb: string, args: AppValue[]) => Promise<void>,
+	args: Argument[],
+	forwardFar: (target: Ref, verb: string, args: Argument[]) => Promise<void>,
 ): Promise<void> {
 	try {
 		const result = runHosted(ctx, verb, args)?.result;
@@ -202,14 +192,14 @@ export async function tellFar(
 	h: { ptr: Ptr; kickActions(): Promise<void> },
 	target: Ref,
 	verb: string,
-	args: AppValue[],
+	args: Argument[],
 ): Promise<void> {
 	const verbBytes = utf8Encoder.encode(verb);
 	const keep: Uint8Array[] = [];
-	const argsBuf = encodeArgs(args.map(lowerArg), keep);
+	const argsBuf = encodeArgs(args, keep);
 	checkHost(driverS.pancake_host_session_tell(
 		h.ptr,
-		ab(refStruct(target.reference)),
+		ab(refStruct(target)),
 		ab(verbBytes),
 		BigInt(verbBytes.length),
 		args.length ? ab(argsBuf) : new Uint8Array(0),
@@ -226,15 +216,15 @@ export function dispatchSend(
 	factory: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
 	verb: string,
-	args: AppValue[],
+	args: Argument[],
 	recurse: (
 		target: Ref | RemotePromise,
 		verb: string,
-		args: AppValue[],
+		args: Argument[],
 	) => RemotePromise,
 ): RemotePromise {
-	if (target instanceof Ref && target.reference.kind === "near") {
-		const ctx = hosted.get(target.reference.id);
+	if (target instanceof Ref) {
+		const ctx = hosted.get(target.id);
 		if (ctx !== undefined) {
 			return sendLocal(ctx, verb, args, recurse);
 		}
@@ -249,11 +239,11 @@ export async function dispatchTell(
 	h: { ptr: Ptr; kickActions(): Promise<void> },
 	target: Ref,
 	verb: string,
-	args: AppValue[],
-	recurse: (target: Ref, verb: string, args: AppValue[]) => Promise<void>,
+	args: Argument[],
+	recurse: (target: Ref, verb: string, args: Argument[]) => Promise<void>,
 ): Promise<void> {
-	if (target.reference.kind === "near") {
-		const ctx = hosted.get(target.reference.id);
+	{
+		const ctx = hosted.get(target.id);
 		if (ctx !== undefined) {
 			await tellLocal(ctx, verb, args, recurse);
 			return;
@@ -263,36 +253,38 @@ export async function dispatchTell(
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
-// `PancakeHostTurn*` and the connection the turn arrived on (a giftable inherits
-// the arriving session; a session-bound actor carries its own), or null outside
+// `PancakeHostTurn*` and the Session whose Port delivered it, or null outside
 // any turn. `Session.spawn` reads it to pick the turn-time spawn over the
 // top-level one (which the host refuses inside a callback); `Host.kickActions`
 // reads it to defer action drains to the enclosing verb's unwind.
-let currentTurn: { turn: Ptr; session: object | null } | null = null;
+let currentTurn: { turn: Ptr; session: object | null; hostOwner: object | null } | null = null;
 
 // The session whose inbound feed is running right now, set by the pump around
 // the synchronous `feed` FFI call (the one path a behavior trampoline fires
-// inside). A giftable's turn has no session of its own, so `runHosted` reads
-// this to give it the arriving connection; `currentSession()` surfaces it so a
-// giftable can reply to its live caller. Null outside a feed. Saved and restored
+// inside). `runHosted` reads this for every actor; `currentSession()` surfaces
+// the arriving connection so behavior can reply to its live caller. Null
+// outside a feed. Saved and restored
 // (not assumed null) to mirror the `currentTurn` idiom and stay correct if the
 // pump's feed bracket were ever entered re-entrantly; a redeem dial's own
 // handshake feed is a separate top-level bracket the action drain enters after
 // the outer feed's bracket exits, not a nesting inside it.
-let activeDeliverSession: object | null = null;
+let activeDeliver: { session: object; hostOwner: object } | null = null;
 
 /** Enter the feed of `session`: the trampoline reads this as the arriving
- * connection for a host-wide giftable. Returns the prior value to restore.
+ * connection for every hosted actor. Returns the prior value to restore.
  * Binding-internal: the pump brackets the `feed` FFI call with it. */
-export function enterDeliver(session: object): object | null {
-	const prev = activeDeliverSession;
-	activeDeliverSession = session;
+export function enterDeliver(
+	session: object,
+	hostOwner: object,
+): { session: object; hostOwner: object } | null {
+	const prev = activeDeliver;
+	activeDeliver = { session, hostOwner };
 	return prev;
 }
 
 /** Leave the current feed, restoring the enclosing one (or null). Binding-internal. */
-export function exitDeliver(prev: object | null): void {
-	activeDeliverSession = prev;
+export function exitDeliver(prev: { session: object; hostOwner: object } | null): void {
+	activeDeliver = prev;
 }
 
 /** The connection the currently running hosted turn arrived on, or null outside
@@ -302,9 +294,9 @@ export function currentTurnSession(): object | null {
 	return currentTurn !== null ? currentTurn.session : null;
 }
 
-/** The current turn pointer when it belongs to connection `session`, else null. */
-export function currentTurnFor(session: object): Ptr | null {
-	return currentTurn !== null && currentTurn.session === session ? currentTurn.turn : null;
+/** The current turn pointer when it belongs to `hostOwner`, else null. */
+export function currentTurnFor(hostOwner: object): Ptr | null {
+	return currentTurn !== null && currentTurn.hostOwner === hostOwner ? currentTurn.turn : null;
 }
 
 /** Whether ANY hosted turn is running — the drain defers while one is (the
@@ -336,7 +328,7 @@ function turnBreak(turn: Ptr, message: string): number {
 // turn-forward.
 function settleReply(
 	turn: Ptr,
-	result: AppValue | Forward | void,
+	result: Argument | Forward | void,
 	outReply: Ptr,
 ): number {
 	if (result instanceof Forward) {
@@ -344,10 +336,10 @@ function settleReply(
 		// out_reply gets a void placeholder. Buffers stay pinned until it returns.
 		const keep: Uint8Array[] = [];
 		const verbBytes = utf8Encoder.encode(result.verb);
-		const argsBuf = encodeArgs(result.args.map(lowerArg), keep);
+		const argsBuf = encodeArgs(result.args, keep);
 		const rc = driverS.pancake_host_turn_forward(
 			turn,
-			ab(refStruct(result.target.reference)),
+			ab(refStruct(result.target)),
 			ab(verbBytes),
 			BigInt(verbBytes.length),
 			result.args.length ? ab(argsBuf) : new Uint8Array(0),
@@ -360,7 +352,7 @@ function settleReply(
 	// A plain value (void normalizes to a bare null ack). The keep slot pins
 	// the encoded struct and every child buffer it points at across the return.
 	const keep: Uint8Array[] = [];
-	const buf = encodeArgs([result === undefined ? null : lowerArg(result)], keep);
+	const buf = encodeArgs([result === undefined ? null : result], keep);
 	ffi.writeMemory(outReply, buf);
 	lastReplyKeep = { buf, keep };
 	return OK;
@@ -383,7 +375,7 @@ function trampoline(
 		const verb = BigInt(verbLen) === 0n
 			? ""
 			: utf8Decoder.decode(readBytes(verbPtr, BigInt(verbLen)));
-		const args = readArgArray(argsPtr, BigInt(argsLen)).map(liftArg);
+		const args = readArgArray(argsPtr, BigInt(argsLen));
 		const hosted = runHosted(BigInt(ctx), verb, args, turn);
 		if (hosted === undefined) return turnBreak(turn, "no such hosted object");
 		return settleReply(turn, hosted.result, outReply);
@@ -458,37 +450,37 @@ export interface HostingHandle {
 	guardOpen(): void;
 	readonly ptr: Ptr;
 	readonly hosted: Map<bigint, bigint>;
-	/** Session identity for turn-ownership and BehaviorEntry.session. */
-	readonly turnOwner: object;
+	/** Host identity used to select turn-time spawn on whichever Port arrived. */
+	readonly hostOwner: object;
 }
 
 /** Register `behavior` in the trampoline registry as an actor of this
  * connection, so a Forward whose target this side hosts composes in
  * process and a turn it runs can spawn turn-time. */
 function registerActor(h: HostingHandle, behavior: Behavior): bigint {
+	const hosted = h.hosted;
 	const entry: BehaviorEntry = {
 		run: behavior,
-		session: h.turnOwner,
-		resolveLocal: (position: bigint): BehaviorEntry | undefined => {
-			const id = h.hosted.get(position);
+		resolveLocal: (refId: bigint): BehaviorEntry | undefined => {
+			const id = hosted.get(refId);
 			return id === undefined ? undefined : entryFor(id);
 		},
 	};
 	return registerBehavior(entry);
 }
 
-/** Register + mint a top-level or turn-time spawn; records the export in
+/** Register + mint a top-level or turn-time spawn; records the Host identity in
  * `hosted` so local Forward composition finds it. */
 export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
-	h.guardOpen();
+	const turn = currentTurnFor(h.hostOwner);
+	if (turn === null) h.guardOpen();
 	const ctx = registerActor(h, behavior);
 	// free = NULL: the host never owns the row, so a refused mint must
 	// unregister it here or it pins the behavior for the process's life.
-	let position: bigint;
+	let refId: bigint;
 	try {
-		const turn = currentTurnFor(h.turnOwner);
 		if (turn !== null) {
-			position = turnSpawn(turn, ctx);
+			refId = turnSpawn(turn, ctx);
 		} else {
 			const out = new Uint8Array(8);
 			checkHost(driverS.pancake_host_session_spawn(
@@ -498,17 +490,17 @@ export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
 				NULL,
 				ab(out),
 			));
-			position = outU64(out);
+			refId = outU64(out);
 		}
 	} catch (err) {
 		unregisterBehavior(ctx);
 		throw err;
 	}
-	h.hosted.set(position, ctx);
-	return new Ref(near(position));
+	h.hosted.set(refId, ctx);
+	return refFromId(refId);
 }
 
-/** Register + publish by swiss name; records the export in `hosted`. */
+/** Register + publish by swiss name; records the Host identity in `hosted`. */
 export function publishHosted(
 	h: HostingHandle,
 	name: string,
@@ -534,14 +526,13 @@ export function publishHosted(
 		unregisterBehavior(ctx);
 		throw err;
 	}
-	const position = outU64(out);
-	h.hosted.set(position, ctx);
-	return new Ref(near(position));
+	const refId = outU64(out);
+	h.hosted.set(refId, ctx);
+	return refFromId(refId);
 }
 
-/** Spawn a hosted object at a fresh export position from INSIDE a turn — the
- * turn-time form the host allows where the top-level spawn is refused.
- * Returns the export position. */
+/** Spawn a hosted object from INSIDE a turn — the turn-time form the host
+ * allows where the top-level spawn is refused. Returns its opaque Host id. */
 export function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
 	const out = new Uint8Array(8);
 	checkHost(driverS.pancake_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));

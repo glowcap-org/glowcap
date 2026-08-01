@@ -20,8 +20,9 @@
 // name is the directory's lookup key; the room itself is the capability the
 // directory returns.
 
-import { type AppValue, connect, Ref, type Session } from "@pancake/stack";
+import { type Argument, connect, Ref, type Session } from "@pancake/stack";
 import type { Presence } from "./limits.ts";
+import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
 import {
 	DIRECTORY,
 	DM,
@@ -30,6 +31,7 @@ import {
 	LEAVE,
 	LIST,
 	NOTIFY,
+	OFFER_INBOX,
 	OPEN,
 	POST,
 	REGISTER,
@@ -43,6 +45,10 @@ import {
 // threw) must surface as a failure the caller can retry, not a silent hang; the
 // window sits far above the round-trip a healthy directory answers within.
 const REGISTER_ACK_TIMEOUT_MS = 10_000;
+
+// How long `introduceVia` waits for the peer to offer an inbox for us after the
+// directory has asked them for one. Bounded, because the peer may never answer.
+const INTRODUCIBLE_TIMEOUT_MS = 10_000;
 
 /** One live room in the directory: its name and how many people are in it. */
 export interface RoomInfo {
@@ -65,7 +71,7 @@ export interface RoomEvent {
 
 /** Parse the wire shape of `list`/`watch` — a list of `[name, count]` pairs,
  * counts arriving as `bigint` — into `RoomInfo`s. */
-function parseRooms(raw: AppValue): RoomInfo[] {
+function parseRooms(raw: Argument): RoomInfo[] {
 	if (!Array.isArray(raw)) return [];
 	const out: RoomInfo[] = [];
 	for (const item of raw) {
@@ -85,6 +91,14 @@ function parseRooms(raw: AppValue): RoomInfo[] {
 export class Directory {
 	readonly session: Session;
 	#directory: Ref;
+	// Callers parked in `introduceVia` waiting for a peer to offer them an inbox,
+	// by the peer's lowercased nick. Fed by the register inbox's `introducible`.
+	readonly #introducible = new Map<string, (() => void)[]>();
+	// Peers whose `introducible` arrived with nobody parked on it. The notify
+	// dispatches synchronously inside the inbound feed while our own refusal
+	// surfaces as a promise rejection on a later microtask, so the wakeup can
+	// reach us before the caller it is for.
+	readonly #introducibleSeen = new Set<string>();
 
 	private constructor(session: Session, directory: Ref) {
 		this.session = session;
@@ -120,7 +134,7 @@ export class Directory {
 	/** The live rooms right now, the ones with people in them. */
 	async list(): Promise<RoomInfo[]> {
 		return parseRooms(
-			await this.session.send(this.#directory, LIST, []) as AppValue,
+			await this.session.send(this.#directory, LIST, []) as Argument,
 		);
 	}
 
@@ -140,14 +154,21 @@ export class Directory {
 			return null;
 		});
 		return parseRooms(
-			await this.session.send(this.#directory, WATCH, [observer]) as AppValue,
+			await this.session.send(this.#directory, WATCH, [observer]) as Argument,
 		);
 	}
 
-	/** Announce a member for DM introduce. Publish `dm` on this session first;
-	 * `locator` is the listen address redeem should dial. Resolves on
-	 * `notify("registered", …)`. */
-	register(nick: string, locator: string): Promise<void> {
+	/** Announce a member for DM introduce. `locator` is the listen address redeem
+	 * should dial. Resolves on `notify("registered", …)`.
+	 *
+	 * `onMintInboxFor` fires when the directory needs an inbox for a named peer.
+	 * Supply one to be reachable by direct message at all: without it every
+	 * `introduce` aimed here stays pending. Answer it with `offerInbox`. */
+	register(
+		nick: string,
+		locator: string,
+		onMintInboxFor?: (peer: string) => void,
+	): Promise<void> {
 		return new Promise((resolve, reject) => {
 			// The timeout is armed before `settle` exists because `settle` has to
 			// clear it. Neither forward reference runs early: the callback below
@@ -165,7 +186,12 @@ export class Directory {
 				run();
 			};
 			const inbox = this.session.spawn((verb, args) => {
-				if (verb === NOTIFY && args[0] === "registered") settle(resolve);
+				if (verb !== NOTIFY) return null;
+				const event = args[0];
+				const peer = typeof args[1] === "string" ? args[1] : "";
+				if (event === "registered") settle(resolve);
+				else if (event === "mintInboxFor" && peer) onMintInboxFor?.(peer);
+				else if (event === "introducible" && peer) this.#wakeIntroducible(peer);
 				return null;
 			});
 			// A real reject edge: a dropped `send` (the directory session died
@@ -182,8 +208,12 @@ export class Directory {
 	 * reference to that member's `dm` object. The directory answers with a
 	 * `desc:handoff-give`, and the binding redeems it by dialing the member
 	 * directly. The reference we get back therefore talks to the member over our
-	 * own connection, not through the directory. Rejects if no member with that
-	 * nick is registered. */
+	 * own connection, not through the directory.
+	 *
+	 * `register` first: the directory reads the asker's name off its own
+	 * registration, never from the message, so an unregistered caller has no name
+	 * an inbox could have been minted for. Rejects if no member with that nick is
+	 * registered. */
 	async introduce(nick: string): Promise<Ref> {
 		return (await this.introduceVia(nick)).dm;
 	}
@@ -194,13 +224,95 @@ export class Directory {
 	 * over that same connection — the bidirectional completion of the
 	 * introduction, which is the only way a member can reach a caller (a browser,
 	 * say) that cannot itself be dialed. `via` is null only if the reply named no
-	 * fresh redeem. Rejects if no member with that nick is registered. */
+	 * fresh redeem. Requires a `register`, like `introduce`. Rejects if no member
+	 * with that nick is registered. */
 	async introduceVia(nick: string): Promise<{ dm: Ref; via: Session | null }> {
+		try {
+			return await this.#introduceOnce(nick);
+		} catch (err) {
+			if (roomErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
+		}
+		// First contact with this peer: the directory has just asked them for an
+		// inbox for us. Wait for the offer to land, then ask again.
+		//
+		// Twice, because a wakeup recorded before we asked may be spent: the
+		// directory drops a member's offers whenever either name changes hands, so
+		// an `introducible` we banked can name an inbox that no longer exists. A
+		// retry refused again therefore waits for a fresh notify rather than
+		// reporting failure on the strength of an old one.
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			await this.#awaitIntroducible(nick, attempt === 0);
+			try {
+				return await this.#introduceOnce(nick);
+			} catch (err) {
+				if (roomErrorOf(err)?.code !== INTRODUCTION_PENDING) throw err;
+			}
+		}
+		throw new RoomError(
+			INTRODUCTION_PENDING,
+			`"${nick}" did not offer an inbox for us`,
+		);
+	}
+
+	async #introduceOnce(nick: string): Promise<{ dm: Ref; via: Session | null }> {
 		const { reply, via } = await this.session.sendRedeeming(this.#directory, INTRODUCE, [nick]);
 		if (!(reply instanceof Ref)) {
 			throw new Error(`introduce("${nick}") did not return a capability`);
 		}
 		return { dm: reply, via };
+	}
+
+	#wakeIntroducible(peer: string): void {
+		const key = peer.toLowerCase();
+		const waiting = this.#introducible.get(key);
+		this.#introducible.delete(key);
+		// A list every waiter has timed out of is the same as no list: bank the
+		// wakeup, or it reaches nobody and the next caller parks on a signal that
+		// has already been sent.
+		if (waiting === undefined || waiting.length === 0) {
+			this.#introducibleSeen.add(key);
+			return;
+		}
+		for (const wake of waiting) wake();
+	}
+
+	/** Wait for `nick` to offer us an inbox. `useBanked` spends a wakeup that
+	 * arrived before this call; the retry pass passes false, so it waits for a
+	 * fresh one. */
+	#awaitIntroducible(nick: string, useBanked: boolean): Promise<void> {
+		const key = nick.toLowerCase();
+		if (useBanked && this.#introducibleSeen.delete(key)) return Promise.resolve();
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				const waiting = this.#introducible.get(key);
+				if (waiting !== undefined) {
+					const i = waiting.indexOf(wake);
+					if (i >= 0) waiting.splice(i, 1);
+					// Drop the row with its last waiter, or the map keeps one per peer
+					// ever waited on for the session's life.
+					if (waiting.length === 0) this.#introducible.delete(key);
+				}
+				reject(
+					new RoomError(
+						INTRODUCTION_PENDING,
+						`"${nick}" did not offer an inbox for us in time`,
+					),
+				);
+			}, INTRODUCIBLE_TIMEOUT_MS);
+			const wake = () => {
+				clearTimeout(timer);
+				resolve();
+			};
+			const waiting = this.#introducible.get(key);
+			if (waiting === undefined) this.#introducible.set(key, [wake]);
+			else waiting.push(wake);
+		});
+	}
+
+	/** Offer the directory an inbox for one named peer, the answer to a
+	 * `mintInboxFor` request. */
+	async offerInbox(forNick: string, inbox: Ref): Promise<void> {
+		await this.session.send(this.#directory, OFFER_INBOX, [forNick, inbox]);
 	}
 
 	/** Close the session, ending every room's `messages` stream. */
@@ -224,6 +336,10 @@ export class DirectMessage {
 	#session: Session;
 	#dm: Ref;
 	#replyInbox: Ref | null;
+	// Whether this line dialed the connection it rides. A redeemed introduction
+	// opens one to the member and owns it; a send-only line rides the directory's
+	// and must never close it, since everything else the tab is doing is on it.
+	#ownsSession: boolean;
 	readonly peer: string;
 
 	/** Whether the connection this line rides is still open. A line outlives
@@ -233,20 +349,54 @@ export class DirectMessage {
 		return this.#session.sessionOpen;
 	}
 
-	private constructor(session: Session, dm: Ref, peer: string, replyInbox: Ref | null) {
+	private constructor(
+		session: Session,
+		dm: Ref,
+		peer: string,
+		replyInbox: Ref | null,
+		ownsSession: boolean,
+	) {
 		this.#session = session;
 		this.#dm = dm;
 		this.peer = peer;
 		this.#replyInbox = replyInbox;
+		this.#ownsSession = ownsSession;
+	}
+
+	/** Give this line back.
+	 *
+	 * A redeemed introduction is a connection to the member, held open for as
+	 * long as the line is. Dropping the reference to a `DirectMessage` does not
+	 * end that connection, and the reply inbox this side exported stays live on
+	 * it; closing does both, and releases the imported capability with the
+	 * session that carried it. A send-only line dialed nothing and rides the
+	 * directory's connection, so closing it is a no-op rather than a hang-up on
+	 * everything else the caller is doing.
+	 *
+	 * The peer is unaffected: nothing was taken from them, and a later `open`
+	 * redeems a fresh introduction. */
+	close(): void {
+		if (this.#ownsSession) {
+			// Closing the connection reclaims everything on it, imports included.
+			this.#session.close();
+			return;
+		}
+		// A send-only line rides the directory's connection, which the tab still
+		// needs, so closing is not an option — but the member's capability was
+		// this line's to hold and is now nobody's. Give it back, so the exporter
+		// can drop the matching export instead of keeping it alive for the life
+		// of the tab. The handle is spent afterwards; `say` on a closed line
+		// throws rather than reaching whatever that position names next.
+		this.#session.release(this.#dm);
 	}
 
 	/** Open a direct line to `peer` by asking `dir` to introduce you. `onReply`,
-	 * if given, fires with each `(from, text)` reply the member sends back over
-	 * the direct connection. */
+	 * if given, fires with each reply the member sends back over the direct
+	 * connection; it is the member we were introduced to, so no name is carried. */
 	static async open(
 		dir: Directory,
 		peer: string,
-		onReply?: (from: string, text: string) => void,
+		onReply?: (text: string) => void,
 	): Promise<DirectMessage> {
 		const { dm, via } = await dir.introduceVia(peer);
 		// The reply inbox must live on the connection the redeemed capability
@@ -258,20 +408,18 @@ export class DirectMessage {
 		if (onReply && via) {
 			replyInbox = session.spawn((verb, args) => {
 				if (verb !== DM) throw new Error(`dm reply inbox has no method ${verb}`);
-				onReply(
-					typeof args[0] === "string" ? args[0] : peer,
-					typeof args[1] === "string" ? args[1] : "",
-				);
+				onReply(typeof args[0] === "string" ? args[0] : "");
 				return null;
 			});
 		}
-		return new DirectMessage(session, dm, peer, replyInbox);
+		return new DirectMessage(session, dm, peer, replyInbox, via !== undefined && via !== null);
 	}
 
-	/** Deliver one direct message to the peer, tagged with your own display nick.
-	 * Carries the reply inbox when this line has one, so the member can answer. */
-	async say(from: string, text: string): Promise<void> {
-		const args: AppValue[] = this.#replyInbox ? [from, text, this.#replyInbox] : [from, text];
+	/** Deliver one direct message to the peer. There is no sender argument (see
+	 * `offerInbox` in `protocol.ts`). Carries the reply inbox when this line has
+	 * one, so the member can answer. */
+	async say(text: string): Promise<void> {
+		const args: Argument[] = this.#replyInbox ? [text, this.#replyInbox] : [text];
 		await this.#session.send(this.#dm, DM, args);
 	}
 }
@@ -291,7 +439,7 @@ export interface Message {
 /** Read the structured presence a room line carries after its display text:
  * `notify("room", text, "roster", ...names)` or `notify("room", text, kind, nick)`.
  * Ordinary chat lines carry none. */
-export function readPresence(args: AppValue[]): Presence | undefined {
+export function readPresence(args: Argument[]): Presence | undefined {
 	const kind = args[2];
 	if (kind === "roster") {
 		return {

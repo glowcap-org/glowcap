@@ -20,6 +20,7 @@ const Ref = vat_mod.Ref;
 const Vow = vat_mod.Vow;
 const Error = vat_mod.Error;
 const Vat = vat_mod.Vat;
+const Port = vat_mod.Port;
 const PendingBecome = boxed.PendingBecome;
 const StateBox = boxed.StateBox;
 const releaseBox = boxed.releaseBox;
@@ -36,7 +37,13 @@ const max_near_call_depth: u32 = 128;
 /// argument, never global: the Zig answer to Goblins's `current-syscaller`.
 pub const Turn = struct {
     vat: *Vat,
+    /// Session projection inherited by work caused through a Port. Null for a
+    /// pure-local turn.
+    port: ?*Port,
     self_ref: Ref,
+    /// Causal queue owner. Near-calls and local sends inherit this id, so an
+    /// ingress cannot evade admission by bouncing through another actor.
+    ingress: vat_mod.IngressId,
     /// A per-turn allocator for the handler's reply and any scratch. The vat owns
     /// it and reclaims it when its next top-level turn begins, so a handler
     /// allocates from it freely and never frees the result. Nested near-calls and
@@ -83,12 +90,20 @@ pub const Turn = struct {
     /// Synchronously call another local actor and return its reply — the `$`
     /// of this layer (see `Vat.near`).
     pub fn near(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
-        return self.vat.near(target, msg);
+        return self.vat.nearFromPort(self.port, self.ingress, target, msg);
     }
     /// Eventual-send to a local or far reference, returning the reply
     /// `Vow` — the `<-` of this layer (see `Vat.send`).
     pub fn send(self: *Turn, target: Ref, msg: Message) Error!Vow {
-        return self.vat.send(target, msg);
+        if (self.port) |port| return port.sendFromIngress(self.vat, self.ingress, target, msg);
+        return self.vat.sendFromIngress(self.ingress, target, msg);
+    }
+    /// Fire-and-forget eventual-send while preserving this turn's Port and
+    /// causal ingress. A handler must use this rather than reaching through
+    /// `turn.vat.tell`, which would reclassify the work as pure-local.
+    pub fn tell(self: *Turn, target: Ref, msg: Message) Error!void {
+        if (self.port) |port| return port.tellFromIngress(self.vat, self.ingress, target, msg);
+        return self.vat.tellFromIngress(self.ingress, target, msg);
     }
     /// Functional "become" for a persistent actor (mirrors Goblins `bcom`): stage
     /// `next` as this actor's state. The new value is installed when this turn
@@ -199,7 +214,7 @@ pub const Turn = struct {
         switch (self.origin) {
             .served => |answer| {
                 if (self.forwarded) return;
-                try serve.resolveBreak(self.vat, answer, message);
+                try serve.resolveBreak(self.port.?, answer, message);
                 self.forwarded = true;
             },
             .local => return Error.NotLocal,
@@ -276,12 +291,12 @@ pub fn closeTurnFrame(self: *Vat, id: u64) void {
     endTurn(self);
 }
 
-pub fn callLocal(self: *Vat, id: u64, msg: Message) anyerror!model.Argument {
+pub fn callLocal(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Message) anyerror!model.Argument {
     const frame = try openTurnFrame(self, id);
     const box = frame.box;
     const arena = frame.arena;
     defer closeTurnFrame(self, id);
-    var turn = Turn{ .vat = self, .self_ref = .{ .local = id }, .arena = arena, .origin = .local };
+    var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = id }, .ingress = ingress, .arena = arena, .origin = .local };
     if (box.handle(box.ptr, &turn, msg)) |value| {
         // A become installing at this frame's unwind makes the deferred
         // `finishCellRun` free this actor's old state box as the call

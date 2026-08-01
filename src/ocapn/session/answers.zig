@@ -107,6 +107,16 @@ pub const Projection = struct {
     /// The inbound answer position the projection was exported at, the
     /// promise the requester pipelines against.
     answer: model.AnswerPosition,
+    /// Identity stamp of the answer row at `answer`, from
+    /// `Session.store_stamp_counter`. A partner names its own answer
+    /// positions and may release one and reuse the number, so the position
+    /// alone does not say the row is still the question this projection was
+    /// asked. Resolving a projection against a reused position would answer
+    /// the partner's *new* question with the old one's value, and the
+    /// application's real reply to it would then be refused as a second
+    /// resolve and tear the session down. A stamp that no longer matches
+    /// means the question is gone, and the projection is dropped.
+    answer_row_id: u64,
     /// Re-anchor hops consumed so far. A projection follows a resolution that
     /// is itself a promise onto that promise's answer; the engine caps the
     /// hops at `SessionLimits.max_projection_chain` so a stored-resolution

@@ -6,6 +6,8 @@ tags: [vocabulary, driver, bindings, c-abi, captp]
 decision: "CapTP vocabulary is one sticky note across Zig, C, and bindings: Host is the multi-session CapTP product (owns engine.Node); engine.Node is the sans-io handoff router (router half of Goblins mycapn); Session is the CapTP one-partner app object (driver.Session / binding Session / PancakeTcpSession); BlockingSession is Served + net.Connection with a blocking pump (formerly ConnectedVat); Host.Conn / PancakeHostSession is the host-registered shell; net.Connection is the framed byte stream only; HostedActor / spawnHosted is embedder-hosted behavior (formerly ForeignActor / spawnForeign); DialResolver replaces transport Locator; ContextAllocator replaces HostAllocator. Goblins mycapn is two roles (endpoint ≈ Host, router tables ≈ engine.Node) never a single-type equation. Binding Node and binding Connection are deleted. driver.Node re-export is deleted."
 supersedes: []
 superseded_by: []
+amends: [ADR-0066, ADR-0067, ADR-0069]
+amended_by: []
 ---
 
 # ADR-0079 CapTP vocabulary. Host, Node, Session, sticky note
@@ -21,8 +23,8 @@ shared the noun `Locator` with OCapN `PeerLocator`. Embedder allocation was
 is a blocking session over a stream. `ForeignActor` collided with ADR-0069
 foreign-import vocabulary.
 
-ADR-0066's follow-on that equated binding `Node` with `engine.Node` is
-superseded for living guidance.
+ADR-0066's follow-on that equated binding `Node` with `engine.Node` is amended
+for living guidance; its router decision remains accepted.
 
 ## Decision
 

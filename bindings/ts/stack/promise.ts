@@ -3,17 +3,17 @@
 // ADR-0050 / ADR-0052). Also the shared fetch/enliven mint→await→classify
 // path (`awaitMinted` / `asLiveRef`), the far-send mint→`promiseFor` path
 // (`sendFar`), and RemotePromise construction. Session owns CapTP verb
-// wrappers; trampoline owns near/far send·tell dispatch and local arms;
-// this module owns the handle type, far-send/post-mint choreography, and
+// wrappers; trampoline owns Host-reference send·tell dispatch and local arms;
+// this module owns the handle type, remote-send/post-mint choreography, and
 // the projection FFI (`pancake_host_vow_*`).
 
-import { driverS } from "./internal/ffi/driver.ts";
+import { driverS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
 import { checkHost, FetchFailed, PancakeError } from "./errors.ts";
 import { encodeArgs, refStruct } from "./codec.ts";
-import { type AppValue, type Argument, isReference, liftArg, lowerArg, Ref } from "./value.ts";
+import { type Argument, isReference, Ref } from "./value.ts";
 
 /** The Session callbacks every vow wait needs, named here so this module stays
  * off the Session type itself (a direct dependency would form a promise ↔
@@ -85,16 +85,12 @@ export async function awaitMinted(
 	return await settled;
 }
 
-/** Classify a settled mint: only a live near/far reference is a capability
- * this surface can hand out. */
+/** Classify a settled mint as an opaque Host capability. */
 export function asLiveRef(result: Argument, label: string): Ref {
-	if (
-		!isReference(result) ||
-		(result.kind !== "near" && result.kind !== "far")
-	) {
+	if (!isReference(result)) {
 		throw new FetchFailed(label);
 	}
-	return new Ref(result);
+	return result;
 }
 
 /** The one mint/await/classify body under `fetch` and `enliven`: mint the
@@ -128,11 +124,11 @@ export function promiseFor(
 	h: PromiseFactoryHandle,
 	vow: bigint,
 ): RemotePromise {
-	const begin = async (): Promise<AppValue> => {
+	const begin = async (): Promise<Argument> => {
 		h.serve(); // the settle's bytes arrive on the inbound loop
 		const settled = h.awaitVow(vow);
 		void h.kickActions();
-		return liftArg(await settled);
+		return await settled;
 	};
 	const project = (
 		op: "index" | "untag" | "get",
@@ -152,11 +148,11 @@ export function sendFar(
 	h: PromiseFactoryHandle,
 	target: Ref | RemotePromise,
 	verb: string,
-	args: AppValue[],
+	args: Argument[],
 ): RemotePromise {
 	const verbBytes = utf8Encoder.encode(verb);
 	const keep: Uint8Array[] = [];
-	const argsBuf = encodeArgs(args.map(lowerArg), keep);
+	const argsBuf = encodeArgs(args, keep);
 	const argsArg = args.length ? ab(argsBuf) : new Uint8Array(0);
 	const out = new Uint8Array(8);
 	if (target instanceof RemotePromise) {
@@ -175,7 +171,7 @@ export function sendFar(
 	} else {
 		checkHost(driverS.pancake_host_session_send(
 			h.ptr,
-			ab(refStruct(target.reference)),
+			ab(refStruct(target)),
 			ab(verbBytes),
 			BigInt(verbBytes.length),
 			argsArg,
@@ -227,11 +223,11 @@ export type PromiseState =
 	// `.catch` could not see it. Rust has carried this arm from the start.
 	| { readonly tag: "failed"; readonly error: PancakeError };
 
-export class RemotePromise extends Promise<AppValue> {
+export class RemotePromise extends Promise<Argument> {
 	readonly #state: PromiseState;
-	readonly #begin: () => Promise<AppValue>;
+	readonly #begin: () => Promise<Argument>;
 	#started = false;
-	readonly #resolve: (value: AppValue | PromiseLike<AppValue>) => void;
+	readonly #resolve: (value: Argument | PromiseLike<Argument>) => void;
 	readonly #reject: (reason?: unknown) => void;
 	// Issues a projection op (index/untag/get) at this vow; set only for far.
 	readonly #project:
@@ -240,12 +236,12 @@ export class RemotePromise extends Promise<AppValue> {
 
 	private constructor(
 		state: PromiseState,
-		begin: () => Promise<AppValue>,
+		begin: () => Promise<Argument>,
 		project?: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	) {
 		// The executor only captures the settlement functions; it runs no flush,
 		// so construction is side-effect-free and the send stays lazy.
-		let resolve!: (value: AppValue | PromiseLike<AppValue>) => void;
+		let resolve!: (value: Argument | PromiseLike<Argument>) => void;
 		let reject!: (reason?: unknown) => void;
 		super((res, rej) => {
 			resolve = res;
@@ -261,14 +257,14 @@ export class RemotePromise extends Promise<AppValue> {
 	/** A far answer that settles a host vow (pipelinable). */
 	static far(
 		vow: bigint,
-		begin: () => Promise<AppValue>,
+		begin: () => Promise<Argument>,
 		project: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	): RemotePromise {
 		return new RemotePromise({ tag: "far", vow }, begin, project);
 	}
 
 	/** A local-send handle (not pipelinable). */
-	static local(begin: () => Promise<AppValue>): RemotePromise {
+	static local(begin: () => Promise<Argument>): RemotePromise {
 		return new RemotePromise({ tag: "local" }, begin);
 	}
 
@@ -340,8 +336,8 @@ export class RemotePromise extends Promise<AppValue> {
 	// native promise caches the settlement so repeated awaits share it. `catch`
 	// and `finally` are inherited from `Promise` and delegate to this `then`, so
 	// observing through any of them triggers the send.
-	override then<R1 = AppValue, R2 = never>(
-		onFulfilled?: ((value: AppValue) => R1 | PromiseLike<R1>) | null,
+	override then<R1 = Argument, R2 = never>(
+		onFulfilled?: ((value: Argument) => R1 | PromiseLike<R1>) | null,
 		onRejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
 	): Promise<R1 | R2> {
 		if (!this.#started) {

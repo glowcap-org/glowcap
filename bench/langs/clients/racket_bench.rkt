@@ -31,7 +31,7 @@
 
 ;; The same four verbs as run-unit, but pipelined (ADR-0007, questioner half):
 ;; assign/complete/status are addressed at the answer `create` will resolve to —
-;; the promise-ref `session-send-promise` returns, passed as the target, without
+;; the vow `session-send-promise` returns, passed as the target, without
 ;; settling it — so the unit costs one round trip instead of four. Only the final
 ;; status is settled (`session-await`), which flushes the queued batch. The
 ;; throughput unit; run-unit stays sequential so the latency row keeps measuring

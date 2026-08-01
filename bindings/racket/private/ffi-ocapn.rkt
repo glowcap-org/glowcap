@@ -6,7 +6,7 @@
 ;; managed-frame release every archive's frames free through, the OCapN
 ;; locator URI grammar, and the exporter location-record encoder gifter
 ;; origination feeds. The wire itself rides the byte-fed host archive
-;; (`ffi-driver.rkt`); the raw `pancake_peer_*` family stays a C-consumer
+;; (`ffi-host.rkt`); the native Zig engine peer is not mirrored into C
 ;; surface with no Racket wrapper. This loader opens ONLY libpancake_ocapn:
 ;; the universal base usable alone (ADR-0059). The transport archives have
 ;; their own loaders (`ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`), each

@@ -8,11 +8,7 @@
 const c = @import("c_abi");
 
 pub fn zeroRef() c.PancakeReference {
-    return .{ .kind = c.PANCAKE_REF_BROKEN, .sub_kind = 0, .id = 0 };
-}
-
-pub fn farRef(import_position: u64) c.PancakeReference {
-    return .{ .kind = c.PANCAKE_REF_FAR, .sub_kind = c.PANCAKE_REF_SUB_OBJECT, .id = import_position };
+    return .{ .id = 0 };
 }
 
 pub fn argBase() c.PancakeArgument {

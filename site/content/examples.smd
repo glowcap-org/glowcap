@@ -1,79 +1,68 @@
 ---
 .title = "Examples & demo apps",
-.description = "Watch the protocol run: Zig chapters one layer at a time, C programs over the same ABI, and cross-language apps holding one real OCapN conversation.",
+.description = "Choose a runnable example: watch rooms, learn the Zig API, study handoff or pipelining, or embed pancake from C.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Watch the protocol run. This page climbs three levels: Zig chapters that take
-one layer at a time, C programs over the same ABI, and cross-language apps
-holding one real [OCapN](https://github.com/ocapn/ocapn) conversation. Every
-example is a build target, so the code here cannot drift from the library.
+Choose the path that matches what you want to learn.
 
-The hard moves each get a chapter. Chapter 02 is three-party handoff, where a
-call settles as the introduced capability, and chapter 06 is promise pipelining
-plus attenuation. If the ideas are new, read [Concepts]($link.page('concepts'))
-first.
+## See the whole system
 
-## The Zig chapters
+The rooms app is the fullest demonstration: several language bindings, a
+browser UI, live chat, and direct messages created by a three-party handoff.
 
-They read top-down. Chapter 01 is the surface an application rides, and
-chapter 02 widens it to the multi-session CapTP `Host` tier. Chapters 03
-through 05 then descend one layer at a time to the raw engine, and chapter 06
-returns to the actor layer for pipelining and attenuation.
+```sh
+zig build rooms-web
+```
 
-| # | Chapter | What it shows |
+Open `http://localhost:8000`, pick a member, and choose **Message**. The room
+introduces the two members and then leaves their conversation path.
+
+Use `zig build rooms-web-iroh` to move native peer-to-peer traffic onto
+encrypted [iroh]($link.page('transports/iroh')). Both commands need Deno;
+the iroh form also needs Cargo.
+
+## Learn the Zig API
+
+Start with
+[01_connect_and_serve.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/01_connect_and_serve.zig).
+It shows both ends of one TCP conversation: listen, publish, connect, fetch,
+and call.
+
+```sh
+zig build examples
+```
+
+Two later chapters isolate the capability moves that are easiest to miss:
+
+- [02_introduce_and_redeem.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/02_introduce_and_redeem.zig)
+  hands a capability to a third peer and leaves the introducer behind.
+- [06_pipeline_and_attenuate.zig](https://github.com/jimisaacs/pancake/blob/main/examples/zig/06_pipeline_and_attenuate.zig)
+  calls through an unresolved promise and wraps a capability with a smaller
+  interface.
+
+The [complete example guide](https://github.com/jimisaacs/pancake/blob/main/examples/README.md)
+continues down through actors, bootstrap lookup, and the raw engine.
+
+## Embed from C
+
+[host_embedder_pump.c](https://github.com/jimisaacs/pancake/blob/main/examples/c/host_embedder_pump.c)
+is the first C program to read. It drives two byte-fed `PancakeHost` instances
+through the sole C CapTP application surface. Continue with
+[the C guide](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md)
+for linking, ownership, the host allocator, and transport composition.
+
+## Try another application
+
+| App | What it shows | Run |
 | --- | --- | --- |
-| 01 | [connect & serve](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig) | the application surface over a real TCP socket: listen, accept, publish by name, serve; connect, fetch, call, switch on the outcome |
-| 02 | [introduce and redeem](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/02_introduce_and_redeem.zig) | the capability pattern itself: an introduction settles as the introduced capability (the host redeems the gift inside the call), and the direct call leaves the introducer behind |
-| 03 | [actor far-send](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/03_actor_far_send.zig) | the `Vat` pattern beneath a call: publish an actor, far-send to it, settle the promise |
-| 04 | [look up by name](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/04_look_up_by_name.zig) | what `fetch("name")` does underneath: asking the session's front-door object (the *bootstrap object*) for a name by its unguessable token (its *swiss number*) |
-| 05 | [call a remote method](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/05_call_a_remote_method.zig) | the raw engine: pair two peers and shuttle deliver and resolve one `step` at a time |
-| 06 | [pipeline and attenuate](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/06_pipeline_and_attenuate.zig) | promise pipelining and attenuation together: dependent calls aimed at an unresolved answer, and a reply that forwards only the allow-listed verbs |
+| [tasks](https://github.com/jimisaacs/pancake/blob/main/apps/tasks/) | Shared task state | `zig build demo-tasks` |
+| [tools](https://github.com/jimisaacs/pancake/blob/main/apps/tools/) | Delegation, attenuation, and revocation | `zig build demo-tools` |
+| [accountability](https://github.com/jimisaacs/pancake/blob/main/apps/accountability-on-pancake/) | Signed calls above an OCapN session | `zig build demo-accountability` |
 
-`zig build examples` builds and runs them all, and they also run under
-`zig build check`. The
-[example chapters](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
-carry the full source and a few lower-level mechanics besides.
-
-## The C programs
-
-The C programs prove the same library from the other side of the C ABI, and
-they build and run under the same `zig build examples` step as the chapters.
-
-| Program | What it shows |
-| --- | --- |
-| [echo_peer.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/echo_peer.c) | a full in-process echo conversation between two peers, the reference shape of a C host event loop over the sans-io surface |
-| [frame_view.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/frame_view.c) | frame ownership over the C ABI: a borrowed frame view over caller-owned bytes |
-| [context_alloc.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/context_alloc.c) | a C embedder owning every pancake allocation through the context's host-allocator callbacks |
-| [compose_transports.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/compose_transports.c) | the à-la-carte archives composing: three headers, one link line, no symbol collisions |
-| [host_embedder_pump.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/host_embedder_pump.c) | the byte-fed multi-session CapTP host over the C ABI: feed inbound frames, take outbound, and answer the host's own actions, so a full CapTP product runs from C with no socket |
-
-## The cross-language apps
-
-Each app is built on the same small surface of application verbs (connect,
-publish, fetch, send, serve) written once per language, so the app reads the
-same in Zig and the four [bindings]($link.page('bindings')): Rust, Python,
-Racket, and TypeScript.
-
-| App | What it is | Run it |
-| --- | --- | --- |
-| [rooms](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/) | a capability-secure chat, real-time, with a browser UI and direct messages by introduction | `zig build demo-rooms` |
-| rooms over iroh | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
-| [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
-| [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
-| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN session on the `tcp` netlayer | `zig build demo-accountability` |
-
-`rooms` is the fullest live picture. `zig build rooms-web` serves the browser
-UI at `http://localhost:8000`. Pick a member and choose _Message_: the room
-runs a three-party handoff, then steps out of the path, and the conversation
-header says so. `zig build rooms-web-iroh` moves the peer-to-peer legs onto
-[iroh]($link.page('transports/iroh')), while the browser's own leg still rides
-its WebSocket. App code does not change between the two; only the address does.
-
-The `rooms`, `tasks`, and `tools` demos need `deno` beside Zig, and the other
-languages join when their runtimes are present. `accountability` runs a Zig
-host with Deno and Python callers, and it does not take `-Dattach`. `-Dport`
-pins a port. The demos run as siblings of `zig build check`, not inside it.
+Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
+callers. The same applications also serve as binding examples; the
+[bindings overview]($link.page('bindings')) points to each language.

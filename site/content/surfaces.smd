@@ -15,7 +15,7 @@ CapTP conversation on the wire, so choose the one that matches how you work.
 | Surface | You write | Reach for it when |
 | --- | --- | --- |
 | [Zig package]($link.page('start')) | Zig | you want the full engine and types |
-| [C ABI](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md) | C / any FFI | embedding, or wrapping a language with no binding yet |
+| [C ABI](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md) | C / any FFI | embedding, or wrapping a language with no binding yet |
 | [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | you are already in one of those four |
 | [CapTP CLI]($link.page('cli')) | shell / MCP | call, host, REPL, or agent MCP (`zig build`, then `zig-out/bin/pancake`) |
 
@@ -26,21 +26,21 @@ Each surface has its own front door. [Start building]($link.page('start'))
 walks the Zig round-trip line by line, and the
 [Zig API]($link.page('reference/api')) lists every declaration. The C archives
 ship generated headers, inventoried in the
-[API reference]($link.page('reference'));
-[consuming-from-c](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md)
+[API reference]($link.page('reference')), and
+[consuming-from-c](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md)
 walks a first C program. [Bindings]($link.page('bindings')) carries each
-language's idiom, and the [CapTP CLI]($link.page('cli')) page shows the shell
-happy path, with
-[docs/cli.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/cli.md)
-for more recipes.
+language's idiom. The [CapTP CLI]($link.page('cli')) page shows the shell happy
+path, and
+[docs/cli.md](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md)
+has more recipes.
 
 ## One engine
 
 A Zig peer, a C consumer, and any binding hold the same OCapN conversation byte
 for byte. The codec and CapTP version come from negotiation against the
 partner's offers, not from the surface you built on
-([Concepts]($link.page('concepts'))). Every artifact comes from `zig build`,
-and `zig build check` runs the in-tree verification; the
-[README](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build)
-lists the common steps. The `tcp` wire is cleartext; encrypted channels come
+([Concepts]($link.page('concepts'))). Every artifact comes from `zig build`, and
+`zig build check` runs the in-tree verification. The
+[README](https://github.com/jimisaacs/pancake/blob/main/README.md#build)
+lists the common steps. The `tcp` wire is cleartext, and encrypted channels come
 from the iroh and WebRTC transports ([Transports]($link.page('transports'))).

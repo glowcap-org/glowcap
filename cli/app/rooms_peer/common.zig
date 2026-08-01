@@ -30,6 +30,16 @@ pub const default_locator = "http://pancake-rooms:8000/locator";
 pub const reply_placeholder = "YOUR REPLY HERE";
 pub const replied_cap: usize = 1200;
 
+/// The longest nickname this peer will mint an inbox for, matching `MAX_NICK` in
+/// `apps/rooms/lib/limits.ts`. The name arrives from the directory on a peer's
+/// say-so, and it ends up inside a bootstrap swissnum this process keeps for
+/// good, so the length is not theirs to choose without a ceiling.
+pub const max_nick: usize = 32;
+
+/// How many direct-message inboxes this peer will hold, matching
+/// `MAX_DM_INBOXES` in `apps/rooms/lib/limits.ts`.
+pub const max_dm_inboxes: usize = 256;
+
 /// Resolve a CapTP dial target. An `http(s)://…/locator` bootstrap is fetched
 /// and its first line taken as the `ocapn://` URI (the rooms web UI serves it);
 /// an `ocapn://` URI or bare designator passes through. Returns an owned string.

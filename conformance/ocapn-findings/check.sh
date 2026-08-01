@@ -3,8 +3,10 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 spec="$repo_root/conformance/ocapn-spec/upstream/draft-specifications/CapTP Specification.md"
+netlayers="$repo_root/conformance/ocapn-spec/upstream/draft-specifications/Netlayers.md"
 suite="$repo_root/conformance/ocapn-conformance/upstream/utils/captp_types.py"
 goblins="$repo_root/conformance/spritely-goblins/upstream/goblins/ocapn/captp.rkt"
+goblins_urls="$repo_root/conformance/spritely-goblins/upstream/goblins/ocapn/structs-urls.rkt"
 
 submodules="conformance/ocapn-spec/upstream
 conformance/ocapn-conformance/upstream
@@ -51,6 +53,8 @@ require_text "$spec" "listen-desc>      ; desc:import-object | desc:import-promi
 require_text "$suite" "assert len(record.args) == 3" "suite op:listen arity"
 require_text "$suite" "wants_partial = record.args[2]" "suite third op:listen operand"
 require_text "$goblins" "(to-desc listener-desc wants-partial?)" "Goblins third op:listen operand"
+require_text "$netlayers" "Since hints is just a mapping of information" "draft mapping-shaped locator hints"
+require_text "$goblins_urls" "[hints (or/c #f string?)]" "Goblins string-or-false locator hints"
 
-printf '%s\n' "ocapn-findings-check: pinned op:listen discrepancy reproduced"
+printf '%s\n' "ocapn-findings-check: pinned op:listen and locator-hints discrepancies reproduced"
 git -C "$repo_root" submodule status -- $submodules

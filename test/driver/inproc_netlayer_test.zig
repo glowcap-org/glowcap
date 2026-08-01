@@ -56,7 +56,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, 0);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, .unbounded);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -80,7 +80,7 @@ fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
         .transport = inproc.transport_name,
         .designator = node_designator,
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, read_buf, write_buf, 0);
+    }, .ephemeral, read_buf, write_buf, .unbounded);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -137,7 +137,7 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
         .transport = inproc.transport_name,
         .designator = "no-such-node",
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, &read_buf, &write_buf, 0));
+    }, .ephemeral, &read_buf, &write_buf, .unbounded));
 }
 
 /// Park an accept on the listener and expect the clean closed verdict: the
@@ -247,4 +247,53 @@ fn dialAgainstCloseDirect(network: *inproc.Network, allocator: std.mem.Allocator
         .hints = model.Hints.emptyFalse(),
     }, .{ .read = &read_buf, .write = &write_buf });
     conn.deinit();
+}
+
+/// A raw accepter so the dial under test has a partner to rendezvous with;
+/// the owning face refuses the connection before any handshake, so this side
+/// only needs to complete the accept.
+fn acceptRawOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+    var conn = listener.accept(&peer, .{ .read = &read_buf, .write = &write_buf }) catch return;
+    conn.deinit();
+}
+
+test "the owning face refuses a transport with no pollable fd (ADR-0090)" {
+    // A blocking multiplex waits with poll, so a transport that reports no
+    // pollable fd cannot back one. inproc is that transport by design: its
+    // pipes block the reading thread and expose no descriptor. The refusal is
+    // typed and lands when the connection is adopted — before any handshake,
+    // and before the session is enrolled — so nothing half-open survives it.
+    // The borrowing tier (`connectVia`, exercised above) and the completion
+    // loop are what serve inproc.
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try network.netlayer().listen(allocator, .{ .designator = "unpollable-node" });
+    defer listener.close();
+
+    var accepter = try io.concurrent(acceptRawOnce, .{ listener, allocator });
+    defer accepter.await(io) catch {};
+
+    const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
+    try std.testing.expectError(driver.Error.TransportNotPollable, driver.connect(
+        allocator,
+        &netlayers,
+        .{
+            .transport = inproc.transport_name,
+            .designator = "unpollable-node",
+            .hints = model.Hints.emptyFalse(),
+        },
+        .ephemeral,
+        .{ .frame_cap = frame_cap, .handshake = .{ .ms = 1000 }, .settle = .{ .ms = 1000 } },
+    ));
 }

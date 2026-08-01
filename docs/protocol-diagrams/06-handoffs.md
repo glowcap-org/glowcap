@@ -42,14 +42,15 @@ sequenceDiagram
 ## HO-3: Step 1: deposit-gift
 
 Step 1 is an ordinary bootstrap-object call on the Gifter–Exporter session. The
-Exporter stores the gift keyed by gift-id until a matching withdrawal.
+Exporter stores the gift in that session's table, keyed by gift-id, until a
+matching withdrawal or session close.
 
 ```mermaid
 sequenceDiagram
     participant G as Gifter
     participant X as Exporter
     G->>X: op:deliver (to desc:export 0, ['deposit-gift, gift-id, gifted-ref])
-    Note over X: deposited-gifts table records (gift-id, gifted-ref)
+    Note over X: G-X session table records (gift-id, gifted-ref)
 ```
 
 ## HO-4: The desc:handoff-give certificate
@@ -114,28 +115,33 @@ withdrawal by breaking its answer with a typed reason; the session stays open.
 
 ```mermaid
 flowchart TD
-    IN["inbound withdraw-gift"] --> S1{"give signature valid against Gifter's G-X pubkey?"}
-    S1 -->|no| BK["break the withdraw answer"]
+    IN["inbound withdraw-gift"] --> LIVE{"named G-X session still open?"}
+    LIVE -->|no| BK["break the withdraw answer"]
+    LIVE -->|yes| S1{"give signature valid against that session's pubkey?"}
+    S1 -->|no| BK
     S1 -->|yes| S2{"receive signature valid against receiver-key from the give?"}
     S2 -->|no| BK
     S2 -->|yes| S3{"handoff-count above the last accepted for this receiving session?"}
     S3 -->|no| BK2["break - replay"]
-    S3 -->|yes| TK["take deposited gift by gift-id"]
+    S3 -->|yes| TK["take gift-id from the G-X session table"]
     TK --> RES["resolve the withdraw answer with the gifted reference"]
 ```
 
-The count guard is monotonic per receiving-session identity (the R-X session the
-receive names). It lives in the vat-scoped gift registry rather than in any one
-CapTP session, so a host that keeps that registry across reconnects refuses a
-replayed count.
+The count guard is one monotonic scalar on the live R-X session. The gift table
+belongs to the live G-X session. Closing either `Peer` destroys the authority it
+owns; no Host- or Vat-wide replay map survives. The current Host does reuse its
+session key, however, so a reconnect can recreate the same side and session
+names. Until ADR-0097 supplies fresh per-session keys, an old signed receive can
+resolve against that replacement session and consume a later same-id deposit.
 
 ## HO-8: Withdraw before deposit
 
 The two inbound legs race: the Receiver's withdrawal can reach the Exporter
-before the Gifter's deposit does. The Exporter parks the withdrawal unverified,
-because the Gifter's key it must verify the give against arrives with the
-deposit; when the matching gift-id lands, the parked withdrawal is validated
-whole, then dispatched.
+before the Gifter's deposit does. The Exporter resolves the still-open gifter
+session named by the give, verifies both signatures and the receiving-session
+names, and advances the Receiver–Exporter session's replay counter before it
+waits. When the matching gift-id lands, the accepted withdrawal consumes it
+without treating its own count as a replay.
 
 ```mermaid
 sequenceDiagram
@@ -143,9 +149,9 @@ sequenceDiagram
     participant X as Exporter
     participant G as Gifter
     R->>X: withdraw-gift (gift-id 7), arrives first
-    Note over X: gift-id 7 not yet deposited, verification must wait
-    Note over X: withdrawal parked unverified
+    Note over X: resolve gifter session and verify the certificates
+    Note over X: accept replay count, then park the verified withdrawal
     G->>X: deposit-gift (gift-id 7, gifted-ref)
-    Note over X: deposit lands, parked withdrawal validated whole
+    Note over X: deposit lands, accepted withdrawal consumes it
     X->>R: op:resolve (resolve:fulfill gifted-ref)
 ```

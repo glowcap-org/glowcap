@@ -105,7 +105,7 @@ pub fn main(init: std.process.Init) !void {
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort(host_addr, port);
     const loc = tcp.locator(&designator_buf, address);
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);

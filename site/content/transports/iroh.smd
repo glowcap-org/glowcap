@@ -27,88 +27,62 @@ roles at once:
 
 [One keypair fills all three roles, so the peer you dialed is provably the peer that signed the session.]($image.siteAsset('diagram-iroh-key.svg'))
 
-`zig build iroh-interop` checks that knot on a live wire from both ends: the
-session public key the partner proved, the node id the transport authenticated, and
-the designator in the signed locator are all the same key. There is no separate
-certificate to trust and no address to spoof, because the address *is* the key.
+The session key, authenticated node id, and signed locator designator must all
+match. There is no separate certificate or host address to trust.
 
-The identity also outlives the process that minted it. An endpoint bound from the
-same seed comes back with the same node id at a fresh network address. A
-sturdyref (a node id plus a [swiss number]($link.page('concepts'))) therefore still names the same capability
-after a restart. The interop check step proves that too, by tearing an endpoint down and
-reaching the same published cap through the locator recorded before the restart.
+Binding from the same seed restores the node identity at a new network
+address. A sturdyref works after that restart only if the application also
+restores the named object under the same swiss number.
 
 ## Reaching a peer
 
 A peer hands you its node id; how that id turns into a route is a *reachability
 posture* you choose when you bind the endpoint. pancake exposes four:
 
-| Posture | How a dial resolves | Proven by |
-| --- | --- | --- |
-| `direct` | the dialer carries the peer's direct socket addresses as locator hints | `zig build iroh-interop` |
-| `local_discovery` | an in-process address book resolves the id, no relay, fully deterministic | `zig build iroh-interop` |
-| `discovery` | the public n0 relays plus DNS/pkarr resolve the id over the open internet | `zig build iroh-reachability` |
-| `discovery_no_relay` | DNS/pkarr resolve the id, but with relay fallback disabled: published direct addresses only | posture governance only: `zig build bindings-iroh-redeem-posture` |
+| Posture | How a dial resolves |
+| --- | --- |
+| `direct` | Locator hints carry the peer's socket addresses |
+| `local_discovery` | An in-process address book resolves the id |
+| `discovery` | Public n0 relays and DNS/pkarr resolve the id |
+| `discovery_no_relay` | DNS/pkarr resolves published addresses with relay fallback disabled |
 
-`direct` and `local_discovery` are deterministic and run as the standard interop
-check step. `discovery` reaches real n0 infrastructure: a server publishes its node info
-to pkarr on bind, and a client dials by the 64-hex id with no hints. A session that
-opens therefore proves the route was discovered, not hinted. Because it depends on
-public infrastructure and propagation timing, it is opt-in and never part of the
-in-tree `zig build check`. `discovery_no_relay` is the same path with relay
-fallback disabled. No check step dials it live (that would need a publicly addressable
-host), so its cited check step proves something narrower and self-contained: a hint-less give is
-governed by whatever posture the endpoint configured, this one included.
+`direct` and `local_discovery` are deterministic. `discovery` publishes node
+information and depends on public infrastructure and propagation. The
+no-relay form needs a publicly reachable direct address.
 
 ## A separate artifact, by design
 
 iroh's QUIC stack is Rust, so it rides a sidecar staticlib that pancake keeps in
 its own compiled artifact, `libpancake_net_transport_iroh`
-([ADR-0055](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
-The base archives stay pure Zig and dependency-free; a program links iroh only when
-it wants it. `zig build iroh-abi` builds that companion archive and its header
-(it needs `cargo`).
+([ADR-0055](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
+The base archives stay pure Zig and dependency-free; a program links iroh only
+when it wants it. Building the companion archive requires `cargo`.
 
 The same split shows up in the bindings. Each one keeps iroh in a per-transport
 module: the `@pancake/iroh` package, `pancake.iroh`, `pancake-iroh.rkt`, and Rust's
 opt-in `iroh` feature. `connect` loads that module lazily the first time it sees an
 `iroh` locator (Rust compiles it in behind the feature instead), so a program that
 only ever speaks TCP never loads it. Hosting over iroh adds one verb, a
-listen-over-iroh call each binding spells its own way (`listenIroh` in TypeScript,
+listen-over-iroh call each binding names its own way (`listenIroh` in TypeScript,
 `listen_iroh` in Python). Dialing a peer over iroh goes through the same `connect`
 as TCP; the only difference a caller sees is the address.
 
 ## Scale: many connections, one thread
 
-The interop check drives one connection per OS thread, which is fine for a
-handful of peers. To serve many, a loop host drives every connection from one
+The blocking path uses one OS thread per connection. To serve many, a loop host
+drives every connection from one
 readiness descriptor
-([ADR-0057](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)):
-`zig build iroh-loop` proves it natively, and `bindings-iroh-loop` proves each
-binding's readiness loop. [Performance]($link.page('performance')) measures the
-round-trip cost against cleartext TCP on the same machine. The sidecar keeps its
-own heap, outside the roughly 2 KiB of core session state pancake's footprint
-check holds per connection.
+([ADR-0057](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)):
+[Performance]($link.page('performance')) measures the serial and readiness-loop
+paths. The sidecar heap is separate from pancake's core session state.
 
 ## Three-party handoff over iroh
 
 A handoff over iroh is the same introduction as over any other session
 ([Concepts]($link.page('concepts')) covers the shape): the gifter names the
 exporter by node id, and the recipient redeems by dialing that id on a fresh
-encrypted session. `zig build iroh-mesh` proves it live.
+encrypted session.
 
-## See it run
-
-Every claim here is a runnable check step (each needs `cargo`, and the live discovery one
-needs the public internet):
-
-```sh
-zig build iroh-interop       # keyed conversation, dial-by-id, key unification, durable identity
-zig build iroh-reachability  # dial-by-id over n0 relays + DNS/pkarr (opt-in, public internet)
-zig build iroh-loop          # many concurrent connections served from one readiness loop
-zig build iroh-mesh          # three-party handoff reached over iroh by node id
-zig build iroh-abi           # build libpancake_net_transport_iroh and its header
-```
-
-For a full application over the encrypted channel, the [rooms]($link.page('examples'))
-chat runs across five languages over iroh with `zig build demo-rooms-iroh`.
+For a full application, run the [rooms]($link.page('examples')) chat with
+`zig build demo-rooms-iroh`. [What you can depend on]($link.page('stability'))
+separates deterministic checks from public discovery tests.

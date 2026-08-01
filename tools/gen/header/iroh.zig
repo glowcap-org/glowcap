@@ -44,10 +44,13 @@ const emitted_fn_names = [_][]const u8{
     "pancake_iroh_netlayer_node_id",
     "pancake_iroh_netlayer_direct_addrs",
     "pancake_iroh_conn_release",
+    "pancake_iroh_conn_id",
     "pancake_iroh_netlayer_readiness_fd",
     "pancake_iroh_netlayer_drain_ready",
     "pancake_iroh_netlayer_try_accept",
-    "pancake_iroh_netlayer_try_connect",
+    "pancake_iroh_netlayer_start_connect",
+    "pancake_iroh_netlayer_finish_connect",
+    "pancake_iroh_netlayer_cancel_connect",
     "pancake_iroh_conn_try_read",
     "pancake_iroh_conn_try_write",
     "pancake_iroh_last_error",
@@ -95,7 +98,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   pancake_iroh_last_error rather than pancake_ocapn's pancake_last_error.
         \\
         \\   This is NOT transports/iroh/include/pancake_iroh_sidecar.h, which is
-        \\   the sidecar's internal byte-level seam (pancake_iroh_sidecar_connect,
+        \\   the sidecar's internal byte-level seam (pancake_iroh_sidecar_connect_blocking,
         \\   pancake_iroh_sidecar_conn_read, ...). This is the frame-level public
         \\   surface (pancake_iroh_netlayer_*, pancake_iroh_conn_try_read, ...). */
         \\#ifndef PANCAKE_NET_TRANSPORT_IROH_H
@@ -122,7 +125,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\pancake_iroh_netlayer_drain_ready, claim accepts with
         \\pancake_iroh_netlayer_try_accept, and move raw bytes with the
         \\non-blocking pancake_iroh_conn_try_read / _try_write. You frame those
-        \\bytes yourself, feeding a PancakePeer's stream input and writing its
+        \\bytes yourself, feeding a PancakeHost session and writing its
         \\outbound frames back — the same shape the TCP consumer uses. No call ever
         \\parks on a specific connection, so releasing one never races a read.
         \\
@@ -135,6 +138,15 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\discovery endpoint resolves the partner by id alone. Carry both in the
         \\OCapN locator a peer signs (transport "iroh", the id as designator, the
         \\hints under "direct-addresses").
+        \\
+        \\Those same calls are the raw byte channel a byte-transparent relay
+        \\needs for an iroh leg (ADR-0086). One leg composes
+        \\pancake_iroh_netlayer_new, its readiness_fd and drain_ready, the
+        \\_start_connect / _finish_connect lifecycle, _conn_try_read /
+        \\_conn_try_write, then _conn_release and
+        \\pancake_iroh_netlayer_release. There is no channel object over them,
+        \\because the wait a channel needs is your own reactor's, and only the
+        \\caller can hold it.
         \\
         \\Lifetime: release every connection before the netlayer that minted it.
         \\Threading: a connection is single-owner like a peer; serialize calls on
@@ -150,7 +162,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   pancake_iroh_netlayer_release after every connection is released. */
         \\typedef struct PancakeIrohNetlayer PancakeIrohNetlayer;
         \\/* One QUIC connection carrying one OCapN session. Created by
-        \\   pancake_iroh_netlayer_try_connect or claimed with
+        \\   pancake_iroh_netlayer_finish_connect or claimed with
         \\   pancake_iroh_netlayer_try_accept; released by
         \\   pancake_iroh_conn_release. */
         \\typedef struct PancakeIrohConn PancakeIrohConn;
@@ -193,7 +205,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   with pancake_iroh_netlayer_drain_ready, claim accepts with
         \\   pancake_iroh_netlayer_try_accept, and drive each ready connection with
         \\   the non-blocking pancake_iroh_conn_try_read / _try_write (raw bytes you
-        \\   frame with a PancakePeer, as for TCP). No call parks on a specific
+        \\   frame with a PancakeHost session, as for TCP). No call parks on a specific
         \\   connection, so releasing one never races a read. The would-block code
         \\   is the shared PANCAKE_ERR_WOULD_BLOCK from pancake_ocapn.h. */
         \\
@@ -202,15 +214,14 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try b.print(gpa, "#define PANCAKE_IROH_EV_WRITABLE {d}u\n", .{c.PANCAKE_IROH_EV_WRITABLE});
     try b.print(gpa, "#define PANCAKE_IROH_EV_CLOSED {d}u\n", .{c.PANCAKE_IROH_EV_CLOSED});
     try b.print(gpa, "#define PANCAKE_IROH_EV_ACCEPT {d}u\n", .{c.PANCAKE_IROH_EV_ACCEPT});
+    try b.print(gpa, "#define PANCAKE_IROH_EV_CONNECT {d}u\n", .{c.PANCAKE_IROH_EV_CONNECT});
     try b.appendSlice(gpa,
         \\
-        \\/* One readiness record from pancake_iroh_netlayer_drain_ready: the
-        \\   connection that became ready and the PANCAKE_IROH_EV_* bitset. conn is
-        \\   NULL for an accept record (claim it with
-        \\   pancake_iroh_netlayer_try_accept) and otherwise the PancakeIrohConn to
-        \\   drive. */
+        \\/* One readiness record from pancake_iroh_netlayer_drain_ready. subject
+        \\   is zero for accept, the caller request id for EV_CONNECT, and otherwise
+        \\   the stable identity returned by pancake_iroh_conn_id. */
         \\typedef struct PancakeIrohReadyEvent {
-        \\  PancakeIrohConn *conn;
+        \\  uintptr_t subject;
         \\  uint32_t events;
         \\} PancakeIrohReadyEvent;
         \\
@@ -235,14 +246,17 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_iroh_netlayer_close", &.{"netlayer"}, "Close the endpoint without releasing the handle: subsequent dials fail and the\nreadiness loop winds down. Idempotent. The shutdown lever for a host whose\nreadiness wait parks on another thread.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_release", &.{"netlayer"}, "Release the netlayer, its endpoint, and the runtime. Every connection made\nfrom it must already be released. NULL is a no-op.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_node_id", &.{ "netlayer", "out", "cap", "out_len" }, "Write this endpoint's id — its Ed25519 public key, the dialable designator —\ninto out as lowercase hex, and the byte count into out_len. cap must be at\nleast the id length (64) or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No\nterminator is written.");
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_direct_addrs", &.{ "netlayer", "out", "cap", "out_len" }, "Write this endpoint's comma-separated direct socket addresses into out (the\nhint string a partner passes to pancake_iroh_netlayer_try_connect) and the byte\ncount into out_len. A buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL; an\nendpoint with no direct addresses writes zero bytes and returns PANCAKE_OK. No\nterminator is written.");
-    try emitFn(&b, gpa, "pancake_iroh_conn_release", &.{"conn"}, "Close the connection and free the handle; do not use conn afterward. The\nconnection also prunes itself from its netlayer's readiness routing so a later\nrecord naming it routes to nothing. No call parks on the connection, so this\nfree cannot race a read.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_direct_addrs", &.{ "netlayer", "out", "cap", "out_len" }, "Write this endpoint's comma-separated direct socket addresses into out (the\nhint string a partner passes to pancake_iroh_netlayer_start_connect) and the\nbyte count into out_len. A buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL; an\nendpoint with no direct addresses writes zero bytes and returns PANCAKE_OK. No\nterminator is written.");
+    try emitFn(&b, gpa, "pancake_iroh_conn_release", &.{"conn"}, "Close the connection and free the handle; do not use conn afterward. A later\nreadiness record may still carry its stable id; the host drops it after removing\nits own id-to-connection row. No call parks on the connection, so this free\ncannot race a read.");
+    try emitFn(&b, gpa, "pancake_iroh_conn_id", &.{"conn"}, "Return this connection's stable readiness identity, unique for the netlayer's\nlifetime and never derived from the handle allocation address. Returns 0 for a\nNULL handle.");
 
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_readiness_fd", &.{"netlayer"}, "The netlayer's single OS readiness fd — the borrowed read end of the sidecar's\nwakeup channel, readable whenever fresh readiness records are pending. Register\nit once with your poller (poll/epoll/kqueue, or a runtime's reactor); when it\nsignals, call pancake_iroh_netlayer_drain_ready. The fd is owned by the netlayer\nand valid until pancake_iroh_netlayer_release — do not close it; dup it if your\nruntime needs its own copy. Negative only for a null handle.");
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_drain_ready", &.{ "netlayer", "out_events", "out_cap", "out_count" }, "Drain the pending readiness records into out_events (out_cap entries,\ncaller-owned) without blocking: PANCAKE_OK with the drained count (0 when none)\nin out_count, or a PANCAKE_ERR_* on fault (out_count untouched). Call it when\nreadiness_fd signals, then again until it drains fewer than out_cap records\n(more may be queued than one call drains), before re-parking on the fd. Records\nfor connections already released are skipped, so a host may release a connection\nat any time without racing this call — the drain touches only the endpoint,\nnever a per-connection buffer. Run it on one thread per netlayer, serialized\nagainst pancake_iroh_netlayer_release.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_readiness_fd", &.{"netlayer"}, "The netlayer's single read-only OS readiness fd — the borrowed read end of the\nsidecar's wakeup channel, readable whenever fresh readiness records are pending.\nRegister it once with your poller (poll/epoll/kqueue, or a runtime's reactor);\nwhen it signals, call pancake_iroh_netlayer_drain_ready. The fd is owned by the\nnetlayer and valid until pancake_iroh_netlayer_release — do not close it; dup it\nif your runtime needs its own copy. Negative only for a null handle.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_drain_ready", &.{ "netlayer", "out_events", "out_cap", "out_count" }, "Clear the fd's coalesced wake bytes, then drain pending readiness records into\nout_events (out_cap entries, caller-owned) without blocking: PANCAKE_OK with the\ndrained count (0 when none) in out_count, or a PANCAKE_ERR_* on fault (out_count\nuntouched). Call it when readiness_fd signals, then again until it drains fewer\nthan out_cap records (more may be queued than one call drains), before re-parking\non the fd. A record for a connection already released still carries only its\nstable id, so the host can discard it without dereferencing freed storage. The\ndrain touches only the endpoint, never a per-connection buffer. Run it on one\nthread per netlayer, serialized against pancake_iroh_netlayer_release.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_try_accept", &.{ "netlayer", "out_conn" }, "Claim one accepted connection (already non-blocking) into out_conn, returning\nPANCAKE_OK, or PANCAKE_ERR_WOULD_BLOCK when none is pending. Drive it after\ndrain_ready reports an accept record. Release with pancake_iroh_conn_release.");
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_try_connect", &.{ "netlayer", "node_id", "node_id_len", "addr_hints", "addr_hints_len", "out_conn" }, "Dial a partner by endpoint id and return a connection driven by this netlayer's\nreadiness loop. node_id is the partner's canonical id; addr_hints is its\ncomma-separated direct-address list (empty cannot dial a DIRECT netlayer, which\nruns no lookup service, but suffices for a discovery posture); both are borrowed.\nThe dial itself blocks the calling thread (run it off your event loop);\nsubsequent conn_try_read / conn_try_write are non-blocking. Release with\npancake_iroh_conn_release.");
-    try emitFn(&b, gpa, "pancake_iroh_conn_try_read", &.{ "conn", "buf", "len", "out_read" }, "Non-blocking read of raw inbound bytes into buf: PANCAKE_OK with the byte count\nin out_read, PANCAKE_ERR_WOULD_BLOCK when nothing is buffered yet,\nPANCAKE_ERR_CLOSED on a clean end of stream, or PANCAKE_ERR_IO on a fault\n(out_read untouched on any non-OK return). You frame these bytes yourself (feed\nthem to a PancakePeer's stream input), the same shape the TCP path uses.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_start_connect", &.{ "netlayer", "request_id", "node_id", "node_id_len", "addr_hints", "addr_hints_len" }, "Admit one outbound dial without blocking. request_id is nonzero and unique among\nthis netlayer's live requests. PANCAKE_OK promises exactly one EV_CONNECT record\ncarrying request_id; a synchronous error promises no event. The borrowed target\nbytes are parsed before return.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_finish_connect", &.{ "netlayer", "request_id", "out_conn" }, "Consume one terminal dial after EV_CONNECT. PANCAKE_OK transfers the owned\nconnection to out_conn; a failure returns its PANCAKE_ERR_* classification. The\nresult can be consumed only once. Release a successful connection with\npancake_iroh_conn_release.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_cancel_connect", &.{ "netlayer", "request_id" }, "Cancel one admitted dial. Its sole EV_CONNECT still arrives and must be finished,\nwhich consumes the endpoint-owned terminal result.");
+    try emitFn(&b, gpa, "pancake_iroh_conn_try_read", &.{ "conn", "buf", "len", "out_read" }, "Non-blocking read of raw inbound bytes into buf: PANCAKE_OK with the byte count\nin out_read, PANCAKE_ERR_WOULD_BLOCK when nothing is buffered yet,\nPANCAKE_ERR_CLOSED on a clean end of stream, or PANCAKE_ERR_IO on a fault\n(out_read untouched on any non-OK return). Feed these bytes to a PancakeHost\nsession, the same shape the TCP path uses.");
     try emitFn(&b, gpa, "pancake_iroh_conn_try_write", &.{ "conn", "buf", "len", "out_written" }, "Non-blocking write of len raw bytes from buf: PANCAKE_OK with the count written\n(the whole slice, all-or-nothing) in out_written, PANCAKE_ERR_WOULD_BLOCK when\nthe outbound buffer is at its bound (retry the same bytes after the next\nwritable record), or PANCAKE_ERR_IO on a fault (out_written untouched on any\nnon-OK return).");
 
     try emitFn(&b, gpa, "pancake_iroh_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last iroh-transport error into out_buf, the iroh\nsibling of pancake_last_error, reading libpancake_net_transport_iroh's own per-thread slot. A\npancake_iroh_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");

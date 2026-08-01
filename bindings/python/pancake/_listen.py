@@ -56,7 +56,7 @@ class Server:
 
     @property
     def host(self) -> Host:
-        """The server's shared Host: one retained identity and gift registry
+        """The server's shared Host: one retained identity and handoff router
         across every accepted session. Pass it to :func:`connect` so a
         fetched capability and the recipient session share one Host, the
         gifter side of a three-party handoff.
@@ -114,7 +114,7 @@ class KeyedTcpServer:
 
     @property
     def host(self) -> Host:
-        """This server's Host — one retained identity and gift registry. The
+        """This server's Host — one retained identity and session directory. The
         identity seed is the keyed-tcp designator."""
         return self._host
 

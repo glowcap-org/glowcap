@@ -6,6 +6,8 @@ tags: []
 decision: "<one-line statement of the decision>"
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: []
 ---
 
 # ADR-NNNN <Title>

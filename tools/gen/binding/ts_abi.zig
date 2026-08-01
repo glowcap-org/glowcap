@@ -1,5 +1,5 @@
 //! Generates the TypeScript mirror of the `libpancake_ocapn` and
-//! `libpancake_driver` ABIs from the Zig source of truth: the constants, the
+//! `libpancake_host` ABIs from the Zig source of truth: the constants, the
 //! struct layouts, and the driver FFI symbol table.
 //!
 //! JavaScript FFI has no struct types, so the TypeScript binding reads C structs
@@ -17,8 +17,8 @@
 //! target-specific, so they stay with the 64-bit consumer that reads them
 //! (`bindings/ts/stack/internal/abi.ts`); the wasm32 surface reports its own
 //! offsets instead (`pancake_wasm_abi_layout`). The third file is the driver
-//! dlopen table (`bindings/ts/stack/internal/ffi/driver.ts`), reflected from
-//! the annotated symbol inventory in `src/c_abi/driver/symbols.zig` — the
+//! dlopen table (`bindings/ts/stack/internal/ffi/host.ts`), reflected from
+//! the annotated symbol inventory in `src/c_abi/host/symbols.zig` — the
 //! first slice of the binding FFI-table generation the roadmap orders.
 //! `zig build gen-ts-abi-check` (part of `check`) holds every committed file
 //! against a fresh generation, the same discipline as the C headers.
@@ -28,13 +28,15 @@ const std = @import("std");
 // Force sidecar stubs so reflecting the iroh archive stays cargo-free.
 comptime {
     _ = @import("iroh_sidecar_stub");
+    _ = @import("webrtc_sidecar_stub");
 }
 
 const c = @import("c_abi");
-const cd = @import("c_abi_driver");
+const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const cw = @import("c_abi_net_transport_webrtc");
 
 pub const step_name = "gen-ts-abi";
 
@@ -45,7 +47,7 @@ const Output = @import("output").Output;
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/abi/constants.ts", .generate = generateConstants },
     .{ .path = "bindings/ts/stack/internal/abi.ts", .generate = generateLayouts },
-    .{ .path = "bindings/ts/stack/internal/ffi/driver.ts", .generate = generateDriverFfi },
+    .{ .path = "bindings/ts/stack/internal/ffi/host.ts", .generate = generateDriverFfi },
     .{ .path = "bindings/ts/stack/internal/ffi/ocapn.ts", .generate = generateOcapnFfi },
     .{ .path = "bindings/ts/stack/internal/ffi/tcp.ts", .generate = generateTcpFfi },
     .{ .path = "bindings/ts/stack/internal/ffi/inproc.ts", .generate = generateInprocFfi },
@@ -58,7 +60,7 @@ const constants_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// The target-independent half of the TypeScript ABI mirror: the constant
-    \\// values from the libpancake_ocapn, libpancake_driver, and
+    \\// values from the libpancake_ocapn, libpancake_host, and
     \\// libpancake_net_transport_iroh Zig declarations.
     \\// These are the same on every target, so they own one home here, the
     \\// @pancake/abi package, and both the native stack binding and the wasm32
@@ -96,7 +98,7 @@ fn k(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(c, decl)) };
 }
 
-/// `k` reading from the driver archive (`c_abi_driver`) instead of ocapn.
+/// `k` reading from the driver archive (`c_abi_host`) instead of ocapn.
 fn kd(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(cd, decl)) };
 }
@@ -105,6 +107,10 @@ fn kd(comptime ts: []const u8, comptime decl: []const u8) Const {
 /// reflected through the sidecar stub so generation stays cargo-free.
 fn ki(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(ci, decl)) };
+}
+
+fn kw(comptime ts: []const u8, comptime decl: []const u8) Const {
+    return .{ .ts = ts, .value = @intCast(@field(cw, decl)) };
 }
 
 /// One generated `bigint` constant, for the values wider than JavaScript's safe
@@ -118,11 +124,7 @@ fn kb(comptime ts: []const u8, comptime decl: []const u8) BigConst {
     return .{ .ts = ts, .value = @field(c, decl) };
 }
 
-const big_constants = [_]BigConst{
-    // The reserved redeemed-handoff-token range (ADR-0066): far ids at or above
-    // this are node-minted tokens, never wire imports.
-    kb("REDEEMED_TOKEN_BASE", "PANCAKE_REDEEMED_TOKEN_BASE"),
-};
+const big_constants = [_]BigConst{};
 
 const constants = [_]Const{
     // Return codes (the subset the binding branches on; the rest surface
@@ -133,12 +135,13 @@ const constants = [_]Const{
     k("CLOSED", "PANCAKE_ERR_CLOSED"),
     k("IO", "PANCAKE_ERR_IO"),
     k("BUFFER_TOO_SMALL", "PANCAKE_ERR_BUFFER_TOO_SMALL"),
+    k("NOT_FOUND", "PANCAKE_ERR_NOT_FOUND"),
     k("UNSUPPORTED_VALUE", "PANCAKE_ERR_UNSUPPORTED_VALUE"),
     k("BROKEN", "PANCAKE_ERR_BROKEN"),
     k("TIMEOUT", "PANCAKE_ERR_TIMEOUT"),
     k("FRAME_SHAPE_BYTE", "PANCAKE_FRAME_SHAPE_BYTE"),
     k("FRAME_SHAPE_WORD", "PANCAKE_FRAME_SHAPE_WORD"),
-    // The byte-fed host tier's action queue (libpancake_driver, ADR-0072):
+    // The byte-fed host tier's action queue (libpancake_host, ADR-0072):
     // PancakeHostAction.kind.
     kd("HOST_ACTION_DIAL", "PANCAKE_HOST_ACTION_DIAL"),
     kd("HOST_ACTION_FLUSH", "PANCAKE_HOST_ACTION_FLUSH"),
@@ -177,14 +180,12 @@ const constants = [_]Const{
     ki("IROH_EV_WRITABLE", "PANCAKE_IROH_EV_WRITABLE"),
     ki("IROH_EV_CLOSED", "PANCAKE_IROH_EV_CLOSED"),
     ki("IROH_EV_ACCEPT", "PANCAKE_IROH_EV_ACCEPT"),
-    // Reference kinds.
-    k("REF_NEAR", "PANCAKE_REF_NEAR"),
-    k("REF_FAR", "PANCAKE_REF_FAR"),
-    k("REF_PROMISE", "PANCAKE_REF_PROMISE"),
-    k("REF_STURDY", "PANCAKE_REF_STURDY"),
-    k("REF_BROKEN", "PANCAKE_REF_BROKEN"),
-    k("REF_SUB_OBJECT", "PANCAKE_REF_SUB_OBJECT"),
-    k("REF_SUB_PROMISE", "PANCAKE_REF_SUB_PROMISE"),
+    ki("IROH_EV_CONNECT", "PANCAKE_IROH_EV_CONNECT"),
+    kw("WEBRTC_EV_OPEN", "PANCAKE_WEBRTC_EV_OPEN"),
+    kw("WEBRTC_EV_CANDIDATE", "PANCAKE_WEBRTC_EV_CANDIDATE"),
+    kw("WEBRTC_EV_READABLE", "PANCAKE_WEBRTC_EV_READABLE"),
+    kw("WEBRTC_EV_WRITABLE", "PANCAKE_WEBRTC_EV_WRITABLE"),
+    kw("WEBRTC_EV_CLOSED", "PANCAKE_WEBRTC_EV_CLOSED"),
     // Argument kinds.
     k("ARG_INTEGER", "PANCAKE_ARG_INTEGER"),
     k("ARG_FLOAT64", "PANCAKE_ARG_FLOAT64"),
@@ -202,9 +203,6 @@ const constants = [_]Const{
     // Wire-grammar codec selectors (the host constructor and the transports).
     k("CODEC_SYRUP", "PANCAKE_CODEC_SYRUP"),
     k("CODEC_CAPNP", "PANCAKE_CODEC_CAPNP"),
-    // CapTP version for pancake_peer_new_negotiated.
-    k("CAPTP_VERSION_V1_0", "PANCAKE_CAPTP_VERSION_V1_0"),
-    k("CAPTP_VERSION_NEXT", "PANCAKE_CAPTP_VERSION_NEXT"),
     // PancakeLastAbort.domain.
     k("ABORT_DOMAIN_CODEC", "PANCAKE_ABORT_DOMAIN_CODEC"),
     k("ABORT_DOMAIN_SESSION", "PANCAKE_ABORT_DOMAIN_SESSION"),
@@ -256,6 +254,16 @@ const wasm_manifest = [_]ManifestRow{
     .{ .prefix = "DIAL_PLAN", .T = cd.PancakeDialPlan },
     .{ .prefix = "ACCEPT_PLAN", .T = cd.PancakeAcceptPlan },
     .{ .prefix = "PENDING_DIAL", .T = cd.PancakePendingDial },
+    .{ .prefix = "PARTNER_IDENTITY", .T = cd.PancakePartnerIdentity },
+};
+
+/// 64-bit mirror prefixes with no wasm manifest row, because the struct's
+/// archive is never linked into the wasm32 module. Declared here, at the one
+/// source both mirrors generate from, so the layout check can hold the
+/// exemption instead of a hardcoded skip drifting in the checker.
+const native_only_layouts = [_][]const u8{
+    "IROH_READY_EVENT",
+    "WEBRTC_READY_EVENT",
 };
 
 /// The target-independent constants, emitted into the `@pancake/abi` package.
@@ -299,6 +307,21 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa, "] as const;\n");
 
+    try out.appendSlice(gpa,
+        \\
+        \\// Layout prefixes that exist only in native archives the wasm32 module
+        \\// never links (a browser has no iroh sidecar to link). A wasm
+        \\// marshaller must never read these; the layout check requires every
+        \\// other 64-bit prefix to have a manifest row above, and refuses a
+        \\// prefix listed here that gains one.
+        \\export const NATIVE_ONLY_LAYOUT_PREFIXES = [
+        \\
+    );
+    inline for (native_only_layouts) |prefix| {
+        try out.print(gpa, "\t\"{s}\",\n", .{prefix});
+    }
+    try out.appendSlice(gpa, "] as const;\n");
+
     return out.toOwnedSlice(gpa);
 }
 
@@ -317,12 +340,14 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "MANAGED_FRAME", c.PancakeManagedFrame, "PancakeManagedFrame (owned, self-releasing)");
     try emitLayout(&out, gpa, "LAST_ABORT", c.PancakeLastAbort, "PancakeLastAbort");
     try emitLayout(&out, gpa, "ALLOCATOR", c.PancakeAllocator, "PancakeAllocator (pancake_context_new_with_allocator)");
-    try emitLayout(&out, gpa, "HOST_ACTION", cd.PancakeHostAction, "PancakeHostAction (libpancake_driver, pancake_host_next_action)");
-    try emitLayout(&out, gpa, "HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks, "PancakeHostPumpHooks (libpancake_driver, pancake_host_pump_drain)");
-    try emitLayout(&out, gpa, "DIAL_PLAN", cd.PancakeDialPlan, "PancakeDialPlan (libpancake_driver, pancake_host_plan_dial)");
-    try emitLayout(&out, gpa, "ACCEPT_PLAN", cd.PancakeAcceptPlan, "PancakeAcceptPlan (libpancake_driver, pancake_host_plan_accept)");
-    try emitLayout(&out, gpa, "PENDING_DIAL", cd.PancakePendingDial, "PancakePendingDial (libpancake_driver, pancake_host_pending_dial)");
+    try emitLayout(&out, gpa, "HOST_ACTION", cd.PancakeHostAction, "PancakeHostAction (libpancake_host, pancake_host_next_action)");
+    try emitLayout(&out, gpa, "HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks, "PancakeHostPumpHooks (libpancake_host, pancake_host_pump_drain)");
+    try emitLayout(&out, gpa, "DIAL_PLAN", cd.PancakeDialPlan, "PancakeDialPlan (libpancake_host, pancake_host_plan_dial)");
+    try emitLayout(&out, gpa, "ACCEPT_PLAN", cd.PancakeAcceptPlan, "PancakeAcceptPlan (libpancake_host, pancake_host_plan_accept)");
+    try emitLayout(&out, gpa, "PENDING_DIAL", cd.PancakePendingDial, "PancakePendingDial (libpancake_host, pancake_host_pending_dial)");
+    try emitLayout(&out, gpa, "PARTNER_IDENTITY", cd.PancakePartnerIdentity, "PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)");
     try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.PancakeIrohReadyEvent, "PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)");
+    try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent, "PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)");
 
     return out.toOwnedSlice(gpa);
 }
@@ -364,6 +389,12 @@ comptime {
     checkInventory(ct);
     checkInventory(cin);
     checkInventory(ci);
+    checkInventory(cw);
+    for (cw.symbols.symbols) |row| {
+        if (row.ts_omit == null) {
+            @compileError("WebRTC export '" ++ row.name ++ "' promises a TypeScript native loader, but TypeScript WebRTC is browser-native");
+        }
+    }
 }
 
 /// The TS class letter for one parameter type: opaque handles and function
@@ -550,18 +581,18 @@ fn renderDlopenFile(gpa: std.mem.Allocator, comptime M: type, comptime preamble:
 }
 
 const driver_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/driver (the annotated
+    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/host (the annotated
     \\// symbol inventory in symbols.zig plus each export's reflected signature)
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_driver` — the byte-fed host archive
-    \\// (ADR-0072), the sibling of the Racket binding's `ffi-driver.rkt`.
+    \\// Internal: the FFI mirror of `libpancake_host` — the byte-fed host archive
+    \\// (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
     \\//
     \\// Nothing here is public. The archive is a companion of libpancake_ocapn: it
     \\// exports only the `pancake_host_*` family and shares the frame, argument,
     \\// reference, and last-abort layouts by layout, so this loader opens ONLY
-    \\// libpancake_driver and declares no core symbol. The host surface over it
+    \\// libpancake_host and declares no core symbol. The host surface over it
     \\// spans `../../host.ts`, `../../session.ts`, `../../action.ts`, and
     \\// `../../pump.ts`.
     \\//
@@ -601,8 +632,8 @@ const ocapn_ffi_preamble =
     \\// binding still speaks directly: the ABI version, the core last-error slot, the
     \\// allocation context, managed-frame release, the exporter-locator encoder, and
     \\// the OCapN URI grammar. The peer itself is driven through the byte-fed host
-    \\// archive (`driver.ts`, `libpancake_driver`, ADR-0072), never through raw
-    \\// `pancake_peer_*` calls. Each transport archive has its own sibling loader
+    \\// archive (`driver.ts`, `libpancake_host`, ADR-0072), never through raw
+    \\// raw per-session engine calls. Each transport archive has its own sibling loader
     \\// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
     \\//
     \\// The one-letter type shorthands (`P`/`B`/`U`/`I`/`V`) let a symbol's whole
@@ -616,7 +647,7 @@ const ocapn_ffi_preamble =
 ;
 
 fn generateDriverFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cd, driver_ffi_preamble, "pancake_driver", "driverS");
+    return renderDlopenFile(gpa, cd, driver_ffi_preamble, "pancake_host", "driverS");
 }
 
 fn generateOcapnFfi(gpa: std.mem.Allocator) ![]u8 {

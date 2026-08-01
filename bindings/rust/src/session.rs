@@ -1,11 +1,12 @@
-//! The application surface over the byte-fed host (`libpancake_driver`,
+//! The application surface over the byte-fed host (`libpancake_host`,
 //! ADR-0072): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
 //! `publish`/`enliven`/`serve`/`close`), plus mint/handshake (`establish_*`).
 //! The dial executor (plan + channel open + [`connect`]) lives in
 //! [`crate::dial`]; [`Server`] / [`listen`] live in [`crate::listen`]. The
 //! [`RemotePromise`] handle lives in [`crate::promise`]. CapTP action
 //! decode+execute lives in [`crate::action`].
-//! Per-connection [`Ref`] / [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`].
+//! Per-connection [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`];
+//! the Host-scoped [`Ref`] lives beside [`Argument`](crate::Argument).
 //! The byte-fed pump choreography — read raw bytes, `pancake_host_session_feed_bytes`,
 //! drain the action queue, write what `take_outbound` drains, feed-refusal /
 //! `last_abort`, EOF / `break_far_vows` — lives in [`crate::pump`]; this module
@@ -21,9 +22,10 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::host::{check_host, Host, HostShared};
-use crate::session_shared::{Caretaker, Ref, SessionShared};
-use crate::sys::driver as ffi;
+use crate::session_shared::{Caretaker, SessionShared};
+use crate::sys::host as ffi;
 use crate::trampoline::outcome_behavior;
+use crate::Ref;
 use crate::{sys, Argument, Error, Result};
 
 use crate::promise::{AsSendTarget, RemotePromise};
@@ -50,13 +52,22 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(10_000);
 /// and dropping the view leaves the connection running.
 pub struct Session {
 	shared: Rc<SessionShared>,
-	// Whether dropping this handle tears the connection down. True for the
-	// handle that dialed or accepted the session and is its owner. False for a
-	// view onto a session the host owns and keeps alive on its own account —
-	// an exporter connection a redeem dialed, handed out by
-	// [`Session::send_redeeming`]. Closing there would sever the very
-	// capability the caller asked for.
-	closes_on_drop: bool,
+	// The ownership axis both teardown paths read. True for the handle that
+	// dialed or accepted the session and is its owner: its `drop` and its
+	// `close` end that one connection. Sweeping the host's redeemed exporter
+	// connections is a separate axis, `owns_host` below. False for a view onto
+	// a session the host owns and keeps
+	// alive on its own account — an exporter connection a redeem dialed, handed
+	// out by [`Session::send_redeeming`]. A view's `drop` closes nothing and its
+	// `close` reaches no further than the one connection it names; sweeping
+	// there would sever the very capability the caller asked for, along with
+	// every other redeem in flight on the same host.
+	owns_session: bool,
+	// Set when this session created the host it runs on, which `connect` does
+	// when the caller passes none. Such a host has no other reachable owner,
+	// so closing the session takes it down; a caller-supplied host is never
+	// closed here, because sibling sessions may still be using it.
+	owns_host: bool,
 }
 
 /// What [`Session::send_redeeming`] settles with: the partner's reply, and the
@@ -72,9 +83,31 @@ pub struct Redeemed {
 	///
 	/// It is a view, not an owner: dropping it leaves the exporter connection
 	/// open, because the host owns that connection and the reply capability
-	/// depends on it. Calling [`close`](Session::close) on it is still an
-	/// explicit close, and closes it.
+	/// depends on it. Calling [`close`](Session::close) on it is an explicit
+	/// close of that one exporter connection, which severs the reply capability
+	/// beside it. It reaches no further: the session you sent on, and every
+	/// other exporter connection the host dialed, keep running.
 	pub via: Option<Session>,
+}
+
+/// Who the partner on a session proved itself to be, as
+/// [`Session::partner_identity`] returns it.
+///
+/// Every field is copied out of the session at the call, so the values outlive
+/// the session that produced them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartnerIdentity {
+	/// The partner's session public key, the one thing its handshake signature
+	/// is made with. Always present.
+	pub session_key: Vec<u8>,
+	/// The location designator the partner signed, such as a hex key for
+	/// `keyed-tcp` or a `host:port` for `tcp`. Empty when the partner's
+	/// location carried no designator.
+	pub designator: String,
+	/// The verbatim `<ocapn-peer>` record the key and designator were read
+	/// from, which is the span the signature covers. Empty when the session
+	/// captured no record.
+	pub locator_record: Vec<u8>,
 }
 
 impl Session {
@@ -83,8 +116,15 @@ impl Session {
 	pub(crate) fn owning(shared: Rc<SessionShared>) -> Session {
 		Session {
 			shared,
-			closes_on_drop: true,
+			owns_session: true,
+			owns_host: false,
 		}
+	}
+
+	// Mark this session as the owner of the host it runs on: `connect` sets it
+	// when it had to make one, and nothing else does.
+	pub(crate) fn set_owns_host(&mut self, owns: bool) {
+		self.owns_host = owns;
 	}
 
 	// A view onto a session the host owns, for a caller that needs to spawn and
@@ -92,15 +132,17 @@ impl Session {
 	pub(crate) fn view(shared: Rc<SessionShared>) -> Session {
 		Session {
 			shared,
-			closes_on_drop: false,
+			owns_session: false,
+			owns_host: false,
 		}
 	}
 
 	/// Mint the dialing half from an already-parsed locator (`transport` +
 	/// `designator`), matching a DIAL action's pieces. The handshake is bounded
 	/// by `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] on every dial the binding
-	/// performs; `None` waits unbounded), and overrunning it fails with
-	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut). Binding-internal.
+	/// performs; `None` or a zero budget waits unbounded), and overrunning it
+	/// fails with [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut).
+	/// Binding-internal.
 	pub(crate) async fn establish_dialed_locator<S>(
 		host: Rc<HostShared>,
 		transport: &str,
@@ -111,6 +153,7 @@ impl Session {
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
+		host.guard_open()?;
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
 			ffi::pancake_host_session_open_dialed_locator(
@@ -133,8 +176,8 @@ impl Session {
 	/// accept reported. Signing designator/hint come from
 	/// `pancake_host_plan_accept` (ADR-0078). The handshake is bounded by
 	/// `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] in every accept loop here;
-	/// `None` waits unbounded, which a caller with no inline accept loop of its
-	/// own may want), and overrunning it fails with
+	/// `None` or a zero budget waits unbounded, which a caller with no inline
+	/// accept loop of its own may want), and overrunning it fails with
 	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut), which an accept loop
 	/// skips like any other bad partner. Binding-internal.
 	pub(crate) async fn establish_accepted<S>(
@@ -148,6 +191,7 @@ impl Session {
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
+		host.guard_open()?;
 		let mut plan = ffi::PancakeAcceptPlan {
 			designator: core::ptr::null(),
 			designator_len: 0,
@@ -209,13 +253,15 @@ impl Session {
 	// — nothing fails, the handshake simply waits — so unbounded it parks the
 	// dialer forever, and on the accepting side every later connection behind
 	// that one client. `None` is the caller's explicit opt-in to waiting
-	// without a bound. An elapsed budget takes the same abandon path a failed
-	// handshake does: dropping the handshake future drops the read half, and
-	// the teardown below releases the half-built session and closes the
-	// transport.
+	// without a bound, and so is a zero budget: zero is how the C ABI and the
+	// sibling bindings spell "no bound", so a caller threading a configured
+	// millisecond count through must not land on a deadline of right now. An
+	// elapsed budget takes the same abandon path a failed handshake does:
+	// dropping the handshake future drops the read half, and the teardown below
+	// releases the half-built session and closes the transport.
 	async fn establish(self, handshake_timeout: Option<Duration>) -> Result<Session> {
 		let handshake = crate::pump::run_handshake(&self.shared);
-		let outcome = match handshake_timeout {
+		let outcome = match handshake_timeout.filter(|budget| !budget.is_zero()) {
 			Some(budget) => match tokio::time::timeout(budget, handshake).await {
 				Ok(outcome) => outcome,
 				Err(_) => Err(Error::with_detail(
@@ -234,14 +280,17 @@ impl Session {
 				Ok(self)
 			}
 			Err(error) => {
+				// Explicit rather than left to the `Drop` behind it: a
+				// half-built session is abandoned on the same terms whatever
+				// this handle's ownership disposition is. `close_transport` is
+				// idempotent (`released`), so that drop is a no-op.
 				self.shared.close_transport();
-				// Skip the Drop teardown; close_transport already ran.
 				Err(error)
 			}
 		}
 	}
 
-	/// The session's shared [`Host`], its retained identity and gift registry.
+	/// The session's shared [`Host`], its retained identity and handoff router.
 	/// Shared by every session of one Host, so the gifter half of a handoff
 	/// can reach a sibling session's session keys. An application reads it to
 	/// publish Host-giftables ([`Host::publish_giftable`]), share one identity
@@ -277,6 +326,79 @@ impl Session {
 		Ok(())
 	}
 
+	/// Who this session's partner proved itself to be during the handshake.
+	///
+	/// A partner's keyed `op:start-session` carries an Ed25519 signature over
+	/// its own location record, and the engine verifies that signature before
+	/// the session opens. So a success here always means the signature was
+	/// checked, and there is no unverified answer to mistake for a verified
+	/// one. The signed span covers the whole record, which is what binds
+	/// [`designator`](PartnerIdentity::designator) to
+	/// [`session_key`](PartnerIdentity::session_key): the partner cannot claim
+	/// a designator it does not own without also owning the key.
+	///
+	/// That binding is how a server refuses a caller that names a locator
+	/// belonging to someone else. Compare the locator the caller claims in its
+	/// request against the identity this returns, and turn a mismatch away.
+	///
+	/// The bytes are copied out of the session here, so the returned
+	/// [`PartnerIdentity`] stays valid after the session closes.
+	///
+	/// Two refusals are ordinary rather than faults. Before the partner's
+	/// `op:start-session` has arrived with a key there is nothing to report
+	/// yet, and a session opened without partner verification has no proved
+	/// identity at all.
+	pub fn partner_identity(&self) -> Result<PartnerIdentity> {
+		self.shared.guard_open()?;
+		let mut out = ffi::PancakePartnerIdentity {
+			session_key: core::ptr::null(),
+			session_key_len: 0,
+			designator: core::ptr::null(),
+			designator_len: 0,
+			locator_record: core::ptr::null(),
+			locator_record_len: 0,
+		};
+		check_host(unsafe {
+			ffi::pancake_host_session_partner_identity(self.shared.ptr.get(), &mut out)
+		})?;
+		// Session-owned views, valid only until the session is released, so
+		// every field is copied before it leaves this call.
+		let (session_key, designator, locator_record) = unsafe {
+			(
+				crate::owned_from_view(out.session_key, out.session_key_len),
+				crate::owned_from_view(out.designator, out.designator_len),
+				crate::owned_from_view(out.locator_record, out.locator_record_len),
+			)
+		};
+		Ok(PartnerIdentity {
+			session_key,
+			designator: String::from_utf8_lossy(&designator).into_owned(),
+			locator_record,
+		})
+	}
+
+	/// Whether this session's partner proved it owns the designator it
+	/// advertised, meaning that designator is exactly its verified session key
+	/// written as canonical hex.
+	///
+	/// This asks the host rather than making each binding re-derive the
+	/// comparison from [`partner_identity`](Session::partner_identity). It is
+	/// meaningful for a key-designator transport, which is `keyed-tcp`, `iroh`,
+	/// `webrtc`, or `keyed-relay`. An address transport such as `tcp` names a
+	/// socket address that the key does not determine, so the answer there is
+	/// false, and false is the correct answer rather than a failure.
+	///
+	/// It refuses exactly where
+	/// [`partner_identity`](Session::partner_identity) refuses.
+	pub fn partner_designator_is_key(&self) -> Result<bool> {
+		self.shared.guard_open()?;
+		let mut matches: u32 = 0;
+		check_host(unsafe {
+			ffi::pancake_host_session_partner_designator_is_key(self.shared.ptr.get(), &mut matches)
+		})?;
+		Ok(matches != 0)
+	}
+
 	/// Opt this session into distributed GC (ADR-0063), off by default. Once
 	/// on, a far capability returned by [`fetch`](Session::fetch) releases its
 	/// import to the partner — a single `op:gc-exports` delta, routed through the
@@ -290,12 +412,76 @@ impl Session {
 		self
 	}
 
+	/// A [`Ref`] for the object published under `name` on this session, or `None`
+	/// when nothing is published there.
+	///
+	/// [`Session::publish`] returns its own `Ref`, so this is for the other
+	/// publisher: [`Host::publish_giftable`](crate::Host::publish_giftable) hosts
+	/// one actor under a Host-wide alias and returns nothing. This lazily projects
+	/// the actor onto the session and returns its Host identity; no enrollment
+	/// step exists.
+	///
+	/// A send to the returned `Ref` runs the behavior in process rather than over
+	/// the wire, and a giftable registered no session, so `current_session()`
+	/// inside it is `None`. Pass it on as a capability argument; a
+	/// behavior written to answer over the connection its call arrived on will not
+	/// answer a local send.
+	pub fn published_ref(&self, name: &str) -> Result<Option<Ref>> {
+		self.shared.guard_open()?;
+		let mut reference = sys::PancakeReference { id: 0 };
+		let rc = unsafe {
+			ffi::pancake_host_session_published_ref(
+				self.shared.ptr.get(),
+				name.as_ptr(),
+				name.len(),
+				&mut reference,
+			)
+		};
+		if rc == sys::ERR_NOT_FOUND {
+			return Ok(None);
+		}
+		check_host(rc)?;
+		// Join the host's giftable to the identity this session surfaced, so a
+		// later local send to the returned Ref composes in process.
+		self.shared.bind_host_giftable(name, reference.id);
+		Ok(Some(Ref::bare_id(reference.id)))
+	}
+
+	/// Give a capability back to the partner, now, because this application is
+	/// done holding it.
+	///
+	/// Releases one application retain. For a remote capability the Host emits
+	/// any required `op:gc-exports`; a local capability needs no wire message.
+	/// [`with_gc`](Session::with_gc) does this too, but only for a
+	/// [`fetch`](Session::fetch) result; this works for any far capability this
+	/// session holds, including one lifted from a delivered argument or a reply.
+	///
+	/// `cap` is taken by value, so the handle you released is gone. A clone
+	/// made earlier reads [`Ref::released`] as true and is a caller error to
+	/// use. The Host generation makes the stale id fail closed, and the binding
+	/// rejects the clone before crossing the ABI.
+	///
+	/// A capability from another Host, or one already released, is an error.
+	pub fn release(&self, cap: Ref) -> Result<()> {
+		self.shared.guard_open()?;
+		if cap.released() {
+			return Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"capability already released".to_string(),
+			));
+		}
+		crate::gc::release_ref(self.shared.host.raw(), cap.id())?;
+		crate::gc::disarm(&cap);
+		cap.mark_released();
+		Ok(())
+	}
+
 	/// Spawn a local actor and return a capability to it. Pass the returned `Ref`
-	/// as a `send` argument to hand a partner a callback. The position comes from
-	/// the session's one export allocator, so it can never alias a bootstrap or
-	/// resolver export. Callable from inside a served turn (a factory's `create`
-	/// minting the task it replies with).
-	pub async fn spawn(
+	/// as a `send` argument to hand a partner a callback. The returned identity
+	/// is opaque and Host-scoped; wire export positions stay inside pancake.
+	/// Callable from inside a served turn (a factory's `create` minting the task
+	/// it replies with).
+	pub fn spawn(
 		&self,
 		behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
 	) -> Result<Ref> {
@@ -304,7 +490,7 @@ impl Session {
 
 	/// Publish an actor so a partner can [`fetch`](Session::fetch) it by `name`
 	/// (a swiss-number). Returns a capability to it.
-	pub async fn publish(
+	pub fn publish(
 		&self,
 		name: &str,
 		behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
@@ -319,7 +505,7 @@ impl Session {
 	/// `Revoked`. `target` may be a capability you imported over the wire — the
 	/// proxy forwards transparently — so this hands out a revocable view of
 	/// authority you do not own locally.
-	pub async fn caretaker(&self, target: &Ref) -> Result<Caretaker> {
+	pub fn caretaker(&self, target: &Ref) -> Result<Caretaker> {
 		crate::trampoline::caretaker_proxy(&self.shared, target)
 	}
 
@@ -327,7 +513,7 @@ impl Session {
 	/// forwards only the calls whose verb is in `verbs` and breaks every other
 	/// with `Attenuated`. Returns the proxy capability to hand a partner. `target`
 	/// may be a wire-imported capability, so this narrows authority you hold.
-	pub async fn attenuate(&self, target: &Ref, verbs: &[&str]) -> Result<Ref> {
+	pub fn attenuate(&self, target: &Ref, verbs: &[&str]) -> Result<Ref> {
 		crate::trampoline::attenuate_proxy(&self.shared, target, verbs)
 	}
 
@@ -351,22 +537,19 @@ impl Session {
 		.await
 	}
 
-	/// Enliven a sturdyref against this session (ADR-0012): bring the durable
-	/// `(peer, swissnum)` to life as a live [`Ref`]. Parses `sturdyref` for its
-	/// swissnum, then fetches it through the host's dedup cache — a repeat
+	/// Enliven a sturdyref against this session (ADR-0098): bring the durable
+	/// `(peer, swissnum)` to life as a live [`Ref`]. The host verifies the complete
+	/// locator against this session before consulting its dedup cache — a repeat
 	/// enliven of the same swissnum on this session short-circuits with no wire
 	/// traffic (its completion is queued before the minting call returns). The
-	/// session must already be open to the sturdyref's peer; the sans-io core
-	/// tracks no remote locator and never dials. Rejects with the typed break
+	/// session must already be open to the sturdyref's peer; this session-level
+	/// call never dials. Rejects with the typed break
 	/// when the partner refuses, and with a broken error on a non-capability
 	/// fulfillment.
 	pub async fn enliven(&self, sturdyref: &str) -> Result<Ref> {
-		let swissnum = crate::uri::parse_sturdyref(sturdyref)?
-			.swissnum
-			.into_bytes();
 		crate::promise::fetch_like(
 			&self.shared,
-			&swissnum,
+			sturdyref.as_bytes(),
 			"enliven",
 			ffi::pancake_host_session_enliven,
 			false,
@@ -417,7 +600,7 @@ impl Session {
 	/// let Redeemed { reply, via } = conn.send_redeeming(&directory, "introduce", &[nick]).await?;
 	/// let member = Ref::try_from(&reply).expect("introduce answers with a capability");
 	/// let hop = via.as_ref().unwrap_or(&conn);
-	/// let inbox = hop.spawn(reply_behavior).await?;   // hosted where the reply lives
+	/// let inbox = hop.spawn(reply_behavior)?;   // hosted where the reply lives
 	/// hop.send(&member, "dm", &[text, (&inbox).into()]).await?;
 	/// ```
 	pub async fn send_redeeming<T: AsSendTarget>(
@@ -433,7 +616,13 @@ impl Session {
 				.shared
 				.host
 				.exporter_for(&capability)?
-				.map(Session::view),
+				.and_then(|home| {
+					if Rc::ptr_eq(&home, &self.shared) {
+						None
+					} else {
+						Some(Session::view(home))
+					}
+				}),
 			// Not a capability in hand, so it names no route: a plain value, a
 			// sturdyref, or a broken reference.
 			Err(()) => None,
@@ -464,24 +653,31 @@ impl Session {
 		}
 	}
 
-	// The DIAL arm marks the exporter connection it dialed so `close()` can
-	// sweep it, and reads the raw conn for `pancake_host_dialed`.
-	// Binding-internal.
-	pub(crate) fn mark_host_dialed(&self) {
-		self.shared.mark_host_dialed();
-	}
-
 	pub(crate) fn raw_conn(&self) -> *mut ffi::PancakeHostSession {
 		self.shared.raw_conn()
 	}
 
-	/// Close the session and every exporter connection its host dialed for
-	/// handoffs. A running [`serve`](Session::serve) completes; pending vows
-	/// settle broken.
+	/// Close the session. A running [`serve`](Session::serve) completes; pending
+	/// vows settle broken.
+	///
+	/// This closes the connection it names and nothing else: not a sibling
+	/// session, and not the connections the host dialed by itself to redeem a
+	/// handoff — the `via` from [`send_redeeming`](Session::send_redeeming) is
+	/// one of those. [`Host::close`](crate::Host::close) is what ends those.
+	///
+	/// A session that had to create its own host — the ordinary
+	/// [`connect`](crate::connect) with no host passed — closes that host with
+	/// it, so single-session code needs no host call.
 	pub fn close(&self) {
 		self.shared.closing.set(true);
-		self.shared.host.close_exporters();
 		self.shared.close_transport();
+		// A host this session created has no other owner, so it goes too, and
+		// with it every connection it dialed for redeems. A caller-supplied
+		// host stays: sibling sessions on it are still running, and closing
+		// their exporters from here is not this session's call to make.
+		if self.owns_host {
+			self.shared.host.close_host();
+		}
 	}
 }
 
@@ -490,12 +686,20 @@ impl Drop for Session {
 		// A view onto a host-owned session (`Redeemed::via`) is not the
 		// connection's owner, so its drop is a no-op: closing there would sever
 		// the redeemed capability the caller was handed alongside it.
-		if !self.closes_on_drop {
+		if !self.owns_session {
 			return;
 		}
-		// Close just this session (never the host's other exporters — a
-		// dialed exporter's own teardown must not sweep its siblings).
+		// Close just this session (never a sibling's connection — that is the
+		// host's to close, not this session's).
 		self.shared.close_transport();
+		// A host this session created has no other owner. Its sessions hold it
+		// by `Rc` and it holds them back, so without emptying that table the
+		// host, the exporters it dialed, and their sockets all outlive every
+		// handle the application still has. `close` does this; a dropped
+		// session has the same obligation.
+		if self.owns_host {
+			self.shared.host.close_host();
+		}
 	}
 }
 

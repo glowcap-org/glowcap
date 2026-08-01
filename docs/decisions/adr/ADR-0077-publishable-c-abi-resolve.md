@@ -33,7 +33,7 @@ package-local metadata.
    if any copy drifts from the canonical file or from `PANCAKE_VERSION_*` in
    `include/pancake_ocapn.h`. Env truthy values are the fixed set `1` / `true` /
    `yes` in each loader (not a contract field). Env *names* live in
-   `bindings/README.md`. Host target triples for release-pack are `{arch}-{os}`
+   `bindings/PACKAGING.md`. Host target triples for release-pack are `{arch}-{os}`
    with zig names; `tools/c-abi/c-abi-host-aliases.json` lists host aliases and is
    wired into `meta_check` (every alias must appear in the non-cargo ports).
    Rust uses `CARGO_CFG_TARGET_ARCH` / `CARGO_CFG_TARGET_OS`, which already emit
@@ -115,7 +115,7 @@ package-local metadata.
   field shaped like a date to move a naive parser's column guess, and a
   regular file whose name contains tar's `" -> "` separator. Flipping
   `releases_published` to true is the public commit for that
-  surface only; see the flip checklist in `bindings/README.md`.
+  surface only; see the flip checklist in `bindings/PACKAGING.md`.
 - Vendoring platform wheels/cdylibs inside each package remains a future
   packaging optimization; this ADR is the find/download contract either way.
   Pinning per-target hashes _inside_ the package (stronger than same-host

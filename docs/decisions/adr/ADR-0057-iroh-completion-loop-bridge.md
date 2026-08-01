@@ -45,10 +45,10 @@ mechanisms produce from pancake's own loop_: and that is what this ADR scopes.
 ## Decision
 
 **Keep the sidecar; make the readiness loop the netlayer's one I/O model.**
-ADR-0055's sidecar boundary holds. The sidecar's internal seam keeps a blocking
-dial (the dial handshake itself blocks the caller), but the public iroh netlayer
-C ABI carries no blocking frame surface: it is the loop, armed when the netlayer
-is constructed. The sidecar exposes a readiness-based surface:
+ADR-0055's sidecar boundary holds. Its explicitly named blocking calls remain
+for the blocking resident, but the completion backend and public iroh netlayer
+C ABI are evented from admission through stream I/O: the loop is armed when the
+netlayer is constructed. The sidecar exposes a readiness-based surface:
 
 - **One runtime, one wakeup fd.** Each endpoint runs a single tokio runtime
   multiplexing all its connections. It exposes **one** OS-level readiness handle
@@ -57,20 +57,31 @@ is constructed. The sidecar exposes a readiness-based surface:
   (ADR-0055), so each endpoint owns its own wakeup fd and `endpoint_drain_ready`
   takes the endpoint; the loop registers as many fds as it has local endpoints
   (typically one).
+- **Request-correlated outbound dial.** `start_connect` validates and owns the
+  borrowed target before returning, then exactly one terminal `EV_CONNECT`
+  record carries the caller's nonzero request id. `finish_connect` consumes the
+  sole terminal result and transfers the connection on success.
+  `cancel_connect` turns a pending request into that same terminal lifecycle;
+  it does not create a second completion. No worker thread, second pipe, or
+  result array exists in Zig or the bindings.
 - **A drained ready-queue.** When any connection becomes readable, writable, or
-  closed, the sidecar enqueues a `(conn, direction)` event and writes the wakeup
+  closed, the sidecar enqueues a `(stable ConnId, direction)` event and writes the wakeup
   fd. When the loop wakes, it calls a non-blocking
   `pancake_iroh_sidecar_endpoint_drain_ready(...)` that returns the pending events
-  (`ptr + len`, no allocation per call), and resumes exactly the fibers waiting
-  on those connections.
-- **Non-blocking frame I/O.** `try_read_frame` / `try_write_frame` return
+  (`ptr + len`, no allocation per call). That operation clears coalesced wake
+  bytes before draining authoritative records, so callers cannot reverse the
+  order and lose a concurrent wake. It resumes exactly the fibers waiting on
+  those connections. ConnIds are endpoint-scoped, monotonic, and never
+  allocation addresses, so a queued event cannot name a later allocation.
+- **Non-blocking byte I/O.** `conn_try_read` / `conn_try_write` return
   `WOULD_BLOCK` instead of parking; the loop re-arms the connection's interest
   and yields the fiber until the next readiness event. The frame unit is
   unchanged (one codec-self-delimited CapTP message), so the codec and session
   layers above never learn the transport changed.
 
-Net effect: **N iroh connections multiplex through one loop thread plus the
-sidecar's fixed runtime threads**, not N×2 blocking threads. The Netlayer
+Net effect: **N iroh connections and their dial establishment multiplex through
+one loop thread plus the sidecar's fixed runtime threads**, not N×2 blocking
+threads or a blocking-pool hop per dial. The Netlayer
 (ADR-0043) and `BlockingSession` (ADR-0053) contracts above are untouched; this is
 a new _source_ below them, the iroh sibling of the kernel-fd completion source.
 I/O lives as `iroh.Backend` in the resident (`src/net/transport/iroh.zig`);
@@ -91,8 +102,13 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 - **The wakeup primitive is a self-pipe** (`socketpair`, both ends
   non-blocking): portable across Linux and the BSD/macOS targets the project
   cross-compiles for, no `cfg` fork, and registered with the loop's `poll` like
-  any other fd. An `eventfd` or io_uring registered fd would shave one syscall
-  but split the code per-OS; the self-pipe is the boring choice that holds.
+  any other fd. A discarded `WouldBlock` write cannot lose a wake: it means
+  unread bytes already fill the pipe, so the fd is already poll-readable. The
+  same `Readiness.nudge` operation is used for event publication and to re-wake
+  a bounded drain that leaves records queued; interrupted writes retry. The fd
+  exposed to consumers has its write direction shut down. An `eventfd` or
+  io_uring registered fd would shave one syscall but split the code per-OS; the
+  self-pipe is the portable choice that holds.
 - **Back-pressure is a bounded flow-control ceiling, not a drop or an abort.**
   Each direction is bounded at 1 MiB (`NB_BUFFER_BOUND`). A full inbound buffer
   parks the sidecar's reader task, so QUIC flow control reaches the remote
@@ -148,12 +164,13 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   blocking thread-per-connection path adds the same core state _plus_ an OS
   thread (or two) per connection: the cost this bridge removes.
 - **Teardown is flake-free by construction.** The loop never parks a blocking
-  read on a connection, so releasing one cannot race a parked worker. The
+  read on a connection, so releasing one cannot race a parked call. The
   sidecar's per-connection state is `Arc`-refcounted and its tasks own their
-  streams, so `conn_free` while tasks are live is safe; the loop removes a
-  connection's ready-queue routing before freeing it, so stale events resolve to
-  no slot. `iroh-loop` exercises this teardown every run, and because the loop
-  is the netlayer's only model, every binding inherits the same teardown safety.
+  streams, so `conn_free` aborts and joins them. The host removes its
+  ConnId-to-connection row before freeing the connection, so a stale stable-id
+  event resolves to no slot. `iroh-loop` exercises this teardown every run, and
+  because the loop is the evented netlayer model, every binding inherits the
+  same teardown safety.
 - The honest boundary reads: **iroh is encrypted, discoverable, and
   identity-unified pancake-to-pancake (ADR-0055 + A/B/F), and serves many
   connections from one loop thread (this ADR), measured at ~1.1 GiB of core

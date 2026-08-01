@@ -2,10 +2,10 @@
 //! table, so a value is mirrored exactly once and cannot drift.
 //!
 //! The integer and big-integer constant families the Rust, Python, and Racket
-//! bindings mirror from `pancake_ocapn.h` / `pancake_driver.h` /
+//! bindings mirror from `pancake_ocapn.h` / `pancake_host.h` /
 //! `pancake_net_transport_iroh.h` used to be hand-copied three times, guarded
 //! only by a prose "mirrors" comment. Here the value comes from the `c_abi` /
-//! `c_abi_driver` / `c_abi_net_transport_iroh` declaration itself
+//! `c_abi_host` / `c_abi_net_transport_iroh` declaration itself
 //! (`c.PANCAKE_*` / `cd.PANCAKE_*` / `ci.PANCAKE_*`), so a C-side value change
 //! regenerates a different file and `zig build gen-binding-constants-check`
 //! (part of `check`) rejects the stale copy. The one reflected table is the
@@ -14,9 +14,8 @@
 //! Adding a binding is one emitter function plus one `outputs` row: a new
 //! emitter reads `stem` and `value` and applies its own language's casing, so
 //! it never touches this table. The only per-language names carried here are
-//! the few whose established spelling is not the mechanical casing of `stem`
-//! (Racket's reference sub-kind names), and those ride an optional column, not
-//! a per-language table.
+//! the few whose established spelling is not the mechanical casing of `stem`,
+//! and those ride an optional column, not a per-language table.
 //!
 //! Scope: integer and big-integer families reflected from the C ABI. The
 //! `TRANSPORT_*` / `HINT_*` string symbols mirror `model.transport` (a
@@ -28,11 +27,13 @@ const std = @import("std");
 // Force sidecar stubs so reflecting the iroh archive stays cargo-free.
 comptime {
     _ = @import("iroh_sidecar_stub");
+    _ = @import("webrtc_sidecar_stub");
 }
 
 const c = @import("c_abi");
-const cd = @import("c_abi_driver");
+const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
+const cw = @import("c_abi_net_transport_webrtc");
 
 const Output = @import("output").Output;
 
@@ -110,16 +111,6 @@ const constants = [_]Const{
     con("ERR_TIMEOUT", c.PANCAKE_ERR_TIMEOUT, .int, null),
     // Frame shape (c_uint).
     con("FRAME_SHAPE_BYTE", c.PANCAKE_FRAME_SHAPE_BYTE, .uint, null),
-    // Reference kinds (c_uint).
-    con("REF_NEAR", c.PANCAKE_REF_NEAR, .uint, null),
-    con("REF_FAR", c.PANCAKE_REF_FAR, .uint, null),
-    con("REF_PROMISE", c.PANCAKE_REF_PROMISE, .uint, null),
-    con("REF_STURDY", c.PANCAKE_REF_STURDY, .uint, null),
-    con("REF_BROKEN", c.PANCAKE_REF_BROKEN, .uint, null),
-    // The reference sub-kind: Racket names these REF-OBJECT / REF-PROMISE-KIND,
-    // not the mechanical kebab of the stem, so it carries an override.
-    con("REF_SUB_OBJECT", c.PANCAKE_REF_SUB_OBJECT, .uint, "REF-OBJECT"),
-    con("REF_SUB_PROMISE", c.PANCAKE_REF_SUB_PROMISE, .uint, "REF-PROMISE-KIND"),
     // Argument kinds (c_uint).
     con("ARG_INTEGER", c.PANCAKE_ARG_INTEGER, .uint, null),
     con("ARG_FLOAT64", c.PANCAKE_ARG_FLOAT64, .uint, null),
@@ -137,16 +128,13 @@ const constants = [_]Const{
     // Wire-grammar codec selectors (c_uint).
     con("CODEC_SYRUP", c.PANCAKE_CODEC_SYRUP, .uint, null),
     con("CODEC_CAPNP", c.PANCAKE_CODEC_CAPNP, .uint, null),
-    // CapTP version for pancake_peer_new_negotiated (c_uint).
-    con("CAPTP_VERSION_V1_0", c.PANCAKE_CAPTP_VERSION_V1_0, .uint, null),
-    con("CAPTP_VERSION_NEXT", c.PANCAKE_CAPTP_VERSION_NEXT, .uint, null),
     // PancakeLastAbort.domain (c_uint).
     con("ABORT_DOMAIN_CODEC", c.PANCAKE_ABORT_DOMAIN_CODEC, .uint, null),
     con("ABORT_DOMAIN_SESSION", c.PANCAKE_ABORT_DOMAIN_SESSION, .uint, null),
     con("ABORT_DOMAIN_FOREIGN", c.PANCAKE_ABORT_DOMAIN_FOREIGN, .uint, null),
     // The resolved dial the core hands back from pancake_host_plan_dial: the
     // byte channel to open, the peer-id reachability, and the posture policy
-    // (c_uint, libpancake_driver).
+    // (c_uint, libpancake_host).
     con("DIAL_SHAPE_HOST_PORT", cd.PANCAKE_DIAL_SHAPE_HOST_PORT, .uint, null),
     con("DIAL_SHAPE_PEER_ID", cd.PANCAKE_DIAL_SHAPE_PEER_ID, .uint, null),
     con("DIAL_SHAPE_SIGNALING", cd.PANCAKE_DIAL_SHAPE_SIGNALING, .uint, null),
@@ -157,7 +145,7 @@ const constants = [_]Const{
     con("DIAL_POSTURE_EXPLICIT", cd.PANCAKE_DIAL_POSTURE_EXPLICIT, .uint, null),
     con("DIAL_POSTURE_EXPLICIT_NONE", cd.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE, .uint, null),
     // Default host connection frame cap and the local Forward hop bound
-    // (usize, libpancake_driver).
+    // (usize, libpancake_host).
     con("DEFAULT_FRAME_CAP", cd.PANCAKE_DEFAULT_FRAME_CAP, .usize, null),
     con("MAX_LOCAL_FORWARD_HOPS", cd.PANCAKE_MAX_LOCAL_FORWARD_HOPS, .usize, null),
     con("DISCOVERY_DIAL_RETRY_MS", cd.PANCAKE_DISCOVERY_DIAL_RETRY_MS, .usize, null),
@@ -177,6 +165,12 @@ const constants = [_]Const{
     con("IROH_EV_WRITABLE", ci.PANCAKE_IROH_EV_WRITABLE, .uint, null),
     con("IROH_EV_CLOSED", ci.PANCAKE_IROH_EV_CLOSED, .uint, null),
     con("IROH_EV_ACCEPT", ci.PANCAKE_IROH_EV_ACCEPT, .uint, null),
+    con("IROH_EV_CONNECT", ci.PANCAKE_IROH_EV_CONNECT, .uint, null),
+    con("WEBRTC_EV_OPEN", cw.PANCAKE_WEBRTC_EV_OPEN, .uint, null),
+    con("WEBRTC_EV_CANDIDATE", cw.PANCAKE_WEBRTC_EV_CANDIDATE, .uint, null),
+    con("WEBRTC_EV_READABLE", cw.PANCAKE_WEBRTC_EV_READABLE, .uint, null),
+    con("WEBRTC_EV_WRITABLE", cw.PANCAKE_WEBRTC_EV_WRITABLE, .uint, null),
+    con("WEBRTC_EV_CLOSED", cw.PANCAKE_WEBRTC_EV_CLOSED, .uint, null),
 };
 
 /// One reflected constant wider than the languages' native integer range.
@@ -186,11 +180,7 @@ const BigConst = struct {
     rkt: ?[]const u8 = null,
 };
 
-const big_constants = [_]BigConst{
-    // The reserved node-minted token far-id range (ADR-0069): far ids at or
-    // above this are host-routed tokens, never wire imports.
-    .{ .stem = "REDEEMED_TOKEN_BASE", .value = c.PANCAKE_REDEEMED_TOKEN_BASE },
-};
+const big_constants = [_]BigConst{};
 
 fn writeKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
     for (name) |ch| try out.append(gpa, if (ch == '_') '-' else ch);

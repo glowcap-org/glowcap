@@ -36,6 +36,12 @@ pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const v
         // retain path; the rarer owned-fallback kinds never arrive here (they
         // are routed through `recordRecv` by `recordRecvView`).
         .abort, .deliver, .resolve, .start_session => try applyRecvShared(self, body, introduced),
+        // The owned dispatch's twin arms: a projection op exports a promise at
+        // the new answer position (CapTP § op:get "Receiving"); the engine
+        // anchors the projection itself.
+        .get => |get| try installAnswer(self, .inbound, get.answer),
+        .index => |index| try installAnswer(self, .inbound, index.answer),
+        .untag => |untag| try installAnswer(self, .inbound, untag.answer),
         else => {},
     }
 }
@@ -175,6 +181,11 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             for (gc_export.positions) |pos| {
                 const import_id = model.ImportPosition.from(pos);
                 if (!self.imports.contains(import_id)) {
+                    // A sturdyref cache row is useful only while its import
+                    // row keeps that wire position's meaning alive. Once the
+                    // count reaches zero the partner may reuse the position,
+                    // so every swissnum that named it must enliven afresh.
+                    self.forgetSturdyrefEnlivenmentsAt(import_id);
                     if (self.findImportedPromise(import_id)) |entry| {
                         session.deinitImportedPromise(self.allocator, entry);
                         std.debug.assert(self.imported_promises.remove(import_id));
@@ -372,14 +383,18 @@ pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
                 // object. This is the sole place `retainSentExportRef` reads the
                 // wire kind: it establishes an absent cell, it never re-decides
                 // a live one.
+                // Same door as an explicit grant: the session decides whether
+                // this position is one of its own names before a row exists
+                // for it. Without that, a fulfill naming a position from
+                // another session's range mints a row here for an object this
+                // session does not host, and drags the allocator to a number
+                // past the end of its range, after which it can export nothing.
+                try self.admitExportPositionForMarshal(near.export_position);
                 const cell: slot.Slot = switch (near.kind) {
                     .object => .{ .local_value = near.export_position.int() },
                     .promise => .{ .local_unresolved = near.export_position.int() },
                 };
                 try self.exports.registerCell(self.allocator, near.export_position, cell);
-                if (near.export_position.int() >= self.next_export_position) {
-                    self.next_export_position = near.export_position.int() + 1;
-                }
             }
             // A live row's cell is authoritative from its establishment — an
             // authoritative promise mint (`allocatePromiseExport`), an object
@@ -431,7 +446,7 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!v
 }
 
 /// Apply `op:gc-answers` to our outbound answers. A fully-released answer can
-/// never resolve again, so its V1.0 outbound resolver link (ADR-0010) is
+/// never resolve again, so its resolver-export link (ADR-0010, ADR-0095) is
 /// dropped with the row — both directions together, the forward map keyed by
 /// resolver-export and its answer-keyed inverse, the mirror of
 /// `applyGcAnswerDecrementInbound`. Two O(1) keyed removals per released
@@ -443,15 +458,17 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
             // Drop the whole link by its answer side; `fetchRemoveByValue` hands
             // back the resolver export so the release step below, which the
             // `BiMap` deliberately does not own — stays explicit here.
-            if (self.v1_0_outbound_resolver_link.fetchRemoveByValue(model.AnswerPosition.from(position))) |resolver_export| {
+            if (self.outbound_resolver_link.fetchRemoveByValue(model.AnswerPosition.from(position))) |resolver_export| {
                 // Release the resolver export's own reference (the count-1
-                // `allocateExport` gave it in `mintOutboundResolver`, on which the
-                // wire mention retained one more). The answer is gone, so the
-                // resolver can never fire again; the partner's wire mention is
-                // released by its own `op:gc-exports`. Without this, that base
-                // reference floats forever and the export is reclaimed only at
-                // session teardown, so a long V1.0 session leaks one export per
-                // answered deliver. `catch` tolerates a partner that already
+                // `allocateExport` gave it, in `mintOutboundResolver` for a
+                // V1.0 callback or in `engine.listen.listenOnPromise` for a
+                // listener; the wire mention retained one more). The answer is
+                // gone, so the resolver can never fire again; the partner's
+                // wire mention is released by its own `op:gc-exports`. Without
+                // this, that base reference floats forever and the export is
+                // reclaimed only at session teardown, so a long session leaks
+                // one export per resolver it mints. `catch` tolerates a partner
+                // that already
                 // over-released the mention (a separate GC protocol violation).
                 self.exports.decrement(resolver_export, 1) catch {};
             }

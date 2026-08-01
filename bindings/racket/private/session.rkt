@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `session` surface over the byte-fed host
-;; (libpancake_driver, ADR-0072 / ADR-0079). It owns the `session` struct and
+;; (libpancake_host, ADR-0072 / ADR-0079). It owns the `session` struct and
 ;; every `session-*` application verb (`session-fetch`, `session-send`,
 ;; `session-tell`, `session-serve`, …), plus mint/handshake (`establish-*`).
 ;; The dial executor (plan + channel open + `connect`) lives in
@@ -35,7 +35,7 @@
          racket/async-channel
          "constants.rkt"
          "ffi-ocapn.rkt"
-         "ffi-driver.rkt"
+         "ffi-host.rkt"
          "errors.rkt"
          "value.rkt"
          "vat.rkt"
@@ -70,7 +70,11 @@
 ;; every thread sharing the host. The FIFO is the order authority: whichever
 ;; thread holds the gate writes everything queued so far, in queue order, so
 ;; frames never reorder on the wire.
-(struct session (async vat host conn-id pending-writes write-gate))
+;; `owns-host?` is a box set when this session created the host it runs on,
+;; which `connect` does when the caller passes no `#:host`. Such a host has no
+;; other reachable owner, so closing the session releases it; a caller-supplied
+;; host is never released here, because sibling sessions may still be using it.
+(struct session (async vat host conn-id pending-writes write-gate owns-host?))
 
 ;; While true, a settle/fetch callback fired by a far-vow *break* (a dead
 ;; transport, a released connection) rather than a partner resolution, so the
@@ -169,6 +173,7 @@
 (define (drain-host! m)
   (unless (inside-turn?)
     (host-drain-parked-releases! m)
+    (drain-host-gc! m)
     (with-host-drain m (lambda () (drain-host-actions! m)))))
 
 ;; Far-send / far-tell mint (`session-far-send`) lives in `promise.rkt`.
@@ -191,7 +196,7 @@
 (define (build-session m ptr transport time-travel?)
   (define ac (make-async-connection transport))
   (define v (make-vat #:time-travel? time-travel?))
-  (define c (session ac v m ptr (make-async-channel) (make-semaphore 1)))
+  (define c (session ac v m ptr (make-async-channel) (make-semaphore 1) (box #f)))
   (set-box! (async-connection-conn ac) c)
   (vat-install-far!
    v
@@ -375,6 +380,57 @@
       (check/host (pancake_host_session_set_exporter_location
                    (session-ptr c) (pin-immobile raw-locator) (bytes-length raw-locator))))))
 
+;; Who this session's partner proved itself to be, as a `partner-identity`: the
+;; partner's session public key, the location designator it signed, and the
+;; verbatim location record those were read from.
+;;
+;; Getting an answer here always means the signature was checked. A keyed
+;; `op:start-session` carries an Ed25519 signature over the partner's whole
+;; location record, and the engine verifies that signature before the session
+;; opens, so the designator this returns is bound to the key beside it by the
+;; same signature. That is what lets a server refuse a caller claiming a
+;; locator it does not own: compare the locator the caller hands you against
+;; the designator here, and turn the call away when the two disagree.
+;;
+;; The library lends these bytes for as long as the session lives, so each view
+;; is copied into a fresh Racket value before this returns. It raises while the
+;; partner's `op:start-session` has not arrived with a key yet, and it raises on
+;; a session opened without partner verification, because there is no proved
+;; identity to read on one.
+(define (session-partner-identity c)
+  (guard-open 'session-partner-identity c)
+  (call-with-host (session-host c)
+    (lambda ()
+      (define out (make-PancakePartnerIdentity #f 0 #f 0 #f 0))
+      (check/host (pancake_host_session_partner_identity (session-ptr c) out))
+      (partner-identity
+       (bytes<-c (PancakePartnerIdentity-session-key out)
+                 (PancakePartnerIdentity-session-key-len out))
+       (bytes->string/utf-8
+        (bytes<-c (PancakePartnerIdentity-designator out)
+                  (PancakePartnerIdentity-designator-len out))
+        #\uFFFD)
+       (bytes<-c (PancakePartnerIdentity-locator-record out)
+                 (PancakePartnerIdentity-locator-record-len out))))))
+
+;; True when the partner proved it owns the designator it advertised, meaning
+;; that designator is exactly its verified session key written as canonical hex.
+;; The library answers this so no binding re-derives the comparison.
+;;
+;; The question only has content on a transport whose designator is a key
+;; (`keyed-tcp`, `iroh`, `webrtc`, `keyed-relay`). An address transport such as
+;; `tcp` names a socket address that the key does not determine, so the answer
+;; there is #f, and #f is the right answer rather than a failure. This raises on
+;; exactly what `session-partner-identity` raises on.
+(define (session-partner-designator-is-key? c)
+  (guard-open 'session-partner-designator-is-key? c)
+  (call-with-host (session-host c)
+    (lambda ()
+      (define-values (rc matches)
+        (pancake_host_session_partner_designator_is_key (session-ptr c)))
+      (check/host rc)
+      (not (zero? matches)))))
+
 ;; Flush whatever is already queued on the host's outbound to the wire. A `<-`
 ;; far-send only enqueues; the bytes leave when something drains. The blocking
 ;; verbs drain themselves, but work another green thread queues onto this host
@@ -402,30 +458,60 @@
 (define (session-close! c)
   (define ac (session-async c))
   ((async-transport-close! (async-connection-transport ac)))
-  (abandon-session! c))
+  (abandon-session! c)
+  ;; A host this session created has no other owner, so it goes too, and with
+  ;; it every connection it dialed for redeems. A caller-supplied host stays:
+  ;; sibling sessions on it are still running.
+  (when (unbox (session-owns-host? c)) (host-release! (session-host c))))
+
+;; Let `host-release!` close the sessions it still holds. host.rkt cannot name
+;; `session-close!` directly: this module requires it, and Racket has no
+;; module cycles.
+(set-box! close-session-hook session-close!)
 
 ;; ── Spawning, publishing, and the proxy verbs ─────────────────────────────────
 
 ;; Spawn/publish hosting mint (`register-hosted-actor!`) lives in
 ;; `trampoline.rkt`.
 
-;; Spawn a local actor at a fresh export position and return a near capability
-;; to hand a partner. `(session-spawn c ^name arg …)` constructs like `spawn`. The
-;; position comes from the session's one export allocator, so it can never
-;; alias a bootstrap or resolver export. Callable from inside a served turn (a
+;; Spawn a local actor and return its opaque Host capability to hand a partner.
+;; `(session-spawn c ^name arg …)` constructs like `spawn`. Wire export
+;; positions stay inside pancake. Callable from inside a served turn (a
 ;; factory's `create` minting the task it replies with).
 (define (session-spawn c constructor . args)
   (define actor (with-vat (session-vat c) (apply spawn constructor args)))
   (register-hosted-actor! c actor))
 
-;; Publish an actor fetchable by name (a swiss-number). Returns the near
+;; Publish an actor fetchable by name (a swiss-number). Returns its opaque Host
 ;; capability.
 (define (session-publish c name constructor . args)
   (define actor (with-vat (session-vat c) (apply spawn constructor args)))
   (register-hosted-actor! c actor #:name name))
 
-;; Wrap `target` (a near capability this session spawned or a far one it
-;; fetched) in a revocable caretaker (ADR-0064). Returns the proxy near capability
+;; The Host capability for the object published under `name`, or
+;; #f when nothing is published there.
+;;
+;; `session-publish` returns its own capability, so this is for the other
+;; publisher: `host-publish-giftable` hosts one actor under a Host-wide alias
+;; and returns nothing. Reading its Host identity lazily projects it onto this
+;; session so an application can pass it as an ordinary capability argument.
+;;
+;; A giftable is a bare trampoline closure here rather than a vat actor, so the
+;; result is for handing to a partner: unlike a `session-spawn` capability, a
+;; local send to it is not composed in Racket.
+(define (session-published-ref c name)
+  (define m (session-host c))
+  (define nb (string->bytes/utf-8 name))
+  (define-values (rc capability)
+    (call-with-host m
+      (lambda ()
+        (pancake_host_session_published_ref
+         (session-ptr c) (pin-immobile nb) (bytes-length nb)))))
+  (cond
+    [(= rc ERR-NOT-FOUND) #f]
+    [else (check/host rc) (make-ref/internal (PancakeReference-id capability))]))
+
+;; Wrap `target` in a revocable caretaker (ADR-0064). Returns the proxy capability
 ;; to hand a partner; every call through it forwards to `target` until
 ;; `session-revoke!`, after which each breaks with "Revoked". `target` may be a
 ;; capability imported over the wire — the proxy forwards transparently — so this
@@ -449,7 +535,7 @@
 
 ;; Eventual-send `verb` to `target` and drive the session until the reply
 ;; settles, returning the fulfilled value, the request/reply half whose
-;; fire-and-forget sibling is `session-tell`. A `near-ref` this session spawned
+;; fire-and-forget sibling is `session-tell`. A reference this session spawned
 ;; resolves in process; a partner's ref goes out on the wire, and a redeemed
 ;; handoff token routes to the exporter connection that hosts it. A broken
 ;; reply raises a typed `exn:fail:pancake` carrying PANCAKE_ERR_BROKEN, exactly
@@ -489,9 +575,8 @@
   (guard-open 'session-send-redeeming c)
   (drain-gc! c) ; flush any imports reclaimed since the last session op
   (define reply (dispatch-send c target verb args))
-  (values reply
-          (and (or (near-ref? reply) (far-ref? reply))
-               (host-exporter-for (session-host c) reply))))
+  (define home (and (ref? reply) (host-exporter-for (session-host c) reply)))
+  (values reply (and home (not (eq? home c)) home)))
 
 ;; Eventual-send `verb` to `target` and return its vow WITHOUT driving the
 ;; session to a reply — the non-blocking half of `session-send` and the seam
@@ -502,7 +587,7 @@
 ;; deliver is queued now and its bytes leave the wire when the chain is settled
 ;; by passing its tail to `session-send` (which pumps to the value) — a chain
 ;; never settled is fire-and-forget, for which `session-tell` is the right call.
-;; A `near-ref` this session spawned resolves in process.
+;; A reference this session spawned resolves in process.
 (define (session-send-promise c target verb . args)
   (guard-open 'session-send-promise c)
   (dispatch-send-promise c target verb args))
@@ -543,23 +628,22 @@
                      (pancake_host_session_fetch (session-ptr c) (pin-immobile nb)
                                               (bytes-length nb))))))
 
-;; Enliven a sturdyref against this session (ADR-0012): bring the durable
-;; `(peer, swissnum)` to life as a live capability. Parses `sturdyref` for its
-;; swissnum, then fetches it through the host's dedup cache — a repeat enliven
+;; Enliven a sturdyref against this session (ADR-0098): bring the durable
+;; `(peer, swissnum)` to life as a live capability. The host verifies the full
+;; locator against this session before consulting its dedup cache — a repeat enliven
 ;; of the same swissnum on this session short-circuits with no wire traffic
 ;; (its SETTLE completion is queued before the minting call returns). The
-;; session must already be open to the sturdyref's peer; the sans-io core
-;; tracks no remote locator and never dials. A partner break raises a typed
+;; session must already be open to the sturdyref's peer; this session-level
+;; call never dials. A partner break raises a typed
 ;; PANCAKE_ERR_BROKEN; a fulfill that is not a capability raises the typed
 ;; unsupported-value failure, matching `session-fetch` and the other bindings.
 (define (session-enliven c sturdyref)
   (guard-open 'session-enliven c)
-  (define swissnum
-    (string->bytes/utf-8 (locator-swissnum (parse-locator sturdyref #:sturdyref? #t))))
+  (define sturdyref-bytes (string->bytes/utf-8 sturdyref))
   (blocking-fetch c 'session-enliven "enliven" sturdyref
                   (lambda ()
-                    (pancake_host_session_enliven (session-ptr c) (pin-immobile swissnum)
-                                               (bytes-length swissnum)))))
+                    (pancake_host_session_enliven (session-ptr c) (pin-immobile sturdyref-bytes)
+                                               (bytes-length sturdyref-bytes)))))
 
 ;; Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and no
 ;; reply comes back, so a notification or broadcast costs one deliver. A

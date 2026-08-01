@@ -1,19 +1,19 @@
 ---
 .title = "Concepts",
-.description = "The CapTP mechanisms a session meets, in order: references, locators, calls in flight, and the bookkeeping that keeps a long-lived session healthy.",
+.description = "Follow a reference through a CapTP session: how peers get one, call it, pass it to a third peer, agree on a dialect, and release it.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Each section here covers one CapTP mechanism, roughly in the order a session
-meets them: references, the locator that gets you your first one, what calls
-look like in flight, and the bookkeeping that keeps long-lived sessions
-healthy. If capabilities themselves are still new, read
-[Why OCapN]($link.page('why')) first; this page assumes you are sold and want
-to know how the machinery works. If you are unsure what separates `Session`,
-`Host`, and `Peer`, that is [modules]($link.page('modules')).
+This page follows a reference through a session. It starts with what a
+reference is and how you get the first one, then moves through calls, promises,
+introductions, dialect choice, and cleanup.
+
+If capabilities are new, read [Why OCapN]($link.page('why')) first. This page
+assumes the why and explains the machinery. To see where `Session`, `Host`, and
+`Peer` fit, use [modules]($link.page('modules')).
 
 ## A capability is a reference
 
@@ -60,10 +60,12 @@ published name from it and get back a live reference. From there you are in
 the reference-passing world and the locator has done its whole job.
 
 A **sturdyref** is a locator with a **swiss number** on the end, and it names
-one object rather than a peer. It is the form you can write down in a config
-file. It survives the host restarting, provided the host re-registers that
-name under the same identity, and redeeming it is the same dial-and-fetch,
-aimed at one specific object.
+one object rather than a peer. It is the form you can write in a config file.
+pancake does not persist the object for you: after a restart, the application
+must restore the same identity and register the same swiss number. Redeeming
+one is a dial and fetch aimed at that object. The standard `Host` does not
+provide that durable store today; its default bootstrap registry is
+process-local.
 
 | Word | What it is |
 | --- | --- |
@@ -78,7 +80,7 @@ aimed at one specific object.
 > account, where the number alone is the access.
 
 The
-[sturdyref diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
+[sturdyref diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
 go deeper, and [Transports]($link.page('transports')) covers the netlayers a
 locator can name.
 
@@ -91,9 +93,9 @@ there, without another round trip from you.
 
 The practical effect: you ask a task board for a column, then ask that column
 for a card, and both questions cross the network in one flight. Chapter 06,
-[pipeline and attenuate](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/06_pipeline_and_attenuate.zig),
+[pipeline and attenuate](https://github.com/jimisaacs/pancake/blob/main/examples/zig/06_pipeline_and_attenuate.zig),
 runs exactly that, and the
-[promises and pipelining](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
+[promises and pipelining](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
 diagrams draw the flow the code is checked against.
 
 ## Three-party handoff
@@ -110,16 +112,17 @@ The handoff runs in four stages:
 3. Bob **redeems** with Carol and gets a live reference.
 4. Alice is off the path.
 
-In pancake's application surface you usually never see the gift bytes. With a
-Host (Zig `Bridge`, or a binding on `libpancake_driver`), a call that answers
-with an introduction settles as the introduced capability inside the wait.
-In the rooms chat this is the _Message_ button: your code asked the room for
-a member, and what came back was the member.
+In pancake you never see the gift bytes. A call that answers with an
+introduction settles as the introduced capability, inside the wait you were
+already in, so there is no redeem step to write. That holds on every surface:
+native Zig, the completion loop, and all four bindings.
+In the rooms chat this is the _Message_ button. Your code asked the room for a
+member, and what came back was the member.
 
 Chapter 02,
-[introduce and redeem](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/02_introduce_and_redeem.zig),
+[introduce and redeem](https://github.com/jimisaacs/pancake/blob/main/examples/zig/02_introduce_and_redeem.zig),
 runs the whole exchange, and the
-[handoffs](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/06-handoffs.md)
+[handoffs](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/06-handoffs.md)
 diagrams draw it.
 
 ## Which dialect answers
@@ -131,8 +134,9 @@ entry both offer wins. None of this travels on the wire except the final
 version string inside `op:start-session`. If the menus share nothing, no
 session opens.
 
-Worth keeping straight: Syrup and Cap'n Proto are codecs, two ways of writing
-the same message down. Session logic never changes with the codec, and
+[Syrup](https://github.com/ocapn/syrup) and Cap'n Proto are codecs, two ways
+of writing the same message down. Session logic never changes with the codec,
+and
 [Codecs]($link.page('codecs')) weighs the two that ship.
 
 [Both peers run the same rule over the two menus and reach the same pick.]($image.siteAsset('diagram-negotiation.svg'))
@@ -144,44 +148,7 @@ floor, and when pancake and Goblins disagree there, pancake treats it as
 pancake's bug. Two pancake peers can negotiate up to `pancake-next`, usually
 with Cap'n Proto. Application code cannot tell the difference.
 
-## Where pancake follows Goblins past the draft
-
-If you already know OCapN, the interesting question is where pancake and the
-draft specifications disagree. The answer is consistent: where the draft and
-a running Goblins peer differ, pancake follows Goblins, because the wire has
-to interoperate with what actually ships. It shows up in three places.
-
-**Set and Keyword.** The pinned draft Model lists no set container and no keyword
-atom. Goblins marshals both over [Syrup](https://github.com/ocapn/syrup), so
-pancake carries them too: canonical set order with duplicate refusal, and the
-Goblins `<kw …>` keyword record. Following the narrower draft list here would
-mean failing to decode values a Goblins peer sends.
-
-**No Null.** OCapN has no settled Null marshalling, and Goblins ships none, so
-pancake mints no Null arm. An unknown Syrup record projects as a `Tagged` value
-rather than a guess the partner could not read back.
-
-**One signing domain.** Even when two peers run the Cap'n Proto codec,
-pancake still signs over canonical Syrup bytes, the one form both sides can
-reproduce. A session location signature and every handoff certificate are
-Ed25519 over that form. The [Codecs]($link.page('codecs')) page has the detail.
-
-## Who owns the wire bytes
-
-Inbound bytes get borrowed before they get copied. The engine reads each
-arriving frame through a **`FrameView`**, a borrow that lives for one
-dispatch, and takes one owned **`Frame`** copy only when the event model has
-to keep the message. Session tables never hold a borrow across a turn.
-
-Two build tests pin the arithmetic: a steady inbound delivery costs exactly
-one allocation, and a warmed session's core state sits near two kilobytes.
-Read those as a design budget aimed at half a million sessions on one node.
-Nobody has measured half a million live sockets yet, and
-[Performance]($link.page('performance')) is careful about which is which; the
-[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
-and
-[ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md)
-docs carry the budgets themselves.
+[A friendly goblin sizing up a stack of pancakes. pancake tests its wire behavior against a real Goblins peer, so both sides have to understand the same conversation.]($image.siteAsset('pancake-goblin-512.png'))
 
 ## Distributed GC
 
@@ -191,36 +158,11 @@ fetched far reference makes the engine tell the peer, with `op:gc-exports` or
 `op:gc-answers`, so unused slots leave the tables. It is off by default and
 covers `fetch` results only; everything else keeps its row until the session
 tears down. The
-[GC](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/05-gc.md)
+[GC](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/05-gc.md)
 diagrams draw it.
 
-## What proves it
-
-Every semantic claim here is backed by something that runs:
-
-- **Live Goblins interop.** `zig build goblins-interop` holds a real two-way
-  OCapN conversation with a Spritely Goblins peer. The per-binding
-  `*-goblins-interop` steps prove the client direction: keyed handshake,
-  bootstrap fetch, and a call.
-- **The upstream [OCapN test suite](https://github.com/ocapn/ocapn-test-suite)**,
-  run against a live pancake peer.
-- **Cross-codec replay (pancake-to-pancake only).** The same conversation through
-  Syrup and Cap'n Proto must produce an identical trace. That is not a Goblins
-  parity claim.
-
-[shipped](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md)
-inventories what those cover today, and [examples]($link.page('examples')) lets
-you watch a round-trip. Ready to write the calling half yourself?
-[Start building]($link.page('start')) walks it line by line.
-
-[A friendly goblin sizing up a stack of pancakes. pancake is checked against a real Goblins peer, so the two have to agree on the wire.]($image.siteAsset('pancake-goblin-512.png'))
-
-## See also
-
-The protocol is easiest to trust when you can see it. These are small diagrams
-of the transactions the code is checked against:
-[protocol diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/README.md)
-· [session lifecycle](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/01-session-lifecycle.md)
-· [deliver and resolve](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/02-deliver-and-resolve.md)
-· [references and tables](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/04-references-and-tables.md)
-· [modules]($link.page('modules')) · [project]($link.page('project'))
+The
+[diagram catalog](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/README.md)
+shows the protocol flows in full. [What you can depend on]($link.page('stability'))
+explains the evidence behind them. When you are ready to write a client,
+[Start building]($link.page('start')) takes you through it.

@@ -24,6 +24,8 @@ const fixed_command_docs = [_][]const u8{
     "CONTRIBUTING.md",
     "AGENTS.md",
     "bindings/README.md",
+    "bindings/DEVELOPING.md",
+    "bindings/PACKAGING.md",
     ".cursor/README.md",
     ".claude/README.md",
     ".serena/project.yml",
@@ -41,7 +43,7 @@ const ci_command_files = [_][]const u8{"ci/gates.sh"};
 /// A map removal that discards its presence bool — `_ = map.remove(k)` and the
 /// `.fetchRemove(` / `.swapRemove(` shapes — throws away a checkable fact: a
 /// logic bug that removed a key the code believed present passes unnoticed. In
-/// `src/`, every such discard must either assert the removal
+/// `src/` and `cli/`, every such discard must either assert the removal
 /// (`std.debug.assert(map.remove(k))`, which still runs the remove in release,
 /// only adding the check in safe builds) when presence is an established
 /// invariant, or carry an inline `// idempotent:` / `// tolerant:` justification
@@ -49,25 +51,31 @@ const ci_command_files = [_][]const u8{"ci/gates.sh"};
 /// mechanically for every future removal (see the allocator-discipline section
 /// of `.agents/rules/memory.md`). `orderedRemove` returns the element, not a
 /// presence bool, so it is deliberately not flagged.
+///
+/// `cli/` is in scope because the product binary keeps tables of its own — the
+/// rooms peer's per-nick maps among them — and a discard there loses the same
+/// fact for the same reason.
 pub fn checkRemoveDiscards(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src: failed to open for remove-discard check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer dir.close(io);
-    var walker = try dir.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
-        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
-        defer gpa.free(path);
-        try checkRemoveDiscardsInFile(io, gpa, root, violations, path);
+    for ([_][]const u8{ "src", "cli" }) |tree| {
+        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for remove-discard check with {s}", .{ tree, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
+            defer gpa.free(path);
+            try checkRemoveDiscardsInFile(io, gpa, root, violations, path);
+        }
     }
 }
 
@@ -630,12 +638,136 @@ pub fn checkGeneratedStateIgnores(
     }
 }
 
+/// The one URL that names this repository. Everything that links to pancake —
+/// the fetch line, the issue tracker, a deep link into a source file, an OCI
+/// image label — starts with this.
+///
+/// It is declared once because it is one fact written across dozens of files,
+/// and because the project has already decided it may move again: pancake is on
+/// GitHub deliberately (see `PROVENANCE.md`), and whether it stays is open. A
+/// move that lands in twenty-eight files and misses two leaves a reader
+/// following a dead link on the page that argues the project is careful, which
+/// is the worst possible place to be sloppy. Change this constant and the check
+/// below names every straggler.
+const repo_url = "https://github.com/jimisaacs/pancake";
+
+/// Forge-specific deep-link syntax, which does not survive a move. Forgejo and
+/// Gitea spell a path into a branch `/src/branch/main/x`; GitHub spells it
+/// `/blob/main/x`. A URL carrying the wrong one resolves to nothing even when
+/// the host is right, so the form is checked alongside the host rather than
+/// left for a reader to discover.
+const foreign_deep_link = "/src/branch/";
+
+/// The declared host's own deep-link prefix, the form a link into a file takes.
+const deep_link_prefix = "/blob/main/";
+
+/// Where a URL stops inside prose: whitespace, Markdown and HTML punctuation.
+fn isUrlTerminator(c: u8) bool {
+    return switch (c) {
+        ' ', '\t', '\n', '\r', '"', '\'', '<', '>', ')', ']', '`', '|' => true,
+        else => false,
+    };
+}
+
+/// Gate that every link to this repository names the declared URL, in the
+/// declared form.
+///
+/// Two failures this catches, both of which have a public cost. A half-landed
+/// forge move: the tree says the project lives in one place and a straggler
+/// points somewhere it no longer is. And a hand-typed variant — a different
+/// owner spelling, an old host, a deep link in another forge's path syntax —
+/// which no compiler sees because it is prose.
+pub fn checkRepositoryUrl(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    root_path: []const u8,
+) !void {
+    // Read-only git, sanctioned by the cli rule: one call enumerates exactly
+    // the files a reader could ever see, and skips build output and caches
+    // without a hand-maintained ignore list.
+    const ls_files = std.process.run(gpa, io, .{
+        .argv = &.{ "git", "-C", root_path, "ls-files", "-z" },
+        .stdout_limit = .limited(64 << 20),
+    }) catch |err| {
+        try appendViolation(gpa, violations, "git ls-files: failed to run for repository-url check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(ls_files.stdout);
+    defer gpa.free(ls_files.stderr);
+    switch (ls_files.term) {
+        .exited => |code| if (code != 0) {
+            try appendViolation(gpa, violations, "git ls-files: exited with code {d} during repository-url check", .{code});
+            return;
+        },
+        else => {
+            try appendViolation(gpa, violations, "git ls-files: terminated abnormally during repository-url check", .{});
+            return;
+        },
+    }
+
+    // The repository's own name, without a host, is what a stray URL still has
+    // to contain. Matching on it rather than on a host finds a link to any
+    // forge, including one nobody has thought of.
+    const slug = repo_url["https://".len..];
+    const bare = slug[std.mem.indexOfScalar(u8, slug, '/').?..];
+
+    var tracked_it = std.mem.splitScalar(u8, ls_files.stdout, 0);
+    while (tracked_it.next()) |path| {
+        if (path.len == 0) continue;
+        // The upstream submodules carry their own projects' links, and this
+        // file declares the constant it is checking.
+        if (std.mem.startsWith(u8, path, "conformance/")) continue;
+        if (std.mem.endsWith(u8, path, "project_shape.zig")) continue;
+
+        const body = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+        defer gpa.free(body);
+
+        var at: usize = 0;
+        while (std.mem.indexOfPos(u8, body, at, bare)) |hit| {
+            at = hit + bare.len;
+            // Walk back to the scheme so the whole URL can be judged, not the
+            // slug that every candidate shares.
+            const line_start = if (std.mem.lastIndexOfScalar(u8, body[0..hit], '\n')) |nl| nl + 1 else 0;
+            const scheme = std.mem.lastIndexOf(u8, body[line_start..hit], "https://") orelse continue;
+            const url_start = line_start + scheme;
+            if (!std.mem.startsWith(u8, body[url_start..], repo_url)) {
+                const end = @min(url_start + repo_url.len + 16, body.len);
+                try appendViolation(gpa, violations, "{s}: links to this repository as `{s}…`, but the declared URL is `{s}` (tools/check/meta_check/project_shape.zig)", .{ path, body[url_start..end], repo_url });
+                continue;
+            }
+            const rest = body[url_start + repo_url.len ..];
+            if (std.mem.startsWith(u8, rest, foreign_deep_link)) {
+                try appendViolation(gpa, violations, "{s}: deep link uses another forge's `{s}` path syntax, which resolves to nothing on the declared host", .{ path, foreign_deep_link });
+                continue;
+            }
+            // A deep link names a file, and a rename makes it a 404 on a page
+            // the public reads. The compiler never sees these, and neither
+            // does the Markdown link checker, which only resolves relative
+            // paths.
+            if (std.mem.startsWith(u8, rest, deep_link_prefix)) {
+                const tail = rest[deep_link_prefix.len..];
+                var stop: usize = 0;
+                while (stop < tail.len and !isUrlTerminator(tail[stop])) stop += 1;
+                var target = std.mem.trimEnd(u8, tail[0..stop], ".,;:)");
+                if (std.mem.indexOfScalar(u8, target, '#')) |frag| target = target[0..frag];
+                if (target.len == 0) continue;
+                const clean = std.mem.trimEnd(u8, target, "/");
+                if (clean.len == 0) continue;
+                root.access(io, clean, .{}) catch {
+                    try appendViolation(gpa, violations, "{s}: deep link names `{s}`, which is not in the repository — it would 404 for every reader", .{ path, clean });
+                };
+            }
+        }
+    }
+}
+
 /// Gate that every numbered Zig example chapter (`examples/zig/NN_*.zig`) and
 /// every C example source (`examples/c/*.c`) the build compiles has an index row
-/// in `examples/README.md`, and every numbered chapter also appears on the site
-/// examples page. A new chapter or C program can otherwise ship undiscoverable;
-/// the index, the site, and the directories must agree. (The C arm is what would
-/// have caught `compose_transports.c` shipping unindexed.)
+/// in `examples/README.md`. That README owns the complete inventory; the public
+/// site can recommend a shorter reader path without repeating it. (The C arm is
+/// what would have caught `compose_transports.c` shipping unindexed.)
 pub fn checkExampleIndex(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -653,6 +785,9 @@ pub fn checkExampleIndex(
         return;
     };
     defer gpa.free(site);
+    if (std.mem.indexOf(u8, site, "examples/README.md") == null) {
+        try appendViolation(gpa, violations, "site/content/examples.smd: must link the complete inventory in examples/README.md", .{});
+    }
 
     var dir = root.openDir(io, "examples/zig", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "examples/zig: failed to open with {s}", .{@errorName(err)});
@@ -672,12 +807,6 @@ pub fn checkExampleIndex(
         const needle = std.fmt.bufPrint(&needle_buf, "zig/{s}", .{entry.name}) catch continue;
         if (std.mem.indexOf(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index row for example chapter `{s}`", .{entry.name});
-        }
-
-        var site_needle_buf: [160]u8 = undefined;
-        const site_needle = std.fmt.bufPrint(&site_needle_buf, "examples/zig/{s}", .{entry.name}) catch continue;
-        if (std.mem.indexOf(u8, site, site_needle) == null) {
-            try appendViolation(gpa, violations, "site/content/examples.smd: missing row for example chapter `{s}`", .{entry.name});
         }
     }
 
@@ -883,6 +1012,126 @@ const CommandScan = struct {
     }
 };
 
+/// The run step an inline `b.step("N", …).dependOn(&run.step);` wires, or null.
+/// Bounded to that one statement: a search that ran past the `;` could pick up
+/// a later, unrelated wiring and report coverage this step does not have.
+fn inlineWiredRunStep(build_src: []const u8, decl_at: usize) ?[]const u8 {
+    const rest = build_src[decl_at..];
+    const stmt_end = std.mem.indexOfScalar(u8, rest, ';') orelse return null;
+    const stmt = rest[0..stmt_end];
+    const marker = ".dependOn(&";
+    const rel = std.mem.indexOf(u8, stmt, marker) orelse return null;
+    const tail = stmt[rel + marker.len ..];
+    const stop = std.mem.indexOfScalar(u8, tail, ')') orelse return null;
+    if (stop == 0) return null;
+    return tail[0..stop];
+}
+
+/// A step the cli rule documents as "part of check" must actually ride the
+/// gate in `build.zig`.
+///
+/// The gate is assembled by 58 scattered `check_step.dependOn(…)` calls, so a
+/// step can be written, documented as gated, and never wired — and nothing
+/// would say so. The failure is silent in the direction that matters: the
+/// tree looks covered. This holds the rule's marker against the wiring, both
+/// ways, so the marker is a claim the build has to earn.
+pub fn checkGatedStepsRideCheck(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const build_src = root.readFileAlloc(io, "build.zig", gpa, .limited(1 << 21)) catch |err| {
+        try appendViolation(gpa, violations, "build.zig: failed to read for the gated-step check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(build_src);
+    const rule_src = root.readFileAlloc(io, ".agents/rules/cli.md", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, ".agents/rules/cli.md: failed to read for the gated-step check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(rule_src);
+
+    var line_no: usize = 0;
+    var lines = std.mem.splitScalar(u8, rule_src, '\n');
+    while (lines.next()) |line| {
+        line_no += 1;
+        if (!std.mem.startsWith(u8, line, "zig build ")) continue;
+        // `part of check-external` is a different gate; only the hermetic one.
+        if (std.mem.indexOf(u8, line, "part of check-external") != null) continue;
+        if (std.mem.indexOf(u8, line, "part of check") == null and
+            std.mem.indexOf(u8, line, "rides check") == null and
+            std.mem.indexOf(u8, line, "runs under check") == null) continue;
+
+        const after = line["zig build ".len..];
+        var end: usize = 0;
+        while (end < after.len and (std.ascii.isAlphanumeric(after[end]) or after[end] == '-')) end += 1;
+        const name = after[0..end];
+        if (name.len == 0) continue;
+
+        // name -> the `const <var> = b.step("<name>"` that declares it.
+        var decl_buf: [160]u8 = undefined;
+        const needle = std.fmt.bufPrint(&decl_buf, "= b.step(\"{s}\",", .{name}) catch continue;
+        var table_buf: [220]u8 = undefined;
+        const table_row = std.fmt.bufPrint(&table_buf, ".check_step_name = \"{s}\"", .{name}) catch continue;
+        if (std.mem.indexOf(u8, build_src, table_row) != null) continue;
+        var inline_buf: [180]u8 = undefined;
+        const inline_decl = std.fmt.bufPrint(&inline_buf, "b.step(\"{s}\",", .{name}) catch continue;
+        const at = std.mem.indexOf(u8, build_src, needle) orelse {
+            if (std.mem.indexOf(u8, build_src, inline_decl)) |inline_at| {
+                // Declared inline (no `const x =`); check the run step it wires.
+                if (inlineWiredRunStep(build_src, inline_at)) |run_step| {
+                    var same_buf: [220]u8 = undefined;
+                    const same = std.fmt.bufPrint(&same_buf, "check_step.dependOn(&{s})", .{run_step}) catch continue;
+                    if (std.mem.indexOf(u8, build_src, same) != null) continue;
+                }
+            }
+            try appendViolation(gpa, violations, ".agents/rules/cli.md:{d}: `zig build {s}` is documented as part of check, but build.zig declares no such step", .{ line_no, name });
+            continue;
+        };
+        const line_start = if (std.mem.lastIndexOfScalar(u8, build_src[0..at], '\n')) |nl| nl + 1 else 0;
+        // Trim the indent, then drop the `const ` keyword by prefix — a
+        // character-set trim here would eat the leading c/o/n/s/t of the
+        // variable's own name.
+        var decl = std.mem.trimStart(u8, build_src[line_start..at], " \t");
+        decl = if (std.mem.startsWith(u8, decl, "const ")) decl["const ".len..] else decl;
+        decl = std.mem.trimEnd(u8, decl, " \t");
+        if (decl.len == 0) continue;
+
+        // Three registration idioms join a named step to the gate, and each
+        // is a real pattern in this build rather than an accident:
+        //   1. the step variable itself is wired (`check_step.dependOn(x_step)`);
+        //   2. the step is declared inline over a run step that check also
+        //      wires (`check_step.dependOn(&fmt_check.step)`);
+        //   3. the step is minted from a table row naming it
+        //      (`.check_step_name = "…"`, the generated-header families).
+        // Accepting all three keeps the check precise about the thing that
+        // matters — a marker with no wiring at all — without demanding a
+        // uniformity the build does not have.
+        var buf: [220]u8 = undefined;
+        const by_var = std.fmt.bufPrint(&buf, "check_step.dependOn({s})", .{decl}) catch continue;
+        if (std.mem.indexOf(u8, build_src, by_var) != null) continue;
+        var buf2: [220]u8 = undefined;
+        const by_amp = std.fmt.bufPrint(&buf2, "check_step.dependOn(&{s}", .{decl}) catch continue;
+        if (std.mem.indexOf(u8, build_src, by_amp) != null) continue;
+        var buf3: [220]u8 = undefined;
+        const by_table = std.fmt.bufPrint(&buf3, ".check_step_name = \"{s}\"", .{name}) catch continue;
+        if (std.mem.indexOf(u8, build_src, by_table) != null) continue;
+        // Inline declaration: `b.step("N", …).dependOn(&run.step);` — find the
+        // run step it wires and ask whether check wires the same one.
+        // Bounded to the declaring statement: searching past its `;` would let
+        // some *other* step's wiring satisfy this one, which is the check
+        // passing for a reason unrelated to what it was asked about.
+        if (inlineWiredRunStep(build_src, at)) |run_step| {
+            var buf4: [220]u8 = undefined;
+            const same = std.fmt.bufPrint(&buf4, "check_step.dependOn(&{s})", .{run_step}) catch continue;
+            if (std.mem.indexOf(u8, build_src, same) != null) continue;
+        }
+
+        try appendViolation(gpa, violations, ".agents/rules/cli.md:{d}: `zig build {s}` says it is part of check, but build.zig wires it onto check_step through none of the three registration idioms — the marker has to be earned, or the claim removed", .{ line_no, name });
+    }
+}
+
 pub fn checkDocumentedBuildSteps(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -1058,7 +1307,6 @@ fn isCommandTerminator(byte: u8) bool {
 }
 
 const c_abi_archive_docs = [_][]const u8{
-    "docs/architecture.md",
     "docs/consuming-from-c.md",
     "site/content/reference/index.smd",
 };
@@ -1237,7 +1485,7 @@ pub fn checkConnOverheadQuotes(
     // pass — which is precisely the drift it exists to catch.
     const Quote = struct { path: []const u8, anchor: []const u8 };
     const quoting = [_]Quote{
-        .{ .path = "docs/ladder.md", .anchor = "comes to **" },
+        .{ .path = "docs/ladder.md", .anchor = "| Completion-loop slot beyond its embedded peer | exactly " },
         .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
     };
     for (quoting) |quote| {
@@ -1257,6 +1505,64 @@ pub fn checkConnOverheadQuotes(
         if (!std.mem.startsWith(u8, stated, needle)) {
             const shown = stated[0..@min(stated.len, 20)];
             try appendViolation(gpa, violations, "{s}: states the per-connection slot overhead as `{s}…`, but {s} asserts `{s} bytes`", .{ path, shown, loop_path, number });
+        }
+    }
+}
+
+/// The shared-Vat migration removed the Vat from every `HostSession` and
+/// lowered its exact ceiling. Keep the banked per-connection saving synchronized
+/// across the source gate and every living/decision document that quotes it.
+pub fn checkHostSessionBudgetQuotes(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const source_path = "src/driver/core/host.zig";
+    const decl = "pub const host_session_struct_budget_bytes = ";
+    const source = root.readFileAlloc(io, source_path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read it to derive the Host-session budget ({s})", .{ source_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(source);
+
+    const at = std.mem.indexOf(u8, source, decl) orelse {
+        try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing derives the Host-session budget the docs quote", .{ source_path, decl });
+        return;
+    };
+    const rest = source[at + decl.len ..];
+    var digits: usize = 0;
+    while (digits < rest.len and std.ascii.isDigit(rest[digits])) digits += 1;
+    if (digits == 0) {
+        try appendViolation(gpa, violations, "{s}: `{s}` is not followed by a decimal literal", .{ source_path, decl });
+        return;
+    }
+    const number = rest[0..digits];
+
+    const Quote = struct { path: []const u8, anchor: []const u8 };
+    const quoting = [_]Quote{
+        .{ .path = "docs/ladder.md", .anchor = "| Host session shell | at most " },
+        .{ .path = ".agents/rules/memory.md", .anchor = "The Host session ceiling is " },
+        .{ .path = "docs/decisions/adr/ADR-0096-host-scoped-capability-identity.md", .anchor = "`HostSession` ceiling is " },
+        .{ .path = "docs/decisions/adr/ADR-0098-sturdyref-peer-authority.md", .anchor = "the `HostSession` shell is " },
+        .{ .path = "docs/decisions/adr/ADR-0099-shared-vat-scheduling.md", .anchor = "per-session `HostSession` ceiling is " },
+    };
+    const needle = try std.fmt.allocPrint(gpa, "{s} bytes", .{number});
+    defer gpa.free(needle);
+    for (quoting) |quote| {
+        const contents = root.readFileAlloc(io, quote.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot read it to check the Host-session budget ({s})", .{ quote.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        const claim = std.mem.indexOf(u8, contents, quote.anchor) orelse {
+            try appendViolation(gpa, violations, "{s}: has no `{s}…` Host-session budget claim anchored to {s}", .{ quote.path, quote.anchor, source_path });
+            continue;
+        };
+        const stated = contents[claim + quote.anchor.len ..];
+        if (!std.mem.startsWith(u8, stated, needle)) {
+            const shown = stated[0..@min(stated.len, 20)];
+            try appendViolation(gpa, violations, "{s}: states the Host-session budget as `{s}…`, but {s} asserts `{s}`", .{ quote.path, shown, source_path, needle });
         }
     }
 }

@@ -9,11 +9,11 @@
 // is runtime-neutral. This is the consumer `zig build bindings` runs.
 
 import process from "node:process";
-import { TIMEOUT } from "@pancake/abi";
+import { INVALID_ARGUMENT, TIMEOUT } from "@pancake/abi";
 import { connectTcp, listenTcp, type NetConn } from "../stack/internal/seam.ts";
 import {
 	abiVersion,
-	type AppValue,
+	type Argument,
 	connect,
 	Context,
 	type ContextAllocator,
@@ -25,6 +25,7 @@ import {
 	PancakeError,
 	PSet,
 	Ref,
+	type Session,
 	Sym,
 	Tagged,
 	tagged,
@@ -119,9 +120,9 @@ assert(
 
 // A counter behavior reused by the round-trip tests: "add" adds args[0] to the
 // count and returns it, "get" reads it, anything else throws (a break).
-function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => AppValue {
+function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Argument {
 	let count = start;
-	return (verb: string, args: AppValue[]): AppValue => {
+	return (verb: string, args: Argument[]): Argument => {
 		if (verb === "add") {
 			const n = args[0];
 			count += typeof n === "bigint" ? n : BigInt(n as number);
@@ -290,7 +291,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 				assert(verb === "probe", `server expected probe, got ${verb}`);
 				const probeSet = args[0];
 				assert(probeSet instanceof PSet, "a Set argument arrives as a PSet");
-				const items = (probeSet as PSet<AppValue>).items;
+				const items = (probeSet as PSet<Argument>).items;
 				assert(items[0] === 1n, "the set's plain item survived");
 				const nested = items[1];
 				assert(
@@ -300,7 +301,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 				const note = args[1];
 				assert(note instanceof Tagged, "a Tagged argument arrives as a Tagged");
 				assert(
-					(note as Tagged<AppValue>).value[0] instanceof Ref,
+					(note as Tagged<Argument>).value[0] instanceof Ref,
 					"a capability inside a Tagged lifts to a Ref",
 				);
 				// The nested capability is sendable: poke back through it.
@@ -323,14 +324,14 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		});
 		const svc = await session.fetch("svc");
 		const reply = await session.send(svc, "probe", [
-			new PSet<AppValue>([1n, inbox]),
-			new Tagged<AppValue>("note", [inbox]),
+			new PSet<Argument>([1n, inbox]),
+			new Tagged<Argument>("note", [inbox]),
 		]);
 		assert(
 			reply instanceof PSet,
 			"a PSet reply survives the round-trip as a PSet",
 		);
-		const items = (reply as PSet<AppValue>).items;
+		const items = (reply as PSet<Argument>).items;
 		assert(
 			items[0] instanceof Sym && (items[0] as Sym).value === "ok",
 			"the set's symbol survived",
@@ -381,11 +382,18 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const locator = tcpLocator("127.0.0.1", port);
+		const session = await connect(locator);
 		session.serve().catch(() => {});
-		// The connection is already open to the peer; enliven keys on the
-		// sturdyref's swissnum, which the URI carries as `/s/greeter`.
-		const sturdyref = "ocapn://greeter-host.tcp/s/greeter";
+		let mismatchRefused = false;
+		try {
+			await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/greeter");
+		} catch (err) {
+			mismatchRefused = err instanceof PancakeError && err.code === INVALID_ARGUMENT;
+		}
+		assert(mismatchRefused, "enliven accepted a sturdyref for another peer");
+		// The complete sturdyref must name this selected session's peer.
+		const sturdyref = `${locator}/s/greeter`;
 		const cap = await session.enliven(sturdyref);
 		const greeting = await session.send(cap, "hello", []);
 		assert(
@@ -434,7 +442,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		const session = (await connect(tcpLocator("127.0.0.1", relay.port))).withGc();
 		session.serve().catch(() => {});
 		let cap: Ref | null = await session.fetch("svc");
-		assert(cap.reference.kind === "far", "the fetched cap is a far token");
+		assert(cap.id > 0n, "the fetched cap has a Host identity");
 		// Drop the only handle and force collection until the relay sees the
 		// release ride the wire.
 		cap = null;
@@ -514,6 +522,68 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	await Promise.race([client(), hosted]);
 	await hosted;
 	ok("promise pipelining drives create->assign->complete->status as one batch");
+}
+
+// Host ownership, arriving-Port routing: the root is first projected through
+// one accepted Session, that Port closes, and a sibling invokes it. Its
+// callback deliberately uses the stale originating Session handle to spawn a
+// child; the active Host turn must select turn-spawn before that dead handle is
+// checked, and the child must ride the sibling's reply.
+{
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+	let readyResolve!: () => void;
+	const ready = new Promise<void>((resolve) => readyResolve = resolve);
+
+	async function host(): Promise<void> {
+		let origin: Session | null = null;
+		let root: Ref | null = null;
+		for await (const session of server) {
+			session.serve().catch(() => {});
+			if (origin === null) {
+				origin = session;
+				const captured = session;
+				root = session.spawn((verb) => {
+					if (verb !== "create") throw new Error(`no such method: ${verb}`);
+					return captured.spawn((childVerb) => {
+						if (childVerb === "ping") return "alive";
+						throw new Error(`no such method: ${childVerb}`);
+					});
+				});
+				continue;
+			}
+			const introduced = root;
+			assert(introduced !== null, "the origin spawned its root");
+			session.publish("introducer", (verb) => {
+				if (verb === "get") return introduced;
+				throw new Error(`no such method: ${verb}`);
+			});
+			origin.close();
+			readyResolve();
+			await session.serve();
+			break;
+		}
+	}
+	const hosted = host();
+
+	async function client(): Promise<void> {
+		const origin = await connect(tcpLocator("127.0.0.1", port));
+		origin.serve().catch(() => {});
+		const sibling = await connect(tcpLocator("127.0.0.1", port));
+		sibling.serve().catch(() => {});
+		await ready;
+		const introducer = await sibling.fetch("introducer");
+		const root = await sibling.send(introducer, "get", []);
+		assert(root instanceof Ref, "the sibling introduces the Host-owned root");
+		const child = await sibling.send(root, "create", []);
+		assert(child instanceof Ref, "create returns the turn-spawned child");
+		assert(await sibling.send(child, "ping", []) === "alive", "the child is callable");
+		sibling.close();
+		origin.close();
+	}
+
+	await Promise.all([client(), hosted]);
+	ok("turn-time spawn uses the Host after the originating Port closes");
 }
 
 // Pipelined projections (ADR-0050/ADR-0052): `RemotePromise.index(i)` and
@@ -646,11 +716,24 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	let exportReady!: () => void;
 	const exportKnown = new Promise<void>((r) => (exportReady = r));
 
-	// Replace the first `desc:export0+` with `desc:export<P>+` (same length for
-	// a single-digit export position). Armed only after the legitimate fetch of
-	// "plain" has granted the export, so only the second fetch is doctored.
+	// Replace the first `desc:export0+` with `desc:export<P>+`. The spliced
+	// integer is whatever position the host allocated, which is not the same
+	// width as the one it replaces, so the frame is rebuilt at its new length
+	// rather than overwritten in place — a Syrup record is delimiter-terminated,
+	// so a wider integer is still a whole frame. Armed only after the legitimate
+	// fetch of "plain" has granted the export, so only the second fetch is
+	// doctored.
 	let armed = false;
 	let retargeted = false;
+	let capturing = false;
+	let observedWire = "";
+	const decoder = new TextDecoder();
+	function observe(chunk: Uint8Array): void {
+		if (!capturing || plainExport >= 0n) return;
+		observedWire += decoder.decode(chunk, { stream: true });
+		const match = /desc:import-object(\d+)\+/.exec(observedWire);
+		if (match !== null) plainExport = BigInt(match[1]);
+	}
 	function retarget(chunk: Uint8Array): Uint8Array {
 		if (!armed || retargeted || plainExport < 0n) return chunk;
 		const needle = new TextEncoder().encode("desc:export0+");
@@ -658,25 +741,23 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			for (let j = 0; j < needle.length; j++) {
 				if (chunk[i + j] !== needle[j]) continue outer;
 			}
-			const out = chunk.slice();
-			out.set(new TextEncoder().encode(`desc:export${plainExport}+`), i);
+			const spliced = new TextEncoder().encode(`desc:export${plainExport}+`);
+			const out = new Uint8Array(chunk.length - needle.length + spliced.length);
+			out.set(chunk.subarray(0, i), 0);
+			out.set(spliced, i);
+			out.set(chunk.subarray(i + needle.length), i + spliced.length);
 			retargeted = true;
 			return out;
 		}
 		return chunk;
 	}
-	const relay = await startRelay(targetPort, retarget);
+	const relay = await startRelay(targetPort, retarget, observe);
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
 			// The doctored fetch deliver lands here with verb "fetch"; answer with
 			// a plain integer, which is exactly what a fetch must not resolve to.
-			const plain = session.publish("plain", () => 42n);
-			assert(
-				plain.reference.kind === "near" && plain.reference.id < 10n,
-				"the retarget needs a single-digit export position",
-			);
-			plainExport = plain.reference.kind === "near" ? plain.reference.id : -1n;
+			session.publish("plain", () => 42n);
 			exportReady();
 			session.serve().catch(() => {});
 			break;
@@ -690,7 +771,11 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		await exportKnown;
 		// The granting fetch: its resolve marshals the "plain" reference, which
 		// is what makes the position addressable for the doctored deliver.
+		capturing = true;
 		await session.fetch("plain");
+		for (let i = 0; i < 100 && plainExport < 0n; i++) await Promise.resolve();
+		assert(plainExport >= 0n, "the granting fetch exposed no import-object descriptor");
+		capturing = false;
 		armed = true;
 		let failed: FetchFailed | null = null;
 		try {
@@ -1071,6 +1156,128 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 
 	await Promise.all([client(), hosted]);
 	ok("a behavior closing its own connection mid-turn parks the release");
+}
+
+// Host release closes every Session before freeing the native Host. When the
+// request comes from a behavior callback, all three releases park; FIFO order
+// is the lifetime proof for two live Session handles followed by their Host.
+{
+	const captpHost = new Host();
+	const server = listen("127.0.0.1", 0, captpHost);
+	const port = await server.ready();
+	let acceptedResolve!: () => void;
+	const accepted = new Promise<void>((resolve) => acceptedResolve = resolve);
+	let duringResolve!: (count: number) => void;
+	const during = new Promise<number>((resolve) => duringResolve = resolve);
+	captpHost.publishGiftable("svc", (verb) => {
+		if (verb !== "release-host") return null;
+		captpHost.release();
+		duringResolve(captpHost.pendingReleaseCount());
+		return "closing";
+	});
+
+	async function host(): Promise<void> {
+		let count = 0;
+		for await (const session of server) {
+			session.serve().catch(() => {});
+			count++;
+			if (count === 2) {
+				acceptedResolve();
+				break;
+			}
+		}
+	}
+	const hosted = host();
+	const first = await connect(tcpLocator("127.0.0.1", port));
+	first.serve().catch(() => {});
+	const second = await connect(tcpLocator("127.0.0.1", port));
+	second.serve().catch(() => {});
+	await accepted;
+	const svc = await first.fetch("svc");
+	try {
+		await first.send(svc, "release-host");
+	} catch (_) {
+		// Releasing the server Host closes the wire before this answer must land.
+	}
+	assert(await during === 3, "two Session releases and their Host park in order");
+	assert(
+		captpHost.pendingReleaseCount() === 0,
+		"the callback unwind drains every parked release",
+	);
+	first.close();
+	second.close();
+	server.close();
+	await hosted;
+	ok("a callback-time Host release frees two Sessions before their Host");
+}
+
+// The partner identity the handshake proved, and the refusal an application
+// builds on it. A directory that takes a locator from the wire and believes it
+// will point introductions wherever a caller says; the fix is to compare the
+// name a caller claims against the one it actually signed.
+//
+// A dialing client that does not listen has no dialable name of its own, so it
+// signs the unreachable-client placeholder. That is the sharpest case: whatever
+// locator such a caller claims, it did not prove it.
+{
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+
+	async function host(): Promise<void> {
+		for await (const session of server) {
+			const seen = session.partnerIdentity();
+			assert(
+				seen.sessionKey.length === 32,
+				`partner identity: expected a 32-byte key, got ${seen.sessionKey.length}`,
+			);
+			// `tcp` designates a socket address, which the signature covers but
+			// the key does not determine, so the key question has no claim to
+			// make here.
+			assert(
+				!session.partnerDesignatorIsKey(),
+				"partner identity: a tcp designator is an address, not a key",
+			);
+			// The rooms-shaped check, both ways. The claim a caller could make
+			// about itself is only worth acting on when it matches what the
+			// caller signed.
+			const honest = seen.designator;
+			const dishonest = "198.51.100.7:9999";
+			assert(
+				honest === seen.designator,
+				"partner identity: a matching claim is accepted",
+			);
+			assert(
+				dishonest !== seen.designator,
+				"partner identity: a claim the caller never signed is refused",
+			);
+			session.close();
+			break;
+		}
+	}
+	const hosted = host();
+
+	async function client(): Promise<void> {
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		const seen = session.partnerIdentity();
+		// The dialer verified the listener's signature, so it holds the
+		// listener's key and the address that key signed.
+		assert(
+			seen.sessionKey.length === 32,
+			"partner identity: the client sees the server's proved key",
+		);
+		assert(
+			seen.designator === `127.0.0.1:${port}`,
+			`partner identity: expected the listener's signed address, got "${seen.designator}"`,
+		);
+		assert(
+			seen.locatorRecord.length > 0,
+			"partner identity: the verbatim location record came back",
+		);
+		session.close();
+	}
+
+	await Promise.all([client(), hosted]);
+	ok("the handshake's proved partner identity refuses a locator the caller never signed");
 }
 
 ok("drove OCapN through the idiomatic pancake API");

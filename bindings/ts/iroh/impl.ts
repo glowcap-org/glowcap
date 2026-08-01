@@ -52,6 +52,7 @@ import {
 	IO,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
+	IROH_EV_CONNECT,
 	IROH_EV_READABLE,
 	IROH_EV_WRITABLE,
 	IROH_READY_EVENT_SIZE,
@@ -200,23 +201,31 @@ export class IrohNetlayer {
 		return new IrohConn(outPointer(out));
 	}
 
-	/** Dial a partner and return a non-blocking loop connection. The dial itself
-	 * blocks (non-blocking FFI); subsequent frame I/O is non-blocking. */
-	async tryConnect(nodeId: string, addrHints: string): Promise<IrohConn> {
+	startConnect(requestId: bigint, nodeId: string, addrHints: string): void {
 		const id = new TextEncoder().encode(nodeId);
 		const hints = new TextEncoder().encode(addrHints);
-		const out = new Uint8Array(8);
 		irohCheck(
-			await irohS().pancake_iroh_netlayer_try_connect(
+			irohS().pancake_iroh_netlayer_start_connect(
 				this.#raw,
+				requestId,
 				ab(id),
 				BigInt(id.length),
 				ab(hints),
 				BigInt(hints.length),
-				out,
 			),
 		);
+	}
+
+	finishConnect(requestId: bigint): IrohConn {
+		const out = new Uint8Array(8);
+		irohCheck(
+			irohS().pancake_iroh_netlayer_finish_connect(this.#raw, requestId, out),
+		);
 		return new IrohConn(outPointer(out));
+	}
+
+	cancelConnect(requestId: bigint): void {
+		irohCheck(irohS().pancake_iroh_netlayer_cancel_connect(this.#raw, requestId));
 	}
 
 	/** Close the endpoint without freeing the handle: later dials fail and the
@@ -247,11 +256,9 @@ export class IrohConn {
 		this.#raw = raw;
 	}
 
-	/** This connection's routing key — its raw handle as a bigint, the value a
-	 * `drain_ready` record carries — so `IrohLoop` can map a readiness record back
-	 * to this connection. */
+	/** This connection's stable readiness identity. */
 	key(): bigint {
-		return this.#raw;
+		return irohS().pancake_iroh_conn_id(this.#raw);
 	}
 
 	/** Non-blocking read of raw inbound bytes into `buf`: the byte count (>0),
@@ -342,6 +349,11 @@ interface ConnWaiters {
 	closed: boolean;
 }
 
+interface DialWaiter {
+	resolve: (conn: IrohConn) => void;
+	reject: (error: unknown) => void;
+}
+
 /** The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0057).
  *
  * It parks the event loop on the netlayer's single readiness fd — a `node:net`
@@ -356,6 +368,8 @@ interface ConnWaiters {
 class IrohLoop {
 	#netlayer: IrohNetlayer;
 	#conns = new Map<bigint, ConnWaiters>();
+	#dials = new Map<bigint, DialWaiter>();
+	#nextRequest = 1n;
 	#acceptWaiter: (() => void) | null = null;
 	#acceptPending = 0;
 	#closed = false;
@@ -389,6 +403,19 @@ class IrohLoop {
 			readablePending: false,
 			writablePending: false,
 			closed: false,
+		});
+	}
+
+	dial(nodeId: string, addrHints: string): Promise<IrohConn> {
+		const requestId = this.#nextRequest++;
+		return new Promise<IrohConn>((resolve, reject) => {
+			this.#dials.set(requestId, { resolve, reject });
+			try {
+				this.#netlayer.startConnect(requestId, nodeId, addrHints);
+			} catch (error) {
+				this.#dials.delete(requestId);
+				reject(error);
+			}
 		});
 	}
 
@@ -456,6 +483,15 @@ class IrohLoop {
 			w.conn.release();
 		}
 		this.#conns.clear();
+		for (const [requestId, waiter] of this.#dials) {
+			try {
+				this.#netlayer.cancelConnect(requestId);
+			} catch {
+				// Endpoint shutdown owns the terminal row.
+			}
+			waiter.reject(new PancakeError(CLOSED, "iroh loop closed"));
+		}
+		this.#dials.clear();
 		if (this.#acceptWaiter !== null) {
 			const a = this.#acceptWaiter;
 			this.#acceptWaiter = null;
@@ -507,7 +543,7 @@ class IrohLoop {
 		}
 	}
 
-	#dispatch(connPtr: bigint, events: number): void {
+	#dispatch(subject: bigint, events: number): void {
 		if ((events & IROH_EV_ACCEPT) !== 0) {
 			if (this.#acceptWaiter !== null) {
 				const a = this.#acceptWaiter;
@@ -518,7 +554,19 @@ class IrohLoop {
 			}
 			return;
 		}
-		const w = this.#conns.get(connPtr);
+		if ((events & IROH_EV_CONNECT) !== 0) {
+			const waiter = this.#dials.get(subject);
+			this.#dials.delete(subject);
+			try {
+				const conn = this.#netlayer.finishConnect(subject);
+				if (waiter === undefined) conn.release();
+				else waiter.resolve(conn);
+			} catch (error) {
+				waiter?.reject(error);
+			}
+			return;
+		}
+		const w = this.#conns.get(subject);
 		if (w === undefined) return; // a record for an already-released connection
 		if ((events & IROH_EV_CLOSED) !== 0) w.closed = true;
 		if ((events & (IROH_EV_READABLE | IROH_EV_CLOSED)) !== 0) {
@@ -655,17 +703,17 @@ function settlesWhileResolving(reachability: Reachability): boolean {
 
 /** Dial, retrying only under a propagating-discovery posture while it resolves. */
 async function dialResolving(
-	netlayer: IrohNetlayer,
+	loop: IrohLoop,
 	nodeId: string,
 	directAddresses: string,
 	reachability: Reachability,
 ): Promise<IrohConn> {
 	if (!settlesWhileResolving(reachability)) {
-		return netlayer.tryConnect(nodeId, directAddresses);
+		return loop.dial(nodeId, directAddresses);
 	}
 	for (let attempt = 1;; attempt += 1) {
 		try {
-			return await netlayer.tryConnect(nodeId, directAddresses);
+			return await loop.dial(nodeId, directAddresses);
 		} catch (e) {
 			// ADR-0082: only transient dial faults (iroh projects them as IO).
 			// InvalidAddress / ConnectionRefused / OOM map to non-IO codes.
@@ -694,16 +742,16 @@ export async function _connectIroh(
 ): Promise<Session> {
 	const netlayer = new IrohNetlayer(reachability);
 	const loop = new IrohLoop(netlayer);
+	loop.start();
 	let conn: IrohConn;
 	try {
-		conn = await dialResolving(netlayer, nodeId, directAddresses, reachability);
+		conn = await dialResolving(loop, nodeId, directAddresses, reachability);
 	} catch (e) {
 		loop.close();
 		netlayer.release();
 		throw e;
 	}
 	loop.register(conn);
-	loop.start();
 	// The transport owns the dialer-minted connection, loop, and ephemeral
 	// netlayer (`ownsLoop`); on a handshake failure or an elapsed handshake
 	// bound `establishDialedLocator` abandons
@@ -711,7 +759,7 @@ export async function _connectIroh(
 	// and releases the sidecar connection, stops the readiness loop (closing
 	// the dup'd fd), and releases the netlayer. The connection is minted
 	// against `host`, so the session's identity (a give's `recipient_key`) and
-	// the host's gift registry agree — what a three-party handoff requires
+	// the host's live-session directory agrees — what a three-party handoff requires
 	// (ADR-0009/ADR-0056).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
 	return Session.establishDialedLocator(
@@ -745,16 +793,16 @@ export async function dialLocatorForRelay(
 
 	const netlayer = new IrohNetlayer(reachability);
 	const loop = new IrohLoop(netlayer);
+	loop.start();
 	let conn: IrohConn;
 	try {
-		conn = await dialResolving(netlayer, nodeId, directAddresses, reachability);
+		conn = await dialResolving(loop, nodeId, directAddresses, reachability);
 	} catch (e) {
 		loop.close();
 		netlayer.release();
 		throw e;
 	}
 	loop.register(conn);
-	loop.start();
 
 	// Return a channel that owns the connection, loop, and netlayer.
 	// Calling close() terminates the connection and cleans up the loop/netlayer.
@@ -777,8 +825,8 @@ function acceptIroh(
 	host: Host = new Host(),
 ): Promise<Session> {
 	// As `_connectIroh`: the connection is minted against the server's host, so
-	// its accepted sessions share one identity and gift registry — what lets
-	// an exporter match a gift's deposit (on the gifter session) and withdraw
+	// its accepted sessions share one identity and live-session directory — what lets
+	// an exporter resolve a gift's deposit (on the gifter session) during withdraw
 	// (on the recipient session).
 	return Session.establishAccepted(
 		host,
@@ -797,11 +845,10 @@ export class IrohServer {
 	#loop: IrohLoop;
 	#closed = false;
 	#nodeId: string;
-	// One identity and one shared gift registry for the whole host: every accepted
-	// session keys its handshake with this host's seed and binds its peer to
-	// this host's gift registry, so a gift deposited on one accepted session
-	// is withdrawable on another — the exporter-host shape a three-party handoff
-	// recipient relies on (ADR-0009/ADR-0056). The TCP `Server`'s iroh sibling.
+	// One identity and one live-session directory for the whole host: every accepted
+	// session keys its handshake with this host's seed, and a withdraw resolves
+	// the still-open session that owns its gift. This is the exporter-host shape
+	// a handoff recipient relies on (ADR-0009/ADR-0100). The TCP `Server`'s iroh sibling.
 	readonly #host: Host;
 
 	constructor(netlayer: IrohNetlayer, host: Host) {
@@ -821,7 +868,7 @@ export class IrohServer {
 		return this.#nodeId;
 	}
 
-	/** The server's shared host, its retained identity and gift registry. An
+	/** The server's shared host, its retained identity and handoff router. An
 	 * exporter application reads it to originate gifts that recipients withdraw
 	 * across the host's sessions; the TCP `Server.host` sibling. */
 	get host(): Host {

@@ -1,8 +1,8 @@
 """Idiomatic Python API for pancake, an OCapN/CapTP Host you drive over the
-byte-fed host archive (``libpancake_driver``, ADR-0072).
+byte-fed host archive (``libpancake_host``, ADR-0072).
 
 This is the core package: it rides ``libpancake_ocapn`` (the shared value and
-locator vocabulary) plus its companion ``libpancake_driver`` (the byte-fed
+locator vocabulary) plus its companion ``libpancake_host`` (the byte-fed
 multi-session CapTP host), and is usable on its own for TCP. The raw ``ctypes``
 FFI lives in the internal ``_ffi_*`` modules; this package is the public
 surface over it. What you hold is a :class:`Session`: dial with
@@ -18,7 +18,7 @@ surface over it. What you hold is a :class:`Session`: dial with
 
 The host owns routing, three-party redemption, and gift origination; the
 binding moves bytes and honors the host's action queue. A :class:`Host` is the
-CapTP Host those sessions share — one identity, one gift registry — read as
+CapTP Host those sessions share — one identity and one handoff router — read as
 ``server.host`` or passed to :func:`connect`.
 
 The C ABI ships as a set of composable, symbol-disjoint archives (ADR-0059),
@@ -61,19 +61,7 @@ from ._errors import (
     abi_version,
     last_error,
 )
-from ._value import (
-    Broken,
-    Far,
-    Forward,
-    Keyword,
-    Near,
-    Promise,
-    Ref,
-    Set,
-    Sturdy,
-    Symbol,
-    Tagged,
-)
+from ._value import Forward, Keyword, Ref, Set, Symbol, Tagged
 from ._constants import (
     HANDSHAKE_TIMEOUT_MS,
     HINT_DIRECT_ADDRESSES,
@@ -95,6 +83,7 @@ from ._locator import (
 from ._host import Host
 from ._promise import RemotePromise
 from ._session import (
+    PartnerIdentity,
     RedeemedReply,
     Session,
 )
@@ -117,12 +106,7 @@ __all__ = [
     "PancakeError",
     "VowBroken",
     "FetchFailed",
-    # Value vocabulary
-    "Near",
-    "Promise",
-    "Sturdy",
-    "Broken",
-    "Far",
+    # Argument vocabulary
     "Ref",
     "Symbol",
     "Keyword",
@@ -134,6 +118,7 @@ __all__ = [
     # Application surface
     "Session",
     "RedeemedReply",
+    "PartnerIdentity",
     "RemotePromise",
     "Server",
     "KeyedTcpServer",

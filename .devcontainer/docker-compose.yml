@@ -1,5 +1,5 @@
 # Two Docker networks:
-#   rooms-net  — shared with the rooms app (apps/rooms/deno/deploy).
+#   rooms-net  — shared with the rooms app (apps/rooms/web/deploy).
 #                Committed and always on: it is how a bot in this dev container
 #                reaches the room's internal CapTP. Fixed name, so both compose
 #                projects converge on one shared network.

@@ -117,19 +117,19 @@ names the concrete runtime and version where the client can determine it.
 
   `ratio` is `via_host_ns / in_lang_ns`. Read the two figures honestly:
   `in_lang` is today's path, the binding dispatching a local actor in its own
-  runtime. `via_host` bounds a hypothetical Zig-vat-routed local turn from
-  *above*: a real in-Zig local turn would skip the wire codec that this
-  loopback round trip pays twice, so the true cost of pushing local actors
-  into the Zig vat lies somewhere below the `via_host` figure. The mode
-  answers "what would routing local dispatch through the C host cost per
-  binding?", not "how fast is the wire."
+  runtime. `via_host` measures the existing loopback route through the C host.
+  It includes a loopback round trip and two wire-codec passes that a real local
+  path might skip, but that unimplemented path could have other costs. The mode
+  answers "what does the existing C host
+  path cost per binding?", not "how fast is the wire" or "how fast will a
+  future local path be?"
 
 ## Warmup and GC hygiene
 
-Latency, throughput, and local windows reflect steady state. A runtime with a
+Latency, throughput, and local windows target steady state. A runtime with a
 JIT or a garbage collector (Deno, Python, the Racket binding, Goblins) runs
 `min(n, 500)` warmup units and forces a collection before opening the measured
 window (in `local` mode, on each of the two paths separately) the same
-hygiene `bench/goblins/client.rkt` applies. Ahead-of-time runtimes (Zig, Rust)
-need no warmup and report `warmup_n` of 0. Per-operation GC inside the
+hygiene `bench/goblins/client.rkt` applies. Ahead-of-time rows (Zig, Rust)
+report `warmup_n` of 0. Per-operation GC inside the
 window is left in the number: it is a real cost of that consumer stack.

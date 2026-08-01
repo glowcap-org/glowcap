@@ -4,8 +4,8 @@
 //! [`publish`](crate::Session::publish) actor, a caretaker or attenuator
 //! proxy, a host-wide giftable — shares a single process-lifetime
 //! `PancakeHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
-//! `PancakeHostCtxFree` re-boxes and drops it exactly once when the host tears
-//! the object down (connection or host release), so there is no keep table and
+//! `PancakeHostCtxFree` re-boxes and drops it exactly once when the Host tears
+//! the object down at Host release, so there is no keep table and
 //! no leak. Settlements never cross the C boundary as callbacks; they ride the
 //! action queue (SETTLE/FAIL, `crate::host`).
 //!
@@ -20,7 +20,7 @@
 //! behavior's own words; a bare non-OK return would flatten them into a
 //! generic reason. A [`TurnOutcome::Forward`] maps onto
 //! `pancake_host_turn_forward` (the caretaker/attenuator primitive): a target
-//! hosted by the same session composes in process, a far target defers the
+//! hosted by the same Host composes in process, a far target defers the
 //! answer onto the forwarded send's vow.
 
 use std::cell::{Cell, RefCell};
@@ -32,9 +32,9 @@ use std::sync::Arc;
 
 use crate::host::{check_host, drain_pending_releases, host_last_error};
 use crate::promise::CmdTarget;
-use crate::session_shared::{Caretaker, Ref, SessionShared};
-use crate::sys::driver as ffi;
-use crate::{args_from_sys, sys, Argument, Error, Reference, Result, SendArena};
+use crate::session_shared::{Caretaker, SessionShared};
+use crate::sys::host as ffi;
+use crate::{args_from_sys, sys, Argument, Error, Ref, Result, SendArena};
 
 /// What one turn of a hosted behavior produced: a plain reply value, a
 /// tail-forward of the answer to another reference (ADR-0064), or a broken
@@ -42,7 +42,7 @@ use crate::{args_from_sys, sys, Argument, Error, Reference, Result, SendArena};
 pub(crate) enum TurnOutcome {
 	Value(Argument),
 	Forward {
-		target: Reference,
+		target: Ref,
 		verb: String,
 		args: Vec<Argument>,
 	},
@@ -70,7 +70,7 @@ pub(crate) fn outcome_behavior(
 pub(crate) fn caretaker_proxy(shared: &Rc<SessionShared>, target: &Ref) -> Result<Caretaker> {
 	let live = Arc::new(AtomicBool::new(true));
 	let flag = Arc::clone(&live);
-	let target = target.reference();
+	let target = target.clone();
 	let behavior: InternalBehavior = Box::new(move |verb, args| {
 		if !flag.load(Ordering::SeqCst) {
 			TurnOutcome::Break("Revoked".to_string())
@@ -93,7 +93,7 @@ pub(crate) fn attenuate_proxy(
 	verbs: &[&str],
 ) -> Result<Ref> {
 	let allowed: HashSet<String> = verbs.iter().map(|verb| verb.to_string()).collect();
-	let target = target.reference();
+	let target = target.clone();
 	let behavior: InternalBehavior = Box::new(move |verb, args| {
 		if !allowed.contains(verb) {
 			TurnOutcome::Break("Attenuated".to_string())
@@ -108,19 +108,47 @@ pub(crate) fn attenuate_proxy(
 	shared.spawn_actor(behavior)
 }
 
-/// One hosted object: its behavior, and the connection it serves (identity for
-/// turn-ownership checks, and the hosted table a `Forward` chain composes
-/// through in process). `None` for a host-wide giftable, whose forwards always
-/// go through the host. Owned by the host row: `ctx = Box::into_raw`, freed
-/// exactly once by [`ctx_free`] when the host tears the object down.
+/// One hosted object's behavior. Its identity and local-composition index live
+/// on the Host; the Port delivering a wire turn is supplied by the feed bracket.
+/// Owned by the Host row: `ctx = Box::into_raw`, freed exactly once by
+/// [`ctx_free`] when the Host tears the object down.
 pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
-	pub(crate) conn: Option<Weak<SessionShared>>,
+}
+
+// The Session whose inbound feed is running. Hosted callbacks fire
+// synchronously inside that FFI call, so this supplies the arriving Port even
+// after the Port that originally spawned the actor has closed.
+thread_local! {
+	static ACTIVE_DELIVER: RefCell<Option<Weak<SessionShared>>> = const { RefCell::new(None) };
+}
+
+pub(crate) struct DeliverGuard {
+	prev: Option<Weak<SessionShared>>,
+}
+
+impl DeliverGuard {
+	pub(crate) fn enter(session: &Rc<SessionShared>) -> DeliverGuard {
+		let prev = ACTIVE_DELIVER.with(|active| active.replace(Some(Rc::downgrade(session))));
+		DeliverGuard { prev }
+	}
+}
+
+impl Drop for DeliverGuard {
+	fn drop(&mut self) {
+		ACTIVE_DELIVER.with(|active| {
+			active.replace(self.prev.take());
+		});
+	}
+}
+
+fn active_deliver() -> Option<Rc<SessionShared>> {
+	ACTIVE_DELIVER.with(|active| active.borrow().as_ref().and_then(Weak::upgrade))
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
-// `PancakeHostTurn*` and the identity of the connection the turn arrived on
-// (0 for a giftable), or None outside any turn. `Session::spawn` reads it to
+// `PancakeHostTurn*` and the identity of the Session whose Port delivered it,
+// or None outside any turn. `Session::spawn` reads it to
 // pick the turn-time spawn over the top-level one (which the host refuses
 // inside a callback); the action drain reads it to defer to the enclosing
 // verb's unwind. A plain thread-local is enough: behaviors are synchronous, so
@@ -129,11 +157,11 @@ thread_local! {
 	static CURRENT_TURN: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
 }
 
-/// The current turn pointer when it belongs to the connection identified by
-/// `conn_key` (the `Rc<SessionShared>` address), else `None`.
-pub(crate) fn current_turn_for(conn_key: usize) -> Option<*mut ffi::PancakeHostTurn> {
+/// The current turn pointer when it belongs to `host_key` (the
+/// `Rc<HostShared>` address), else `None`.
+pub(crate) fn current_turn_for(host_key: usize) -> Option<*mut ffi::PancakeHostTurn> {
 	CURRENT_TURN.with(|t| match t.get() {
-		Some((turn, key)) if key == conn_key => Some(turn as *mut ffi::PancakeHostTurn),
+		Some((turn, key)) if key == host_key => Some(turn as *mut ffi::PancakeHostTurn),
 		_ => None,
 	})
 }
@@ -185,8 +213,8 @@ struct TurnGuard {
 }
 
 impl TurnGuard {
-	fn enter(turn: *mut ffi::PancakeHostTurn, conn_key: usize) -> TurnGuard {
-		let prev = CURRENT_TURN.with(|t| t.replace(Some((turn as usize, conn_key))));
+	fn enter(turn: *mut ffi::PancakeHostTurn, host_key: usize) -> TurnGuard {
+		let prev = CURRENT_TURN.with(|t| t.replace(Some((turn as usize, host_key))));
 		TurnGuard { prev }
 	}
 }
@@ -230,10 +258,7 @@ pub(crate) fn chase_local_forwards(conn: &SessionShared, mut outcome: TurnOutcom
 		if hops > MAX_LOCAL_FORWARD_HOPS {
 			return TurnOutcome::Break(crate::abi_constants::FORWARD_CYCLE_MESSAGE.to_string());
 		}
-		let hosted = match &target {
-			Reference::Near { id, .. } => conn.hosted_cell(*id),
-			_ => None,
-		};
+		let hosted = conn.hosted_cell(target.id());
 		let Some(cell) = hosted else {
 			return TurnOutcome::Forward { target, verb, args };
 		};
@@ -245,16 +270,16 @@ pub(crate) fn chase_local_forwards(conn: &SessionShared, mut outcome: TurnOutcom
 	}
 }
 
-/// Run the hosted behavior at `position` and chase its Forward prefix, or
+/// Run the hosted behavior at `ref_id` and chase its Forward prefix, or
 /// `None` when this side does not host it — the one lookup/run/chase prefix
 /// under the local send and tell arms.
 pub(crate) fn run_hosted(
 	shared: &SessionShared,
-	position: u64,
+	ref_id: u64,
 	verb: &str,
 	args: &[Argument],
 ) -> Option<TurnOutcome> {
-	let cell = shared.hosted_cell(position)?;
+	let cell = shared.hosted_cell(ref_id)?;
 	let outcome = {
 		// The local-turn marker: a behavior that closes (or drops) its own
 		// captured `Session` mid-run would otherwise take
@@ -283,11 +308,11 @@ pub(crate) fn run_hosted(
 /// error breaks with its own words, as over the wire.
 pub(crate) async fn run_local_send(
 	shared: Rc<SessionShared>,
-	position: u64,
+	ref_id: u64,
 	verb: String,
 	args: Vec<Argument>,
 ) -> Result<Argument> {
-	let Some(outcome) = run_hosted(&shared, position, &verb, &args) else {
+	let Some(outcome) = run_hosted(&shared, ref_id, &verb, &args) else {
 		return Err(Error::broken("no such hosted object".to_string()));
 	};
 	match outcome {
@@ -315,15 +340,15 @@ fn turn_break(turn: *mut ffi::PancakeHostTurn, message: &str) -> i32 {
 // the target, else defers through the host's turn-forward; a `Break` settles
 // the answer broken with the behavior's own words.
 fn settle_reply(
-	cell: &ActorCell,
+	conn: Option<&SessionShared>,
 	turn: *mut ffi::PancakeHostTurn,
 	outcome: TurnOutcome,
 	out_reply: *mut sys::PancakeArgument,
 ) -> i32 {
-	// The locally hosted Forward prefix runs in this same turn (a giftable has
-	// no connection, so its forwards always go through the host).
-	let outcome = match cell.conn.as_ref().and_then(|conn| conn.upgrade()) {
-		Some(conn) => chase_local_forwards(&conn, outcome),
+	// The locally hosted Forward prefix runs in this same turn through the Host
+	// index reached by the arriving Session.
+	let outcome = match conn {
+		Some(conn) => chase_local_forwards(conn, outcome),
 		None => outcome,
 	};
 	match outcome {
@@ -398,14 +423,11 @@ unsafe fn trampoline_body(
 	// The one owned lift per deliver: the borrowed C args become owned Rust
 	// values before any behavior code can run.
 	let args = args_from_sys(args, args_len);
-	let conn_key = cell
-		.conn
-		.as_ref()
-		.map(|weak| weak.as_ptr() as usize)
-		.unwrap_or(0);
-	let _guard = TurnGuard::enter(turn, conn_key);
+	let conn = active_deliver();
+	let host_key = conn.as_ref().map(|session| session.host_key()).unwrap_or(0);
+	let _guard = TurnGuard::enter(turn, host_key);
 	let outcome = (cell.behavior.borrow_mut())(&verb, &args);
-	settle_reply(cell, turn, outcome, out_reply)
+	settle_reply(conn.as_deref(), turn, outcome, out_reply)
 }
 
 // Render a caught panic payload as the diagnostic the break carries, so a
@@ -446,8 +468,8 @@ pub(crate) unsafe extern "C" fn trampoline(
 }
 
 /// The ctx-free sibling: re-box and drop the [`ActorCell`] the registration
-/// handed the host. Runs exactly once per row that took ownership, at
-/// connection or host release; it calls no `pancake_host_*` function, and a
+/// handed the host. Runs exactly once per row that took ownership, at Host
+/// release; it calls no `pancake_host_*` function, and a
 /// panicking drop is swallowed rather than unwound across the C frame.
 pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {
 	if ctx.is_null() {
@@ -467,24 +489,24 @@ pub(crate) unsafe fn reclaim_refused_cell(code: i32, cell: *mut ActorCell) {
 	}
 }
 
-/// Spawn a hosted object at a fresh export position from INSIDE a turn — the
-/// turn-time form the host allows where the top-level spawn is refused.
-/// Returns the export position; on a refusal that left ctx ours the cell is
+/// Spawn a hosted object from INSIDE a turn — the turn-time form the host
+/// allows where the top-level spawn is refused. Returns its opaque Host id; on
+/// a refusal that left ctx ours the cell is
 /// reclaimed.
 pub(crate) fn turn_spawn(turn: *mut ffi::PancakeHostTurn, cell: *mut ActorCell) -> Result<u64> {
-	let mut position: u64 = 0;
+	let mut reference = sys::PancakeReference { id: 0 };
 	let rc = unsafe {
 		ffi::pancake_host_turn_spawn(
 			turn,
 			trampoline,
 			cell as *mut core::ffi::c_void,
 			ctx_free,
-			&mut position,
+			&mut reference,
 		)
 	};
 	if rc != sys::OK {
 		unsafe { reclaim_refused_cell(rc, cell) };
 		return Err(check_host(rc).unwrap_err());
 	}
-	Ok(position)
+	Ok(reference.id)
 }

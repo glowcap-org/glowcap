@@ -6,9 +6,9 @@
    mirror. The drain rides pancake_host_pump_drain (ADR-0072 fifth amendment)
    — an opt-in wrapper that still pops pancake_host_next_action internally.
 
-   Links libpancake_driver (+ ocapn for the shared managed-frame vocabulary). */
+   Links libpancake_host (+ ocapn for the shared managed-frame vocabulary). */
 
-#include "pancake_driver.h"
+#include "pancake_host.h"
 #include "pancake_ocapn.h"
 
 #include <stdio.h>

@@ -14,7 +14,11 @@ dogfood consumers, never the oracle for Zig semantics.
 **CapTP vocabulary (ADR-0079, agent reference):** Keep this map here, not in
 human first-read docs. `Host` / `PancakeHost` / binding `Host` = multi-session
 CapTP product (owns `engine.Node`); `engine.Node` = sans-io handoff router;
-binding `Session` = one-partner app object (`driver.Session`); Goblins `mycapn`
+binding `Session` = one-partner app object, a view onto a
+`driver_core.HostSession` under a Host — the same contract `driver.Session`
+carries natively, as a view onto an owning `driver.PollHost` (ADR-0090); the
+no-router single-connection tier is `driver.BlockingSession`, the one place
+`Settled.give` surfaces; Goblins `mycapn`
 = endpoint ≈ Host + router tables ≈ `engine.Node`. Binding `Node` /
 `Connection` deleted; `net.Connection` is the byte stream only. No
 multi-session “node” alias for `PancakeHost`; no `driver.Connection`.
@@ -29,7 +33,8 @@ Session state owns authority. Codecs parse/render bytes; they do not decide
 whether references, answers, exports, imports, or releases are valid.
 
 Export positions are minted only by the session's allocator
-(`Peer.exportNextObject`; `pancake_peer_next_export` over the ABI). A counter
+(`Peer.exportNextObject`). The C Host exposes opaque Host identities, never
+export positions. A counter
 kept outside the session eventually collides with the same counter's
 resolver/bootstrap exports and silently aliases a live object.
 
@@ -53,7 +58,9 @@ not a second CapTP stack. CapTP never names a transport.
 
 ## Layer Ownership
 
-- `foundation`: bytes, IDs, frame ownership.
+- `foundation`: bytes, IDs, frame ownership, and the `Spill` where a stream's
+  not-yet-consumed bytes wait (down here because both stream-reading tiers need
+  one and neither imports the other).
 - `ocapn/`: the OCapN / CapTP protocol itself, the four layers that _are_ the
   protocol (everything else adds none). They live under `src/ocapn/` and are
   reached as `pancake.ocapn.<layer>`:
@@ -84,17 +91,19 @@ not a second CapTP stack. CapTP never names a transport.
   answers). It is `core = true`, so
   `arch-check` bans I/O here exactly as in `engine`; that ban is what keeps a
   socket from ever creeping back into the serve core (ADR-0072). A byte-fed
-  consumer (the `libpancake_driver` C ABI, a browser) drives a `Served` or a
+  consumer (the `libpancake_host` C ABI, a browser) drives a `Served` or a
   `Host` directly, net-free.
 - `driver`: the native application surface above `driver_core`, `actors`, and
   `net`; the I/O bindings that compose the sans-io core. `BlockingSession` binds a
   `Served` to a live `net.Connection` over a caller-owned `engine.Peer`;
-  owning one-call clients/servers ride `driver.Session` / `driver.Server`.
-  `driver.Bridge` + `completion.Loop` is the native Zig multi-session CapTP path
-  over `driver_core.Host` (ADR-0068/0072/0076) — the completion-loop scale path
+  owning one-call clients/servers ride `driver.Session` / `driver.Server`,
+  views onto the owning `driver.PollHost` — a blocking poll-multiplexed embedding
+  of `driver_core.Host` (ADR-0090), so the front door redeems handoffs.
+  `driver.Bridge` + `completion.Loop` is the scale embedding of the same core
+  (ADR-0068/0072/0076) — the completion-loop path
   (`net.TcpLoop` over the `tcp` socket backend; `completion.Loop(iroh.Backend, iroh.DialResolver)`
   for iroh). Language bindings drive `driver_core.Host`
-  through `libpancake_driver` (byte-fed readiness), not by rebuilding a Zig
+  through `libpancake_host` (byte-fed readiness), not by rebuilding a Zig
   Host type. Adds no CapTP semantics. It also owns the `drawSessionSecret`
   entropy boundary and the transport constructors — the members that must stay
   above the core's I/O ban.
@@ -110,9 +119,9 @@ not a second CapTP stack. CapTP never names a transport.
     policy, managed-frame machinery, and the per-thread last-error slot.
     Declares **no `export fn`**, so every archive reuses it without inheriting
     another's exports.
-  - `c_abi/ocapn` (module `c_abi`): `libpancake_ocapn`'s entry points, the
-    sans-io peer plus the shared vocabulary, C-shaped only. Peer, frame,
-    context, and URI modules import `c_abi_shared` directly; there is no marshal
+  - `c_abi/ocapn` (module `c_abi`): `libpancake_ocapn`'s shared vocabulary,
+    C-shaped only. Frame, context, and URI modules import `c_abi_shared`
+    directly; there is no marshal
     leaf. Every handle frees through exactly one `pancake_*_release`; a
     `*_close` is a shutdown lever and never frees (`zig build meta-check` holds
     this in the generated headers). Header signatures and constant values are
@@ -122,8 +131,8 @@ not a second CapTP stack. CapTP never names a transport.
     `pancake_ocapn.h`);
     `zig build gen-ts-abi` reflects the same constants and struct layouts into
     the TypeScript binding's generated mirror. Multi-session CapTP product
-    work uses `pancake_host_*` in `pancake_driver.h`.
-  - `c_abi/driver` (module `c_abi_driver`): `libpancake_driver`, the byte-fed
+    work uses `pancake_host_*` in `pancake_host.h`.
+  - `c_abi/host` (module `c_abi_host`): `libpancake_host`, the byte-fed
     host tier over the C ABI (ADR-0072). An embedder that owns its own loop,
     sockets, and entropy drives a full multi-session CapTP Host with bytes:
     `pancake_host_session_feed` hands a CapTP session an inbound frame,
@@ -140,7 +149,7 @@ not a second CapTP stack. CapTP never names a transport.
     `pancake_tcp_*` does.
   - `c_abi/wasm` (module `c_abi_wasm`): the browser binding's freestanding
     `wasm32` entry root (ADR-0070). It imports `c_abi_shared`, `c_abi`, and
-    `c_abi_driver` to force the `pancake_*` (ocapn) and `pancake_host_*` export
+    `c_abi_host` to force the `pancake_*` (ocapn) and `pancake_host_*` export
     families into one loadable wasm module, and adds the two JS<->wasm linear-
     memory primitives `pancake_wasm_alloc` / `pancake_wasm_free`. It adds no
     CapTP surface of its own; a browser instantiates the module and drives the
@@ -176,8 +185,9 @@ not a second CapTP stack. CapTP never names a transport.
       (`.graph = false`) because it links the Rust sidecar and imports the
       injected `webrtc` resident; `webrtcAbiModule` mints it. Unlike the other
       transport archives it imports `c_abi_shared` alone, not `net`, because its
-      surface is the sidecar peer (create, signal, `pancake_webrtc_peer_read` /
-      `_write`), not a netlayer over a stream. Header reflected from
+      surface is an endpoint readiness fd plus peer creation, signaling,
+      non-blocking try-I/O, and close. A bare locator carries no signaling
+      authority, so the resident exposes no fake address `Netlayer`. Header reflected from
       `src/c_abi/net_transport/webrtc`, prose in `tools/gen/header/webrtc.zig`.
   - The transport archives sit outside the layer DAG too (`.graph = false`); the
     `archive_table` in `build.zig` declares the archive set, and the
@@ -191,6 +201,30 @@ not a second CapTP stack. CapTP never names a transport.
   dogfood, not by oracle traces. Not part of the runtime path. (The top-level `conformance/`
   tree is unrelated: it holds the external authority — the OCapN suite, the live
   Goblins peer — not this in-tree layer.)
+
+## Names
+
+A name that indexes a table is three things: the namespace it belongs to, whose
+namespace that is, and when it meant what it meant. A Zig type carries the
+first. A key of `u64` or `[]const u8` carries only the first, and the other two
+live in whatever the author was thinking.
+
+That gap is the costliest bug class this core has had, and every instance was
+one missing dimension — a near *or a far* from one session naming an object on
+another, a
+projection settling an answer position the partner had released and reasked, two
+gifters reusing one gift id. Both directions of that first one are live: when
+you close a position rule on one side of the wire, write down why the other side
+does not need the same rule, or give it the same rule. Every fix that held added
+a dimension: disjoint
+ranges, identity stamps, domain separation, a token that dies with its row.
+Every fix that had to be taken back tried to *police* the collision instead, and
+policing a name the protocol lets a peer choose refuses correct peers.
+
+So: prefer a key that carries its own dimensions — a distinct type, or a
+composite naming the owner. Where a key stays bare, `zig build meta-check`
+requires it to answer both questions in
+`tools/check/meta_check/namespaces.zig`, in both directions.
 
 If a change moves authority downward into codec/adapter code, stop and redesign.
 When a concern fits no layer above, give it to the layer that owns the decision,

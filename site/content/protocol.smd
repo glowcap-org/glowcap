@@ -12,7 +12,7 @@ Every conversation pancake has on the wire uses a small, fixed vocabulary from t
 CapTP messages, the descriptors they carry, and the locators that say where a peer
 lives. This page is the one-glance map. [Concepts]($link.page('concepts')) tells the
 story behind each part, and the
-[protocol diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/README.md)
+[protocol diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
 The list is not hand-kept. A build check pins every entry here to the labels the

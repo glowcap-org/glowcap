@@ -5,13 +5,11 @@
 //! `pancake_abi_version` and the ocapn-family `pancake_last_error`. The shared
 //! frame, context, and value types live here because the driver and transport
 //! archives agree on their *layout* (ADR-0059); the host archive's own
-//! `pancake_host_*` family lives in [`super::driver`], and a transport's own
+//! `pancake_host_*` family lives in [`super::host`], and a transport's own
 //! `sys/<t>.rs` declares only its handle types and `pancake_<t>_*` family.
 //!
-//! It declares the part of the core surface the safe wrappers consume, and not
-//! every constant or extern is used by the safe wrapper (e.g. `REF_BROKEN`
-//! rounds out its enum). Dead code is expected of a `sys` layer and allowed
-//! only here.
+//! It declares the part of the core surface the safe wrappers consume. Dead
+//! code is expected of a `sys` layer and allowed only here.
 #![allow(dead_code)]
 
 use core::ffi::{c_uchar, c_uint, c_void};
@@ -62,8 +60,6 @@ pub struct PancakeManagedFrame {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PancakeReference {
-	pub kind: c_uint,
-	pub sub_kind: c_uint,
 	pub id: u64,
 }
 
@@ -107,8 +103,6 @@ pub struct PancakeLastAbort {
 const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<PancakeReference>() == PANCAKE_REFERENCE_SIZE);
-	assert!(offset_of!(PancakeReference, kind) == PANCAKE_REFERENCE_KIND_OFF);
-	assert!(offset_of!(PancakeReference, sub_kind) == PANCAKE_REFERENCE_SUB_KIND_OFF);
 	assert!(offset_of!(PancakeReference, id) == PANCAKE_REFERENCE_ID_OFF);
 
 	assert!(size_of::<PancakeArgument>() == PANCAKE_ARGUMENT_SIZE);

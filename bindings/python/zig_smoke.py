@@ -1,11 +1,12 @@
 """Python dogfood of the Zig pancake C ABI archives, through the idiomatic
-``pancake`` module over the byte-fed host archive (``libpancake_driver``,
+``pancake`` module over the byte-fed host archive (``libpancake_host``,
 ADR-0072): drive OCapN with native Python values, no FFI in sight. This is the
 consumer ``zig build bindings`` runs."""
 
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import threading
 
@@ -30,12 +31,18 @@ from pancake import (
     socket_addr_designator,
     tcp_locator,
 )
-from pancake._constants import TRANSPORT_TCP
+from pancake._constants import ERR_FRAME_TOO_LARGE, ERR_INVALID_ARGUMENT, TRANSPORT_TCP
 from pancake.inproc import InprocNetlayer
 from pancake.tcp import TcpNetlayer
 
 
 def main() -> int:
+    try:
+        Ref(1)
+        raise AssertionError("application code must not construct capability ids")
+    except TypeError:
+        pass
+
     # The linked library reports a nonzero ABI version.
     major, minor, patch = abi_version()
     assert major + minor + patch > 0, (major, minor, patch)
@@ -93,6 +100,9 @@ def main() -> int:
     asyncio.run(_feed_refusals_are_typed())
     print("python zig-smoke OK: an over-cap frame refuses typed and a refused frame carries its abort cause")
 
+    asyncio.run(_tightened_admission_cap_refuses())
+    print("python zig-smoke OK: a tightened session limit refuses a frame the default cap admits")
+
     asyncio.run(_disconnect_rejects_pending_send())
     print("python zig-smoke OK: an outstanding send rejects on disconnect")
 
@@ -117,6 +127,9 @@ def main() -> int:
     asyncio.run(_pipelining_drives_chain())
     print("python zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch")
 
+    asyncio.run(_turn_spawn_survives_originating_port_close())
+    print("python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes")
+
     asyncio.run(_unawaited_break_stays_silent())
     print("python zig-smoke OK: an unawaited send is an asyncio.Future whose far break stays silent")
 
@@ -131,6 +144,9 @@ def main() -> int:
 
     asyncio.run(_mid_turn_driving_verb_breaks_the_answer())
     print("python zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer")
+
+    asyncio.run(_mid_turn_host_release_orders_sessions_before_host())
+    print("python zig-smoke OK: a callback-time Host release frees two Sessions before their Host")
 
     asyncio.run(_send_redeeming_surfaces_the_direct_exporter())
     print("python zig-smoke OK: send_redeeming surfaces the redeemed exporter session, and a reply capability hosted on it routes")
@@ -205,21 +221,24 @@ async def _allocator_context_round_trip() -> None:
 
     with Context.with_allocator(host_alloc, host_free) as ctx:
         host = Host(context=ctx)
+        count = {"value": 10}
+
+        def counter(verb, args):
+            if verb == "add":
+                count["value"] += args[0]
+                return count["value"]
+            if verb == "get":
+                return count["value"]
+            raise ValueError(f"no such method {verb!r}")
+
+        host.publish_giftable("counter", counter)
         server = await listen("127.0.0.1", 0, host)
         try:
             async def serve_one() -> None:
                 async for session in server:
-                    count = {"value": 10}
-
-                    def counter(verb, args):
-                        if verb == "add":
-                            count["value"] += args[0]
-                            return count["value"]
-                        if verb == "get":
-                            return count["value"]
-                        raise ValueError(f"no such method {verb!r}")
-
-                    session.publish("counter", counter)
+                    local_counter = session.published_ref("counter")
+                    assert local_counter is not None, "the Host alias projects onto the accepted session"
+                    assert await session.send(local_counter, "get", []) == 10
                     await session.serve()
                     break
 
@@ -274,44 +293,50 @@ async def _capnp_codec_round_trip() -> None:
         server.close()
 
 
+class _InjectTransport:
+    """A transport that delivers nothing, so a scene can feed bytes through the
+    connection's own feed seam — a binding-internal probe, the sibling of the
+    Racket smoke's ``feed-bytes!``."""
+
+    async def read(self):
+        await asyncio.get_running_loop().create_future()  # never resolves
+
+    async def write(self, data):
+        pass
+
+    def close(self):
+        pass
+
+
+def _dial_injected(host: Host):
+    from pancake._session import Session as _Conn
+
+    return _Conn._open_dialed_locator(
+        host, TRANSPORT_TCP, socket_addr_designator("127.0.0.1", 1), _InjectTransport()
+    )
+
+
 async def _feed_refusals_are_typed() -> None:
     """Bounded inbox and typed abort causes over the byte-fed host. A frame
     declaring more than the frame cap is a typed refusal the moment that is
     knowable, never "read more" (ADR-0041); a refused frame names its typed
     cause (the flat PancakeError code says the failure family, the attached
-    AbortDetail says the member). The bytes are injected through the
-    connection's own feed seam — a binding-internal probe, the sibling of the
-    Racket smoke's ``feed-bytes!``."""
+    AbortDetail says the member)."""
     from pancake import _pump
-    from pancake._session import Session as _Conn
-
-    class _InjectTransport:
-        async def read(self):
-            await asyncio.get_running_loop().create_future()  # never resolves
-
-        async def write(self, data):
-            pass
-
-        def close(self):
-            pass
 
     # Over-cap: the length prefix declares past the cap, refused during the scan.
     # Bytes ride the named pump module (`_pump._feed`), not a Session verb.
-    conn = _Conn._open_dialed_locator(
-        Host(), TRANSPORT_TCP, socket_addr_designator("127.0.0.1", 1), _InjectTransport()
-    )
+    conn = _dial_injected(Host())
     try:
         await _pump._feed(conn, b"<10'op:deliver<11'desc:export7+>[2000000:")
         raise AssertionError("an over-cap frame must refuse typed instead of buffering")
     except PancakeError as exc:
-        assert exc.code == -11, exc.code  # PANCAKE_ERR_FRAME_TOO_LARGE
+        assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
     finally:
         conn.close_transport()
 
     # Garbage: the refusal carries the typed abort detail.
-    conn = _Conn._open_dialed_locator(
-        Host(), TRANSPORT_TCP, socket_addr_designator("127.0.0.1", 1), _InjectTransport()
-    )
+    conn = _dial_injected(Host())
     try:
         assert conn.last_abort() is None, "no dispatch failure recorded yet"
         try:
@@ -322,6 +347,33 @@ async def _feed_refusals_are_typed() -> None:
             assert exc.abort.domain == "codec", exc.abort
             assert exc.abort.kind == "MalformedFrame", exc.abort
             assert exc.abort.error_name == "MalformedFrame", exc.abort
+    finally:
+        conn.close_transport()
+
+
+async def _tightened_admission_cap_refuses() -> None:
+    """``Host.set_session_limits`` moves the admission cap the sessions minted
+    after it are held to (ADR-0082). One frame decides it: at the default cap a
+    4000-byte declaration is simply incomplete, and at a tightened 1024 the same
+    prefix is a typed over-cap refusal."""
+    from pancake import _pump
+
+    prefix = b"<10'op:deliver<11'desc:export7+>[4000:"
+
+    conn = _dial_injected(Host())
+    try:
+        await _pump._feed(conn, prefix)  # under the default cap: still incomplete
+    finally:
+        conn.close_transport()
+
+    tightened = Host()
+    tightened.set_session_limits(max_frame_bytes=1024)
+    conn = _dial_injected(tightened)
+    try:
+        await _pump._feed(conn, prefix)
+        raise AssertionError("a tightened admission cap must refuse an over-cap frame")
+    except PancakeError as exc:
+        assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
     finally:
         conn.close_transport()
 
@@ -496,11 +548,17 @@ async def _enliven_round_trips_then_caches() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        locator = tcp_locator("127.0.0.1", server.port)
+        session = await connect(locator)
         session.serve()
-        # The connection is already open to the peer; enliven keys on the
-        # sturdyref's swissnum, carried by the URI as `/s/greeter`.
-        sturdyref = "ocapn://greeter-host.tcp/s/greeter"
+        try:
+            await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/greeter")
+        except PancakeError as err:
+            assert err.code == ERR_INVALID_ARGUMENT, err
+        else:
+            raise AssertionError("enliven accepted a sturdyref for another peer")
+        # The complete sturdyref must name this selected session's peer.
+        sturdyref = f"{locator}/s/greeter"
         cap = await session.enliven(sturdyref)
         greeting = await session.send(cap, "hello", [])
         assert greeting == Symbol("alive"), f"enlivened cap answers hello, got {greeting!r}"
@@ -540,7 +598,7 @@ async def _gc_releases_dropped_import() -> None:
         session = (await connect(tcp_locator("127.0.0.1", relay_port))).with_gc()
         session.serve()
         cap = await session.fetch("svc")
-        assert cap.far is not None, "the fetched cap is a far token"
+        assert cap.id > 0, "the fetched cap has a Host identity"
         # Drop the only handle; refcounting fires the finalizer, which parks the
         # token and hops to the loop. Yield loop turns for it to flush.
         del cap
@@ -574,11 +632,20 @@ async def _fetch_failed_is_typed() -> None:
     that follows is admitted rather than refused as a probe of an ungranted
     position."""
     server = await listen("127.0.0.1", 0)
-    plain_export: list = []
+    plain_export: list[int] = []
+    observed_wire = bytearray()
     export_known = asyncio.Event()
     # Armed only after the legitimate fetch of "plain" has granted the export,
     # so only the second fetch is doctored.
-    state = {"retargeted": False, "armed": False}
+    state = {"retargeted": False, "armed": False, "capturing": False}
+
+    def observe(chunk: bytes) -> None:
+        if not state["capturing"] or plain_export:
+            return
+        observed_wire.extend(chunk)
+        match = re.search(rb"desc:import-object(\d+)\+", observed_wire)
+        if match is not None:
+            plain_export.append(int(match.group(1)))
 
     def retarget(chunk: bytes) -> bytes:
         if not state["armed"] or state["retargeted"] or not plain_export:
@@ -589,16 +656,14 @@ async def _fetch_failed_is_typed() -> None:
             return chunk.replace(needle, b"desc:export%d+" % plain_export[0], 1)
         return chunk
 
-    relay_port, relay_close = await _start_relay(server.port, rewrite=retarget)
+    relay_port, relay_close = await _start_relay(server.port, rewrite=retarget, observe=observe)
     try:
         async def serve_one() -> None:
             async for session in server:
                 # The doctored fetch deliver lands here with verb "fetch";
                 # answer with a plain integer, which is exactly what a fetch
                 # must not resolve to.
-                plain = session.publish("plain", lambda verb, args: 42)
-                assert plain.near is not None and plain.near.id < 10, "the retarget needs a single-digit export"
-                plain_export.append(plain.near.id)
+                session.publish("plain", lambda verb, args: 42)
                 export_known.set()
                 await session.serve()
                 break
@@ -610,7 +675,14 @@ async def _fetch_failed_is_typed() -> None:
         # The granting fetch: its resolve marshals the "plain" reference,
         # which is what makes the position addressable for the doctored
         # deliver below.
+        state["capturing"] = True
         await session.fetch("plain")
+        for _ in range(100):
+            if plain_export:
+                break
+            await asyncio.sleep(0)
+        assert plain_export, "the granting fetch exposed no import-object descriptor"
+        state["capturing"] = False
         state["armed"] = True
         try:
             await session.fetch("not-a-capability")
@@ -670,6 +742,60 @@ async def _pipelining_drives_chain() -> None:
         assert status == "done", f"pipelined status should be done, got {status!r}"
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
+    finally:
+        server.close()
+
+
+async def _turn_spawn_survives_originating_port_close() -> None:
+    """An actor first published through one Port remains a Host actor. Close
+    that Port, call it through a sibling, then use the captured stale Session
+    handle to spawn a child inside the sibling's turn. Host ownership selects
+    turn-spawn; the dead Session is not consulted for routing."""
+    server = await listen("127.0.0.1", 0)
+    ready = asyncio.Event()
+    try:
+        async def host() -> None:
+            accepted = []
+            async for session in server:
+                session.serve()
+                accepted.append(session)
+                if len(accepted) == 1:
+                    origin = session
+
+                    def root(verb, args):
+                        assert verb == "create", verb
+                        return origin.spawn(
+                            lambda child_verb, child_args:
+                                "alive" if child_verb == "ping" else None
+                        )
+
+                    root_ref = origin.spawn(root)
+                    continue
+
+                session.publish(
+                    "introducer",
+                    lambda verb, args: root_ref if verb == "get" else None,
+                )
+                await accepted[0].close()
+                ready.set()
+                await session.serve()
+                break
+
+        hosted = asyncio.ensure_future(host())
+        origin_client = await connect(tcp_locator("127.0.0.1", server.port))
+        origin_client.serve()
+        sibling = await connect(tcp_locator("127.0.0.1", server.port))
+        sibling.serve()
+        await ready.wait()
+        introducer = await sibling.fetch("introducer")
+        root = await sibling.send(introducer, "get", [])
+        assert isinstance(root, Ref), f"introducer returned {root!r}, not a capability"
+        child = await sibling.send(root, "create", [])
+        assert isinstance(child, Ref), f"create returned {child!r}, not a capability"
+        assert await sibling.send(child, "ping", []) == "alive"
+        await sibling.close()
+        await origin_client.close()
+        await asyncio.wait_for(hosted, timeout=5)
     finally:
         server.close()
 
@@ -939,6 +1065,61 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
+        server.close()
+
+
+async def _mid_turn_host_release_orders_sessions_before_host() -> None:
+    """A Host release requested by a behavior closes two live Sessions first.
+    All three native releases park behind the callback latch, then drain FIFO;
+    reversing that order frees the Host before its Session handles."""
+    host = Host()
+    server = await listen("127.0.0.1", 0, host)
+    loop = asyncio.get_running_loop()
+    accepted = asyncio.Event()
+    during = loop.create_future()
+
+    def svc(verb, args):
+        if verb != "release-host":
+            return None
+        host.release()
+        if not during.done():
+            during.set_result(host.pending_release_count())
+        return "closing"
+
+    host.publish_giftable("svc", svc)
+
+    async def accept_two() -> None:
+        count = 0
+        async for session in server:
+            session.serve()
+            count += 1
+            if count == 2:
+                accepted.set()
+                break
+
+    hosted = asyncio.ensure_future(accept_two())
+    first = await connect(tcp_locator("127.0.0.1", server.port))
+    first.serve()
+    second = await connect(tcp_locator("127.0.0.1", server.port))
+    second.serve()
+    try:
+        await asyncio.wait_for(accepted.wait(), timeout=5)
+        cap = await first.fetch("svc")
+        try:
+            await first.send(cap, "release-host", [])
+        except Exception:
+            # Host teardown may close the wire before this answer arrives.
+            pass
+        assert await asyncio.wait_for(during, timeout=5) == 3, (
+            "two Session releases and their Host park in order"
+        )
+        assert host.pending_release_count() == 0, (
+            "the callback unwind drains every parked release"
+        )
+        await asyncio.wait_for(hosted, timeout=5)
+    finally:
+        await first.close()
+        await second.close()
         server.close()
 
 

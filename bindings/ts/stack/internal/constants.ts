@@ -1,6 +1,6 @@
 // Private ABI constants for the pancake binding.
 //
-// The libpancake_ocapn / libpancake_driver ABI splits by target-dependence.
+// The libpancake_ocapn / libpancake_host ABI splits by target-dependence.
 // The target-independent constant values live in the `@pancake/abi` package and
 // are re-exported here. The target-specific struct sizes and field offsets are
 // generated into `abi.ts` by `zig build gen-ts-abi` and re-exported here too.

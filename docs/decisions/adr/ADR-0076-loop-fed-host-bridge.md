@@ -177,7 +177,7 @@ transport symbols and `direct-addresses` live in `model.transport`.
 
 ## Notes
 
-ADR-0042 (outbound backpressure), ADR-0054 (shared read pool), ADR-0056
-(gift registry and parked withdraws), ADR-0066/0069 (node routing and
+ADR-0042 (outbound backpressure), ADR-0054 (shared read pool), ADR-0100
+(session-owned gift authority and parked withdraws), ADR-0066/0069 (node routing and
 tokens), ADR-0072 (the byte-fed host and the retired loop tier), ADR-0073
 (why live-harness figures print rather than gate).

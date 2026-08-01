@@ -61,9 +61,9 @@ fn expectPublishedCallRoundTrip(
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer listen_parsed.deinit();
-    try listen_parsed.bools.put(gpa, "once", true);
-    try listen_parsed.strings.put(gpa, "publish", "greeter");
-    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+    try listen_parsed.setBool("once", true);
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
@@ -114,9 +114,9 @@ test "MCP locator call retains session for a follow-up call" {
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer listen_parsed.deinit();
-    try listen_parsed.bools.put(gpa, "once", true);
-    try listen_parsed.strings.put(gpa, "publish", "greeter");
-    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+    try listen_parsed.setBool("once", true);
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
@@ -168,9 +168,9 @@ test "argv locator call does not retain a session" {
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer listen_parsed.deinit();
-    try listen_parsed.bools.put(gpa, "once", true);
-    try listen_parsed.strings.put(gpa, "publish", "greeter");
-    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+    try listen_parsed.setBool("once", true);
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
@@ -238,8 +238,8 @@ test "listen exits promptly on requestStop while accepting" {
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer listen_parsed.deinit();
-    try listen_parsed.strings.put(gpa, "publish", "greeter");
-    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
@@ -271,8 +271,8 @@ test "listen exits promptly on requestStop while serving" {
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer listen_parsed.deinit();
-    try listen_parsed.strings.put(gpa, "publish", "greeter");
-    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
@@ -284,8 +284,8 @@ test "listen exits promptly on requestStop while serving" {
     // Dial proves accept+publish completed; keep the session open so the host
     // parks in serveUntilStop (unbounded Session.serve would ignore stop).
     const held = try cli.ocapn.dialUriWithOpts(&client, uri, .{
-        .handshake_timeout_ms = 2_000,
-        .settle_timeout_ms = 2_000,
+        .handshake = .{ .ms = 2_000 },
+        .settle = .{ .ms = 2_000 },
     });
     defer held.deinit();
     _ = try held.fetch("greeter");
@@ -314,9 +314,9 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer listen_parsed.deinit();
-    try listen_parsed.bools.put(gpa, "once", true);
-    try listen_parsed.strings.put(gpa, "publish", "greeter");
-    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+    try listen_parsed.setBool("once", true);
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
@@ -330,8 +330,8 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     client.sink = .{ .buffer = &client_capture };
 
     client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{
-        .handshake_timeout_ms = 2_000,
-        .settle_timeout_ms = 2_000,
+        .handshake = .{ .ms = 2_000 },
+        .settle = .{ .ms = 2_000 },
     });
 
     // The partner leaves for good before the wait is registered: stop the host

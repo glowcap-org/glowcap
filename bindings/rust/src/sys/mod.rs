@@ -2,7 +2,7 @@
 //!
 //! pancake's C ABI ships as a set of symbol-disjoint archives, and this module
 //! mirrors that shape: [`ocapn`] is the always-linked core (`libpancake_ocapn`),
-//! [`driver`] is the byte-fed host archive (`libpancake_driver`, ADR-0072), and
+//! [`host`] is the byte-fed host archive (`libpancake_host`, ADR-0072), and
 //! each transport's externs live in their own submodule behind the matching
 //! Cargo feature, so a build declares the FFI for exactly the archives it links.
 //! Nothing in here escapes the crate; the safe wrappers above wrap it.
@@ -12,7 +12,7 @@
 //! extern declared here counts as a consumer for `zig build meta-check`'s
 //! every-C-export-has-a-consumer gate, so the declaration set doubles as the
 //! crate's statement of which ABI symbols it stands behind. Prune an extern
-//! only together with the C export it mirrors. The [`driver`] mirror carries
+//! only together with the C export it mirrors. The [`host`] mirror carries
 //! no such allow: it compiles only beside its `async` users, every decl has a
 //! caller, and the crate's `dead_code = "deny"` lint refuses a decl whose
 //! caller goes away.
@@ -22,13 +22,13 @@
 //! their *layout* rather than re-exporting the symbols.
 
 #[cfg(feature = "async")]
-pub mod driver;
+pub mod host;
 mod layouts_gen;
 mod ocapn;
 pub use ocapn::*;
 
 #[cfg(feature = "async")]
-mod driver_fns_gen;
+mod host_fns_gen;
 mod ocapn_fns_gen;
 
 pub use crate::abi_constants::*;

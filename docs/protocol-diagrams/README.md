@@ -1,26 +1,23 @@
-# pancake OCapN protocol diagrams
+# OCapN protocol diagrams
 
-Each page breaks OCapN / CapTP into small Mermaid diagrams, one transaction
-shape or state flow to a diagram. The authority for every diagram is the
-[OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
-(CapTP, Model, Locators) and, where flagged, Spritely Goblins's wire behavior.
-Nothing here cites another implementation's internals as the source of truth.
+These pages draw OCapN and CapTP one transaction or state change at a time.
+Start with the topic you need; the diagram IDs are stable, so tests and design
+notes can cite one directly.
+
+The [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
+are the main source. Diagrams marked `[goblins-canonical]` show behavior from a
+live Spritely Goblins peer where the draft has not caught up.
 
 ## Conventions
 
-- **One concern per diagram.** If a diagram needs a legend, split it.
-- **Protocol vocabulary only.** Diagrams speak `op:*` / `desc:*` / role names.
-  Implementation type names stay out; the Zig code maps onto this vocabulary,
-  not the other way around.
-- **Spec anchor on every diagram.** Each diagram names the CapTP / Locators
-  section it renders. Goblins-canonical extensions (not yet in the draft spec)
-  are flagged `[goblins-canonical]`.
-- **Mermaid kinds:** `sequenceDiagram` for transactions, `stateDiagram-v2` for
-  lifecycles, `flowchart` for structure and validation decisions. No styling
-  directives.
-- **Docs that must match today's code.** When an op's semantics change in the upstream spec
-  or in Zig, update the matching diagram in the same change. A diagram that
-  claims behavior the session does not enforce is drift.
+- Protocol names (`op:*`, `desc:*`, and role names), not Zig type names.
+- One concern per diagram.
+- The relevant specification sections linked from each page.
+- `sequenceDiagram` for transactions, `stateDiagram-v2` for lifecycles, and
+  `flowchart` for structure or validation.
+
+When protocol behavior changes, update the matching diagram in the same
+change. A diagram that disagrees with the session is a bug.
 
 ## Catalog
 
@@ -33,6 +30,3 @@ Nothing here cites another implementation's internals as the source of truth.
 | [05-gc.md](05-gc.md)                                           | GC-1 … GC-4 | Export refcount lifecycle, `op:gc-exports` wire-deltas, the GC race, `op:gc-answers`                                  |
 | [06-handoffs.md](06-handoffs.md)                               | HO-1 … HO-8 | Three-party handoff roles, certificates, per-role validation, replay protection, deposit/withdraw ordering            |
 | [07-sturdyrefs-and-locators.md](07-sturdyrefs-and-locators.md) | ST-1 … ST-3 | Sturdyref anatomy, enlivenment, equality-driven dedup                                                                 |
-
-The numbering is stable: a conformance scenario, doc comment, or commit message
-can cite `HO-7` and mean exactly one validation flow.

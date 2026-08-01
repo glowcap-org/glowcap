@@ -4,6 +4,7 @@ comptime {
     _ = @import("foundation/frame_test.zig");
     _ = @import("foundation/id_test.zig");
     _ = @import("foundation/crypto_test.zig");
+    _ = @import("foundation/spill_test.zig");
     _ = @import("codec/syrup_test.zig");
     _ = @import("codec/capnp_test.zig");
     _ = @import("codec/capnp_golden_test.zig");
@@ -28,15 +29,9 @@ comptime {
     _ = @import("actors/ocap_test.zig");
     _ = @import("actors/host_test.zig");
     _ = @import("persistent/persistent_map_test.zig");
-    _ = @import("c_abi/frame_test.zig");
-    _ = @import("c_abi/context_test.zig");
-    _ = @import("c_abi/typed_test.zig");
     _ = @import("c_abi/header_parity_test.zig");
     _ = @import("c_abi/uri_test.zig");
-    _ = @import("c_abi/handshake_test.zig");
-    _ = @import("c_abi/endpoint_loopback_test.zig");
-    _ = @import("c_abi/tcp_session_test.zig");
-    _ = @import("c_abi/driver_test.zig");
+    _ = @import("c_abi/host_test.zig");
     _ = @import("c_abi/inproc_loopback_test.zig");
     _ = @import("net/connection_test.zig");
     _ = @import("net/frame_stream_test.zig");
@@ -60,6 +55,7 @@ comptime {
     _ = @import("session/inspect_test.zig");
     _ = @import("engine/peer_test.zig");
     _ = @import("engine/relay_resolution_test.zig");
+    _ = @import("engine/resolver_export_test.zig");
     _ = @import("engine/alloc_budget_test.zig");
     _ = @import("engine/cross_codec_budget_test.zig");
     _ = @import("engine/resolve_alloc_budget_test.zig");
@@ -82,7 +78,10 @@ comptime {
     _ = @import("engine/pairing_test.zig");
     _ = @import("engine/node_test.zig");
     _ = @import("driver/blocking_session_test.zig");
+    _ = @import("driver/host_face_handoff_test.zig");
+    _ = @import("driver/relayed_promise_test.zig");
     _ = @import("driver/core_host_test.zig");
+    _ = @import("driver/capability_registry_test.zig");
     _ = @import("driver/dial_plan_test.zig");
     _ = @import("driver/resilient_client_test.zig");
     _ = @import("driver/host_limits_test.zig");
@@ -95,4 +94,6 @@ comptime {
     _ = @import("driver/inproc_netlayer_test.zig");
     _ = @import("driver/session_target_test.zig");
     _ = @import("driver/keyed_tcp_restart_test.zig");
+    _ = @import("c_abi/context_test.zig");
+    _ = @import("c_abi/frame_test.zig");
 }

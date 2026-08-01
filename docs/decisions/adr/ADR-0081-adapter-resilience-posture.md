@@ -27,9 +27,9 @@ that vanishes without a FIN leaves its armed recv pending forever: the
 `completion.Loop` slot is never reclaimed and `on_close` never fires under
 `run`. And several paths that settle protocol state swallow their failure: the
 bridge redeem leg drops the only `dialFailed` a ticket will ever get, the iroh
-`connectWorker` can drop the only `ConnectDone`, and the `c_abi/driver` release
-verbs return void and degrade a projection failure to a generic `FAIL` with a
-stale `last_error`.
+completion bridge could consume a terminal dial without publishing its sole
+completion, and the `c_abi/driver` release verbs return void and degrade a
+projection failure to a generic `FAIL` with a stale `last_error`.
 
 This engages the First Principles that "protocol correctness and capability
 semantics come before implementation convenience," that "the portable core stays
@@ -71,6 +71,11 @@ caller can always tell *what* failed and *whether to retry*. Four contracts:
    `@errorName` into `last_error` before any degrade, separates transient (OOM,
    resource pressure) from permanent (refused, malformed, unsupported), and
    makes the release verbs observable rather than void-swallowed.
+   The iroh completion backend reserves the final synthetic fd and pending-dial
+   row before sidecar admission. Before consuming readiness, it reserves enough
+   completion-queue capacity for the batch, so consuming the sidecar's sole
+   terminal result cannot be followed by an allocation failure that loses the
+   corresponding Zig completion.
 
 The sync no-I/O core keeps its existing posture unchanged: it fails closed with a
 typed reason, never blocks, never times out, holds no socket; `arch-check`'s

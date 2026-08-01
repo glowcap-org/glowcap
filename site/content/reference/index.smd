@@ -26,16 +26,16 @@ archive compiles.
 
 | Archive | Header | What it carries |
 | --- | --- | --- |
-| `libpancake_ocapn` | [`pancake_ocapn.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_ocapn.h) | the sans-io peer and the shared vocabulary |
-| `libpancake_driver` | [`pancake_driver.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_driver.h) | the byte-fed host tier (`pancake_host_*`) |
+| `libpancake_ocapn` | [`pancake_ocapn.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_ocapn.h) | shared contexts, frames, values, locators, and URI helpers |
+| `libpancake_host` | [`pancake_host.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_host.h) | the byte-fed host tier (`pancake_host_*`) |
 | `libpancake_net` | none; it appears in the link line only | the shared net core beneath every transport |
-| `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_tcp.h) | cleartext TCP |
-| `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
-| `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
-| `libpancake_net_transport_webrtc` | [`pancake_net_transport_webrtc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
+| `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_tcp.h) | cleartext TCP |
+| `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
+| `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
+| `libpancake_net_transport_webrtc` | [`pancake_net_transport_webrtc.h`](https://github.com/jimisaacs/pancake/blob/main/include/pancake_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
 
 The driver and transport headers are companions, not supersets: each one
 `#include`s `pancake_ocapn.h`, declares only its own family, and expects its
 archive to be linked alongside `libpancake_ocapn`.
 For the route from a build to a first complete C program, read
-[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
+[consuming pancake from C](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md).

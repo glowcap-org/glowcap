@@ -334,7 +334,7 @@
    (html-table '("actors" "pancake snapshot µs" "Goblins snapshot µs" "pancake restore µs" "Goblins restore µs")
                (for/list ([pr (in-list p-obj)] [gr (in-list g-obj)])
                  (list (car pr) (r1 (us (cadr pr))) (r1 (us (cadr gr))) (r1 (us (caddr pr))) (r1 (us (caddr gr))))))
-   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. These run natively (pancake in Zig, Goblins in Racket), so the absolute nanoseconds reflect the runtime, not a better algorithm; read the shape, not the race. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
+   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. These run natively (pancake in Zig, Goblins in Racket), so the absolute times reflect the runtime, not a better algorithm; read the shape, not the race. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 
@@ -358,7 +358,7 @@
    (legend (list "language client" AMBER) (list "Goblins reference (CapTP peer)" TEAL))
    (charts (figure "Latency (p50 ms, lower is better)." p50-svg)
            (figure "Throughput (req/s, higher is better)." rps-svg)
-           (figure "Cold start (ms from spawn to first settled call, lower is better)." cold-svg))
+           (figure "Cold start (ms from spawn through one completed task-board unit, lower is better)." cold-svg))
    (html-table '("client" "runtime" "p50 (ms)" "req/s" "setup (ms/conn)" "mem (kB/conn)" "cold (ms)")
                (for/list ([r (in-list rows)])
                  (list (car r) (list-ref r 1)
@@ -404,7 +404,7 @@
   (define racket-v
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
-  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. Measure your own with the commands below.</em></p>"
+  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. The regeneration command is at the bottom of the page.</em></p>"
           (sh1 "date +%Y-%m-%d") (sh1 "uname -srm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 

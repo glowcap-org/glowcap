@@ -34,11 +34,11 @@ same binary through the build graph.
 
 ## Round-trip in two terminals
 
-Same demo greeter as the README / Zig examples: a tiny actor that lives only
-in the CLI adapter (`cli/ocapn/builtins.zig`), not in `libpancake_*`. Verb `greet`
-formats `Hello, <arg>`; `cowsay`, `pancakesay`, and `goblinsay` return speech
-balloons (cow, faced pancake stack, or a friendly goblin doodle) for the same
-string arg.
+This uses the same demo greeter as the README and the Zig examples, a tiny actor
+that lives only in the CLI adapter (`cli/ocapn/builtins.zig`) rather than in
+`libpancake_*`. Its `greet` verb formats `Hello, <arg>`. Its `cowsay`,
+`pancakesay`, and `goblinsay` verbs return a speech balloon for the same string
+argument: a cow, a faced pancake stack, or a friendly goblin doodle.
 
 Each peer needs its own identity. Use a separate `PANCAKE_STATE` per terminal.
 
@@ -88,16 +88,16 @@ pancake --json ocapn call "$LOC" greeter greet pancake \
 # prints: Hello, pancake
 ```
 
-CLI built-ins (demo actors only): `greeter` (`greet`, `cowsay`, `pancakesay`,
-`goblinsay`) and `echo` (verb `echo`, returns its arg unchanged). CapTP itself
-does not hard-code either.
+The built-ins are demo actors only: `greeter`, with `greet`, `cowsay`,
+`pancakesay`, and `goblinsay`, and `echo`, whose `echo` verb returns its arg
+unchanged. CapTP itself hard-codes neither.
 
 `Ctrl+C` / `SIGTERM` stops a waiting or serving `listen` cleanly (exit 0).
 
 ## Is it up?
 
-Handshake only (`ocapn probe`). Start a **fresh** listen: a prior `--publish`
-peer is already gone after one partner.
+`ocapn probe` runs the handshake and nothing else. Start a **fresh** listen for
+it, because a prior `--publish` peer is already gone after one partner.
 
 ```sh
 # terminal A
@@ -131,9 +131,9 @@ pancake griddle help
 ## CapTP lab (REPL)
 
 The interactive lab is how you learn CapTP from the product CLI. On a TTY it
-opens a fullscreen REPL-primary lab: conversation + prompt take most of the
-screen, with a CapTP instrument rail (exports / imports / answers) beside it.
-Without a TTY it stays in line mode.
+opens a fullscreen lab with the REPL in front: the conversation and the prompt
+take most of the screen, and a CapTP instrument rail for exports, imports, and
+answers sits beside them. Without a TTY it stays in line mode.
 
 A locator is optional. Start empty and `dial` inside, or dial first (`listen` stays argv-only):
 
@@ -173,14 +173,18 @@ quit
 and clipboard behavior are documented in-app, so this page does not repeat
 them.
 
-The lab tracks terminal resizes (SIGWINCH) and reflows (side rail ≥80 cols;
-narrow terminals stack CapTP counts above the REPL). For the whole alt-screen
-lifetime, CLI diagnostics divert into the transcript (never stderr beside the
-cursor). Idle frames non-blockingly pump an open CapTP session so rail counts
-stay live. Each successful verb appends a CapTP gloss; the prompt dock shows a
-footer tip (`guide` for the optional walkthrough). `PANCAKE_REPL_QUIET=1`
-skips the one-line workbench greeting. `PANCAKE_REPL_NO_MOUSE=1` disables
-mouse; `PANCAKE_REPL_REDUCED_MOTION=1` shortens flash/motion.
+The lab keeps up with your terminal. It follows resizes (SIGWINCH) and reflows:
+the side rail needs at least 80 columns, and a narrower terminal stacks the
+CapTP counts above the REPL. While the alt screen is up, CLI diagnostics go into
+the transcript instead of to stderr beside the cursor, so nothing prints over
+what you are reading. Idle frames pump an open CapTP session without blocking,
+which is what keeps the rail counts live. Each successful verb appends a CapTP
+gloss, and the prompt dock carries a footer tip pointing at `guide`, the
+optional walkthrough.
+
+Environment variables tune the rest. `PANCAKE_REPL_QUIET=1` skips the one-line
+workbench greeting, `PANCAKE_REPL_NO_MOUSE=1` turns mouse handling off, and
+`PANCAKE_REPL_REDUCED_MOTION=1` shortens the flash and motion.
 
 ## Agent control plane
 
@@ -190,10 +194,11 @@ pancake mcp --tools default
 ```
 
 This repository wires CapTP MCP into Cursor and Claude through the root
-[`pancake`](../pancake) shim, which runs `./pancake mcp --tools default` (see
-`.cursor/mcp.json` and `.mcp.json`; run `zig build` first). Stdio framing is
-newline-delimited JSON-RPC, and tool results match argv `--json`, including
-`{"ok":false,"error":…}` on failure, with `isError` mirroring the exit code.
+[`pancake`](../pancake) shim, which runs `./pancake mcp --tools default`. Run
+`zig build` first; the wiring itself lives in `.cursor/mcp.json` and
+`.mcp.json`. Stdio framing is
+newline-delimited JSON-RPC. Tool results match argv `--json`, including
+`{"ok":false,"error":…}` on failure, and `isError` mirrors the exit code.
 MCP state defaults to `.local/pancake-mcp-state`, relative to the working
 directory, so an agent never shares a human argv/REPL identity. Hosting stays
 argv-only: `listen` parks on accept, so it is never an MCP tool.
@@ -210,8 +215,8 @@ lives at [`docs/examples/pancake-mcp.json`](examples/pancake-mcp.json).
 
 Room presence is `pancake app rooms-peer` (install alias `rooms-peer`). The peer
 registers a giftable `dm` inbox so `reply --dm PEER` delivers via directory
-introduction (same path as `demo-rooms-dm-iroh`). Deploy and locator details:
-[`apps/rooms/README.md`](../apps/rooms/README.md).
+introduction (same path as `demo-rooms-dm-iroh`). Deploy and locator details are
+in [`apps/rooms/README.md`](../apps/rooms/README.md).
 
 ## Shell completion and scripting
 
@@ -225,5 +230,6 @@ session summary: the front, the state path, and the partner's `abort_kind` and
 `abort` reason when one was retained.
 
 [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md) records the
-product boundary; [`shipped.md`](shipped.md) and
-[`boundaries.md`](boundaries.md) list what ships and what stays open.
+product boundary. [`shipped.md`](shipped.md) lists the commands that exist,
+[`boundaries.md`](boundaries.md) records user-facing limits, and the
+[`roadmap`](roadmap.md) owns unbuilt product work.

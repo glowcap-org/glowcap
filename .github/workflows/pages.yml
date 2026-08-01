@@ -1,4 +1,4 @@
-# Build the documentation site on the GitHub mirror and deploy the exact
+# Build the documentation site and deploy the exact
 # `zig build site` artifact to GitHub Pages. The site build needs only the
 # pinned Zig (the site sub-build fetches Zine itself), installed through the
 # devcontainer's checksummed installer — no devcontainer image build.

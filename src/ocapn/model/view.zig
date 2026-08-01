@@ -485,6 +485,7 @@ pub const Resolution = union(enum) {
     }
 };
 
+pub const Signature = records.Signature;
 pub const HandoffGive = records.HandoffGive;
 pub const HandoffReceive = records.HandoffReceive;
 pub const Handoff = records.Handoff;

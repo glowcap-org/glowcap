@@ -100,7 +100,7 @@
 (define recipient (connect gifter-uri IROH-REACH-DIRECT))
   (define introducer (session-fetch recipient "introducer"))
   (define greeter (session-send recipient introducer 'get-greeter))
-  (unless (or (far-ref? greeter) (near-ref? greeter))
+  (unless (ref? greeter)
     (fail "racket-iroh-handoff" (format "introduction did not redeem to a capability: ~a" greeter)))
   (printf "racket-iroh-handoff: recipient redeemed the give, got the greeter as an ordinary ref\n")
 
