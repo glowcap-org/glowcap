@@ -104,13 +104,23 @@ pub fn classify(err: anyerror) Classification {
             .message = "op:start-session location signature failed to verify",
             .disposition = .keep_negotiating,
         } },
-        // The dial-side identity pin (`Peer.expectPartnerKey`): the handshake
-        // carried a valid signature, but not from the key the dialer dialed.
-        // Same handshake-time refusal domain as the signature failure — the
-        // session never reached `open`, so it does not close.
-        error.PartnerKeyMismatch => .{ .domain = .session, .abort = .{
+        // The durable-identity claim check (ADR-0097): the hello claimed an
+        // identity this session did not expect — a key-designator dial that
+        // reached someone else, or a remote naming what it never proved.
+        // Handshake-time refusal, so the session never reached `open`.
+        error.PartnerDesignatorMismatch => .{ .domain = .session, .abort = .{
             .kind = .invalid_start_session_signature,
-            .message = "op:start-session session key does not match the dialed key designator",
+            .message = "op:start-session claims a key designator this session did not expect",
+            .disposition = .keep_negotiating,
+        } },
+        error.PartnerAttestationMissing => .{ .domain = .session, .abort = .{
+            .kind = .invalid_start_session_signature,
+            .message = "op:start-session key-designator location carries no session-key-attestation hint",
+            .disposition = .keep_negotiating,
+        } },
+        error.PartnerAttestationInvalid => .{ .domain = .session, .abort = .{
+            .kind = .invalid_start_session_signature,
+            .message = "op:start-session session-key-attestation hint failed to verify",
             .disposition = .keep_negotiating,
         } },
         error.QueueCapExceeded => .{ .domain = .session, .abort = .{
@@ -177,6 +187,10 @@ pub fn classify(err: anyerror) Classification {
         // An already-closed session is a session-domain error, but there is no
         // abort to emit (the session is gone).
         error.SessionClosed => .{ .domain = .session, .abort = null },
+        // A local caller chose a mutable bootstrap name inside the reserved
+        // durable namespace (ADR-0098). This is an API refusal on the send
+        // side, never an inbound frame's fault, so no abort is emitted.
+        error.ReservedDurableNamespace => .{ .domain = .session, .abort = null },
         // Host-internal (OutOfMemory, …): no abort, no protocol meaning.
         else => .{ .domain = .foreign, .abort = null },
     };

@@ -23,7 +23,7 @@ const Vendor = struct {
 };
 
 const LiftCapture = struct {
-    ref: ?core.HostRef = null,
+    ref: ?core.Capability = null,
     position: ?u64 = null,
 };
 

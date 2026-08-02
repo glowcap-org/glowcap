@@ -95,6 +95,45 @@ test "listen publish greeter once then call round-trips through cli.ocapn" {
     try expectPublishedCallRoundTrip(11, 22, "greet", "world", &.{"Hello, world"});
 }
 
+test "MCP listen backgrounds and a client round-trips off the listener's own thread" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var host = makeCtx(io, gpa, &environ, 81);
+    defer host.deinit();
+    host.front = .mcp;
+    var host_capture: std.ArrayList(u8) = .empty;
+    defer host_capture.deinit(gpa);
+    host.sink = .{ .buffer = &host_capture };
+
+    var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer listen_parsed.deinit();
+    try listen_parsed.setString("publish", "greeter");
+    try listen_parsed.setString("bind", "127.0.0.1:0");
+
+    // No concurrency wrapper on purpose: the MCP spelling returns as soon as
+    // the socket is bound, which is the whole point of the slice.
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&host, &listen_parsed));
+    const uri = host.last_locator.?;
+
+    var client = makeCtx(io, gpa, &environ, 82);
+    defer client.deinit();
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
+    client.sink = .{ .buffer = &client_capture };
+
+    const positionals = [_][]const u8{ uri, "greeter", "greet", "background" };
+    var call_parsed = cli.cmd_types.Parsed{ .gpa = gpa, .positionals = &positionals };
+    defer call_parsed.deinit();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &call_parsed));
+    try std.testing.expect(std.mem.indexOf(u8, client_capture.items, "Hello, background") != null);
+    try std.testing.expect(host.background_listener.?.accepted.load(.acquire) == 1);
+}
+
 test "MCP locator call retains session for a follow-up call" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);

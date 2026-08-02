@@ -301,6 +301,12 @@ const CrossArmBackend = struct {
         }
     }
 
+    pub fn remotePartnerKey(self: *CrossArmBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *CrossArmBackend, comp: completion.Completion) void {
         _ = self;
         _ = comp;

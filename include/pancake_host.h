@@ -116,6 +116,12 @@ typedef void (*PancakeHostCtxFree)(void *ctx);
 #define PANCAKE_DISCOVERY_DIAL_RETRY_MS 3000
 /* Discovery-posture dial attempt budget (ADR-0082). Keep lockstep with driver.discovery_max_attempts. */
 #define PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS 24
+/* PancakePartnerIdentity.provenance: the transport layer proved the partner's durable key (iroh's QUIC handshake, or WebRTC's DTLS binding under capability-authorized signaling). */
+#define PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT 0
+/* PancakePartnerIdentity.provenance: the hello carried a session-key-attestation signed by the durable key its designator names, and it verified (keyed-tcp, keyed-relay). Static authorization, not proof the signer is live on this connection. */
+#define PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION 1
+/* PancakePartnerIdentity.provenance: no durable identity was proved. An address transport designates a socket address rather than a key, and a partner that advertised an address on a key transport claimed no durable identity to authenticate. */
+#define PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED 2
 
 /* One embedder effect popped from pancake_host_next_action. kind selects the
    live fields: DIAL carries only ticket (borrow the pending view with
@@ -166,9 +172,18 @@ typedef struct PancakeHostPumpHooks {
     PancakeHostPumpArmFn dial;
 } PancakeHostPumpHooks;
 
-/* Create a byte-fed host bound to the caller-drawn 32-byte Ed25519 identity
-   seed (the host never draws entropy), allocating through the library
-   allocator. frame_cap sizes every session's maximum admissible frame; a
+/* Create a byte-fed host bound to the caller-drawn Ed25519 identity seed (the
+   host never draws entropy), allocating through the library allocator.
+
+   seed_len is 32 or 64. The first 32 bytes are the durable identity and must
+   stay stable across restarts, because a keyed locator's designator derives
+   from them. The optional next 32 are the session-key root, and they must be
+   FRESH PER PROCESS: they are what makes each CapTP session sign with its own
+   key, so an old handoff certificate cannot resolve against a session opened
+   after a restart. Passing only 32 leaves every session signing with the
+   durable key, which is the weaker posture.
+
+   frame_cap sizes every session's maximum admissible frame; a
    nonzero verify_partner keeps partner-signature verification on (the secure
    default); codec is the PANCAKE_CODEC_* wire grammar (pancake_ocapn.h) every
    session this host mints negotiates in — both ends of a session must
@@ -231,6 +246,8 @@ int32_t pancake_host_session_open_accepted(PancakeHost *host, const uint8_t *tra
 #define PANCAKE_DIAL_SHAPE_PEER_ID 1
 /* PancakeDialPlan.shape: signaling-mediated open (webrtc); no dialable address, the channel comes up through offer/answer/ICE (ADR-0089 phase 4). */
 #define PANCAKE_DIAL_SHAPE_SIGNALING 2
+/* PancakeDialPlan.shape: rendezvous-bridged open (keyed-relay); no dialable address, the dialer opens the relay rendezvous leg its host is configured for (ADR-0088). */
+#define PANCAKE_DIAL_SHAPE_RENDEZVOUS 3
 /* PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture. */
 #define PANCAKE_DIAL_REACH_DIRECT 0
 /* PancakeDialPlan.reach_kind (peer-id shape): the node's own configured redeem posture. */
@@ -420,6 +437,31 @@ int32_t pancake_host_session_spawn(PancakeHostSession *session, PancakeHostBehav
    All-or-nothing over this call's own work: registration failure discards the
    fresh actor and frees ctx, so a retry starts with no partial alias or projection. */
 int32_t pancake_host_publish(PancakeHost *host, const uint8_t *name, size_t name_len, PancakeHostBehavior behavior, void *ctx, PancakeHostCtxFree free);
+/* Remove the host-wide alias name. Discovery-only, alias-only: a later fetch of
+   the name misses on every session, while capabilities already issued, live Port
+   projections, and deposited gifts keep naming the exact actor, which stays in
+   the Host's Vat until pancake_host_release. An absent alias returns
+   PANCAKE_ERR_NOT_FOUND, so a typo is loud instead of an idempotent no-op. A name
+   in the reserved durable namespace is refused INVALID_ARGUMENT: minted durable
+   publications leave through pancake_host_remove_durable. */
+int32_t pancake_host_unpublish(PancakeHost *host, const uint8_t *name, size_t name_len);
+/* Publish one hosted object under a freshly minted durable swiss name: a
+   reserved-prefix namespace mutable aliases structurally cannot enter,
+   unpredictable, never reassigned, and removable only through
+   pancake_host_remove_durable. entropy supplies exactly 16 caller-drawn random
+   bytes (the embedder owns the entropy boundary, as for gift ids). The minted
+   swiss is written into out_swiss (swiss_cap of at least 50 bytes, or
+   BUFFER_TOO_SMALL and nothing published) and the written length is returned.
+   ctx/free follow pancake_host_publish's ownership exactly. Durability across
+   process restart requires durable registry storage, which does not exist yet:
+   a restart makes the old sturdyref miss, fail-closed. */
+int32_t pancake_host_publish_durable(PancakeHost *host, const uint8_t *entropy, size_t entropy_len, PancakeHostBehavior behavior, void *ctx, PancakeHostCtxFree free, uint8_t *out_swiss, size_t swiss_cap);
+/* Remove a minted durable publication: the old sturdyref misses from now on,
+   while capabilities already issued and deposited gifts keep the exact actor. A
+   swiss outside the durable namespace returns INVALID_ARGUMENT (mutable aliases
+   leave through pancake_host_unpublish); an unknown durable name returns
+   PANCAKE_ERR_NOT_FOUND. */
+int32_t pancake_host_remove_durable(PancakeHost *host, const uint8_t *swiss, size_t swiss_len);
 /* Fetch the partner capability published as name, minting a host vow whose id
    lands in *out_vow; the outcome arrives as that vow's SETTLE or FAIL action.
    A fulfilled far capability settles ALREADY enrolled under a node-unique
@@ -434,6 +476,23 @@ int32_t pancake_host_session_fetch(PancakeHostSession *session, const uint8_t *n
    hit settles before this returns; a fresh enliven rides bootstrap-fetch.
    Refused inside a callback. */
 int32_t pancake_host_session_enliven(PancakeHostSession *session, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
+/* Select-or-dial enliven of a complete sturdyref URI (ADR-0098): enliven it
+   over a live session this host already dialed to that peer, or stage a dial
+   and finish when you report it. The host vow id lands in *out_vow and its
+   outcome arrives as that vow's SETTLE or FAIL action either way. A staged
+   dial surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL — borrow it with
+   pancake_host_pending_dial and answer it with pancake_host_dialed /
+   pancake_host_dial_failed exactly as a handoff redeem's — so a parked vow's
+   id has no session and no row until it settles. Refused inside a callback. */
+int32_t pancake_host_enliven(PancakeHost *host, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
+/* Listen on a promise capability this session holds (CapTP op:listen), minting
+   a host vow whose id lands in *out_vow; the promise's resolution arrives as
+   that vow's SETTLE or FAIL action. The target must be a far promise; a
+   non-promise far is refused. A re-gifted promise routes to its exporter
+   session transparently, and a give in the settlement auto-redeems exactly as
+   a fetch's would. The vow is plain: a listen makes no claim the result is a
+   capability. Legal inside a callback. */
+int32_t pancake_host_session_listen(PancakeHostSession *session, const PancakeReference *target, uint64_t *out_vow);
 /* Eventual-send to an opaque Host-scoped target and mint a host vow for the
    answer; the outcome arrives as that vow's SETTLE or FAIL action. The Host
    chooses local delivery or the owning exporter session. A target or nested
@@ -466,6 +525,21 @@ int32_t pancake_host_vow_untag(PancakeHost *host, uint64_t vow, const uint8_t *t
    the named Struct field. Same local-vow and unknown-vow refusals as
    pancake_host_vow_send; field is borrowed. */
 int32_t pancake_host_vow_get(PancakeHost *host, uint64_t vow, const uint8_t *field, size_t field_len, uint64_t *out_vow);
+/* Mint a resolver pair (ADR-0102): *out_vow_id is the read side, whose whole
+   surface is pancake_host_turn_forward_vow; *out_resolver_id is the settle
+   authority for pancake_host_resolver_fulfill / _break. Legal inside a
+   behavior callback — a behavior mints, defers its answer onto the vow, hands
+   the resolver id to whatever completes the work, and returns. */
+int32_t pancake_host_spawn_resolver(PancakeHost *host, uint64_t *out_vow_id, uint64_t *out_resolver_id);
+/* Settle a resolver vow fulfilled with one capability-free value (a value
+   naming a capability refuses whole; an answer that carries authority uses
+   the turn's forward instead). Top-level: refused inside a callback; the
+   settle runs the deferred answers and pumps the sessions they dirtied. One
+   attempt per resolver; a second settle or an unknown id refuses. */
+int32_t pancake_host_resolver_fulfill(PancakeHost *host, uint64_t resolver_id, const PancakeArgument *value);
+/* Settle a resolver vow broken with a diagnostic borrowed for the call. The
+   same top-level, one-attempt contract as pancake_host_resolver_fulfill. */
+int32_t pancake_host_resolver_break(PancakeHost *host, uint64_t resolver_id, const uint8_t *message, size_t message_len);
 /* From inside a behavior callback, forward this turn's call to an opaque
    Host-scoped target and let this object's own answer settle on the forwarded
    result — the caretaker/attenuator primitive. The Host resolves the target and
@@ -475,6 +549,13 @@ int32_t pancake_host_vow_get(PancakeHost *host, uint64_t vow, const uint8_t *fie
    The written reply is BORROWED — valid until the next turn verb or drive on
    this host. The empty-verb contract is pancake_host_session_send's. */
 int32_t pancake_host_turn_forward(PancakeHostTurn *turn, const PancakeReference *target, const uint8_t *verb, size_t verb_len, const PancakeArgument *args, size_t args_len, PancakeArgument *out_reply);
+/* From inside a behavior callback, defer this turn's answer onto a resolver
+   vow (ADR-0102): the answer settles when pancake_host_resolver_fulfill /
+   _break fires later, as its own top-level event. vow_id must be the read side
+   of pancake_host_spawn_resolver's pair — a wire vow's answer belongs to its
+   session and refuses here. The behavior still returns normally; its return
+   value resolves nothing once the turn is forwarded. */
+int32_t pancake_host_turn_forward_vow(PancakeHostTurn *turn, uint64_t vow_id);
 /* From inside a behavior callback, eventual-send to target and mint a host vow
    for the answer — the same routing, refusals, and empty-verb contract as
    pancake_host_session_send, on the turn's own session. The send encodes when the
@@ -558,6 +639,13 @@ typedef struct PancakePartnerIdentity {
     /* The verbatim location record, or NULL when the apply path captured none. */
     const uint8_t *locator_record;
     size_t locator_record_len;
+    /* How the durable identity in designator was authenticated, one of the
+PANCAKE_DURABLE_PROVENANCE_* values. Session identity, durable identity, and
+this provenance are three separate facts: a caller that requires a proved
+durable peer reads this, never a comparison of designator against
+session_key, which is a coincidence of today's key reuse and stops holding
+when each connection draws a fresh session key. */
+    uint32_t provenance;
 } PancakePartnerIdentity;
 
 /* Borrow this session's verified partner identity into *out: the partner's
@@ -572,17 +660,6 @@ typedef struct PancakePartnerIdentity {
    entry point, so you never have to remember to ask whether the bytes were
    checked. */
 int32_t pancake_host_session_partner_identity(PancakeHostSession *session, PancakePartnerIdentity *out);
-/* Nonzero into *out_matches when this session's partner proved it owns the
-   designator it advertised, meaning the designator is exactly its verified
-   session key in canonical hex.
-
-   This is here so no binding re-derives that comparison. It answers only for a
-   key-designator transport (keyed-tcp, iroh, webrtc, keyed-relay); an address
-   transport such as tcp names a socket address the key does not determine, so
-   the answer is zero there, and zero is correct rather than a failure. The
-   refusals are pancake_host_session_partner_identity's, and *out_matches is
-   left untouched on any of them. */
-int32_t pancake_host_session_partner_designator_is_key(PancakeHostSession *session, uint32_t *out_matches);
 /* Copy the calling thread's last pancake_host_* error into out_buf, the host
    sibling of pancake_last_error, reading this archive's own per-thread slot.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap

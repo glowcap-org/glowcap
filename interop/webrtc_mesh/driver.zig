@@ -183,7 +183,13 @@ fn recipientHalf(
     var engine_peer = engine.Peer.initNegotiating(allocator);
     defer engine_peer.deinit();
     engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    engine_peer.expectPartnerKey(crypto.PeerKey.fromDesignator(expect_designator) orelse return error.InvalidDesignator);
+    // The DataChannel's DTLS handshake, brought up through the signaling this
+    // mesh drives, is what proves the far peer (ADR-0097), so the identity it
+    // may claim is pinned as transport-verified before any byte is fed.
+    engine_peer.expectPartnerDurableKey(
+        crypto.PeerKey.fromDesignator(expect_designator) orelse return error.InvalidDesignator,
+        .transport_verified,
+    );
 
     const read_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(read_buf);

@@ -93,7 +93,7 @@ test "dial help excludes listen" {
     try std.testing.expect(dial.findChild("listen") == null);
 }
 
-test "unknown flag on dial is usage" {
+test "unknown flag on dial is usage, and diagnostics land in the test capture" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -102,8 +102,48 @@ test "unknown flag on dial is usage" {
     var c = testCtx(gpa, &environ, &threaded);
     defer c.deinit();
 
+    // Both diagnostic routes — the `log.err` line and the usage block that
+    // `argv.writeStderr` routes through the same seam — must land in
+    // `log.test_capture`, never the process stderr, which the build runner
+    // would echo under its `failed command:` label on a green run.
+    cli.log.test_capture.reset();
     const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial", "--nope" });
     try std.testing.expectEqual(cli.exit_codes.usage, code);
+    const diags = cli.log.test_capture.captured();
+    try std.testing.expect(std.mem.indexOf(u8, diags, "unknown flag \"--nope\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, diags, "Usage:") != null);
+}
+
+test "a diagnostic longer than the line buffer truncates visibly, never vanishes" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    cli.log.test_capture.reset();
+    const long = "x" ** 600;
+    cli.log.err(threaded.io(), "{s}", .{long});
+    const diags = cli.log.test_capture.captured();
+    try std.testing.expect(std.mem.startsWith(u8, diags, "pancake: error: xxx"));
+    try std.testing.expect(std.mem.endsWith(u8, diags, " [truncated]\n"));
+}
+
+test "-h help is product stdout, not a diagnostic" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = testCtx(gpa, &environ, &threaded);
+    defer c.deinit();
+
+    // The Cobra-shaped stream split is a contract: asked-for help goes to
+    // stdout, parse-error usage goes to stderr. The per-stream captures are
+    // what make the split assertable in a test build at all.
+    cli.log.test_capture.reset();
+    cli.argv.test_stdout_capture.reset();
+    const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial", "-h" });
+    try std.testing.expectEqual(cli.exit_codes.ok, code);
+    try std.testing.expect(std.mem.indexOf(u8, cli.argv.test_stdout_capture.captured(), "Usage:") != null);
+    try std.testing.expectEqual(@as(usize, 0), cli.log.test_capture.captured().len);
 }
 
 test "dispatch dial with locator succeeds" {

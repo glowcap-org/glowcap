@@ -31,6 +31,11 @@ pub const HintList = struct {
     w1: u64 = 0,
     w2: u64 = 0,
     materialize: *const fn (std.mem.Allocator, HintList, model.Hints.WireForm) Error!model.Hints,
+    /// Borrowed find-by-name: the named entry's value borrowing the frame, or
+    /// null when absent. Allocation-free by contract — the handshake's
+    /// attestation lookup runs at the pre-open chokepoint and must not
+    /// materialize the dict (ADR-0097's cost posture).
+    find: *const fn (HintList, name: []const u8) Error!?model.HintValue,
 };
 
 /// Borrowed hint shape: exactly one arm — empty spelling, projected entries, or
@@ -57,6 +62,22 @@ pub const BorrowedHints = union(enum) {
             .projected => |h| try model.cloneHints(allocator, h),
             .lazy => |l| try l.list.materialize(allocator, l.list, l.wire_form),
         };
+    }
+
+    /// The named hint entry's value, borrowed from whatever backs this view,
+    /// or null when the hint is absent. Never allocates: the projected arm
+    /// scans its entries and the lazy arm walks the codec's list in place.
+    pub fn findNamed(self: BorrowedHints, name: []const u8) Error!?model.HintValue {
+        switch (self) {
+            .empty => return null,
+            .projected => |h| {
+                for (h.entries) |entry| {
+                    if (std.mem.eql(u8, entry.name, name)) return entry.value;
+                }
+                return null;
+            },
+            .lazy => |l| return l.list.find(l.list, name),
+        }
     }
 
     /// Stack-only URI spelling when no allocation is required. `null` means the

@@ -159,6 +159,7 @@ const constants = [_]Const{
     kd("DIAL_SHAPE_HOST_PORT", "PANCAKE_DIAL_SHAPE_HOST_PORT"),
     kd("DIAL_SHAPE_PEER_ID", "PANCAKE_DIAL_SHAPE_PEER_ID"),
     kd("DIAL_SHAPE_SIGNALING", "PANCAKE_DIAL_SHAPE_SIGNALING"),
+    kd("DIAL_SHAPE_RENDEZVOUS", "PANCAKE_DIAL_SHAPE_RENDEZVOUS"),
     kd("DIAL_REACH_DIRECT", "PANCAKE_DIAL_REACH_DIRECT"),
     kd("DIAL_REACH_CONFIGURED", "PANCAKE_DIAL_REACH_CONFIGURED"),
     kd("DIAL_REACH_EXPLICIT", "PANCAKE_DIAL_REACH_EXPLICIT"),
@@ -166,6 +167,12 @@ const constants = [_]Const{
     kd("DIAL_POSTURE_REDEEM", "PANCAKE_DIAL_POSTURE_REDEEM"),
     kd("DIAL_POSTURE_EXPLICIT", "PANCAKE_DIAL_POSTURE_EXPLICIT"),
     kd("DIAL_POSTURE_EXPLICIT_NONE", "PANCAKE_DIAL_POSTURE_EXPLICIT_NONE"),
+    // PancakePartnerIdentity.provenance: how the partner's advertised durable
+    // identity was authenticated (ADR-0097). A caller needing a proved durable
+    // peer reads this, never a designator-equals-session-key comparison.
+    kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
+    kd("DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION", "PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION"),
+    kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED"),
     // Iroh reachability postures and the redeem knob's starting value
     // (libpancake_net_transport_iroh). The stack's `Reachability` surface and
     // its hint-less-redeem default read these instead of hand-typing numbers.

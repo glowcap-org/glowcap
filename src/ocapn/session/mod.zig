@@ -52,6 +52,10 @@ const ImportTable = slot_table.ImportTable;
 pub const RecvViewError = Error || model.view.ProjectError || std.mem.Allocator.Error;
 
 pub const Error = error{
+    /// A caller-chosen mutable bootstrap name lies inside the reserved
+    /// durable swiss namespace (ADR-0098); only the Host's durable mint may
+    /// produce such names.
+    ReservedDurableNamespace,
     MalformedMessage,
     /// A reference or position claim that does not exist for this session: an
     /// unheld import/export named where a held one is required, an unknown
@@ -170,11 +174,14 @@ pub const BOOTSTRAP_POSITION: u64 = 0;
 
 /// Base of the inbound-answer position range reserved for virtual answers the
 /// session allocates itself (`Session.allocateInboundAnswer`, the V1.0
-/// resolver-only fetch pattern). Answer positions are partner-named, so the
-/// reservation is enforced in validation: an inbound `op:deliver` claiming an
-/// answer-pos at or above this base is refused (`Error.InvalidReference`), and
-/// only that refusal makes the virtual namespace collision-free.
-pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = 0x8000_0000_0000_0000;
+/// resolver-only fetch pattern). An inbound claim at or above it is refused
+/// (`Error.InvalidReference`); the refusal classifies through
+/// `model.AnswerName`, never a re-typed compare.
+///
+/// The value lives with the space it partitions, in `model/position.zig`,
+/// beside `model.AnswerName` which is the only thing that reads it directly.
+/// Two declarations of one boundary is the drift this re-export prevents.
+pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = model.VIRTUAL_INBOUND_ANSWER_BASE;
 
 /// The base of the reserved redeemed-handoff-token far-id range (ADR-0066): the
 /// cross-connection node (`engine.Node`) mints application-facing tokens from
@@ -191,23 +198,6 @@ pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = 0x8000_0000_0000_0000;
 /// beside `model.ImportName` which is the only thing that reads it directly.
 /// Two declarations of one boundary is the drift this re-export prevents.
 pub const REDEEMED_TOKEN_BASE: u64 = model.REDEEMED_TOKEN_BASE;
-
-comptime {
-    // The virtual inbound-answer base must sit above the partner-named answer
-    // range it reserves against; a base of 0 would reserve everything and admit
-    // nothing.
-    std.debug.assert(0 < VIRTUAL_INBOUND_ANSWER_BASE);
-    // The two reserved ranges must not overlap: the token range sits strictly
-    // below the virtual-answer range, so refusing one never admits the other.
-    std.debug.assert(REDEEMED_TOKEN_BASE < VIRTUAL_INBOUND_ANSWER_BASE);
-    // Export positions occupy the space below both. One session allocator mints
-    // them all, which settles collision *within* a session; between sessions it
-    // settles nothing, so a session is also held to its own slice of that space
-    // (`export_base` / `export_position_end`). Whoever mints the sessions carves
-    // those slices and asserts its own tiling. `engine.Node` is the one that
-    // does, and it derives its slot width from `REDEEMED_TOKEN_BASE` so the
-    // top slice ends exactly where the reserved space starts.
-}
 
 /// Resolver-link bookkeeping: the two position-keyed maps that say which of our
 /// outbound answers a local export settles, and which resolver import the
@@ -1111,6 +1101,24 @@ pub const Session = struct {
         self.imports.forgetHostRef(position, ref);
     }
 
+    /// The reserved, versioned namespace for randomly minted durable swiss
+    /// names (ADR-0098): a fixed domain prefix followed by the hex spelling of
+    /// `durable_swiss_entropy_len` cryptographically random bytes. Mutable
+    /// bootstrap binds structurally refuse this prefix, and the Host's durable
+    /// mint produces only names inside it, so the two namespaces cannot
+    /// collide — including across a process restart, where no in-memory
+    /// tombstone could survive to police it.
+    pub const durable_swiss_prefix = "pancake-durable-1-";
+    /// Random bytes behind the prefix, spelled as lowercase hex.
+    pub const durable_swiss_entropy_len = 16;
+    /// A minted durable swiss name's exact byte length.
+    pub const durable_swiss_len = durable_swiss_prefix.len + durable_swiss_entropy_len * 2;
+
+    /// Whether `swissnum` lies in the reserved durable namespace.
+    pub fn isDurableSwiss(swissnum: []const u8) bool {
+        return std.mem.startsWith(u8, swissnum, durable_swiss_prefix);
+    }
+
     /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
     /// (ADR-0006 responder half): allocate a fresh export and map the swissnum to
     /// it. Returns the export position. Re-registering a swissnum replaces its mapping.
@@ -1127,6 +1135,10 @@ pub const Session = struct {
     /// export's lifetime; replacing discovery never releases the displaced
     /// object because capabilities already issued to it remain live.
     pub fn bindBootstrapCap(self: *Session, swissnum: []const u8, export_position: model.ExportPosition) !void {
+        // A caller-chosen mutable name structurally cannot enter the durable
+        // namespace (ADR-0098): the prefix, not a retained tombstone, is what
+        // keeps an old sturdyref from being retargeted after restart.
+        if (isDurableSwiss(swissnum)) return Error.ReservedDurableNamespace;
         const gop = try self.bootstrap.getOrPut(self.allocator, swissnum);
         if (!gop.found_existing) {
             // getOrPut left the slot keyed on the borrowed `swissnum`; replace it

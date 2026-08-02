@@ -39,13 +39,10 @@ export interface WebInitOptions {
 	/** Map an `ocapn://` locator (a native-only transport such as iroh) to the
 	 * WebSocket URL of a byte relay that dials it, e.g.
 	 * `` (loc) => `wss://example/relay?locator=${encodeURIComponent(loc)}` ``.
-	 * Without it, dialing a native-only locator refuses. */
+	 * Without it, dialing a native-only locator refuses. Cold-dialing a
+	 * `keyed-relay` peer is not configured here: that mapping is deployment
+	 * configuration of the dialing peer, `Host.setRendezvousUrl` (ADR-0088). */
 	relayUrl?: (locator: string) => string;
-	/** Map a `keyed-relay` peer's key designator to the WebSocket URL of the
-	 * relay's rendezvous leg that bridges to it, e.g.
-	 * `` (id) => `wss://example/relay?rendezvous=${id}` ``. Enables cold-dialing a
-	 * registered peer by identity (ADR-0088); without it, `keyed-relay` refuses. */
-	rendezvousUrl?: (designator: string) => string;
 }
 
 /** The stack's public surface, as `init` returns it. */
@@ -57,12 +54,16 @@ export type PancakeStack = typeof import("@pancake/stack");
 const injected_adapter_key = Symbol.for("pancake.stack.adapter");
 
 export type { WsUrl } from "./adapter.ts";
-export { webSocketChannel } from "./ws_channel.ts";
-// The browser half of the cold-dial rendezvous (ADR-0088): register this peer's
-// identity so a redeeming peer can be bridged onto its held inbound socket. The
-// redeeming (dialing) side has no export here — it rides the dial executor's
-// `keyed-relay` intercept, so one mechanism carries every cold dial.
-export { type RendezvousHandle, serveRendezvous } from "./rendezvous.ts";
+// The WebSocket byte channel and both rendezvous halves are runtime-neutral
+// stack surface (ADR-0088); re-exported here so a page keeps one import. The
+// redeeming (dialing) side rides the dial executor's `keyed-relay` intercept
+// over `Host.setRendezvousUrl`, so one mechanism carries every cold dial.
+export {
+	openWebSocketChannel,
+	type RendezvousHandle,
+	serveRendezvous,
+	webSocketChannel,
+} from "@pancake/stack";
 
 let loaded: Promise<PancakeStack> | null = null;
 let loadedOptions: WebInitOptions | null = null;
@@ -135,10 +136,7 @@ async function initFresh(options: WebInitOptions): Promise<PancakeStack> {
 		exports.pancake_wasm_free(ptr, byteLen);
 	}
 
-	const web = makeWebAdapter(exports, words, {
-		wsUrl: options.wsUrl,
-		rendezvousUrl: options.rendezvousUrl,
-	});
+	const web = makeWebAdapter(exports, words, { wsUrl: options.wsUrl });
 	// Route the module's trampoline import through the adapter: it converts
 	// the raw i32s to the stack's bigint vocabulary and forwards to whatever
 	// callback the stack registered through `makeCallback`.

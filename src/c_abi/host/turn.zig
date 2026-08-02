@@ -34,6 +34,23 @@ const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 /// answer rides the forwarded vow and `*out_reply` gets a void placeholder;
 /// pass your behavior's own `out_reply` and return `PANCAKE_OK`. The written
 /// reply is BORROWED — valid until the next turn verb or drive on this host.
+/// From inside a behavior callback, defer this turn's answer onto a resolver
+/// vow (ADR-0102): the answer settles when pancake_host_resolver_fulfill /
+/// _break fires later, as its own top-level event. vow_id must be the read
+/// side of pancake_host_spawn_resolver's pair — a wire vow's answer belongs
+/// to its session and refuses here. The behavior still returns normally; its
+/// return value resolves nothing once the turn is forwarded.
+pub export fn pancake_host_turn_forward_vow(
+    turn: ?*PancakeHostTurn,
+    vow_id: u64,
+) i32 {
+    const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = connOfTurn(t);
+    const inst = instOf(session.host);
+    inst.core.turnForwardVow(t, vow_id) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
 pub export fn pancake_host_turn_forward(
     turn: ?*PancakeHostTurn,
     target: ?*const shared.PancakeReference,

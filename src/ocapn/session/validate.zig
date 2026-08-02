@@ -30,8 +30,6 @@ const Error = session.Error;
 const RecvViewError = session.RecvViewError;
 const SessionLimits = session.SessionLimits;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
-const VIRTUAL_INBOUND_ANSWER_BASE = session.VIRTUAL_INBOUND_ANSWER_BASE;
-const REDEEMED_TOKEN_BASE = session.REDEEMED_TOKEN_BASE;
 
 pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *IntroducedImports) !void {
     // State admission is gated at the dispatch head (`admitInState`); this is
@@ -344,7 +342,10 @@ pub const IntroducedImports = struct {
 /// carries one, and the three projection ops (ADR-0050), which name an answer
 /// of their own and install a row exactly as a deliver does.
 fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Error!void {
-    if (answer.int() >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
+    switch (model.AnswerName.classify(answer.int())) {
+        .virtual => return Error.InvalidReference,
+        .wire => {},
+    }
     if (self.inbound_answers.contains(answer)) return Error.UnexpectedMessage;
 }
 
@@ -441,7 +442,10 @@ fn validateReference(
         },
         .far => |far| switch (far_policy) {
             .held_import => if (!self.holdsImport(far.import_position)) return Error.InvalidReference,
-            .introduction => if (far.import_position.int() >= REDEEMED_TOKEN_BASE) return Error.InvalidReference,
+            .introduction => switch (model.ImportName.classify(far.import_position.int())) {
+                .token => return Error.InvalidReference,
+                .wire => {},
+            },
         },
         .promise, .broken => {},
         .sturdy => if (!self.features.sturdyref) return Error.FeatureNotNegotiated,

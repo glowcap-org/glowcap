@@ -30,7 +30,8 @@ use crate::dial::Reachability;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline, ActorCell,
+	ctx_free, current_turn_for, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline,
+	ActorCell,
 };
 use crate::Ref;
 use crate::{sys, Argument, Behavior, Codec, Context, Error, Result};
@@ -194,6 +195,11 @@ pub(crate) struct HostShared {
 	// choice); a relay-policy deployment lowers it. A hinted give always dials
 	// `Direct` and ignores this.
 	redeem_reachability: Cell<Reachability>,
+	// The keyed-relay rendezvous mapping (ADR-0088): the peer's key designator
+	// to the relay rendezvous WebSocket URL that bridges onto its held inbound
+	// socket — the keyed-relay sibling of `redeem_reachability`. None until
+	// configured; a keyed-relay dial refuses without it.
+	rendezvous_url: RefCell<Option<Rc<dyn Fn(&str) -> String>>>,
 	/// The 32-byte Ed25519 identity seed this host was minted with — retained
 	/// so a keyed-tcp listener can derive its public designator without a
 	/// second identity (ADR-0075).
@@ -215,13 +221,23 @@ impl HostShared {
 		local_turn_budget: u32,
 		context: Option<&Context>,
 	) -> Result<Rc<HostShared>> {
+		// The durable identity followed by a session-key root drawn here, at
+		// this binding's entropy boundary, because the library draws none
+		// (ADR-0097). The root is fresh per process, so every CapTP session
+		// signs with its own key and a restart cannot recreate a prior
+		// session's handoff names; the durable half stays exactly the caller's
+		// seed, since a keyed locator's designator derives from it.
+		let mut seed_with_root = [0u8; 64];
+		seed_with_root[..32].copy_from_slice(&seed);
+		getrandom::fill(&mut seed_with_root[32..]).expect("the OS RNG provides a session-key root");
+
 		let mut raw: *mut ffi::PancakeHost = core::ptr::null_mut();
 		check_host(match context {
 			Some(context) => unsafe {
 				ffi::pancake_host_new_in(
 					context.raw,
-					seed.as_ptr(),
-					seed.len(),
+					seed_with_root.as_ptr(),
+					seed_with_root.len(),
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
@@ -231,8 +247,8 @@ impl HostShared {
 			},
 			None => unsafe {
 				ffi::pancake_host_new(
-					seed.as_ptr(),
-					seed.len(),
+					seed_with_root.as_ptr(),
+					seed_with_root.len(),
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
@@ -250,6 +266,7 @@ impl HostShared {
 			hosted: RefCell::new(HashMap::new()),
 			unobserved: RefCell::new(VecDeque::new()),
 			redeem_reachability: Cell::new(Reachability::REDEEM_DEFAULT),
+			rendezvous_url: RefCell::new(None),
 			giftables: RefCell::new(HashMap::new()),
 			seed,
 		}))
@@ -283,6 +300,13 @@ impl HostShared {
 	#[cfg(feature = "iroh")]
 	pub(crate) fn redeem_reachability(&self) -> Reachability {
 		self.redeem_reachability.get()
+	}
+
+	// Read by the rendezvous dial executor alone: the URL a keyed-relay dial
+	// opens for `designator`, or None when the host was never configured.
+	#[cfg(feature = "rendezvous")]
+	pub(crate) fn rendezvous_url_of(&self, designator: &str) -> Option<String> {
+		self.rendezvous_url.borrow().as_ref().map(|f| f(designator))
 	}
 
 	/// Record the designator this host's dials sign as their own dialable
@@ -777,6 +801,69 @@ impl Host {
 		self.shared.redeem_reachability.get()
 	}
 
+	/// Configure how this host reaches a `keyed-relay` peer: map the peer's
+	/// key designator to the WebSocket URL of the relay rendezvous leg that
+	/// bridges onto its held inbound socket, e.g.
+	/// `|id| format!("wss://example/relay?rendezvous={id}")` (ADR-0088). The
+	/// keyed-relay sibling of [`Host::set_redeem_reachability`]: deployment
+	/// configuration for reaching an exporter that opens no listener. Without
+	/// it, a `keyed-relay` dial refuses; the dial itself needs the
+	/// `rendezvous` feature.
+	pub fn set_rendezvous_url(&self, url: impl Fn(&str) -> String + 'static) -> Result<()> {
+		self.shared.guard_open()?;
+		*self.shared.rendezvous_url.borrow_mut() = Some(Rc::new(url));
+		Ok(())
+	}
+
+	/// Enliven a complete sturdyref without naming a session (ADR-0098): the
+	/// host enlivens it over a live session it already dialed to that peer, or
+	/// dials one itself through this host's own DIAL action and finishes when
+	/// the dial reports. [`Session::enliven`] is the narrower verb — it never
+	/// dials, and refuses a sturdyref for another peer.
+	pub async fn enliven(&self, sturdyref: &str) -> Result<Ref> {
+		self.shared.guard_open()?;
+		let mut vow: u64 = 0;
+		check_host(unsafe {
+			ffi::pancake_host_enliven(
+				self.shared.raw(),
+				sturdyref.as_ptr(),
+				sturdyref.len(),
+				&mut vow,
+			)
+		})?;
+		// The vow may be parked on a dial with no session of its own, which is
+		// exactly the `None` session row the vow table already admits.
+		self.shared.vow_minted(vow, None);
+		let settled = self.shared.await_vow(vow);
+		self.shared.kick_actions().await;
+		match settled.await? {
+			Argument::Reference(reference) => Ok(reference),
+			_ => Err(Error::broken(format!(
+				"{sturdyref:?} did not resolve to a capability"
+			))),
+		}
+	}
+
+	/// Mint a resolver pair (off-turn settlement, ADR-0102): the returned
+	/// [`Resolver`] is the settle authority, and its vow is the read side a
+	/// behavior defers its answer onto with [`Resolver::forward_turn`]. Legal
+	/// inside a behavior, which is the primary use: the behavior mints,
+	/// forwards, parks the resolver for whatever completes the work, and
+	/// returns; the completion settles it later from the host's thread as its
+	/// own top-level event.
+	pub fn spawn_resolver(&self) -> Result<Resolver> {
+		let mut vow_id: u64 = 0;
+		let mut resolver_id: u64 = 0;
+		check_host(unsafe {
+			ffi::pancake_host_spawn_resolver(self.shared.raw.get(), &mut vow_id, &mut resolver_id)
+		})?;
+		Ok(Resolver {
+			shared: Rc::clone(&self.shared),
+			vow_id,
+			id: resolver_id,
+		})
+	}
+
 	/// Host `make`'s behavior once and bind `name` as a Host-wide alias. Fetch
 	/// lazily projects the actor onto a session, and a deposited gift keeps that
 	/// exact actor when a recipient withdraws over its own exporter session
@@ -817,6 +904,101 @@ impl Host {
 			.borrow_mut()
 			.insert(name.to_string(), cell);
 		self.shared.schedule_kick();
+	}
+
+	/// Publish `make`'s behavior under a freshly minted durable swiss name and
+	/// return that name — the swiss to place in a sturdyref beside this host's
+	/// own locator (ADR-0098). Unpredictable, never reassigned, structurally
+	/// disjoint from every mutable alias, and removable only through
+	/// [`Host::remove_durable`]. Entropy is drawn here, from the OS RNG.
+	pub fn publish_durable(&self, make: impl Fn() -> Behavior + 'static) -> String {
+		if let Err(error) = self.shared.guard_open() {
+			panic!("publish_durable refused: {error}");
+		}
+		let mut behavior = make();
+		let cell = Box::into_raw(Box::new(ActorCell {
+			behavior: RefCell::new(outcome_behavior(move |verb, args| behavior(verb, args))),
+		}));
+		let mut entropy = [0u8; 16];
+		getrandom::fill(&mut entropy).expect("the OS RNG provides durable swiss entropy");
+		let mut swiss = [0u8; 64];
+		let rc = unsafe {
+			ffi::pancake_host_publish_durable(
+				self.shared.raw.get(),
+				entropy.as_ptr(),
+				entropy.len(),
+				trampoline,
+				cell as *mut core::ffi::c_void,
+				ctx_free,
+				swiss.as_mut_ptr(),
+				swiss.len(),
+			)
+		};
+		if rc <= 0 {
+			unsafe { reclaim_refused_cell(rc, cell) };
+			panic!(
+				"publish_durable refused: {}",
+				host_last_error().unwrap_or_else(|| rc.to_string())
+			);
+		}
+		let name = String::from_utf8_lossy(&swiss[..rc as usize]).into_owned();
+		self.shared
+			.giftables
+			.borrow_mut()
+			.insert(name.clone(), cell);
+		self.shared.schedule_kick();
+		name
+	}
+
+	/// Remove a minted durable publication (ADR-0098): the old sturdyref
+	/// misses from now on, while capabilities already issued and deposited
+	/// gifts keep the exact actor. Returns `false` when no such durable name
+	/// exists.
+	pub fn remove_durable(&self, swiss: &str) -> bool {
+		if let Err(error) = self.shared.guard_open() {
+			panic!("remove_durable({swiss:?}) refused: {error}");
+		}
+		let rc = unsafe {
+			ffi::pancake_host_remove_durable(self.shared.raw.get(), swiss.as_ptr(), swiss.len())
+		};
+		if rc == sys::ERR_NOT_FOUND {
+			return false;
+		}
+		if rc != sys::OK {
+			panic!(
+				"remove_durable({swiss:?}) refused: {}",
+				host_last_error().unwrap_or_else(|| rc.to_string())
+			);
+		}
+		self.shared.giftables.borrow_mut().remove(swiss);
+		true
+	}
+
+	/// Remove the Host-wide alias `name` (alias-only, ADR-0096): a later fetch
+	/// misses on every session, while capabilities already issued and deposited
+	/// gifts keep the exact actor, whose behavior stays hosted for the Host's
+	/// life. Returns `false` when no such alias exists; any other refusal is a
+	/// programming error and panics like `publish_giftable`.
+	pub fn unpublish_giftable(&self, name: &str) -> bool {
+		if let Err(error) = self.shared.guard_open() {
+			panic!("unpublish_giftable({name:?}) refused: {error}");
+		}
+		let rc = unsafe {
+			ffi::pancake_host_unpublish(self.shared.raw.get(), name.as_ptr(), name.len())
+		};
+		if rc == sys::ERR_NOT_FOUND {
+			return false;
+		}
+		if rc != sys::OK {
+			panic!(
+				"unpublish_giftable({name:?}) refused: {}",
+				host_last_error().unwrap_or_else(|| rc.to_string())
+			);
+		}
+		// The alias is gone but the actor is not: the C row still owns the
+		// behavior cell (freed at release), so only the name bookkeeping drops.
+		self.shared.giftables.borrow_mut().remove(name);
+		true
 	}
 }
 
@@ -897,5 +1079,62 @@ mod tests {
 		});
 		host.set_session_limits(0, 0)
 			.expect("minted host answers limits");
+	}
+}
+
+/// The settle authority of a resolver pair (off-turn settlement, ADR-0102),
+/// minted by [`Host::spawn_resolver`]. A behavior defers its answer onto the
+/// pair's vow with [`Resolver::forward_turn`], hands the resolver to whatever
+/// completes the work, and the completion settles it from the host's thread.
+/// The settle verbs consume the resolver, so the one-shot contract is a type
+/// fact: a second settle does not compile. A deferred settle carries plain
+/// data only — a value that names a capability is refused, and an answer that
+/// carries authority forwards to a send instead.
+pub struct Resolver {
+	shared: Rc<HostShared>,
+	vow_id: u64,
+	id: u64,
+}
+
+impl Resolver {
+	/// Defer the current turn's answer onto this resolver's vow: the answer
+	/// settles when the resolver does, as its own top-level event. Legal only
+	/// inside a behavior hosted by this resolver's host.
+	pub fn forward_turn(&self) -> Result<()> {
+		let turn = current_turn_for(Rc::as_ptr(&self.shared) as usize).ok_or_else(|| {
+			Error::with_transport_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				Some("forward_turn is a turn verb: call it inside a behavior of this host".into()),
+			)
+		})?;
+		check_host(unsafe { ffi::pancake_host_turn_forward_vow(turn, self.vow_id) })
+	}
+
+	/// Settle the deferred answer fulfilled with a capability-free `value`.
+	/// Top-level: refused inside a behavior callback; the settle pumps the
+	/// sessions the deferred answers dirtied.
+	pub fn fulfill(self, value: &Argument) -> Result<()> {
+		let mut arena = crate::SendArena::default();
+		let c_value = arena.one(value)?;
+		check_host(unsafe {
+			ffi::pancake_host_resolver_fulfill(self.shared.raw.get(), self.id, &c_value)
+		})?;
+		self.shared.schedule_kick();
+		Ok(())
+	}
+
+	/// Settle the deferred answer broken with the worker's own words. The
+	/// same top-level, one-shot contract as [`Resolver::fulfill`].
+	pub fn break_with(self, reason: &str) -> Result<()> {
+		check_host(unsafe {
+			ffi::pancake_host_resolver_break(
+				self.shared.raw.get(),
+				self.id,
+				reason.as_ptr(),
+				reason.len(),
+			)
+		})?;
+		self.shared.schedule_kick();
+		Ok(())
 	}
 }

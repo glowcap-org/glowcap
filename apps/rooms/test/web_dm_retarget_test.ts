@@ -163,14 +163,22 @@ try {
 				"conversation — it landed on the closed one, which is the nickname keying again",
 		)
 	);
-	const kept = await zoe.page.evaluate((text) => {
+	const opened = await zoe.page.evaluate(() => {
 		const closed = [...document.querySelectorAll("#dmList li")]
 			.find((li) => li.className.includes("closed")) as HTMLElement | undefined;
 		if (!closed) return false;
 		(closed.querySelector(".dm-open") as HTMLElement).click();
-		return (document.getElementById("log")?.textContent ?? "").includes(text);
-	}, line);
-	if (!kept) fail("the closed conversation lost its history when a new one took the name");
+		return true;
+	});
+	if (!opened) fail("the closed conversation left no row to open");
+	// Wait for the log rather than reading it in the same turn as the click. The
+	// page draws from state, so a click asks for the change and the paint follows;
+	// reading straight after it sees the conversation that was on screen before.
+	await zoe.page.waitForFunction(
+		(text) => (document.getElementById("log")?.textContent ?? "").includes(text),
+		line,
+		{ timeout: 15_000 },
+	).catch(() => fail("the closed conversation lost its history when a new one took the name"));
 
 	console.log(
 		"PASS: a name changing hands does not move a conversation — the message reached nobody, " +

@@ -1,32 +1,42 @@
 ---
 id: ADR-0096
-status: proposed
+status: accepted
 date: 2026-07-31
 tags: [actors, captp, handoff, identity, host, publication]
 decision: "Host and Vat remain separate layers, while the standard multi-session product composes one of each through session-specific ports. Application-held capabilities are opaque Host-scoped identities; wire positions are projections, publications are names for one vat target, and gifts retain the exact target deposited."
 supersedes: [ADR-0092, ADR-0094]
 superseded_by: []
 amends: [ADR-0056, ADR-0059, ADR-0060, ADR-0062, ADR-0068, ADR-0069, ADR-0072]
-amended_by: [ADR-0100]
+amended_by: [ADR-0100, ADR-0101]
 ---
 
 # ADR-0096 Host-scoped capability identity
 
 ## Status
 
-This is a partially shipped target design. Fair queueing, one Host Vat with
+Accepted: the migration and its evidence matrix are complete (see the
+evidence standing below). Fair queueing, one Host Vat with
 per-session Ports, sparse lazy publication, the exact-target gift mechanism,
 the Host capability table, the one-id C ABI, Wasm, and all four bindings ship.
-The discriminating production-Host scenario now proves that a mutated actor
-deposited on one exporter Port remains the redeemed target after its alias is
-replaced and withdrawal occurs on another Port.
+The native owning `Session` facade also ships on the opaque identity: every
+verb takes and returns `driver.Capability`, arguments and replies are the
+Host-shaped `Value`/`Reply` vocabulary with lift/lower fused at the Host
+boundary, hosted behaviors answer through the `Hosting` adapter, and the
+`enroll` / `fetchReference` / `callReference` / `sendReference` spellings are
+deleted; wire references remain only on the explicit `engine.Peer` and
+`BlockingSession` tiers. The discriminating production-Host scenario proves
+that a mutated actor deposited on one exporter Port remains the redeemed
+target after its alias is replaced and withdrawal occurs on another Port.
 
-The ADR stays proposed while the native owning `Session` facade still exposes
-actor/wire reference spellings and while the remaining evidence matrix below
-is incomplete, notably unnamed gifts, unpublish, cross-Port `become`, and the
-live Goblins mutation fixture. The user-affecting native facade limitation
-stays named in `docs/boundaries.md`; unfinished implementation and evidence are
-listed in `docs/roadmap.md`.
+Alias-only unpublish also ships, wired through every publication tier
+(`Host.unpublish`, the native `PollHost` / `Server` surfaces,
+`pancake_host_unpublish`, and all four bindings), with the production-Host
+scenario holding its three outcomes: a removed alias misses on every session,
+an issued capability stays callable, and a deposited gift redeems the exact
+actor.
+
+Actor reclamation, which this record deliberately left at Host lifetime, is
+decided and implemented by [ADR-0101](ADR-0101-actor-roots-and-reclamation.md).
 
 Fresh CapTP session identity and sturdyref authority are related but independent
 decisions. They are split into
@@ -315,9 +325,9 @@ Named costs are:
 - queue widening pays only the costs accepted and measured by ADR-0099.
 
 The measured composition banks the removed per-session Vat footprint. The
-`HostSession` ceiling is 464 bytes, down from 768; Debug reaches that ceiling
-and native ReleaseFast is 432 bytes, while the 448-byte Vat is charged once per
-Host. The warmed-session footprint, allocation budgets, and ordinary-send
+`HostSession` ceiling is 496 bytes, down from 768 when this decision landed at
+464 and later raised by 32 for ADR-0097's per-session signing seed; the
+448-byte Vat is charged once per Host. The warmed-session footprint, allocation budgets, and ordinary-send
 performance tripwire retain their existing ceilings. The saving is not
 headroom for eager routing tables.
 
@@ -364,22 +374,46 @@ The decision is accepted only when these production-Host scenarios pass:
 
 ### Evidence standing
 
-The alias-replacement half of item 1 is held by
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig): it
-mutates A, deposits it through the gifter-facing Port, replaces the alias with
-B, withdraws through a second exporter Port, calls A through the redeemed
-capability, and fetches B by name. The call before deposit and the redeemed call
-also hold item 5's shared-state half across those Ports; its `become` history
-half remains open. The unpublish half remains open because the alias-removal API
-does not yet exist.
+Items 1 and 5 are held by
+[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig):
+the alias-replacement scenario mutates A, deposits it through the
+gifter-facing Port, replaces the alias with B, withdraws through a second
+exporter Port, calls A through the redeemed capability, and fetches B by name
+(also the shared-state half of item 5); the unpublish scenario holds item 1's
+removal half; and the become scenario holds item 5's history half, one `bump`
+per Port observed from the other. The same file holds item 2 (an unnamed
+maker-spawned actor deposited and withdrawn as the exact mutated target),
+item 7 (the redeemed token and a direct fetch over the same exporter session
+lift to one Host identity and compare Equal), item 10 (restore under two live
+sessions breaks only the missing target's answers, typed, with no retarget),
+and item 12 (gifter-session close reclaims the gift and later withdrawal
+fails closed). Item 3 is held in the same two layers as before (the engine
+early-withdraw scenario and the production verified-resolution scenario).
 
-The engine scenario in
+Items 4, 6, 8, and 11 are held by
+[`test/driver/capability_registry_test.zig`](../../../test/driver/capability_registry_test.zig):
+equal positions scoped per session, canonical lifts through ordinary replies
+and delivered arguments, stale-id and foreign-Host refusal with never-reused
+public ids, and the bounded-index first-lift / allocation-free repeated-lift
+budgets; the engine's own send-path budgets are unchanged and hold the
+capability-free arms.
+
+Item 9: the engine scenario in
 [`test/engine/cross_peer_test.zig`](../../../test/engine/cross_peer_test.zig)
-holds the opaque target capture/projection seam. The driven oracle additionally
-asserts that the recipient's direct call addresses the exact export position
-created by that projection. Those are engine evidence, not substitutes for the
-production Host scenario above. Item 9's live Goblins mutation fixture remains
-open; descriptor-shape interop alone does not satisfy it.
+holds the opaque capture/projection seam, and the driven oracle asserts the
+recipient's direct call addresses the exact projected position. Each binding
+proves the exact-gift mutation case on its public surface: the Deno stack in
+`bindings/ts/dogfood/gifter_handoff.ts`, Python in the `zig_smoke.py`
+direct-message scene, Racket in the `zig-smoke.rkt` redeem-dial scene, and
+Rust in `bindings/rust/examples/iroh_handoff.rs` — each mutates the held
+object, replaces the alias with a decoy, and asserts the withdrawn object is
+the mutated original. The browser surface shares the same `@pancake/stack`
+gift logic over the wasm adapter, whose equivalence `zig build web-peer-test`
+holds and whose live redemption `zig build rooms-web-dm` proves in a real
+Chromium. The live Goblins exporter fixture (`zig build goblins-exporter`)
+now primes the pancake-hosted actor from the Goblins gifter, replaces the
+alias with a decoy, and requires the Goblins recipient's withdrawn greeting
+to carry the mark.
 
 Item 3 is held in two layers. The engine scenario verifies an early receive,
 accepts its replay count before waiting, rejects a duplicate certificate, and
@@ -424,11 +458,15 @@ pass-invariant equality before its discriminating scenario passes.
 
 ### Migration standing
 
-Steps 1–6 ship. Step 7 ships Host-target publication, lazy Port projection, and
-replacement semantics; alias-only unpublish remains. Step 8 ships exact local
+Steps 1–6 ship. Step 7 ships Host-target publication, lazy Port projection,
+replacement semantics, and alias-only unpublish. Step 8 ships exact local
 target storage, verified withdrawal ordering, and the production Host mutation
-and replacement scenario. The unnamed-target, unpublish, remote-equality, and
-outside-peer portions remain acceptance work rather than implementation claims.
+and replacement scenario. The native owning facade migration ships: opaque
+`driver.Capability` on every `driver.Session` verb, the `Value`/`Reply`
+vocabulary, the `Hosting` behavior adapter, and deletion of the explicit
+enrollment and bare-position spellings. The unnamed-target, remote-equality,
+and outside-peer portions remain acceptance work rather than implementation
+claims.
 
 ## Scope (what this does not decide)
 

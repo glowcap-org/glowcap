@@ -107,6 +107,7 @@ extern fn pancake_iroh_sidecar_endpoint_direct_addrs(ep: *const CEndpoint, out: 
 extern fn pancake_iroh_sidecar_connect_blocking(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize, out_code: *i32) ?*CConn;
 extern fn pancake_iroh_sidecar_accept(ep: *CEndpoint) ?*CConn;
 extern fn pancake_iroh_sidecar_accept_timeout(ep: *CEndpoint, timeout_ms: i32) ?*CConn;
+extern fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const CConn, out_key32: [*]u8) i32;
 extern fn pancake_iroh_sidecar_conn_read(conn: *CConn, buf: [*]u8, len: usize) isize;
 extern fn pancake_iroh_sidecar_conn_write(conn: *CConn, buf: [*]const u8, len: usize) isize;
 extern fn pancake_iroh_sidecar_conn_flush(conn: *CConn) i32;
@@ -474,6 +475,7 @@ const resident_vtable: Netlayer.VTable = .{
     // The designator is the endpoint's Ed25519 key, so a driver dial pins the
     // partner's session identity to it (`net.netlayer.DesignatorScheme`).
     .designator_scheme = .key,
+    .authentication = .authenticated_transport,
     .dial = residentDial,
     .listen = residentListen,
     .io = residentIo,
@@ -573,6 +575,7 @@ const listener_vtable: Listener.VTable = .{
     // hint-less locator (the partner already reached us; discovery or the
     // application's own locator record carries dial addresses).
     .designator_scheme = .key,
+    .authentication = .authenticated_transport,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
@@ -594,6 +597,16 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
     const conn = box.stashed orelse pancake_iroh_sidecar_accept(box.resident.endpoint) orelse return error.ConnectionLost;
     box.stashed = null;
     errdefer pancake_iroh_sidecar_conn_free(conn);
+    // The authenticated-transport binding (ADR-0097): QUIC verified the
+    // remote endpoint key during the TLS handshake, so bind the CapTP hello
+    // to it before any byte is fed — a hello may claim that durable identity
+    // or an address, never someone else's key. The accept half of the
+    // identity the dial side already gets by asking iroh for a specific node
+    // id. A connection whose proof cannot be read is refused rather than
+    // admitted unbound.
+    var remote: [crypto.PEER_KEY_BYTES]u8 = undefined;
+    if (pancake_iroh_sidecar_conn_remote_node_id(conn, &remote) != 0) return error.ConnectionLost;
+    peer.expectPartnerDurableKey(crypto.PeerKey.fromBytes(remote), .transport_verified);
     const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     return stream.intoConnection(box.resident.io, peer);
 }
@@ -808,6 +821,19 @@ pub const Backend = struct {
                 continue;
             };
         }
+    }
+
+    /// The QUIC-authenticated remote endpoint key for `fd`'s connection, or
+    /// null when the connection is gone or the proof cannot be read. The
+    /// authenticated-transport capability `completion.Loop.remotePartnerKey`
+    /// forwards to the bridge, so an accepted loop-tier peer is pinned before
+    /// its first byte feeds (ADR-0097). Socket backends have no such decl and
+    /// the loop answers null for them.
+    pub fn remotePartnerKey(self: *Backend, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+        const entry = self.conns.getPtr(fd) orelse return null;
+        var out: [crypto.PEER_KEY_BYTES]u8 = undefined;
+        if (pancake_iroh_sidecar_conn_remote_node_id(entry.cconn, &out) != 0) return null;
+        return out;
     }
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen: Fd) !void {

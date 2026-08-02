@@ -18,7 +18,8 @@ binding `Session` = one-partner app object, a view onto a
 `driver_core.HostSession` under a Host — the same contract `driver.Session`
 carries natively, as a view onto an owning `driver.PollHost` (ADR-0090); the
 no-router single-connection tier is `driver.BlockingSession`, the one place
-`Settled.give` surfaces; Goblins `mycapn`
+`Settled.give` surfaces and the only tier a transport with no pollable
+descriptor can ride, so it does not collapse into `PollHost`; Goblins `mycapn`
 = endpoint ≈ Host + router tables ≈ `engine.Node`. Binding `Node` /
 `Connection` deleted; `net.Connection` is the byte stream only. No
 multi-session “node” alias for `PancakeHost`; no `driver.Connection`.

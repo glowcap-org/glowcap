@@ -59,18 +59,13 @@ round-trip:
 > );
 > defer session.deinit();
 >
-> const greeter = try session.fetch("greeter"); // a capability, by name
+> const greeter = try session.fetch("greeter"); // an opaque capability, by name
 > var arena = std.heap.ArenaAllocator.init(allocator);
 > defer arena.deinit();
-> const settled = try session.call(greeter, .{
->     .verb = "greet",
->     .args = &.{.{ .string = "world" }},
-> }, arena.allocator());
+> const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 > switch (settled) {
->     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
+>     .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
->     // `driver.Session` redeems handoffs before returning.
->     .give => unreachable,
 > }
 > ```
 > **iroh**
@@ -95,18 +90,13 @@ round-trip:
 > );
 > defer session.deinit();
 >
-> const greeter = try session.fetch("greeter"); // a capability, by name
+> const greeter = try session.fetch("greeter"); // an opaque capability, by name
 > var arena = std.heap.ArenaAllocator.init(allocator);
 > defer arena.deinit();
-> const settled = try session.call(greeter, .{
->     .verb = "greet",
->     .args = &.{.{ .string = "world" }},
-> }, arena.allocator());
+> const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 > switch (settled) {
->     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
+>     .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
->     // `driver.Session` redeems handoffs before returning.
->     .give => unreachable,
 > }
 > ```
 

@@ -47,7 +47,7 @@ const Desk = struct {
         const record = try turn.spawn(Record, .{ .title = "Blue Train" });
         const guarded = try actors.attenuate(turn.vat, record, &.{"play"});
         const port = turn.port orelse return error.NotConnected;
-        return .{ .reference = .{ .near = try port.projectActor(guarded) } };
+        return .{ .reference = .{ .near = try port.projectActor(turn.vat, guarded) } };
     }
 };
 
@@ -95,9 +95,9 @@ pub fn main() !void {
     var desk_vat = pancake.Vat.init(allocator);
     defer desk_vat.deinit();
     var desk_port = actors.Port.init(allocator, desk_peer);
-    defer desk_port.deinit();
+    defer desk_port.deinit(&desk_vat);
     const desk = try desk_vat.spawn(Desk, .{});
-    try desk_port.bindExport(desk, 5);
+    try desk_port.bindExport(&desk_vat, desk, 5);
     // The listener learns the desk's position out-of-band (this example wires
     // both peers by hand), so the desk takes an explicit grant. The record the
     // desk checks out later needs none: its reference rides the checkout reply,
@@ -108,7 +108,7 @@ pub fn main() !void {
     var listener_vat = actors.Vat.init(allocator);
     defer listener_vat.deinit();
     var listener_port = actors.Port.init(allocator, listener_peer);
-    defer listener_port.deinit();
+    defer listener_port.deinit(&listener_vat);
 
     // The whole dependent chain leaves before anything resolves: `checkout`,
     // then `play` and `eject` aimed at checkout's still-pending answer.

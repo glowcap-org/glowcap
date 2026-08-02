@@ -18,11 +18,6 @@ pub const tryManagedFrame = abi.tryManagedFrame;
 /// Decode a `PANCAKE_FRAME_SHAPE_*` value. Lives in the shared leaf.
 pub const frameShapeFromC = abi.frameShapeFromC;
 
-pub const AdoptedManagedFramePayload = struct {
-    managed: PancakeManagedFrame,
-    allocator: std.mem.Allocator,
-};
-
 pub export fn pancake_managed_frame_release(frame: ?*PancakeManagedFrame) void {
     const managed = frame orelse return;
     const release = managed.release orelse return;
@@ -32,11 +27,4 @@ pub export fn pancake_managed_frame_release(frame: ?*PancakeManagedFrame) void {
     // normalization. Do not touch `managed` after this call; a producer may
     // allocate descriptors whose release reclaims the whole object.
     release(managed);
-}
-
-pub fn releaseAdoptedManagedFrame(context: *anyopaque) void {
-    const payload: *AdoptedManagedFramePayload = @ptrCast(@alignCast(context));
-    const alloc = payload.allocator;
-    pancake_managed_frame_release(&payload.managed);
-    alloc.destroy(payload);
 }

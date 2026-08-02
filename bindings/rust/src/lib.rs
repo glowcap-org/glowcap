@@ -53,7 +53,7 @@ pub use session_shared::Caretaker;
 #[cfg(feature = "async")]
 mod host;
 #[cfg(feature = "async")]
-pub use host::{Host, HostOptions};
+pub use host::{Host, HostOptions, Resolver};
 #[cfg(feature = "async")]
 mod trampoline;
 // Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).
@@ -115,6 +115,8 @@ pub mod tcp;
 // encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
 #[cfg(feature = "iroh")]
 pub mod iroh;
+#[cfg(feature = "rendezvous")]
+mod ws_stream;
 
 // OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
 // the grammar without the iroh companion library. One grammar, no hand-rolled

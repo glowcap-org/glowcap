@@ -44,9 +44,18 @@
 ;; cell. Two green threads sharing one auto-allocated out slot have lost a
 ;; just-written consumed count (inbox re-feed → live answer-id reuse); the
 ;; build bans automatic FFI out syntax under bindings/racket.
-(define (call/out ctype init proc)
+;; One fresh out cell for `ctype`, seeded with `init`. A cstruct init is a
+;; tagged pointer, and the generated stub types that out-param `_ID-pointer`,
+;; whose argument conversion refuses an untagged malloc block — so the fresh
+;; cell must carry the init's tag before it crosses.
+(define (out-cell ctype init)
   (define cell (malloc ctype 'atomic-interior))
+  (when (cpointer? init) (cpointer-push-tag! cell (cpointer-tag init)))
   (ptr-set! cell ctype init)
+  cell)
+
+(define (call/out ctype init proc)
+  (define cell (out-cell ctype init))
   (define rc (proc cell))
   (values rc (ptr-ref cell ctype)))
 
@@ -55,9 +64,7 @@
 (define (call/outs specs proc)
   (define cells
     (for/list ([s (in-list specs)])
-      (define cell (malloc (car s) 'atomic-interior))
-      (ptr-set! cell (car s) (cdr s))
-      cell))
+      (out-cell (car s) (cdr s))))
   (define rc (apply proc cells))
   (apply values rc
          (for/list ([s (in-list specs)] [c (in-list cells)])
@@ -177,9 +184,12 @@
    [designator _pointer]
    [designator-len _size]
    [locator-record _pointer]
-   [locator-record-len _size]) #:malloc-mode 'atomic-interior)
+   [locator-record-len _size]
+   ;; How the durable identity in `designator` was authenticated, one of the
+   ;; DURABLE-PROVENANCE-* constants (ADR-0097).
+   [provenance _uint32]) #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakePartnerIdentity _PancakePartnerIdentity PANCAKE-PARTNER-IDENTITY-SIZE
-             '(pointer uint64 pointer uint64 pointer uint64))
+             '(pointer uint64 pointer uint64 pointer uint64 uint32))
 
 ;; Borrowed pending dial view (transport/designator/hint).
 (define-cstruct _PancakePendingDial

@@ -17,14 +17,10 @@ import { Host } from "./host.ts";
 import { driverS } from "./internal/ffi/host.ts";
 import { ensureRuntimeReady, ffi, net } from "./internal/ffi/runtime.ts";
 import { ab, readBytes } from "./internal/seam.ts";
+import { openWebSocketChannel } from "./ws_channel.ts";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Codec, Reachability } from "./value.ts";
-import {
-	HINT_DIRECT_ADDRESSES,
-	parseLocator,
-	TRANSPORT_KEYED_RELAY,
-	TRANSPORT_TCP,
-} from "./locator.ts";
+import { HINT_DIRECT_ADDRESSES, parseLocator, TRANSPORT_TCP } from "./locator.ts";
 import { L } from "./internal/layout.ts";
 import {
 	DIAL_POSTURE_EXPLICIT,
@@ -34,6 +30,7 @@ import {
 	DIAL_REACH_DIRECT,
 	DIAL_SHAPE_HOST_PORT,
 	DIAL_SHAPE_PEER_ID,
+	DIAL_SHAPE_RENDEZVOUS,
 	DIAL_SHAPE_SIGNALING,
 	INVALID_ARGUMENT,
 } from "@pancake/abi";
@@ -70,7 +67,9 @@ type DialPlan =
 		readonly addresses: string;
 		readonly reachKind: number;
 		readonly reachValue: number;
-	};
+	}
+	| { readonly tag: "signaling" }
+	| { readonly tag: "rendezvous" };
 
 /** Decode a plan view that aliases one of the UTF-8 input buffers (one OS
  * connect string decode). A non-alias view is a core contract break. */
@@ -137,10 +136,10 @@ function planDial(
 		};
 	}
 	if (shape === DIAL_SHAPE_SIGNALING) {
-		throw new PancakeError(
-			INVALID_ARGUMENT,
-			`webrtc signaling dial shape ${shape} requires a signaling-aware adapter; a bare locator cannot open it`,
-		);
+		return { tag: "signaling" };
+	}
+	if (shape === DIAL_SHAPE_RENDEZVOUS) {
+		return { tag: "rendezvous" };
 	}
 	throw new PancakeError(INVALID_ARGUMENT, `unknown dial shape ${shape}`);
 }
@@ -176,6 +175,12 @@ export function classifyRelayTarget(locator: string): RelayTarget {
 		DIAL_POSTURE_EXPLICIT,
 		Reachability.Direct,
 	);
+	if (plan.tag === "signaling" || plan.tag === "rendezvous") {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			`a relay cannot dial a ${parts.transport} locator: no socket opens it`,
+		);
+	}
 	return plan.tag === "host_port"
 		? { kind: "tcp", hostname: plan.hostname, port: plan.port }
 		: { kind: "iroh", locator };
@@ -203,26 +208,6 @@ function reachOf(
  * connection and never finishes the OCapN handshake costs one dial, not the
  * caller. */
 export async function dialResolved(host: Host, req: DialRequest): Promise<Session> {
-	// `keyed-relay` names a peer by key alone with no dialable address: its byte
-	// path is a relay rendezvous, not a socket, so it bypasses the socket-dial
-	// planner and opens the rendezvous channel through the adapter (ADR-0088).
-	// Only a rendezvous-capable runtime (the browser) provides one; elsewhere
-	// `connectRendezvous` fails loud.
-	if (req.transport === TRANSPORT_KEYED_RELAY) {
-		const channel = await net.connectRendezvous!(req.designator);
-		try {
-			return await Session.establishDialedLocator(
-				host,
-				req.transport,
-				req.designator,
-				channel,
-				req.handshakeTimeoutMs,
-			);
-		} catch (err) {
-			channel.close();
-			throw err;
-		}
-	}
 	const [policy, value] = req.redeem
 		? [DIAL_POSTURE_REDEEM, 0]
 		: req.reachability !== undefined
@@ -253,6 +238,76 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 			} catch (err) {
 				tcp.close();
 				throw err;
+			}
+		}
+		case "rendezvous": {
+			// `keyed-relay` names a peer by key alone with no dialable address:
+			// its byte path is a relay's rendezvous bridge (ADR-0088). The relay
+			// mapping is deployment configuration, exactly like the redeem
+			// reachability posture beside it on `Host`; without one the dial
+			// refuses loud.
+			const rendezvousUrl = host.rendezvousUrl;
+			if (rendezvousUrl === null) {
+				throw new PancakeError(
+					INVALID_ARGUMENT,
+					"keyed-relay dial: no rendezvous relay configured; call Host.setRendezvousUrl first",
+				);
+			}
+			const channel = await openWebSocketChannel(rendezvousUrl(req.designator));
+			try {
+				return await Session.establishDialedLocator(
+					host,
+					req.transport,
+					req.designator,
+					channel,
+					req.handshakeTimeoutMs,
+				);
+			} catch (err) {
+				channel.close();
+				throw err;
+			}
+		}
+		case "signaling": {
+			// A `webrtc` locator names a designator and no route: the channel is
+			// opened by an offer, answer, and candidate exchange, not a socket
+			// (ADR-0089). The authority that carries the exchange is deployment
+			// configuration of the dialing host, exactly like the rendezvous
+			// mapping above; without one the dial refuses loud.
+			const signaling = host.signaling;
+			if (signaling === null) {
+				throw new PancakeError(
+					INVALID_ARGUMENT,
+					"webrtc dial: no signaling authority configured; call Host.setSignaling first",
+				);
+			}
+			const { RtcPeer } = await import("@pancake/webrtc");
+			const peer = new RtcPeer({ offerer: true });
+			// The far peer's candidates can trickle from the moment it holds our
+			// offer, so the sink is registered before the offer is sent.
+			const stopCandidates = signaling.onCandidate(req.designator, (ice) => {
+				peer.addRemoteCandidate(JSON.parse(ice)).catch(() => {
+					// A late or duplicate candidate is harmless.
+				});
+			});
+			try {
+				peer.onLocalCandidate((candidate) =>
+					void signaling.candidate(req.designator, JSON.stringify(candidate))
+				);
+				const answer = await signaling.offer(req.designator, await peer.createOffer());
+				await peer.setRemoteAnswer(answer);
+				await peer.waitOpen();
+				return await Session.establishDialedLocator(
+					host,
+					req.transport,
+					req.designator,
+					peer.channel(),
+					req.handshakeTimeoutMs,
+				);
+			} catch (err) {
+				peer.close();
+				throw err;
+			} finally {
+				stopCandidates();
 			}
 		}
 	}

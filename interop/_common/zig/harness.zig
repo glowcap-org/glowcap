@@ -100,12 +100,16 @@ pub const PortFlagOptions = struct {
     max: u16 = 65535,
     /// Suffix for the range diagnostic, e.g. " (carol binds port+1)".
     note: []const u8 = "",
+    /// Exact flag spellings the driver reads itself (via `hasFlag`), tolerated
+    /// here so the unknown-argument refusal stays exact.
+    tolerated: []const []const u8 = &.{},
 };
 
 /// The interop drivers' one-flag argv contract: an optional `--port=N`
-/// (last one wins) and nothing else. Returns `default` when the flag is
-/// absent; a port outside `1..opts.max` or an unknown argument prints a
-/// diagnostic under `prefix` and fails typed.
+/// (last one wins), any `opts.tolerated` flag the driver reads itself, and
+/// nothing else. Returns `default` when the flag is absent; a port outside
+/// `1..opts.max` or an unknown argument prints a diagnostic under `prefix`
+/// and fails typed.
 pub fn parsePortFlag(
     minimal_args: anytype,
     prefix: []const u8,
@@ -124,11 +128,27 @@ pub fn parsePortFlag(
             }
             port = parsed;
         } else {
-            std.debug.print("{s}: unknown argument '{s}'\n", .{ prefix, arg });
-            return error.BadArgument;
+            const tolerated = for (opts.tolerated) |flag| {
+                if (std.mem.eql(u8, arg, flag)) break true;
+            } else false;
+            if (!tolerated) {
+                std.debug.print("{s}: unknown argument '{s}'\n", .{ prefix, arg });
+                return error.BadArgument;
+            }
         }
     }
     return port;
+}
+
+/// Whether `flag` (exact spelling) appears in the argv. Pair it with
+/// `PortFlagOptions.tolerated` so `parsePortFlag` accepts the flag.
+pub fn hasFlag(minimal_args: anytype, flag: []const u8) bool {
+    var args = std.process.Args.Iterator.init(minimal_args);
+    _ = args.next(); // program name
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, flag)) return true;
+    }
+    return false;
 }
 
 /// A caller-owned negotiating peer with its frame-capped read and write

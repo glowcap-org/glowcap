@@ -262,6 +262,9 @@ pub struct PancakePartnerIdentity {
 	pub designator_len: usize,
 	pub locator_record: *const c_uchar,
 	pub locator_record_len: usize,
+	/// How the durable identity in `designator` was authenticated, one of the
+	/// `DURABLE_PROVENANCE_*` constants (ADR-0097).
+	pub provenance: c_uint,
 }
 
 // The raw extern block is generated (`host_fns_gen.rs`, `zig build

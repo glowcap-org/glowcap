@@ -63,13 +63,20 @@
          (struct-out keyed-tcp-server)
          make-host make-fresh-host
          host-publish-giftable
+         host-unpublish-giftable
+         host-publish-durable
+         host-remove-durable
+         host-spawn-resolver resolver? resolver-vow-id
+         resolver-forward-turn! resolver-fulfill! resolver-break!
+         host-enliven
          tcp-locator keyed-tcp-locator parse-locator format-peer-uri (struct-out locator)
          encode-peer-locator designator-host-port socket-addr-designator session-set-exporter-locator!
          host-redeem-reachability-value set-host-redeem-reachability!
+         host-rendezvous-url-value set-host-rendezvous-url!
          designator-from-seed
-         session-partner-identity session-partner-designator-is-key?
+         session-partner-identity partner-identity-durable-authenticated?
          session-vat session-async session-host session-spawn session-publish session-published-ref
-         session-fetch session-enliven session-send session-send-redeeming
+         session-fetch session-enliven session-send session-listen session-send-redeeming
          session-send-promise session-await
          session-index session-untag session-get session-serve session-tell session-close!
          session-with-gc! session-release! session-caretaker session-attenuate session-revoke!

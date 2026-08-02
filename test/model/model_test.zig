@@ -4,22 +4,20 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 
 test "value-tree types stay within their documented size budget" {
-    // The handoff arm of `Argument`/`Resolution` is boxed (`*Handoff`) precisely
-    // so the common arm sets the struct size; un-boxing it would balloon every
-    // element of a deliver's args (the memory rule's load-bearing-allocations
-    // budget). These bounds turn that budget into a gate, a regression here is
-    // the bench's printed `model_layout` numbers drifting silently.
-    try std.testing.expect(@sizeOf(model.Argument) <= 40);
-    try std.testing.expect(@sizeOf(model.Resolution) <= 48);
-    try std.testing.expect(@sizeOf(model.Reference) <= 32);
-    // The borrowed twins get the same gate. `view.Argument` keeps its handoff
+    // The owned `Argument`/`Resolution`/`Reference` ceilings are comptime
+    // asserts beside the types in `src/ocapn/model/mod.zig`; un-boxing the
+    // handoff arm fails the build there, not this test.
+    // The borrowed twins get their gate here. `view.Argument` keeps its handoff
     // arm inline — it borrows wire bytes and may not allocate a box — so it is
     // roughly eight times its owned twin, and the inbound set-uniqueness fold
     // parks one per set element (stack for small sets, `recv_scratch` above
     // that). That spend is deliberate, but it must not grow silently: a new
-    // field on any record under the handoff arm moves these numbers.
-    try std.testing.expect(@sizeOf(model.view.Argument) <= 312);
-    try std.testing.expect(@sizeOf(model.view.Reference) <= 120);
+    // field on any record under the handoff arm moves these numbers. Both
+    // bounds rose by one pointer (312 → 320, 120 → 128) when `view.HintList`
+    // gained its borrowed `find` fn pointer (the allocation-free attestation
+    // lookup, ADR-0097), carried under every borrowed locator's hints.
+    try std.testing.expect(@sizeOf(model.view.Argument) <= 320);
+    try std.testing.expect(@sizeOf(model.view.Reference) <= 128);
 }
 
 test "owned argument measurement matches the clone payload shape" {
@@ -75,6 +73,22 @@ test "abort kinds round-trip every variant through their wire names" {
         try std.testing.expectEqualStrings(entry[1], entry[0].wireName());
         try std.testing.expectEqual(entry[0], model.AbortKind.fromWireName(entry[1]).?);
     }
+}
+
+test "reserved-band sums classify exactly at their base (ADR-0091)" {
+    // `classify` is the one seam where an integer becomes a name, so the band
+    // boundary lives here and nowhere else. Both spaces share the contract:
+    // strictly below the base is the partner's, at and above is this node's.
+    try std.testing.expect(model.ImportName.classify(model.REDEEMED_TOKEN_BASE - 1) == .wire);
+    try std.testing.expect(model.ImportName.classify(model.REDEEMED_TOKEN_BASE) == .token);
+    try std.testing.expect(model.AnswerName.classify(model.VIRTUAL_INBOUND_ANSWER_BASE - 1) == .wire);
+    try std.testing.expect(model.AnswerName.classify(model.VIRTUAL_INBOUND_ANSWER_BASE) == .virtual);
+    // The named crossings preserve the integer: a token lowered to the wire and
+    // a virtual answer seated in the answer table keep their identity.
+    const token = model.ImportName.classify(model.REDEEMED_TOKEN_BASE).token;
+    try std.testing.expectEqual(model.REDEEMED_TOKEN_BASE, token.wirePosition().int());
+    const virtual = model.AnswerName.classify(model.VIRTUAL_INBOUND_ANSWER_BASE).virtual;
+    try std.testing.expectEqual(model.VIRTUAL_INBOUND_ANSWER_BASE, virtual.answerPosition().int());
 }
 
 test "near and far ref constructors set the wire-tag kind discriminant" {

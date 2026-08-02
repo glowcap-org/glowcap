@@ -551,29 +551,38 @@ test "after a refused op:start-session the byte stream may retry: a valid hello 
     }
 }
 
-test "a pinned peer refuses an op:start-session from any key but the expected one, and the session never opens" {
+test "a pinned peer refuses an op:start-session claiming any identity but the expected one" {
     const allocator = std.testing.allocator;
 
     // The verifier is a dialer that resolved a key-designator locator: it pins
-    // the partner's session identity to the key it dialed. The sender's
-    // handshake is honestly signed — the signature verifies — but under a
-    // different key, which is exactly the relay/squat case the pin refuses.
+    // the *durable identity* it dialed. The sender's handshake is honestly
+    // signed — the signature verifies — but it advertises a different durable
+    // name, which is exactly the relay/squat case the pin refuses. The pin is
+    // on the advertised identity, not on `session_pubkey`: each connection
+    // signs with its own key (ADR-0097), so comparing a session key against a
+    // durable name would prove nothing.
     var verifier = engine.Peer.initNegotiating(allocator);
     defer verifier.deinit();
     var sender = engine.Peer.initNegotiating(allocator);
     defer sender.deinit();
 
     const sender_secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
+    const squatter_identity = crypto.SecretKey.fromSeed([_]u8{0x99} ** crypto.SEED_BYTES);
     const expected_secret = crypto.SecretKey.fromSeed([_]u8{0x88} ** crypto.SEED_BYTES);
-    verifier.expectPartnerKey(expected_secret.publicKey());
+    verifier.expectPartnerDurableKey(expected_secret.publicKey(), .transport_verified);
 
-    const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:9", .hints = model.Hints.emptyFalse() };
+    const claimed = squatter_identity.publicKey().toDesignator();
+    const loc: model.PeerLocator = .{
+        .transport = "keyed-tcp",
+        .designator = claimed[0..],
+        .hints = model.Hints.emptyFalse(),
+    };
     try sender.sendKeyedStartSession(.v1_0, loc, sender_secret);
     _ = try sender.step();
     const hello = sender.takeOutbound().?;
 
     try verifier.feedOwned(hello);
-    try std.testing.expectError(error.PartnerKeyMismatch, verifier.step());
+    try std.testing.expectError(error.PartnerDesignatorMismatch, verifier.step());
     try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
 
     // The refusal is fail-loud and rides the handshake abort domain.
@@ -593,12 +602,15 @@ test "a pinned peer opens when the partner's start-session carries exactly the e
 
     const secret1 = crypto.SecretKey.fromSeed([_]u8{0x11} ** crypto.SEED_BYTES);
     const secret2 = crypto.SecretKey.fromSeed([_]u8{0x22} ** crypto.SEED_BYTES);
-    // Each side pins the other's real key: both handshakes must still open.
-    p1.expectPartnerKey(secret2.publicKey());
-    p2.expectPartnerKey(secret1.publicKey());
+    // Each side pins the other's real durable identity, and each advertises
+    // it: both handshakes must still open.
+    p1.expectPartnerDurableKey(secret2.publicKey(), .transport_verified);
+    p2.expectPartnerDurableKey(secret1.publicKey(), .transport_verified);
 
-    const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
-    const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
+    const designator1 = secret1.publicKey().toDesignator();
+    const designator2 = secret2.publicKey().toDesignator();
+    const loc1: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = designator1[0..], .hints = model.Hints.emptyFalse() };
+    const loc2: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = designator2[0..], .hints = model.Hints.emptyFalse() };
     try p1.sendKeyedStartSession(.v1_0, loc1, secret1);
     try p2.sendKeyedStartSession(.v1_0, loc2, secret2);
 

@@ -298,6 +298,23 @@ fn hintEntryAt(reader: Reader, hl: model.view.HintList, index: usize) Error!mode
     return decodeHintEntry(reader, entry_loc);
 }
 
+/// Borrowed find over the typed entry list: decode entries in place until the
+/// name matches. No allocation — the handshake attestation lookup runs before
+/// session apply (ADR-0097). Unlike materialize this walk does not police
+/// duplicate names; the first match wins, and the full-fidelity paths still
+/// refuse a duplicated dict.
+fn capnpFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
+    const count: usize = @intCast(hl.w2);
+    if (count == 0) return null;
+    const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
+    var index: usize = 0;
+    while (index < count) : (index += 1) {
+        const entry = hintEntryAt(reader, hl, index) catch return error.MalformedView;
+        if (std.mem.eql(u8, entry.name, name)) return entry.value;
+    }
+    return null;
+}
+
 /// One frame-header parse, then every entry — the handshake / `toOwned` path.
 fn capnpMaterializeHintList(
     allocator: std.mem.Allocator,
@@ -395,6 +412,7 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocat
                     .w1 = (@as(u64, clist.data_words) << 16) | clist.ptr_words,
                     .w2 = clist.element_count,
                     .materialize = capnpMaterializeHintList,
+                    .find = capnpFindHint,
                 },
             },
         },

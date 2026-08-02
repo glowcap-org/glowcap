@@ -200,11 +200,6 @@ pub fn wrapManagedInto(alloc: std.mem.Allocator, frame: foundation.Frame, slot: 
     return PANCAKE_OK;
 }
 
-pub fn takeOutboundManaged(peer: *engine.Peer, alloc: std.mem.Allocator, slot: *PancakeManagedFrame) i32 {
-    const out = peer.takeOutbound() orelse return PANCAKE_ERR_WOULD_BLOCK;
-    return wrapManagedInto(alloc, out, slot, "take_outbound");
-}
-
 fn releaseOwnedFrame(frame: *PancakeManagedFrame) callconv(.c) void {
     const payload_ptr = frame.private_data orelse return;
     const payload: *ManagedFramePayload = @ptrCast(@alignCast(payload_ptr));
@@ -540,8 +535,9 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
 /// Depth bound on a host-supplied argument tree. A foreign caller could nest
 /// `PancakeArgument` lists/sets/tagged values arbitrarily deep and overflow the
 /// native stack inside `argumentFromC`, exactly as a hostile wire frame could in
-/// the codec. The value mirrors the session's default `max_nesting_depth` (64).
-pub const max_marshal_depth: usize = 64;
+/// the codec. Derived from the session's default `max_nesting_depth`, so the
+/// marshal boundary and the codec refuse at the same depth by construction.
+pub const max_marshal_depth: usize = (engine.SessionLimits{}).max_nesting_depth;
 
 /// One recursive C-value decoder parameterized only by the reference leaf.
 /// The Host supplies opaque-id lift/lower policy without cloning the
@@ -732,21 +728,6 @@ pub fn argsToCWith(
     const out = try arena.alloc(PancakeArgument, args.len);
     for (args, 0..) |arg, i| out[i] = try argumentToCWith(RefError, ref_ctx, ref_to_c, arena, arg);
     return out;
-}
-
-/// Allocate a heap-pinned arena (child = the peer's allocator) to own a received
-/// projection. `pancake_*_release` deinits and destroys it through that same child.
-pub fn newProjectionArena(alloc: std.mem.Allocator) ?*std.heap.ArenaAllocator {
-    const arena = alloc.create(std.heap.ArenaAllocator) catch return null;
-    arena.* = std.heap.ArenaAllocator.init(alloc);
-    return arena;
-}
-
-pub fn freeProjectionArena(owner: ?*anyopaque) void {
-    const arena: *std.heap.ArenaAllocator = @ptrCast(@alignCast(owner orelse return));
-    const child = arena.child_allocator;
-    arena.deinit();
-    child.destroy(arena);
 }
 
 // ── Transport connection payload lifecycle ───────────────────────────────────

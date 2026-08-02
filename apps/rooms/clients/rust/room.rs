@@ -122,7 +122,6 @@ impl Directory {
 				on_event(kind, name, count);
 				Ok(Argument::Void)
 			})
-			.await
 			.map_err(|e| format!("spawn watch inbox: {e:?}"))?;
 		let arg = self
 			.session
@@ -271,7 +270,6 @@ impl Room {
 				});
 				Ok(Argument::Void)
 			})
-			.await
 			.map_err(|e| format!("spawn inbox: {e:?}"))?;
 
 		// Subscribe, handing the room a capability to our inbox. Success is the

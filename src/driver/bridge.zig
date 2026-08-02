@@ -31,6 +31,8 @@ const std = @import("std");
 
 const engine = @import("engine");
 const driver_core = @import("driver_core");
+const settle_mailbox = @import("settle_mailbox.zig");
+const foundation = @import("foundation");
 const net = @import("net");
 
 /// In-flight outbound connect: correlates a loop slot to its adoption
@@ -105,6 +107,9 @@ pub fn Bridge(comptime LoopT: type) type {
         on_open_ctx: ?*anyopaque = null,
         on_action: ?OnAction = null,
         on_action_ctx: ?*anyopaque = null,
+        /// The off-turn settle mailbox this bridge applies on wake (ADR-0102
+        /// stage 4); borrowed, armed by `attachSettleMailbox`.
+        mailbox: ?*settle_mailbox.SettleMailbox = null,
 
         /// Fires once per CapTP session, from the loop thread, the first time the
         /// session is open — after the event that opened it was served, with the
@@ -240,6 +245,24 @@ pub fn Bridge(comptime LoopT: type) type {
             self.drainActions() catch {};
         }
 
+        /// Attach the off-turn settle mailbox (ADR-0102 stage 4): the loop's
+        /// wake arms on the mailbox's fd, a worker's `post` re-enters here on
+        /// the loop thread, and the drain writes what the settles flushed.
+        /// Call on the loop thread, before workers hold the mailbox; the
+        /// mailbox is borrowed and must outlive the loop.
+        pub fn attachSettleMailbox(self: *Self, mailbox: *settle_mailbox.SettleMailbox) !void {
+            self.mailbox = mailbox;
+            try self.loop.armWake(mailbox.wakeFd(), self, applySettleWake);
+        }
+
+        fn applySettleWake(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
+            const mb = self.mailbox orelse return;
+            mb.drainWake();
+            mb.apply(self.host);
+            self.drainBestEffort();
+        }
+
         /// Submit an application outbound dial the bridge will adopt as
         /// `openDialedOver` once the connect completes. Redeem dials use the
         /// action-queue path (`Exec.dial`) instead. Call from the loop-owner
@@ -315,6 +338,16 @@ pub fn Bridge(comptime LoopT: type) type {
         /// (`openAcceptedOver` + publish).
         pub fn makeConnCtx(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
+            // Authenticated-transport binding (ADR-0097), before any leg opens
+            // and so before a byte can feed: when the loop's backend proved
+            // the remote's durable key (iroh's QUIC handshake), the hello may
+            // claim that identity or an address — never someone else's key.
+            // Every leg, because the proof is the connection's, not the
+            // direction's; socket-backed loops carry no lower-layer identity
+            // and answer null.
+            if (self.loop.remotePartnerKey(slot)) |key| {
+                peer.expectPartnerDurableKey(foundation.crypto.PeerKey.fromBytes(key), .transport_verified);
+            }
             var leg: Leg = .accept;
             const session = if (self.pending_connects.fetchRemove(slot)) |kv| blk: {
                 const pending = kv.value;

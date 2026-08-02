@@ -53,10 +53,22 @@ export function parkActions(host: ActionHost): HostAction[] {
  * generated `dispatchHostAction` — a seventh kind fails generate/check. */
 export async function runAction(host: Host, action: HostAction): Promise<void> {
 	await dispatchHostAction(action, {
-		dial: async (a) => {
-			// Lazy: action ↔ dial would cycle through Host if required eagerly.
-			const { runDialTicket } = await import("./dial.ts");
-			await runDialTicket(host, a.ticket);
+		dial: (a) => {
+			// Started, not awaited. A dial can itself need this host's drains and
+			// serve loops: a signaling dial (ADR-0089) round-trips OCapN messages
+			// on an existing session before its channel exists, and the serve
+			// loop that must read those replies awaits this very drain at its
+			// feed's unwind — awaiting the dial here starves the exchange the
+			// dial waits on. The ticket contract is already asynchronous:
+			// `runDialTicket` reports `pancake_host_dialed` / `dial_failed`
+			// whenever it settles, and the follow-up kick drains what that
+			// report queued. (Lazy import: action ↔ dial would cycle through
+			// Host if required eagerly.)
+			void (async () => {
+				const { runDialTicket } = await import("./dial.ts");
+				await runDialTicket(host, a.ticket);
+				await host.kickActions();
+			})().catch(() => {});
 		},
 		flush: async (a) => {
 			await host.getSession(a.conn)?.flushOutbound();

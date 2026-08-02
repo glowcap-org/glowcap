@@ -14,11 +14,11 @@
 
 import { driverS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, outPointer } from "./internal/seam.ts";
-import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT } from "@pancake/abi";
-import { checkHost, PancakeError } from "./errors.ts";
+import { ab, outPointer, outU64 } from "./internal/seam.ts";
+import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT, NOT_FOUND, OK } from "@pancake/abi";
+import { checkHost, hostLastError, PancakeError } from "./errors.ts";
 import { type Argument, type Behavior, type Codec, codecId, Reachability, Ref } from "./value.ts";
-import { refStruct } from "./codec.ts";
+import { encodeArgs, refStruct } from "./codec.ts";
 import {
 	insideTurn,
 	registerBehavior,
@@ -28,6 +28,7 @@ import {
 import type { Context } from "./context.ts";
 import { Session } from "./session.ts";
 import { dialExporter as dialExporterFn } from "./dial.ts";
+import { asLiveRef } from "./promise.ts";
 import { parkActions, runAction } from "./action.ts";
 import { HostGc } from "./gc.ts";
 
@@ -79,6 +80,24 @@ const MAX_UNOBSERVED_OUTCOMES = 1024;
  * over it — the `Session` registry, the vow table, the serialized action
  * drain that performs the I/O the host asks for (dial, flush, settle,
  * entropy), and the iroh redeem posture. */
+/** How a host signals a `webrtc` peer it dials (ADR-0089): the language-level
+ * face of the signaling capability the application holds. WebRTC needs an
+ * offer, an answer, and trickled ICE candidates exchanged before its
+ * DataChannel exists; the application decides how those messages travel — over
+ * a room session, a relay, any capability both parties reach — and the dial
+ * executor only drives the exchange. SDP and candidates cross this seam as the
+ * opaque strings the wire shape carries (a candidate is the JSON-serialized
+ * `RTCIceCandidateInit`). */
+export interface SignalingAuthority {
+	/** Deliver the SDP offer to `designator`'s peer and resolve its SDP answer. */
+	offer(designator: string, sdp: string): Promise<string>;
+	/** Deliver one locally gathered ICE candidate to `designator`'s peer. */
+	candidate(designator: string, ice: string): void | Promise<void>;
+	/** Register the sink for candidates the far peer trickles back, before the
+	 * offer is sent. Returns a disposer the dial calls once the channel opens. */
+	onCandidate(designator: string, sink: (ice: string) => void): () => void;
+}
+
 export class Host {
 	/** The host's retained identity seed (32 bytes), reused for every dial. */
 	readonly seed: Uint8Array;
@@ -103,6 +122,17 @@ export class Host {
 	// to `DiscoveryNoRelay`. A hinted give always dials `Direct` and ignores
 	// this.
 	#redeemReachability: Reachability = IROH_REACH_REDEEM_DEFAULT as Reachability;
+	// How this host reaches a `keyed-relay` peer — one that opens no socket and
+	// holds an inbound socket at a relay under its key designator (ADR-0088).
+	// Deployment configuration exactly like `#redeemReachability` above: null
+	// until the application supplies the relay's rendezvous mapping, and a
+	// `keyed-relay` dial refuses loud without it.
+	#rendezvousUrl: ((designator: string) => string) | null = null;
+	// How this host signals a `webrtc` peer it dials (ADR-0089). The same
+	// deployment-configuration posture as the two fields above: null until the
+	// application supplies the authority, and a `webrtc` dial refuses loud
+	// without it.
+	#signaling: SignalingAuthority | null = null;
 	// Releases the C tier refused inside a behavior callback park here
 	// (`pancake_host_session_release` / `pancake_host_release` are refused
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a
@@ -134,13 +164,22 @@ export class Host {
 	) {
 		this.seed = seed ?? crypto.getRandomValues(new Uint8Array(32));
 		this.codec = opts.codec ?? "syrup";
+		// The durable identity followed by a session-key root drawn here, at
+		// this binding's entropy boundary, because the library draws none
+		// (ADR-0097). The root is fresh per process, so every CapTP session
+		// signs with its own key and a restart cannot recreate a prior
+		// session's handoff names; the durable half stays exactly `seed`,
+		// since a keyed locator's designator derives from it.
+		const seedWithRoot = new Uint8Array(64);
+		seedWithRoot.set(this.seed, 0);
+		crypto.getRandomValues(seedWithRoot.subarray(32));
 		const out = new Uint8Array(8);
 		const localTurnBudget = opts.localTurnBudget ?? 0;
 		if (opts.context !== undefined) {
 			checkHost(driverS.pancake_host_new_in(
 				opts.context.pointer,
-				ab(this.seed),
-				32n,
+				ab(seedWithRoot),
+				64n,
 				BigInt(HOST_FRAME_CAP),
 				1,
 				codecId(this.codec),
@@ -149,8 +188,8 @@ export class Host {
 			));
 		} else {
 			checkHost(driverS.pancake_host_new(
-				ab(this.seed),
-				32n,
+				ab(seedWithRoot),
+				64n,
 				BigInt(HOST_FRAME_CAP),
 				1,
 				codecId(this.codec),
@@ -188,6 +227,48 @@ export class Host {
 	 * giftable rows. Usually unnecessary (a dropped `Host` is reclaimed by the
 	 * runtime's collector), but a host created in a caller-supplied `Context`
 	 * must be released before that context. Idempotent. */
+	/** Binding-internal (the trampoline's async-behavior arm): defer `turn`'s
+	 * answer onto a fresh resolver vow and settle it when `pending` does
+	 * (ADR-0102). The settle re-enters on the runtime's microtask queue — the
+	 * top-level re-entry the host requires — and carries plain data only: a
+	 * value the settle refuses (a capability, per the off-turn contract)
+	 * breaks the answer with the refusal's reason instead of stranding it.
+	 * False when the deferral itself refused; the caller breaks the turn. */
+	deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean {
+		const vowOut = new Uint8Array(8);
+		const resolverOut = new Uint8Array(8);
+		if (driverS.pancake_host_spawn_resolver(this.#raw, ab(vowOut), ab(resolverOut)) !== OK) {
+			return false;
+		}
+		if (driverS.pancake_host_turn_forward_vow(turn, outU64(vowOut)) !== OK) return false;
+		const resolver = outU64(resolverOut);
+		void Promise.resolve(pending).then(
+			(value) => this.#settleResolver(resolver, value === undefined ? null : value),
+			(err) =>
+				this.#breakResolver(resolver, err instanceof Error ? err.message : String(err)),
+		);
+		return true;
+	}
+
+	#settleResolver(resolver: bigint, value: Argument): void {
+		if (this.#raw === NULL) return; // released hosts freed their rows
+		const keep: Uint8Array[] = [];
+		const buf = encodeArgs([value], keep);
+		if (driverS.pancake_host_resolver_fulfill(this.#raw, resolver, ab(buf)) !== OK) {
+			this.#breakResolver(resolver, hostLastError() ?? "deferred settle refused");
+			return;
+		}
+		void this.kickActions();
+	}
+
+	#breakResolver(resolver: bigint, message: string): void {
+		if (this.#raw === NULL) return;
+		const msg = new TextEncoder().encode(message);
+		// Best-effort: a resolver already consumed has nothing left to break.
+		driverS.pancake_host_resolver_break(this.#raw, resolver, ab(msg), BigInt(msg.length));
+		void this.kickActions();
+	}
+
 	release(): void {
 		if (this.#raw === NULL) return;
 		hostFinalizer.unregister(this);
@@ -230,6 +311,63 @@ export class Host {
 	 * always dials `Direct` and ignores this. */
 	setRedeemReachability(reachability: Reachability): void {
 		this.#redeemReachability = reachability;
+	}
+
+	/** The configured `keyed-relay` rendezvous mapping, or null. Binding-
+	 * internal: the dial executor reads it for a `keyed-relay` dial. */
+	get rendezvousUrl(): ((designator: string) => string) | null {
+		return this.#rendezvousUrl;
+	}
+
+	/** Configure how this host reaches a `keyed-relay` peer: map the peer's key
+	 * designator to the WebSocket URL of the relay rendezvous leg that bridges
+	 * onto its held inbound socket, e.g.
+	 * `` (id) => `wss://example/relay?rendezvous=${id}` `` (ADR-0088). The
+	 * keyed-relay sibling of `setRedeemReachability`: deployment configuration
+	 * for reaching an exporter that opens no listener. Without it, a
+	 * `keyed-relay` dial refuses loud. */
+	setRendezvousUrl(url: (designator: string) => string): void {
+		this.#rendezvousUrl = url;
+	}
+
+	/** Enliven a complete sturdyref without naming a session (ADR-0098): the
+	 * host enlivens it over a live session it already dialed to that peer, or
+	 * dials one itself through this host's own DIAL action and finishes when
+	 * the dial reports. The session-scoped `Session.enliven` is the narrower
+	 * verb — it never dials, and refuses a sturdyref for another peer. */
+	async enliven(sturdyref: string): Promise<Ref> {
+		const swiss = utf8Encoder.encode(sturdyref);
+		const out = new Uint8Array(8);
+		checkHost(driverS.pancake_host_enliven(
+			this.#raw,
+			ab(swiss),
+			BigInt(swiss.length),
+			ab(out),
+		));
+		const vow = new DataView(out.buffer).getBigUint64(0, true);
+		// The vow may be parked on a dial with no session of its own, which is
+		// exactly the null-session row the vow table already admits.
+		this.vowMinted(vow, null);
+		void this.kickActions();
+		const result = await this.awaitVow(vow);
+		return asLiveRef(result, sturdyref);
+	}
+
+	/** The configured `webrtc` signaling authority, or null. Binding-internal:
+	 * the dial executor reads it for a `webrtc` dial. */
+	get signaling(): SignalingAuthority | null {
+		return this.#signaling;
+	}
+
+	/** Configure how this host signals a `webrtc` peer it dials (ADR-0089): the
+	 * language-level face of whatever signaling capability the application
+	 * holds — a room's signaling object, a relay, any channel both parties
+	 * reach. The `webrtc` sibling of `setRendezvousUrl`: a bare `webrtc`
+	 * locator names a designator and carries no signaling route, so the
+	 * authority is deployment configuration of the dialing host. Without it, a
+	 * `webrtc` dial refuses loud. */
+	setSignaling(signaling: SignalingAuthority): void {
+		this.#signaling = signaling;
 	}
 
 	/** Record the designator this host's dials sign as their own dialable
@@ -300,6 +438,75 @@ export class Host {
 		if (prior !== undefined) this.#displacedGiftables.push(prior);
 		this.#giftables.set(name, ctx);
 		void this.kickActions();
+	}
+
+	/** Publish `behavior` under a freshly minted durable swiss name and return
+	 * that name — the swiss to place in a sturdyref beside this host's own
+	 * locator (ADR-0098). Unpredictable, never reassigned, structurally
+	 * disjoint from every mutable alias, removable only through
+	 * {@link unpublishDurable}. Entropy is drawn here, from the platform RNG. */
+	publishDurable(behavior: Behavior): string {
+		const ctx = registerBehavior({ run: behavior, resolveLocal: null });
+		const entropy = crypto.getRandomValues(new Uint8Array(16));
+		const swiss = new Uint8Array(64);
+		let written: number;
+		try {
+			written = driverS.pancake_host_publish_durable(
+				this.#raw,
+				ab(entropy),
+				BigInt(entropy.length),
+				trampolinePointer(),
+				ctx,
+				NULL,
+				ab(swiss),
+				BigInt(swiss.length),
+			);
+			if (written <= 0) checkHost(written);
+		} catch (err) {
+			unregisterBehavior(ctx);
+			throw err;
+		}
+		const name = utf8Decoder.decode(swiss.subarray(0, written));
+		this.#giftables.set(name, ctx);
+		void this.kickActions();
+		return name;
+	}
+
+	/** Remove a minted durable publication (ADR-0098): the old sturdyref
+	 * misses from now on, while issued `Ref`s and deposited gifts keep the
+	 * exact actor. Returns false when no such durable name exists. */
+	unpublishDurable(swiss: string): boolean {
+		const bytes = utf8Encoder.encode(swiss);
+		const rc = driverS.pancake_host_remove_durable(this.#raw, ab(bytes), BigInt(bytes.length));
+		if (rc === NOT_FOUND) return false;
+		checkHost(rc);
+		const prior = this.#giftables.get(swiss);
+		if (prior !== undefined) {
+			this.#displacedGiftables.push(prior);
+			this.#giftables.delete(swiss);
+		}
+		void this.kickActions();
+		return true;
+	}
+
+	/** Remove the Host-wide alias `name` (alias-only): a later fetch misses on
+	 * every session, while issued `Ref`s and deposited gifts keep the exact
+	 * actor, whose behavior stays hosted for the Host's life. Returns false
+	 * when no such alias exists. */
+	unpublishGiftable(name: string): boolean {
+		const bytes = utf8Encoder.encode(name);
+		const rc = driverS.pancake_host_unpublish(this.#raw, ab(bytes), BigInt(bytes.length));
+		if (rc === NOT_FOUND) return false;
+		checkHost(rc);
+		// The alias is gone but the actor is not: its trampoline row moves to
+		// the displaced list, exactly as a replacement displaces one.
+		const prior = this.#giftables.get(name);
+		if (prior !== undefined) {
+			this.#displacedGiftables.push(prior);
+			this.#giftables.delete(name);
+		}
+		void this.kickActions();
+		return true;
 	}
 
 	/** The trampoline ctx of the giftable published under `name`, or undefined

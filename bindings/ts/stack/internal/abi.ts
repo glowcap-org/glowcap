@@ -104,13 +104,14 @@ export const PENDING_DIAL_HINT_OFF = 32;
 export const PENDING_DIAL_HINT_LEN_OFF = 40;
 
 // PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)
-export const PARTNER_IDENTITY_SIZE = 48;
+export const PARTNER_IDENTITY_SIZE = 56;
 export const PARTNER_IDENTITY_SESSION_KEY_OFF = 0;
 export const PARTNER_IDENTITY_SESSION_KEY_LEN_OFF = 8;
 export const PARTNER_IDENTITY_DESIGNATOR_OFF = 16;
 export const PARTNER_IDENTITY_DESIGNATOR_LEN_OFF = 24;
 export const PARTNER_IDENTITY_LOCATOR_RECORD_OFF = 32;
 export const PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF = 40;
+export const PARTNER_IDENTITY_PROVENANCE_OFF = 48;
 
 // PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;

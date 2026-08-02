@@ -35,9 +35,8 @@ check modules and tables are the complete inventory, read them before assuming
 a claim is unchecked. The shape of
 what it holds:
 
-- Both overlay schemes are complete and unbroken, the `.claude/rules` directory
-  symlink resolves to `.agents/rules`, and every `.agents/rules/<name>.md` has a
-  live `.cursor/rules/<name>.mdc` symlink. A canonical rule without its overlay
+- Both overlay schemes are complete and unbroken; the symlink map itself lives
+  in the [`.agents/` index](../README.md). A canonical rule without its overlay
   is silently unloaded, the failure mode is invisible at exactly the moment it
   matters. **Edit only the canonical files** (`AGENTS.md`, `.agents/rules/*.md`).
   Never write through `.cursor/rules/*.mdc` or `CLAUDE.md`: a bulk in-place edit
@@ -74,7 +73,9 @@ before the session does, and it lands at the strongest layer that can hold it:
 A correction from the human is always a ratchet event: the session that receives
 it encodes it, or explains in the handoff why it couldn't. The measure of a
 session is not only whether the task completed but whether the floor is higher
-for the next agent than it was for this one.
+for the next agent than it was for this one. The
+[ratchet skill](../skills/ratchet/SKILL.md) is the landing procedure: layer
+choice, check wiring, validation against the defect, and the prune.
 
 ## The budget
 

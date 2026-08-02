@@ -12,10 +12,11 @@
 //! helpers, so this is that path's byte-fed twin, not a second copy of its
 //! rules.
 //!
-//! Open shapes are `host_port` (tcp / keyed-tcp), `peer_id` (iroh), and
-//! `signaling` (webrtc, which names no dialable address). The product string
-//! stays in the policy table; the plan tag names what to open, not which
-//! netlayer archive opens it.
+//! Open shapes are `host_port` (tcp / keyed-tcp), `peer_id` (iroh),
+//! `signaling` (webrtc, which names no dialable address), and `rendezvous`
+//! (keyed-relay, whose byte path is a relay's rendezvous bridge). The product
+//! string stays in the policy table; the plan tag names what to open, not
+//! which netlayer archive opens it.
 //!
 //! Every returned view borrows the caller's `transport` / `designator` / hint
 //! buffers (or, for a missing accept address, a static placeholder). The plan
@@ -31,7 +32,7 @@ const crypto = foundation.crypto;
 
 pub const Error = error{
     /// The locator names a transport this planner does not dial (only `tcp`,
-    /// `keyed-tcp`, `iroh`, and `webrtc` are admitted here).
+    /// `keyed-tcp`, `iroh`, `webrtc`, and `keyed-relay` are admitted here).
     UnknownTransport,
     /// A `tcp` designator, or the first entry of a `keyed-tcp` direct-addresses
     /// hint, is not the `host:port` grammar.
@@ -78,6 +79,13 @@ pub const DialPlan = union(enum) {
     /// designator; the signaling reference arrives through the handoff mechanism
     /// (ADR-0089).
     signaling,
+    /// A rendezvous-bridged transport (keyed-relay). No dialable address: the
+    /// peer holds an inbound socket at a relay under its key designator, and
+    /// the dialer opens the relay's rendezvous leg it is configured for
+    /// (ADR-0088). Like `signaling`, the plan validates the key designator and
+    /// names the shape; the relay mapping is the dialing host's deployment
+    /// configuration, never locator bytes.
+    rendezvous,
 };
 
 /// Tag of `DialPlan` — the C ABI's `PANCAKE_DIAL_SHAPE_*` mirror.
@@ -139,6 +147,14 @@ pub fn planDial(
         if (crypto.PeerKey.fromDesignator(designator) == null)
             return Error.DesignatorNotPeerKey;
         return .signaling;
+    }
+
+    if (std.mem.eql(u8, transport, model.transport.keyed_relay)) {
+        // No dialable address; validate the key designator and hand back the
+        // rendezvous plan.
+        if (crypto.PeerKey.fromDesignator(designator) == null)
+            return Error.DesignatorNotPeerKey;
+        return .rendezvous;
     }
 
     return Error.UnknownTransport;

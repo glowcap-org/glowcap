@@ -32,6 +32,14 @@ the vision itself when a tradeoff between them is unclear.
   README shows a command or a usage pattern, a build step should keep it honest.
 - **Performance is correctness pressure.** A wire-path allocation or copy is a
   design event: forbid it, name it, or measure it.
+- **DRY, orthogonal, and easier to change.** One authority per fact: a
+  duplicated body, table, constant, or claim is a defect even when it
+  compiles, because copies drift apart under change. Keep concerns orthogonal:
+  changing one thing must not require touching an unrelated one, and an
+  effect stays local to the seam that owns it. When two shapes are otherwise
+  equal, pick the one easier to change — a shared seam over parallel
+  spellings, a generated mirror over a hand-kept copy, a check over a
+  convention.
 - **Small modules, sharp boundaries.** Split by responsibility. A reader should
   know what a file owns before reading its body.
 - **Polish matters.** A rough edge in the build, README, examples, or agent

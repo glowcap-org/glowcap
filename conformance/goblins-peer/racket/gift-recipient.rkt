@@ -11,10 +11,14 @@
 ;; integrity across the cross-implementation handoff.
 ;;
 ;; Usage:
-;;   racket gift-recipient.rkt <gifter-host:port> <introducer-swiss> <local-port>
+;;   racket gift-recipient.rkt <gifter-host:port> <introducer-swiss> <local-port> [expect-hint]
 ;;
 ;; Prints `GIFT OK: <reply>` and exits 0 on success; `GIFT ERR`/`GIFT TIMEOUT`
-;; and exits 1 otherwise.
+;; and exits 1 otherwise. With the optional `expect-hint` name, the netlayer's
+;; connect trace inspects each dialed node's hints and prints
+;; `HINT SEEN: <name> <byte-length>` when a dial target carries that hint as a
+;; bytes value — the positive signal that the give's exporter locator crossed
+;; the upstream unmarshaller with its hint dict intact.
 
 (require goblins
          goblins/vat
@@ -27,6 +31,23 @@
 (define gifter-designator (vector-ref argv 0)) ; "127.0.0.1:NNNNN"
 (define swiss-ascii (vector-ref argv 1))
 (define local-port (string->number (vector-ref argv 2)))
+(define expect-hint (and (> (vector-length argv) 3) (vector-ref argv 3)))
+
+;; The wire unmarshaller builds `ocapn-node` through the raw constructor, so a
+;; decoded node can carry mapping-shaped hints even though the contracted
+;; accessor admits only #f-or-string. The struct is transparent, so the probe
+;; reads the hints field reflectively — observing what actually arrived
+;; without re-imposing the constructor contract on it.
+(define (connect-trace event . args)
+  (when (and expect-hint (eq? event 'connect))
+    (define remote (cadr args))
+    (when (ocapn-node? remote)
+      (define hints (vector-ref (struct->vector remote) 3))
+      (when (hash? hints)
+        (define val (hash-ref hints expect-hint #f))
+        (when (bytes? val)
+          (printf "HINT SEEN: ~a ~a~n" expect-hint (bytes-length val))
+          (flush-output))))))
 
 ;; Defined OUTSIDE the vat lambda so the outer thread can `sync/timeout` on it
 ;; (the vat lambda must not block, or it can't deliver the resolution).
@@ -36,7 +57,7 @@
 (carol-vat
  'run
  (lambda ()
-   (define netlayer (spawn ^tcp-netlayer "127.0.0.1" local-port))
+   (define netlayer (spawn ^tcp-netlayer "127.0.0.1" local-port #:trace connect-trace))
    (define mycapn (spawn-mycapn netlayer))
 
    ;; Build the gifter's introducer sturdyref directly via the struct

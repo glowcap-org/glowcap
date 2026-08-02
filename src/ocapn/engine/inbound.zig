@@ -110,15 +110,27 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         if (self.verify_partner_handshake) {
             try engine.verifyPartnerStartSession(self.allocator, decoded_body.start_session);
         }
-        // The dial-side identity pin (`Peer.expectPartnerKey`): a dialer that
-        // resolved a key-designator locator admits only the key it dialed.
-        // Checked here, at the same pre-open chokepoint as the signature,
-        // because one byte-fed `feed` can carry the start-session and later
-        // frames in a single chunk — a post-open check would let those frames
-        // apply under the wrong identity before anyone looked.
-        if (self.expected_partner_key) |expected| {
-            if (!std.mem.eql(u8, expected.asBytes(), decoded_body.start_session.session_pubkey)) {
-                return error.PartnerKeyMismatch;
+        // The durable-key-attestation contract (ADR-0097): on a transport
+        // whose key designator has no lower-layer proof, a hello claiming a
+        // key-designator location must prove the durable key authorized this
+        // session key. Same chokepoint, same one-chunk rationale as the pin.
+        if (self.require_partner_attestation) {
+            try engine.verifyPartnerAttestation(decoded_body.start_session);
+        }
+        // The durable-identity claim check (ADR-0097): a hello may claim the
+        // identity this session expects, or none at all — never someone
+        // else's. Checked at this same pre-open chokepoint because one
+        // byte-fed `feed` can carry the start-session and later frames in a
+        // single chunk, and a post-open check would let those frames apply
+        // under the wrong identity before anyone looked. `session_pubkey` is
+        // deliberately unconstrained: each connection signs with its own key,
+        // so comparing it against a durable name proves nothing.
+        if (self.expected_durable_key) |verified| {
+            const claimed = decoded_body.start_session.acceptable_location.designator;
+            if (foundation.crypto.PeerKey.fromDesignator(claimed) != null and
+                !std.mem.eql(u8, claimed, &verified.toDesignator()))
+            {
+                return error.PartnerDesignatorMismatch;
             }
         }
     }

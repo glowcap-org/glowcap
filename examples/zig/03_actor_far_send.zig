@@ -76,9 +76,9 @@ pub fn main() !void {
     var host_vat = pancake.Vat.init(allocator);
     defer host_vat.deinit();
     var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit();
+    defer host_port.deinit(&host_vat);
     const greeter = try host_vat.spawn(Greeter, .{ .greeting = "Howdy" });
-    try host_port.bindExport(greeter, 5);
+    try host_port.bindExport(&host_vat, greeter, 5);
     // This example wires both peers by hand, so the caller learns position 5
     // out-of-band rather than from a marshaled reference. An explicit grant
     // makes the hand-picked position addressable; a capability introduced on
@@ -89,7 +89,7 @@ pub fn main() !void {
     var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
     var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit();
+    defer caller_port.deinit(&caller_vat);
 
     const ref: actors.Ref = .{ .far = model.FarRef.object(5) };
     var result = Result{};

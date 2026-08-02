@@ -32,12 +32,12 @@ export class HostGc {
 		this.#h = h;
 	}
 
-	/** Register a fetched capability selected by a GC-enabled session. The `Ref` holds a
-	 * node-unique token (ADR-0069) — only ids in the token range are tracked —
-	 * and the host resolves the token to its home connection and real wire
-	 * import when the release fires. The finalizer captures only the bare token
-	 * bigint, never the `Ref`, so it cannot resurrect the handle whose death it
-	 * waits on. */
+	/** Register a fetched capability selected by a GC-enabled session. The id
+	 * is an opaque Host-scoped identity (ADR-0096) — the fetch seam is what
+	 * scopes tracking, not any id-range branch here — and the host resolves it
+	 * to its home connection and real wire import when the release fires. The
+	 * finalizer captures only the bare id bigint, never the `Ref`, so it
+	 * cannot resurrect the handle whose death it waits on. */
 	trackImport(ref: Ref): Ref {
 		const h = this.#h;
 		if (h === null) return ref;
@@ -69,7 +69,11 @@ export class HostGc {
 		for (const token of this.pending.splice(0)) {
 			try {
 				checkHost(
-					driverS.pancake_host_ref_release(h.hostRaw, ab(refStruct(refFromId(token))), 1n),
+					driverS.pancake_host_ref_release(
+						h.hostRaw,
+						ab(refStruct(refFromId(token))),
+						1n,
+					),
 				);
 			} catch {
 				// best-effort: a refused release strands a partner export only.

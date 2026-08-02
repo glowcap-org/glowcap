@@ -38,6 +38,13 @@ const driver_core = @import("driver_core");
 /// `driver.Bridge` + `completion.Loop` feed over the wire.
 pub const core = driver_core;
 
+/// The off-turn settle mailbox (ADR-0102 stage 4): a worker thread posts a
+/// resolver settle from anywhere, and the thread that owns the Host applies
+/// it at its next iteration, woken through the mailbox's socketpair. See
+/// `settle_mailbox.zig`.
+pub const settle_mailbox = @import("settle_mailbox.zig");
+pub const SettleMailbox = settle_mailbox.SettleMailbox;
+
 // The sans-io serve core, vocabulary, and shared verbs live in `driver_core`
 // (I/O-banned by arch-check); re-exported so callers keep reaching them as
 // `driver.Served`, `driver.Error`, `driver.Capability`, and so on.
@@ -54,7 +61,14 @@ pub const FetchCapture = driver_core.FetchCapture;
 pub const Identity = driver_core.Identity;
 pub const AcceptIdentity = driver_core.AcceptIdentity;
 pub const Vow = driver_core.Vow;
+/// The opaque Host-scoped capability identity the owning tier speaks
+/// (ADR-0096); the borrowing tier's export-bound spelling is `Exported`.
 pub const Capability = driver_core.Capability;
+pub const Exported = driver_core.Exported;
+pub const Value = driver_core.Value;
+pub const Reply = driver_core.Reply;
+pub const Hosting = driver_core.Hosting;
+pub const HostTurn = driver_core.HostTurn;
 pub const Settled = driver_core.Settled;
 pub const unreachable_client_designator = driver_core.unreachable_client_designator;
 /// The turn-time spawn-at-export verb (see `driver_core`'s `spawnAt`): a

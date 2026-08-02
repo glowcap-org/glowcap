@@ -75,6 +75,7 @@ pub fn checkDesignatorSchemeSync(
         .{ .name = "inproc", .path = "src/net/transport/inproc.zig" },
         .{ .name = "iroh", .path = "src/net/transport/iroh.zig" },
         .{ .name = "webrtc", .path = "src/net/transport/webrtc.zig" },
+        .{ .name = "keyed-relay", .path = "src/net/transport/keyed_relay.zig" },
     };
 
     const vocab_path = "src/driver/core/vocab.zig";
@@ -135,24 +136,6 @@ pub fn checkDesignatorSchemeSync(
             search = at + 1;
             continue;
         };
-        // A resident-less key transport (keyed-relay, ADR-0088) has no netlayer
-        // vtable to sync against — its byte path is a browser WebSocket
-        // rendezvous, not a Zig resident — so exempt it from the resident-sync
-        // loop and the resident-required orphan arm, but assert its vocab arm
-        // still resolves to `.key`: the byte-fed table is its sole authority.
-        if (isResidentLessKeyTransport(name)) {
-            const scheme = designatorSchemeFromVocabBody(fn_body, name);
-            if (!std.mem.eql(u8, scheme, "key")) {
-                try appendViolation(
-                    gpa,
-                    violations,
-                    "{s}: resident-less key transport `{s}` must resolve to `.key` in designatorSchemeForTransport (byte-fed sole authority)",
-                    .{ vocab_path, name },
-                );
-            }
-            search = at + 1;
-            continue;
-        }
         var known = false;
         for (transports) |t| {
             if (std.mem.eql(u8, t.name, name)) {
@@ -187,6 +170,110 @@ pub fn checkDesignatorSchemeSync(
     }
 }
 
+/// `driver_core.authenticationMechanismForTransport` must agree with each
+/// transport resident's `authentication` declaration, the same mirror
+/// discipline as the designator scheme above — and every `key`-scheme
+/// transport must carry a non-`none` mechanism, ADR-0097's rule that
+/// designator grammar and authentication are assigned together.
+pub fn checkAuthenticationMechanismSync(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const Transport = struct {
+        name: []const u8,
+        path: ?[]const u8,
+    };
+    const transports = [_]Transport{
+        .{ .name = "tcp", .path = "src/net/transport/tcp.zig" },
+        .{ .name = "keyed-tcp", .path = "src/net/transport/tcp_keyed.zig" },
+        .{ .name = "inproc", .path = "src/net/transport/inproc.zig" },
+        .{ .name = "iroh", .path = "src/net/transport/iroh.zig" },
+        .{ .name = "webrtc", .path = "src/net/transport/webrtc.zig" },
+        .{ .name = "keyed-relay", .path = "src/net/transport/keyed_relay.zig" },
+    };
+
+    const vocab_path = "src/driver/core/vocab.zig";
+    const vocab = root.readFileAlloc(io, vocab_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for authentication-mechanism sync with {s}", .{ vocab_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(vocab);
+
+    const mech_body = fnBody(vocab, "pub fn authenticationMechanismForTransport") orelse {
+        try appendViolation(gpa, violations, "{s}: missing `pub fn authenticationMechanismForTransport`", .{vocab_path});
+        return;
+    };
+    const scheme_body = fnBody(vocab, "pub fn designatorSchemeForTransport") orelse return;
+
+    for (transports) |t| {
+        const vocab_mech = mechanismFromVocabBody(mech_body, t.name);
+        const scheme = designatorSchemeFromVocabBody(scheme_body, t.name);
+        if (std.mem.eql(u8, scheme, "key") and std.mem.eql(u8, vocab_mech, "none")) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: key-scheme transport `{s}` has no authentication mechanism — assign one in authenticationMechanismForTransport (ADR-0097)",
+                .{ vocab_path, t.name },
+            );
+        }
+        const path = t.path orelse continue;
+        const resident = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for authentication-mechanism sync with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(resident);
+        const resident_mech = authenticationFromResident(resident);
+        if (!std.mem.eql(u8, vocab_mech, resident_mech)) {
+            try appendViolation(
+                gpa,
+                violations,
+                "authentication-mechanism mismatch for `{s}`: vocab.authenticationMechanismForTransport → .{s}, but {s} resident declaration → .{s}",
+                .{ t.name, vocab_mech, path, resident_mech },
+            );
+        }
+    }
+}
+
+fn fnBody(source: []const u8, decl: []const u8) ?[]const u8 {
+    const fn_start = std.mem.indexOf(u8, source, decl) orelse return null;
+    const after_fn = source[fn_start..];
+    const body_open = std.mem.indexOfScalar(u8, after_fn, '{') orelse return null;
+    const body = after_fn[body_open..];
+    const body_close = std.mem.indexOfScalar(u8, body, '}') orelse return null;
+    return body[0 .. body_close + 1];
+}
+
+fn mechanismFromVocabBody(fn_body: []const u8, transport: []const u8) []const u8 {
+    var buf: [128]u8 = undefined;
+    const needle = std.fmt.bufPrint(&buf, "transport, model.transport.{s})", .{transportSymbolField(transport)}) catch return "none";
+    const at = std.mem.indexOf(u8, fn_body, needle) orelse return "none";
+    const after = fn_body[at + needle.len ..];
+    const ret = std.mem.indexOf(u8, after, "return .") orelse return "none";
+    const start = ret + "return .".len;
+    const rest = after[start..];
+    const end = std.mem.indexOfAny(u8, rest, ";, \n\r") orelse return "none";
+    return rest[0..end];
+}
+
+/// Read a resident's explicit `authentication`, preferring the Netlayer vtable
+/// region and accepting a direct constant for a signaling-only resident.
+/// Absence means the VTable default (`.none`).
+fn authenticationFromResident(source: []const u8) []const u8 {
+    const mechanisms = [_][]const u8{ "authenticated_transport", "durable_key_attestation", "none" };
+    var needle_buf: [96]u8 = undefined;
+    for (mechanisms) |mech| {
+        const vtable_needle = std.fmt.bufPrint(&needle_buf, ".authentication = .{s}", .{mech}) catch continue;
+        if (std.mem.indexOf(u8, source, vtable_needle) != null) return mech;
+    }
+    for (mechanisms) |mech| {
+        const const_needle = std.fmt.bufPrint(&needle_buf, "pub const authentication: net.netlayer.AuthenticationMechanism = .{s}", .{mech}) catch continue;
+        if (std.mem.indexOf(u8, source, const_needle) != null) return mech;
+    }
+    return "none";
+}
+
 fn transportNameFromField(field: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, field, "tcp")) return "tcp";
     if (std.mem.eql(u8, field, "keyed_tcp")) return "keyed-tcp";
@@ -195,15 +282,6 @@ fn transportNameFromField(field: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, field, "webrtc")) return "webrtc";
     if (std.mem.eql(u8, field, "keyed_relay")) return "keyed-relay";
     return null;
-}
-
-/// A transport named by key alone whose byte path is not a Zig netlayer
-/// resident (a browser WebSocket rendezvous, ADR-0088). The byte-fed vocab
-/// table is its sole designator-scheme authority, so it maps in
-/// `transportNameFromField` but is exempt from the resident-sync loop and the
-/// resident-required orphan arm.
-fn isResidentLessKeyTransport(name: []const u8) bool {
-    return std.mem.eql(u8, name, "keyed-relay");
 }
 
 fn designatorSchemeFromVocabBody(fn_body: []const u8, transport: []const u8) []const u8 {

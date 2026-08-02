@@ -52,10 +52,10 @@ explicitly:
 
 | Cost | Checked limit |
 | --- | --- |
-| `engine.Peer` inline state | at most 1,064 bytes |
+| `engine.Peer` inline state | at most 1104 bytes |
 | Warm protocol state | at most 2 KiB |
 | Completion-loop slot beyond its embedded peer | exactly 128 bytes |
-| Host session shell | at most 464 bytes |
+| Host session shell | at most 496 bytes |
 | Host connection identity | one owned transport/designator block per session |
 | Warm local Vat queue batch | zero general-purpose allocations |
 | Retained queue spare in the Host-owned Vat | one 4,152-byte chunk per Host with at most 4 KiB of payload arena |
@@ -101,17 +101,17 @@ Goblins currently dials only the TypeScript binding in CI.
 ## 5. Transport reachability
 
 The transport contract supports plain TCP, keyed TCP, in-process pipes, iroh,
-and WebRTC. TCP and iroh have full Host completion-loop integrations. WebRTC
-has an endpoint-scoped readiness fd and non-blocking peer I/O, but no generic
-Host adapter or standalone signaling rendezvous.
+and WebRTC. TCP, iroh, and WebRTC have Host completion-loop integrations; the
+WebRTC one adopts signaled peers and dials through a configured signaling
+authority (`zig build webrtc-loop` is its live check).
 
 The remaining work is about reach and operating systems rather than another
 protocol core:
 
 - run the macOS backend instead of only compiling it;
 - add a Windows completion backend;
-- give WebRTC a standalone rendezvous and bind its resident readiness surface to
-  the generic Host loop;
+- prove the native three-party redeem over WebRTC (the loop adapter and dial
+  arm exist; the live give-redeem check does not);
 - let native peers find browsers and let browsers cross relay boundaries;
 - complete the live 500,000-session measurement.
 

@@ -97,6 +97,12 @@ pub const Cell = struct {
     /// nests. A staged `become` installs only when it returns to zero, so the
     /// box an outer frame still holds as `self` is never freed under it.
     running: u32 = 0,
+    /// Explicit roots (ADR-0101): the spawn's own root plus one per rooting
+    /// relationship (host-wide alias row, Host capability slot, Port export
+    /// binding, exact gift row). The count reaching zero retires the row —
+    /// deferred past any running frame — while queued turns deliberately hold
+    /// none and take the typed `NoSuchActor` refusal instead.
+    roots: u32 = 1,
     /// The next state box, promoted here by a frame that returned successfully
     /// and installed when `running` reaches zero. Last write wins across the
     /// frames of one reentrant run, matching Goblins's last-`bcom`-wins.
@@ -332,7 +338,13 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     }
     var sit = snap.boxes.iterator();
     while (sit.next()) |entry| {
-        try rebuilt.put(self.allocator, entry.key_ptr.*, .{ .box = entry.value_ptr.* });
+        // Intersect with the live table (ADR-0101): roots are authority and
+        // are never rewound, so a row reclaimed since the snapshot is not
+        // resurrected — no surviving authority could reach it, and a rootless
+        // row would be exactly the leak reclamation removes — while a
+        // surviving row keeps its current count and takes the snapshot state.
+        const current = self.actors.getPtr(entry.key_ptr.*) orelse continue;
+        try rebuilt.put(self.allocator, entry.key_ptr.*, .{ .box = entry.value_ptr.*, .roots = current.roots });
         entry.value_ptr.*.refs += 1;
     }
     // Commit: the rebuilt table is fully built and ref-counted, so releasing

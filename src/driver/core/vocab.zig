@@ -34,6 +34,8 @@ pub const Error = error{
     DesignatorUnavailable,
     /// The OS entropy source could not fill the session seed for the handshake.
     HandshakeEntropyFailed,
+    /// The OS entropy source could not fill a durable swiss mint (ADR-0098).
+    MintEntropyFailed,
     /// A keyed handshake made no progress within its caller-set budget: the
     /// partner accepted the socket but never spoke. The blocking
     /// `BlockingSession` handshake breaks with this reason when its bounded
@@ -134,6 +136,40 @@ pub fn designatorSchemeForTransport(transport: []const u8) DesignatorScheme {
     return .address;
 }
 
+/// How a transport authenticates the durable identity its key designator
+/// names (ADR-0097). Designator *grammar* (`DesignatorScheme`) and
+/// authentication *mechanism* are separate contracts: every member of the
+/// `.key` set above carries an assignment here, and the engine receives the
+/// selected contract from the adapter rather than inferring it from a
+/// transport string or a key-shaped designator.
+pub const AuthenticationMechanism = enum {
+    /// The transport layer itself proves the durable peer key: iroh's QUIC
+    /// handshake authenticates the endpoint id, WebRTC's DTLS fingerprint is
+    /// exchanged through the capability-authorized signaling channel. The
+    /// adapter surfaces that verified remote binding on dial and accept.
+    authenticated_transport,
+    /// No lower layer can prove the designator (`keyed-tcp`, `keyed-relay`):
+    /// the hello's key-designator location must carry a
+    /// `session-key-attestation` hint signed by the durable key
+    /// (`engine.verifyPartnerAttestation`).
+    durable_key_attestation,
+    /// Address transports: connection provenance only, no durable claim.
+    none,
+};
+
+/// The authentication mechanism for a transport symbol (see
+/// `AuthenticationMechanism`). Every `.key`-scheme transport
+/// `designatorSchemeForTransport` names has a non-`none` row here, and each
+/// resident's `authentication` declaration mirrors its row; `zig build
+/// meta-check` holds both directions.
+pub fn authenticationMechanismForTransport(transport: []const u8) AuthenticationMechanism {
+    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) return .durable_key_attestation;
+    if (std.mem.eql(u8, transport, model.transport.keyed_relay)) return .durable_key_attestation;
+    if (std.mem.eql(u8, transport, model.transport.iroh)) return .authenticated_transport;
+    if (std.mem.eql(u8, transport, model.transport.webrtc)) return .authenticated_transport;
+    return .none;
+}
+
 /// `keyed-tcp` requires a non-empty direct-addresses hint on accept; other
 /// key-designator transports (iroh) may omit it (discovery can resolve by
 /// node id alone). Kept next to `designatorSchemeForTransport` so sans-io
@@ -220,25 +256,63 @@ pub const PartnerIdentity = struct {
     /// path captured no raw bytes.
     locator_record: []const u8,
 
-    /// Whether `designator` is exactly this partner's proved session key, in the
+    /// How the durable identity in `designator` was authenticated, if at all
+    /// (ADR-0097). Session identity, durable identity, and this provenance are
+    /// three separate facts; a caller that needs an authenticated durable peer
+    /// asks `durableIdentityAuthenticated`, never key equality.
+    provenance: DurableProvenance = .unauthenticated,
+
+    /// Whether the durable identity this partner advertised was
+    /// cryptographically authenticated, by either mechanism. This is the
+    /// predicate an API that requires a proved durable peer asks. It stays
+    /// correct when session keys go fresh, which is exactly what
+    /// `designatorIsSessionKey` will not do.
+    pub fn durableIdentityAuthenticated(self: PartnerIdentity) bool {
+        return self.provenance != .unauthenticated;
+    }
+
+    /// Whether `designator` is literally this partner's session key, in the
     /// canonical hex a key designator is spelled in.
     ///
-    /// This only means anything for a transport whose designator *is* a key, the
-    /// `DesignatorScheme.key` set that `designatorSchemeForTransport` names. For
-    /// those, a true answer says the partner proved it owns the name it is
-    /// advertising. An `address` transport such as `tcp` designates a socket
-    /// address, which the handshake signature covers but which the key does not
-    /// determine, so this is false for a verified `tcp` partner and false is the
-    /// correct answer rather than a failure.
+    /// **A diagnostic, not an authentication predicate** (ADR-0097). It reports
+    /// today's key-reuse coincidence: while every session in a host is signed
+    /// by the host's durable key, a keyed transport's designator and its
+    /// `session_pubkey` happen to be the same bytes. Once each connection draws
+    /// a fresh session key they will differ, and this will answer false for a
+    /// fully authenticated keyed partner. Ask `durableIdentityAuthenticated`
+    /// for "did the partner prove the name it advertised".
     ///
-    /// A caller that wants "this locator is the partner's own" therefore checks
-    /// the transport's scheme first, and treats an address transport as a
-    /// question this cannot answer.
+    /// An `address` transport such as `tcp` designates a socket address, which
+    /// the handshake signature covers but which the key does not determine, so
+    /// this is false for a verified `tcp` partner and false is the correct
+    /// answer rather than a failure.
     pub fn designatorIsSessionKey(self: PartnerIdentity) bool {
         const key = crypto.PeerKey.fromSlice(self.session_key) catch return false;
         const expected = key.toDesignator();
         return std.mem.eql(u8, self.designator, &expected);
     }
+};
+
+/// How a partner's advertised durable identity was authenticated (ADR-0097),
+/// the third fact `PartnerIdentity` reports beside session key and designator.
+/// It answers "what proved this name", never "who is this" — an unauthenticated
+/// partner still has a session key and may still have signed a location.
+pub const DurableProvenance = enum {
+    /// The transport layer proved the remote's durable key: iroh's QUIC
+    /// handshake, or WebRTC's DTLS binding under capability-authorized
+    /// signaling. The strongest posture; it also covers the byte channel.
+    authenticated_transport,
+    /// The hello carried a `session-key-attestation` signed by the durable key
+    /// the designator names, and it verified (`keyed-tcp`, `keyed-relay`).
+    /// Static authorization only: it proves the durable key authorized this
+    /// session key, not that the signer is live on this connection, and the
+    /// cleartext channel keeps ADR-0075's replay exposure.
+    durable_key_attestation,
+    /// No durable identity was proved. An address transport designates a
+    /// socket address rather than a key, and a partner that advertised an
+    /// address on a key transport (an ephemeral client) claimed no durable
+    /// identity to authenticate.
+    unauthenticated,
 };
 
 /// The responder's signing posture for `listen` / `acceptVia`. An accepting
@@ -259,13 +333,16 @@ pub const AcceptIdentity = union(enum) {
 /// actor layer. `settleVow` drives it to a `Settled`.
 pub const Vow = actors.Vow;
 
-/// A capability to a local actor this vat hosts. Pass it to a partner as a
-/// `send` argument, and use it locally too: `ref` is the vat-local reference,
-/// so the application can near-call or `send` to the actor it just published
-/// or spawned without redoing vat bookkeeping. `nearRef()` returns the
-/// explicit wire reference the export position marshals to, so the Zig
-/// surface keeps that conversion visible rather than implicit.
-pub const Capability = struct {
+/// A local actor bound to an export position, the borrowing tier's spelling
+/// of "capability I host": `ref` is the vat-local reference, so the
+/// application can near-call or `send` to the actor it just published or
+/// spawned without redoing vat bookkeeping, and `nearRef()` returns the
+/// explicit wire reference the export position marshals to. This type lives
+/// on the serve core and the borrowing `BlockingSession` tier, where the
+/// caller owns the peer and wire positions are the caller's own vocabulary.
+/// The owning host tier speaks the opaque Host-scoped `Capability` instead
+/// (ADR-0096) and never surfaces these fields.
+pub const Exported = struct {
     /// The export position the session allocated for this actor.
     position: u64,
     /// The vat-local reference to the same actor, for local sends and calls.
@@ -273,14 +350,14 @@ pub const Capability = struct {
 
     /// The explicit wire reference this capability marshals to: a near object
     /// at `position`.
-    pub fn nearRef(self: Capability) model.Reference {
+    pub fn nearRef(self: Exported) model.Reference {
         return .{ .near = model.NearRef.object(self.position) };
     }
 
     /// The capability as a ready-to-send argument, so handing a partner a
     /// callback reads `.args = &.{ cap.arg() }`. This is `nearRef` wrapped in
     /// the `.reference` argument arm.
-    pub fn arg(self: Capability) model.Argument {
+    pub fn arg(self: Exported) model.Argument {
         return .{ .reference = self.nearRef() };
     }
 };
@@ -298,13 +375,13 @@ pub const Capability = struct {
 /// A peerless vat is refused with the actor layer's own `NotConnected`. An
 /// actor that should have no wire position at all is spawned with `Vat.spawn`,
 /// which mints no export.
-pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !Capability {
+pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !Exported {
     const port = turn.port orelse return actors.Error.NotConnected;
     const position = try port.peer.exportNextObject();
     errdefer port.peer.session_state.releaseUnsharedExport(.from(position));
     const ref = try turn.vat.spawn(Behavior, initial);
     errdefer turn.vat.discardFreshActor(ref);
-    try port.bindExport(ref, position);
+    try port.bindExport(turn.vat, ref, position);
     return .{ .position = position, .ref = ref };
 }
 

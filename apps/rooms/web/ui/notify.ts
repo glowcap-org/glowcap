@@ -1,39 +1,17 @@
-import { notifyToggle } from "./dom.ts";
-import { setIcon } from "./icons.ts";
-import { LS, sysItem } from "./state.ts";
-import { toActive } from "./render.ts";
+// Desktop notifications when you are @mentioned or sent a direct message.
+//
+// Opt-in, and off unless the tab is in the background: a notice about a message
+// you are already looking at is noise. Both facts it reads — whether notices are
+// on, and whether the tab is being looked at — are store fields, so the button
+// that toggles the first and the subscriber that writes the second are the only
+// authorities for either.
 
-// ── Desktop notifications when you are @mentioned or DMed (opt-in) ─────────
-let notifyOn = LS.get("rooms.notify") === "1";
-export function renderNotifyBtn() {
-	setIcon(notifyToggle, notifyOn ? "bell" : "bellOff");
-	notifyToggle.classList.toggle("on", notifyOn);
-	notifyToggle.setAttribute("aria-pressed", String(notifyOn));
-}
-notifyToggle.onclick = async () => {
-	if (!notifyOn) {
-		if (!("Notification" in window)) {
-			toActive(sysItem("This browser can't show desktop notifications"));
-			return;
-		}
-		let perm = Notification.permission;
-		if (perm === "default") perm = await Notification.requestPermission();
-		if (perm !== "granted") {
-			toActive(
-				sysItem("Notifications are blocked in your browser settings"),
-			);
-			return;
-		}
-		notifyOn = true;
-	} else notifyOn = false;
-	LS.set("rooms.notify", notifyOn ? "1" : "0");
-	renderNotifyBtn();
-};
-export function maybeNotify(title: string, text: string) {
-	if (!notifyOn || !document.hidden) return;
-	if (!("Notification" in window) || Notification.permission !== "granted") {
-		return;
-	}
+import { get } from "./store.ts";
+
+export function maybeNotify(title: string, text: string): void {
+	const { notifyOn, visible } = get();
+	if (!notifyOn || visible) return;
+	if (!("Notification" in globalThis) || Notification.permission !== "granted") return;
 	try {
 		new Notification(title, { body: text.slice(0, 140) });
 	} catch {

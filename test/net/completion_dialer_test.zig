@@ -329,6 +329,12 @@ const FailingConnectBackend = struct {
         _ = fd;
     }
 
+    pub fn remotePartnerKey(self: *FailingConnectBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *FailingConnectBackend, comp: completion.Completion) void {
         _ = self;
         _ = comp;

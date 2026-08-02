@@ -20,7 +20,8 @@ pub fn writeNodeHelpErr(io: std.Io, path: []const *const Command) !void {
     try writeNodeHelpTo(.{ .stream = .{ .io = io, .stream = .stderr } }, path);
 }
 
-/// Hermetic help render for tests (avoids Zig test `--listen=-` stdout).
+/// Render help into caller-owned memory: the assertion-friendly arm of the
+/// same renderer, used by tests that check help text in isolation.
 pub fn writeNodeHelpAlloc(gpa: std.mem.Allocator, path: []const *const Command) ![]u8 {
     var list: std.ArrayList(u8) = .empty;
     errdefer list.deinit(gpa);
@@ -162,6 +163,7 @@ fn writeNodeHelpTo(dest: Dest, path: []const *const Command) !void {
             \\Environment:
             \\  PANCAKE_STATE       State dir (lock + default identity)
             \\  PANCAKE_IDENTITY    Identity seed path (overrides state dir)
+            \\  PANCAKE_RENDEZVOUS  Relay URL (ws://host:port/relay) for keyed-relay dials
             \\  XDG_STATE_HOME      Default state parent (…/pancake)
             \\  HOME                Fallback for XDG defaults
             \\

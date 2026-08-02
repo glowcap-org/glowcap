@@ -30,13 +30,19 @@ pub const Ctx = struct {
     identity_path: []const u8 = "",
     secret: ?crypto.SecretKey = null,
     /// Live session for REPL / MCP multi-command context.
-    /// The dial transport a retained session keeps reaching through. The
+    /// The dial transports a retained session keeps reaching through. The
     /// session's host resolves later dials against this slice — a redeem
-    /// reaches an exporter this way (ADR-0090) — so both the resident and the
-    /// one-element slice must outlive the session, not the dialing frame.
+    /// reaches an exporter this way (ADR-0090) — so the residents and the
+    /// slice storage must outlive the session, not the dialing frame. Slot 0
+    /// is always tcp; slot 1 joins when `PANCAKE_RENDEZVOUS` configures a
+    /// keyed-relay rendezvous mapping (the dial builds the used prefix).
     dial_resident: pancake.net.tcp.Resident = undefined,
-    dial_netlayers: [1]pancake.net.netlayer.Netlayer = undefined,
+    rendezvous_resident: pancake.net.keyed_relay.Resident = undefined,
+    dial_netlayers: [2]pancake.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
+    /// The non-argv fronts' background listener (`listen` on MCP or the
+    /// REPL), or null. One per context; `close` and `deinit` stop it.
+    background_listener: ?*@import("ocapn/listen_background.zig").Handle = null,
     /// Last listen locator minted in this process (owned).
     last_locator: ?[]const u8 = null,
     /// Exclusive identity/state lock; held while this process owns CapTP identity.
@@ -88,7 +94,9 @@ pub const Ctx = struct {
 
     pub fn writeResult(self: *Ctx, bytes: []const u8) !void {
         switch (self.sink) {
-            .stdout => try std.Io.File.stdout().writeStreamingAll(self.io, bytes),
+            // One authority for product stdout: `argv.writeStdout` owns the
+            // choice between the process stream and the test capture.
+            .stdout => try @import("argv.zig").writeStdout(self.io, bytes),
             .buffer => |cap| try cap.appendSlice(self.gpa, bytes),
         }
     }
@@ -112,7 +120,7 @@ pub const Ctx = struct {
             .stdout => return,
         };
         var msg_buf: [512]u8 = undefined;
-        const msg = std.fmt.bufPrint(&msg_buf, fmt, args) catch return;
+        const msg = log.renderBounded(&msg_buf, fmt, args);
         var body: std.ArrayList(u8) = .empty;
         defer body.deinit(self.gpa);
         body.appendSlice(self.gpa, "{\"ok\":false,\"error\":") catch return;
@@ -128,7 +136,16 @@ pub const Ctx = struct {
         }
     }
 
+    /// Stop the background listener's accept thread and free it. Idempotent.
+    pub fn closeBackgroundListener(self: *Ctx) void {
+        if (self.background_listener) |handle| {
+            handle.shutdown();
+            self.background_listener = null;
+        }
+    }
+
     pub fn deinit(self: *Ctx) void {
+        self.closeBackgroundListener();
         self.closeSession();
         if (self.last_locator) |loc| {
             self.gpa.free(loc);

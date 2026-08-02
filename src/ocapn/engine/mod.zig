@@ -57,9 +57,21 @@ const fifo = @import("fifo.zig");
 /// The head-indexed FIFO spine shared by the peer's queues and the action
 /// queues, so their compaction and reclaim rules cannot drift apart.
 pub const ActionFifo = fifo.ActionFifo;
-/// The steady backing bound the per-connection queues shed to on a drain.
-/// Exposed so a test can size a burst past it rather than hardcoding the number.
-pub const fifo_steady_bytes = fifo.steady_fifo_bytes;
+/// The per-queue steady backing bound: capacity above this is burst, and the
+/// drain-reset in `Queue.pop` frees it back to the allocator instead of
+/// pinning one chatty chunk's worth of slots for the peer's life (at 500k
+/// connections, kilobytes pinned per queue is gigabytes). Capacity at or
+/// under the bound is retained, so steady turns — whose queues never grow
+/// past it — stay allocation-free; `test/engine/alloc_budget_test.zig` holds
+/// that contract. The price of freeing is one growth re-allocation at the
+/// start of the *next* burst episode, never per turn. The burst side is held
+/// by `test/engine/footprint_budget_test.zig`'s burst-drain scenario: a
+/// drained peer must fit back under the 2 KiB warmed per-connection budget,
+/// which freeing (rather than shrinking-to-bound) satisfies by construction.
+const steady_queue_bytes = 4096;
+/// The same bound, exposed so a test can size a burst past it rather than
+/// hardcoding the number.
+pub const fifo_steady_bytes = steady_queue_bytes;
 /// A `Node` connection handle (ADR-0066), re-exported alongside `Node`.
 pub const PeerId = @import("peer_id.zig").PeerId;
 pub const pairing = @import("pairing.zig");
@@ -98,6 +110,14 @@ pub const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 /// default frame cap without a direct `session` import.
 pub const SessionLimits = session.SessionLimits;
 
+/// The reserved durable swiss namespace (ADR-0098), re-exported so the host
+/// tier's durable mint and mutable-alias guards name the session's one
+/// authority without a direct `session` import.
+pub const durable_swiss_prefix = session.Session.durable_swiss_prefix;
+pub const durable_swiss_entropy_len = session.Session.durable_swiss_entropy_len;
+pub const durable_swiss_len = session.Session.durable_swiss_len;
+pub const isDurableSwiss = session.Session.isDurableSwiss;
+
 /// The inbound receive/dispatch spine (`recvBorrowed`/`recvStreamPrefix`/`step`
 /// call in here). Factored out of the `Peer` body as free functions over
 /// `*Peer`, the same shape `v1_0`/`pipeline` use.
@@ -109,6 +129,17 @@ const inbound = @import("inbound.zig");
 /// sweep it: a new engine-minted error that falls through
 /// `abort_projection.classify` to `.foreign` fails the gate instead of silently
 /// surfacing as a host-internal failure with no abort.
+/// Why a session expects a particular durable identity (ADR-0097).
+pub const DurableKeyBasis = enum {
+    /// A lower layer verified the remote: iroh's QUIC handshake, or WebRTC's
+    /// DTLS binding under capability-authorized signaling. Evidence.
+    transport_verified,
+    /// A dial asked for this identity. It makes the claim check meaningful —
+    /// a peer advertising another name is refused — but it proves nothing on
+    /// its own; what proves it is the transport or the hello's attestation.
+    dial_expectation,
+};
+
 pub const EngineError = error{
     /// One resolution's drain produced more local deliveries than
     /// `SessionLimits.max_local_deliveries` admits (`pipeline.deliverDrainedCallLocally`).
@@ -118,10 +149,21 @@ pub const EngineError = error{
     UnsupportedPipelineOp,
     /// The partner's `op:start-session` location signature failed to verify.
     InvalidStartSessionSignature,
-    /// The partner's `op:start-session` session key does not match the key this
-    /// peer was pinned to expect (`Peer.expectPartnerKey`): a key-designator
-    /// dial reached something that is not the key it dialed.
-    PartnerKeyMismatch,
+    /// The partner's hello claimed a key-designator location naming a durable
+    /// key other than the one this session was pinned to expect
+    /// (`Peer.expectPartnerDurableKey`, ADR-0097): a key-designator dial
+    /// reached something that is not the identity it dialed, or an
+    /// authenticated transport's remote claimed a name it did not prove.
+    PartnerDesignatorMismatch,
+    /// Under the durable-key-attestation contract, the partner's hello claimed
+    /// a key-designator location without the required `session-key-attestation`
+    /// hint (`Peer.requirePartnerAttestation`, ADR-0097).
+    PartnerAttestationMissing,
+    /// The partner hello's `session-key-attestation` hint did not verify: a
+    /// malformed value, an over-long field, or a signature that does not bind
+    /// this transport, designator, and session key under the claimed durable
+    /// key.
+    PartnerAttestationInvalid,
     /// A streamed inbound frame exceeded `SessionLimits.max_frame_bytes`
     /// (`Peer.recvStreamPrefix`).
     FrameTooLarge,
@@ -162,21 +204,6 @@ fn Queue(comptime T: type) type {
         pub fn pushAssumeCapacity(self: *Self, value: T) void {
             self.items.appendAssumeCapacity(value);
         }
-
-        /// The per-queue steady backing bound: capacity above this is burst, and
-        /// the drain-reset in `pop` frees it back to the allocator instead of
-        /// pinning one chatty chunk's worth of slots for the peer's life (at
-        /// 500k connections, kilobytes pinned per queue is gigabytes). Capacity
-        /// at or under the bound is retained, so steady turns — whose queues
-        /// never grow past it — stay allocation-free;
-        /// `test/engine/alloc_budget_test.zig` holds that contract. The price
-        /// of freeing is one growth re-allocation at the start of the *next*
-        /// burst episode, never per turn. The burst side is held by
-        /// `test/engine/footprint_budget_test.zig`'s burst-drain scenario: a
-        /// drained peer must fit back under the 2 KiB warmed per-connection
-        /// budget, which freeing (rather than shrinking-to-bound) satisfies by
-        /// construction.
-        const steady_queue_bytes = 4096;
 
         /// Dequeue the front element, or null when drained. The rewind, the
         /// dead-prefix slide, and the burst reclaim are `fifo.popHead`, shared
@@ -333,15 +360,34 @@ pub const Peer = struct {
     /// never handshakes), and the stub-key in-process fixtures opt out through
     /// `NegotiatingOptions` because their handshakes carry no real signature.
     verify_partner_handshake: bool = false,
-    /// When set (`expectPartnerKey`), the partner's `op:start-session` is
-    /// admitted only if its `session_pubkey` equals this key, checked at the
-    /// same inbound chokepoint as the signature — before the session opens, so
-    /// a mismatched partner never gets a single post-handshake frame applied.
-    /// This is the dial-side half of key unification: a dialer that resolved a
-    /// key-designator locator (iroh's node id, keyed TCP's key) pins the
-    /// session identity to the key it dialed, and a mismatch projects a
-    /// `PartnerKeyMismatch` handshake abort.
-    expected_partner_key: ?foundation.crypto.PeerKey = null,
+    /// The durable-key-attestation verification contract (ADR-0097), installed
+    /// pre-feed by the adapter for a session whose transport authenticates its
+    /// key designator by hello credential (`keyed-tcp`, `keyed-relay`). When
+    /// set, an inbound `op:start-session` claiming a key-designator location
+    /// must carry a verifying `session-key-attestation` hint
+    /// (`verifyPartnerAttestation`), checked at the same pre-open chokepoint
+    /// as the signature and the key pin. The engine never turns this on from a
+    /// transport string or a key-shaped designator; the adapter's transport
+    /// table selects the contract.
+    require_partner_attestation: bool = false,
+    /// The durable identity this session's partner must claim, installed
+    /// pre-feed by the adapter (ADR-0097). An inbound hello whose location
+    /// designator is a key spelling must name exactly this key; an address
+    /// claim names no durable identity and passes.
+    ///
+    /// It constrains the *durable* name, never `session_pubkey`: each
+    /// connection signs with its own key, so a session key is not an identity
+    /// and comparing the two proves nothing. What makes the claim
+    /// trustworthy is the transport (iroh's QUIC handshake, WebRTC's DTLS
+    /// binding) or the hello's `session-key-attestation`, and which of those
+    /// applies is the transport's declared mechanism.
+    expected_durable_key: ?foundation.crypto.PeerKey = null,
+    /// Whether `expected_durable_key` came from a transport that actually
+    /// proved the remote, rather than from what a dial merely asked for
+    /// (ADR-0097). Both install the same claim check; only this one is
+    /// evidence, and conflating them would report an unproven peer as
+    /// authenticated.
+    durable_key_transport_proved: bool = false,
     /// The typed cause of the most recent local dispatch failure — read it
     /// through `lastAbort`. Overwritten on each failure; never reset on
     /// success, so it stays readable after the error has propagated.
@@ -468,7 +514,7 @@ pub const Peer = struct {
         }
         self.events.deinit(self.allocator);
 
-        self.gift_registry.deinit(self.allocator);
+        self.gift_registry.deinit(self.allocator, self.localObjectProjection());
         self.session_state.deinit();
     }
 
@@ -508,14 +554,28 @@ pub const Peer = struct {
         self.node_services = null;
     }
 
-    /// Pin the partner's session identity to `key` before the handshake runs:
-    /// an inbound `op:start-session` whose `session_pubkey` is any other key is
-    /// refused with `PartnerKeyMismatch` and the session never opens. Set by a
-    /// dialer that resolved a key-designator locator, where the designator *is*
-    /// the key the partner must prove; must be called before the partner's
-    /// start-session is dispatched to have any effect.
-    pub fn expectPartnerKey(self: *Peer, key: foundation.crypto.PeerKey) void {
-        self.expected_partner_key = key;
+    /// Install the durable-key-attestation contract (ADR-0097) before any
+    /// partner byte is fed: an inbound hello claiming a key-designator
+    /// location must then prove that durable key authorized its session key.
+    /// Called by the adapter whose transport table selects durable-key
+    /// attestation for this session's transport (`keyed-tcp`, `keyed-relay`),
+    /// on both the dial and accept legs.
+    pub fn requirePartnerAttestation(self: *Peer) void {
+        self.require_partner_attestation = true;
+    }
+
+    /// Pin the durable identity this session's partner must claim, before any
+    /// partner byte is fed (ADR-0097): an inbound hello whose location
+    /// designator is a key spelling must name exactly `key`, or it is refused
+    /// with `PartnerDesignatorMismatch` before the session opens. An address
+    /// claim carries no durable identity and is unaffected.
+    ///
+    /// Installed by a dialer that resolved a key-designator locator (the key
+    /// it dialed) and by an adapter whose transport proved the remote. It is
+    /// the claim check; the transport's mechanism decides what proves it.
+    pub fn expectPartnerDurableKey(self: *Peer, key: foundation.crypto.PeerKey, basis: DurableKeyBasis) void {
+        self.expected_durable_key = key;
+        self.durable_key_transport_proved = basis == .transport_verified;
     }
 
     /// Enqueue an owned `message` for outbound encode, taking ownership of its
@@ -621,7 +681,7 @@ pub const Peer = struct {
         var prepared = prepared_in;
         defer prepared.deinit(self.allocator);
         try self.send(prepared.takeMessage());
-        prepared.apply(self.allocator, self.giftRegistry());
+        prepared.apply(self.allocator, self.localObjectProjection(), self.giftRegistry());
     }
 
     /// Admit one verified early withdraw without leaving replay authority or a
@@ -713,12 +773,27 @@ pub const Peer = struct {
         answer: model.AnswerPosition,
     ) !void {
         const exporter_key = self.session_state.partnerSessionKey() orelse return error.NoExporterKey;
+        // Two different keys, deliberately (ADR-0097).
+        //
+        // `secret` signs, and it is the key of the session the *give arrived
+        // on*, because that is the identity the give named as its
+        // `recipient_key` and the exporter verifies this receive against that
+        // name. The side and session names below are this session's — the
+        // recipient–exporter one — because they name where the withdrawal is
+        // happening. Goblins draws the same distinction: its receive is signed
+        // by the coordinator that received the give while its names come from
+        // the exporter session's coordinator. Conflating them works only while
+        // one key serves every session.
+        const local_key = self.session_state.localSessionKey() orelse
+            return error.NoLocalSessionKey;
+        const our_side_key = foundation.crypto.PeerKey.fromSlice(local_key) catch
+            return error.NoLocalSessionKey;
         const signed = try handoff_recipient.signedReceiveFromGiveBytes(
             self.allocator,
             self.session_state.limits,
             self.giftRegistry(),
             secret,
-            secret.publicKey(),
+            our_side_key,
             exporter_key,
             give_bytes,
         );
@@ -809,7 +884,7 @@ pub const Peer = struct {
     pub fn retireClosedSessionAuthority(self: *Peer) void {
         std.debug.assert(self.session_state.state == .closed);
         self.clearPendingWithdraws();
-        self.gift_registry.deinit(self.allocator);
+        self.gift_registry.deinit(self.allocator, self.localObjectProjection());
         self.gift_registry = .{};
         if (self.node_services) |services| services.sessionClosed();
     }
@@ -832,12 +907,6 @@ pub const Peer = struct {
     /// settled by negotiation.
     pub fn codecId(self: *const Peer) model.CodecId {
         return self.session_state.codec;
-    }
-
-    /// The CapTP version the session speaks (`next` or `v1_0`), fixed at
-    /// construction or settled by negotiation.
-    pub fn captpVersion(self: *const Peer) model.CaptpVersion {
-        return self.session_state.captp_version;
     }
 
     /// The partner's session public key, learned from its `op:start-session`,
@@ -944,7 +1013,9 @@ pub const Peer = struct {
     /// through `send`'s lowering chokepoint — so any node-local foreign-import
     /// token it carries is lowered to its wire reference here (ADR-0069),
     /// before the store owns it, keeping "a token never reaches the wire" true
-    /// for the relayed path too.
+    /// for the relayed path too. Pinned by `test/engine/node_test.zig`'s
+    /// "a relayed resolution carrying a routing token emits the wire import
+    /// position, never the token".
     pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportPosition, row_id: u64, resolution_in: model.Resolution) !void {
         var resolution = resolution_in;
         if (self.node_services) |services| {
@@ -1273,24 +1344,6 @@ pub const Peer = struct {
     pub fn pollEvent(self: *Peer) ?Event {
         return self.events.pop(self.allocator);
     }
-
-    /// Borrow a const pointer to the next surfaced event without consuming it, or
-    /// null when none is queued. The pointer aliases the still-queued event's
-    /// frame, so you can read it (`view()`) but cannot `deinit` it, that is the
-    /// queue's to do when a following `pollEvent` consumes and owns the real one.
-    /// The borrow stays valid until the next `pollEvent`. This lets a consumer
-    /// that may reject the event (a typed projection that cannot represent an
-    /// argument) leave it queued for the opaque-frame fallback instead of
-    /// dequeuing it into the void.
-    pub fn peekEvent(self: *Peer) ?*const Event {
-        return self.events.peek();
-    }
-
-    /// The kind of the next queued event without consuming it, so a caller can
-    /// route to a kind-specific decode (the C ABI's typed `poll_event_*` path).
-    pub fn peekEventKind(self: *Peer) ?EventKind {
-        return (self.events.peek() orelse return null).tag;
-    }
 };
 
 /// The per-session inline footprint budget, held by the compiler.
@@ -1333,7 +1386,13 @@ pub const Peer = struct {
 /// just as surely. Half a check is what leaves a class of bug alive to be
 /// rediscovered, and this class — a name used in a namespace that is not its
 /// own — is the one this core has paid for most.
-pub const peer_session_struct_budget_bytes = 1064;
+/// 1064 rose to 1104 for ADR-0097's per-session verification contract: the
+/// optional 32-byte `expected_durable_key` binding (40 bytes with its tag
+/// and alignment) plus the `require_partner_attestation` flag. Weighed
+/// deliberately: identity policy is per-session state by design, and the
+/// warmed 2 KiB per-session ceiling in `docs/ladder.md` step 2 still holds
+/// (`test/engine/footprint_budget_test.zig`).
+pub const peer_session_struct_budget_bytes = 1104;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md step 2). " ++
@@ -1388,6 +1447,111 @@ pub fn verifyPartnerStartSession(allocator: std.mem.Allocator, ss: model.view.St
     };
     defer allocator.free(signed);
     crypto.verify(pubkey, signed, sig) catch return error.InvalidStartSessionSignature;
+}
+
+/// Verify the partner hello's durable-key credential (ADR-0097): under the
+/// `require_partner_attestation` contract, a hello whose claimed location
+/// designator parses as a durable Ed25519 key must carry a
+/// `session-key-attestation` hint whose 64-byte signature verifies under that
+/// durable key over the canonical
+/// `<session-key-attestation-v1 transport designator session-pubkey>` record.
+/// A claim whose designator is not a key spelling (an ephemeral dialer's
+/// address placeholder) names no durable identity, so there is nothing to
+/// attest and the hello passes this check. Allocation-free: the hint lookup
+/// walks the borrowed view and the record builds in stack scratch, once per
+/// hello. Runs at the same pre-open chokepoint as the location signature, so
+/// a failed credential refuses the hello before any later frame in the same
+/// chunk can apply.
+pub fn verifyPartnerAttestation(ss: model.view.StartSession) !void {
+    const crypto = foundation.crypto;
+    const durable = crypto.PeerKey.fromDesignator(ss.acceptable_location.designator) orelse return;
+    const value = ss.acceptable_location.hints.findNamed(model.transport.hint_session_key_attestation) catch
+        return error.PartnerAttestationInvalid;
+    const sig_bytes = switch (value orelse return error.PartnerAttestationMissing) {
+        .bytes => |bytes| bytes,
+        else => return error.PartnerAttestationInvalid,
+    };
+    const sig = crypto.Signature.fromSlice(sig_bytes) catch return error.PartnerAttestationInvalid;
+    var buf: [codec.signed.session_key_attestation_max_bytes]u8 = undefined;
+    const record = codec.signed.sessionKeyAttestationBytes(
+        &buf,
+        ss.acceptable_location.transport,
+        ss.acceptable_location.designator,
+        ss.session_pubkey,
+    ) catch return error.PartnerAttestationInvalid;
+    crypto.verify(durable, record, sig) catch return error.PartnerAttestationInvalid;
+}
+
+/// Sign the ADR-0097 durable-key credential: the durable `secret`'s Ed25519
+/// signature over the canonical attestation record for `(transport,
+/// designator, session_pubkey)`. The adapter that builds a keyed hello for a
+/// durable-key-attestation transport mints this into the hello's
+/// `session-key-attestation` hint; while sessions reuse the host key, the
+/// durable secret and the session key are the same pair, and the credential
+/// stays valid unchanged when step 4 makes the session key fresh. Errors only
+/// when a field cannot fit the signing-domain bound.
+pub fn mintSessionKeyAttestation(
+    secret: *const foundation.crypto.SecretKey,
+    transport: []const u8,
+    designator: []const u8,
+    session_pubkey: []const u8,
+) !foundation.crypto.Signature {
+    var buf: [codec.signed.session_key_attestation_max_bytes]u8 = undefined;
+    const record = try codec.signed.sessionKeyAttestationBytes(&buf, transport, designator, session_pubkey);
+    return foundation.crypto.sign(secret, record);
+}
+
+/// Assemble a keyed hello's hint entries — the one place the
+/// direct-addresses entry, the ADR-0097 credential, and the `#f` empty
+/// spelling compose, shared by every keyed hello builder (the byte-fed
+/// `Host`'s open tail and the blocking driver's connect/accept) so their
+/// hellos sign identical byte shapes. `attest` is the adapter's transport
+/// table selecting durable-key attestation; the credential is minted only
+/// when the hello's own `designator` is a key spelling — a dialer advertising
+/// the unreachable address placeholder claims no durable identity and mints
+/// nothing. The returned hints borrow `entry_buf`, `attestation_sig`, and the
+/// caller's slices; every hello sender clones them at `sendCopying`. Empty
+/// stays the `#f` spelling: a partner verifies the location signature over
+/// the exact spelling, and `#f` and `{}` do not verify against each other.
+/// `durable_secret` signs the credential and `session_pubkey` is what it
+/// authorizes — two different keys, which is the credential's entire point
+/// (ADR-0097). They are the same value only while a host signs every session
+/// with its durable key, and passing one for both would mint a credential
+/// binding a session key the hello does not carry, which the verifier
+/// correctly refuses.
+pub fn keyedHelloHints(
+    entry_buf: *[2]model.HintEntry,
+    attestation_sig: *foundation.crypto.Signature,
+    direct_addresses_hint: []const u8,
+    attest: bool,
+    durable_secret: *const foundation.crypto.SecretKey,
+    session_pubkey: foundation.crypto.PeerKey,
+    transport: []const u8,
+    designator: []const u8,
+) !model.Hints {
+    var entries: usize = 0;
+    if (direct_addresses_hint.len != 0) {
+        entry_buf[entries] = .{
+            .name = model.transport.hint_direct_addresses,
+            .value = .{ .string = direct_addresses_hint },
+        };
+        entries += 1;
+    }
+    if (attest and foundation.crypto.PeerKey.fromDesignator(designator) != null) {
+        attestation_sig.* = try mintSessionKeyAttestation(
+            durable_secret,
+            transport,
+            designator,
+            session_pubkey.asBytes(),
+        );
+        entry_buf[entries] = .{
+            .name = model.transport.hint_session_key_attestation,
+            .value = .{ .bytes = attestation_sig.asBytes() },
+        };
+        entries += 1;
+    }
+    if (entries == 0) return model.Hints.emptyFalse();
+    return .{ .entries = entry_buf[0..entries] };
 }
 
 /// Copy borrowed wire bytes into an owned frame that respects the frame shape's

@@ -58,9 +58,9 @@ Alice ═════ direct ═══════▶ Bob
 
 This three-party handoff is a central OCapN feature. The browser turns it into a
 click: select a member, then keep chatting even after either person leaves the
-room. Two browser tabs on the same relay can also establish a new direct line
-through relay rendezvous. Native-to-browser and cross-relay cold dialing are
-not implemented.
+room. A peer on the same relay — another browser tab, or a native process —
+can also open a new direct line to a browser through relay rendezvous.
+Cross-relay cold dialing is not implemented.
 
 ## Other ways to run it
 

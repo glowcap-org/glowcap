@@ -129,7 +129,7 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
     var vat = actors.Vat.init(counter.allocator());
     defer vat.deinit();
     var port = actors.Port.init(counter.allocator(), &pair.p1);
-    defer port.deinit();
+    defer port.deinit(&vat);
     const remote: actors.Ref = .{ .far = model.FarRef.object(5) };
 
     // Seven args — the widest arity the stack buffer carries with a verb.

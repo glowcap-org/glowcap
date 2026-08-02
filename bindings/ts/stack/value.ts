@@ -91,6 +91,8 @@ export function isReference(v: unknown): v is Ref {
 // ── Capability layer: `Ref`, `Behavior`, and `Forward` over the one value
 // vocabulary above. There is no second application tree to lower or lift.
 
+let mintRef!: (id: bigint) => Ref;
+
 /** A capability, a reference to an object you can `send` to, wherever it lives.
  *
  * You get a `Ref` two ways: `conn.spawn(behavior)` (a local actor you host) or
@@ -105,6 +107,13 @@ export class Ref {
 		/** Opaque identity in the Host that minted this handle. */
 		readonly id: bigint,
 	) {}
+
+	static {
+		// Hand the private constructor to the module-scoped mint below, so
+		// `refFromId` stays binding-internal without publishing a public
+		// factory on the exported class.
+		mintRef = (id) => new Ref(id);
+	}
 
 	// Set by Session.release. Not a memory flag: release deliberately spends the
 	// application's retain. The Host generation makes the stale id fail closed,
@@ -127,7 +136,7 @@ export class Ref {
  * not re-exported from `mod.ts`, so application code cannot manufacture a
  * native capability handle. */
 export function refFromId(id: bigint): Ref {
-	return new Ref(id);
+	return mintRef(id);
 }
 
 /** A behavior's tail-forward of its answer to another capability, the
@@ -153,5 +162,15 @@ export class Forward {
 
 /** A hosted object's behavior: handle a `(verb, args)` call and return a reply.
  * `args` may contain `Ref`s (capabilities you were handed). Throw to break the
- * caller's promise. */
-export type Behavior = (verb: string, args: Argument[]) => Argument | Forward | void;
+ * caller's promise.
+ *
+ * A behavior may also return a promise (an `async` behavior): the binding
+ * defers the turn's answer onto a resolver vow and settles it when the
+ * promise does, so awaited work never stalls the host's turn loop. A
+ * deferred settle carries plain data only — a reply that hands out a
+ * capability, or forwards, must come from a synchronous return. A rejection
+ * breaks the caller's promise with the error's message. */
+export type Behavior = (
+	verb: string,
+	args: Argument[],
+) => Argument | Forward | void | PromiseLike<Argument | void>;

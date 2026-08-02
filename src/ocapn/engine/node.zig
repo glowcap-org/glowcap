@@ -125,6 +125,18 @@ const PeerSlot = struct {
     owned: bool,
 };
 
+/// How a session's own signing key is obtained (ADR-0097).
+///
+/// A `desc:handoff-give` names the gifter–exporter *session*, and its
+/// signature must therefore be made by that session's key. The node holds one
+/// durable key and does not own session key material, so the layer that does
+/// answers here. `resolve` returns null for a peer it does not know, and the
+/// node falls back to its durable key.
+pub const SessionSecretResolver = struct {
+    ctx: ?*anyopaque,
+    resolve: *const fn (ctx: ?*anyopaque, peer_id: PeerId) ?crypto.SecretKey,
+};
+
 pub const Node = struct {
     /// The reserved far-id range a redeemed three-party-handoff capability is
     /// handed to the application under. A redeemed cap lives on a dialed exporter
@@ -182,6 +194,12 @@ pub const Node = struct {
     /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
     /// registered Peer.
     gifter_session_resolver: ?engine.bootstrap.GifterSessionResolver = null,
+    /// How a session's own signing key is obtained (ADR-0097). A handoff
+    /// record names a *session*, so it must be signed by that session's key,
+    /// which the layer above owns. Null falls back to the node's durable key,
+    /// the value those two facts share while every session in a host signs
+    /// with it.
+    session_secret_resolver: ?SessionSecretResolver = null,
     /// Registered CapTP sessions keyed by `peer_id`: the node-owned, heap-pinned
     /// peer for each live session, whose stable address the embedder's
     /// `net.Connection` borrows. Presence is the entire liveness marker, and a
@@ -477,6 +495,22 @@ pub const Node = struct {
 
     pub fn localObjectProjection(self: *Node) ?engine.bootstrap.LocalObjectProjection {
         return self.local_object_projection;
+    }
+
+    /// Install the seam that answers "what key does this session sign with"
+    /// (ADR-0097). The Host installs it once; a standalone node without one
+    /// signs with its durable key.
+    pub fn setSessionSecretResolver(self: *Node, resolver: SessionSecretResolver) void {
+        self.session_secret_resolver = resolver;
+    }
+
+    /// The key `peer_id`'s session signs handoff records with: the session's
+    /// own where a resolver knows it, else the node's durable key. The one
+    /// place that fallback is expressed, so ADR-0097's fresh-key switch has a
+    /// single seam rather than a search for `secretKey()` call sites.
+    fn sessionSecret(self: *const Node, peer_id: PeerId) crypto.SecretKey {
+        const resolver = self.session_secret_resolver orelse return self.secretKey();
+        return resolver.resolve(resolver.ctx, peer_id) orelse self.secretKey();
     }
 
     pub fn setGifterSessionResolver(self: *Node, resolver: engine.bootstrap.GifterSessionResolver) void {
@@ -1459,6 +1493,53 @@ pub const Node = struct {
         self.actions.pushReserved(.{ .dial = .{ .pending = pending_id } });
     }
 
+    /// What staging a bare dial found: a live exporter connection already reaches
+    /// this locator's identity, or a dial is in flight under `pending`.
+    pub const DialStage = union(enum) {
+        /// A previously dialed exporter already reaches this identity.
+        open: PeerId,
+        /// A dial is in flight; its ticket is the one the `dial` action carries.
+        pending: PendingId,
+    };
+
+    /// Stage a dial for `locator` with no redeem waiting on it, joining an
+    /// in-flight dial for the same identity rather than opening a second
+    /// connection (the same ADR-0012 identity join `acceptGive` performs).
+    ///
+    /// This is the node's dial *scheduling*, without a gift: an adapter above
+    /// that needs a connection to a locator — the Host's select-or-dial
+    /// enlivenment (ADR-0098) — reuses the one pending-dial ticket space and
+    /// its `dial` action rather than minting a second namespace the embedder
+    /// would have to tell apart. A row staged here carries no waiters, so the
+    /// node's own `exporterDialed` / `dialFailed` continuations withdraw
+    /// nothing; the caller keys its own continuation on the returned ticket.
+    pub fn stageDial(self: *Node, locator: []const u8) !DialStage {
+        if (locator.len == 0) return error.UnparseableExporterLocator;
+        var staged = try self.stagePendingDial(locator);
+        var staged_owned = true;
+        defer if (staged_owned) self.freeStagedDial(&staged);
+        if (self.exporters.get(staged.identity)) |exporter_peer| return .{ .open = exporter_peer };
+        if (self.pending_dial_by_identity.get(staged.identity)) |pending_id| return .{ .pending = pending_id };
+
+        try self.pending_dials.ensureUnusedCapacity(self.allocator, 1);
+        try self.pending_dial_by_identity.ensureUnusedCapacity(self.allocator, 1);
+        try self.reserveActions(1);
+        const pending: PendingDial = .{
+            .identity = staged.identity,
+            .transport = staged.transport,
+            .designator = staged.designator,
+            .direct_addresses_hint = staged.direct_addresses_hint,
+        };
+        staged_owned = false;
+        const pending_id = self.next_pending;
+        const identity = pending.identity;
+        self.pending_dials.putAssumeCapacity(pending_id, pending);
+        self.pending_dial_by_identity.putAssumeCapacity(identity, pending_id);
+        self.next_pending += 1;
+        self.actions.pushReserved(.{ .dial = .{ .pending = pending_id } });
+        return .{ .pending = pending_id };
+    }
+
     /// Send one withdraw on a live exporter connection and record it pending.
     /// `give` is borrowed. The `desc:handoff-receive` is signed by the node's
     /// retained identity (`secretKey`), so the exporter verifies it against the
@@ -1475,7 +1556,12 @@ pub const Node = struct {
         // latter slot through `reserveActions`.
         try self.reserveActions(2);
         const withdraw_answer = conn.allocateAnswer();
-        conn.sendWithdrawGift(self.secretKey(), give, model.AnswerPosition.from(withdraw_answer)) catch |err| switch (err) {
+        // Signed by the key of the session the give arrived on, not this
+        // exporter session's: the give named that identity as its
+        // `recipient_key`, and the exporter verifies this receive against
+        // that name (ADR-0097). `sendWithdrawGift` takes its side and session
+        // names from the exporter session itself.
+        conn.sendWithdrawGift(self.sessionSecret(recipient_peer), give, model.AnswerPosition.from(withdraw_answer)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 var buf: [128]u8 = undefined;
@@ -2101,7 +2187,7 @@ pub const Node = struct {
         else
             ep.session_state.partnerLocatorRaw() orelse return error.NoExporterLocator;
 
-        const give = try self.depositAndMintGive(ep, gifted, gift_id, recipient_key, exporter_key, exporter_loc);
+        const give = try self.depositAndMintGive(ep, exporter_peer, gifted, gift_id, recipient_key, exporter_key, exporter_loc);
         defer self.allocator.free(give);
 
         // The two destinations differ only here. Both hand the recipient the
@@ -2134,6 +2220,7 @@ pub const Node = struct {
     fn depositAndMintGive(
         self: *Node,
         exporter: *engine.Peer,
+        exporter_peer: PeerId,
         gifted: model.Reference,
         gift_id: []const u8,
         recipient_key: []const u8,
@@ -2144,7 +2231,12 @@ pub const Node = struct {
         // the gift so a `withdraw-gift` the recipient sends later resolves.
         try exporter.sendDepositGift(gift_id, gifted);
 
-        const secret = self.secretKey();
+        // Signed by the gifter's key on the gifter–exporter session, whose
+        // names this give carries (ADR-0097): the exporter verifies the
+        // signature against the partner key it already proved on that
+        // session, so any other key — including this node's durable one —
+        // would not verify once sessions stop sharing a key.
+        const secret = self.sessionSecret(exporter_peer);
         const gifter_side = try engine.handoff_recipient.sideName(secret.publicKey().asBytes());
         const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
         const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);

@@ -49,14 +49,27 @@ surfaces.
   owns the fresh-session-key work. Native Zig can also listen for the settlement
   of a promise received from a peer.
 - **Identity and publication.** A session can report the identity established
-  by its handshake. The C ABI, Wasm, and language bindings represent every
-  application capability as one opaque Host-scoped identity, lifted from
-  fetches, replies, delivered arguments, enlivenment, publication, and handoff.
-  The native owning facade still exposes some lower-level reference spellings.
+  by its handshake. Native Zig's owning `driver.Session`, the C ABI, Wasm, and
+  the language bindings all represent every application capability as one
+  opaque Host-scoped identity. Identities are lifted from fetches, replies,
+  delivered arguments, enlivenment, publication, and handoff. Wire positions
+  surface only on the explicit low-level `engine.Peer` and `BlockingSession`
+  tiers.
   The Vat owned by a Host is projected through a Port for each session; each
   Port is that session's adapter to the shared actor graph. Publication is lazy
-  discovery, and local actor identity survives Port closure. A
-  Host-level sturdyref select-or-dial convenience is not yet built.
+  discovery: an alias can be published, replaced, or removed, and each change
+  moves discovery only — issued capabilities and deposited gifts keep the
+  exact actor, whose local identity survives Port closure. An actor lives
+  exactly as long as its roots — aliases, capability handles, export
+  bindings, exact gifts — and is reclaimed when the last one releases
+  ([ADR-0101](decisions/adr/ADR-0101-actor-roots-and-reclamation.md)).
+  Durable publication is a separate namespace
+  ([ADR-0098](decisions/adr/ADR-0098-sturdyref-peer-authority.md)): the Host
+  mints an unpredictable versioned swiss name a mutable alias structurally
+  cannot claim, never reassigns it, and returns the complete sturdyref;
+  removal makes the old sturdyref miss while issued capabilities keep the
+  actor. Native enlivenment selects a live matching session or dials the
+  sturdyref peer itself.
 - **Locators.** Zig, C, and the bindings parse and format `ocapn://` peer and
   sturdyref URIs. Applications dial through a locator rather than a
   transport-specific session API.
@@ -91,7 +104,7 @@ add another codec through the open registry without changing the protocol core.
 | `iroh` | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
 | `webrtc` | An encrypted DataChannel reached through signaling. It carries a normal keyed OCapN session once the channel is open. |
 
-TCP and iroh have full Host completion-loop integrations. A native WebRTC
+TCP, iroh, and WebRTC have Host completion-loop integrations. A native WebRTC
 resident owns one shared runtime and readiness fd for stable peer-id open,
 candidate, readable, writable, and closed events; its public C family uses
 non-blocking try-I/O. The explicit blocking connection remains available for

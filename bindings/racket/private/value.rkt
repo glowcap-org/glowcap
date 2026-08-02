@@ -32,4 +32,19 @@
 ;; (empty when the session captured none). `session-partner-identity` builds
 ;; one, and only ever after the signature over that location record verified,
 ;; so the designator here is bound to the key beside it.
-(struct partner-identity (session-key designator locator-record) #:transparent)
+(struct partner-identity (session-key designator locator-record provenance) #:transparent)
+
+;; How a partner's advertised durable identity was authenticated, the third
+;; fact `partner-identity` reports beside session key and designator
+;; (ADR-0097). One of 'authenticated-transport (the transport layer proved the
+;; partner's durable key: iroh's QUIC handshake, or WebRTC's DTLS binding under
+;; capability-authorized signaling), 'durable-key-attestation (the hello
+;; carried a session-key-attestation signed by the durable key its designator
+;; names and it verified — static authorization, not proof the signer is live
+;; on this connection), or 'unauthenticated (no durable identity was proved).
+;;
+;; Ask `partner-identity-durable-authenticated?` when an operation needs a
+;; proved durable peer; never compare the designator against the session key,
+;; which is a coincidence of today's key reuse.
+(define (partner-identity-durable-authenticated? id)
+  (not (eq? (partner-identity-provenance id) 'unauthenticated)))

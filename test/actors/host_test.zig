@@ -43,9 +43,9 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     var server = actors.Vat.init(allocator);
     defer server.deinit();
     var server_port = actors.Port.init(allocator, &pair.p2);
-    defer server_port.deinit();
+    defer server_port.deinit(&server);
     const counter = try server.spawn(Counter, .{ .n = 10 });
-    try server_port.bindExport(counter, 7);
+    try server_port.bindExport(&server, counter, 7);
     // The pairing is hand-wired (p1 learns position 7 out-of-band, below), so
     // the bound position takes an explicit grant; a marshaled introduction
     // would have granted it instead.
@@ -57,7 +57,7 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     var client = actors.Vat.init(allocator);
     defer client.deinit();
     var client_port = actors.Port.init(allocator, &pair.p1);
-    defer client_port.deinit();
+    defer client_port.deinit(&client);
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
     const promise = try client_port.send(&client, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
@@ -113,9 +113,9 @@ test "serve materializes inbound deliver args in the turn arena: a steady-state 
     var server = actors.Vat.init(counting.allocator());
     defer server.deinit();
     var server_port = actors.Port.init(counting.allocator(), &pair.p2);
-    defer server_port.deinit();
+    defer server_port.deinit(&server);
     const counter = try server.spawn(Counter, .{ .n = 0 });
-    try server_port.bindExport(counter, 7);
+    try server_port.bindExport(&server, counter, 7);
     // Hand-wired pairing: the client addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try pair.p2.exportObject(7);
@@ -124,7 +124,7 @@ test "serve materializes inbound deliver args in the turn arena: a steady-state 
     var client = actors.Vat.init(allocator);
     defer client.deinit();
     var client_port = actors.Port.init(allocator, &pair.p1);
-    defer client_port.deinit();
+    defer client_port.deinit(&client);
 
     // Capture one answer-less deliver (`tell` requests no reply, so serving
     // it queues nothing outbound) and replay the same frame for every turn.
@@ -160,14 +160,14 @@ test "binding two actors to the same export position fails loud instead of orpha
     var server = actors.Vat.init(allocator);
     defer server.deinit();
     var server_port = actors.Port.init(allocator, &pair.p2);
-    defer server_port.deinit();
+    defer server_port.deinit(&server);
     const first = try server.spawn(Counter, .{ .n = 1 });
     const second = try server.spawn(Counter, .{ .n = 2 });
 
-    try server_port.bindExport(first, 7);
+    try server_port.bindExport(&server, first, 7);
     // Which local object answers export position 7 is authority: a second bind to
     // the same position would silently orphan `first`, so it is rejected.
-    try std.testing.expectError(actors.Error.AlreadyPublished, server_port.bindExport(second, 7));
+    try std.testing.expectError(actors.Error.AlreadyPublished, server_port.bindExport(&server, second, 7));
 }
 
 /// Captures a `.give` resolution's projection into fixed buffers so the test
@@ -211,7 +211,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     var client = actors.Vat.init(allocator);
     defer client.deinit();
     var client_port = actors.Port.init(allocator, &pair.p1);
-    defer client_port.deinit();
+    defer client_port.deinit(&client);
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
@@ -296,9 +296,9 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     var server = actors.Vat.init(allocator);
     defer server.deinit();
     var server_port = actors.Port.init(allocator, &pair.p2);
-    defer server_port.deinit();
+    defer server_port.deinit(&server);
     const counter = try server.spawn(Counter, .{ .n = 200 });
-    try server_port.bindExport(counter, 7);
+    try server_port.bindExport(&server, counter, 7);
     // Hand-wired pairing: the client addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try pair.p2.exportObject(7);
@@ -310,7 +310,7 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     var client = actors.Vat.init(allocator);
     defer client.deinit();
     var client_port = actors.Port.init(allocator, &pair.p1);
-    defer client_port.deinit();
+    defer client_port.deinit(&client);
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
 
     // First call replies 205: the interceptor claims it, so the client's
@@ -332,7 +332,7 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     // Second call replies 5 (fresh counter at 0 plus 5, under the 100
     // threshold): unclaimed, the ordinary resolve flows and the listener fires.
     const small = try server.spawn(Counter, .{ .n = 0 });
-    try server_port.bindExport(small, 8);
+    try server_port.bindExport(&server, small, 8);
     try pair.p2.exportObject(8);
     try pair.p1.importObject(8);
     const passed_promise = try client_port.send(&client, .{ .far = model.FarRef.object(8) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
@@ -387,14 +387,14 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
     var server = actors.Vat.init(allocator);
     defer server.deinit();
     var server_port = actors.Port.init(allocator, &pair.p2);
-    defer server_port.deinit();
+    defer server_port.deinit(&server);
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
     var client = actors.Vat.init(allocator);
     defer client.deinit();
     var client_port = actors.Port.init(allocator, &pair.p1);
-    defer client_port.deinit();
+    defer client_port.deinit(&client);
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
     const promise = try client_port.send(&client, remote, .{ .verb = "get" });
     var captured = BrokenCapture{};

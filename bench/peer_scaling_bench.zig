@@ -195,7 +195,7 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     errdefer {
         var j: u64 = 0;
         while (j < created) : (j += 1) {
-            if (holds_vat) serveds[j].deinit();
+            if (holds_vat) serveds[j].deinit(&shared_vat);
             peers[j].deinit();
         }
     }
@@ -211,7 +211,7 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
 
     var i: u64 = 0;
     while (i < sample) : (i += 1) {
-        if (holds_vat) serveds[i].deinit();
+        if (holds_vat) serveds[i].deinit(&shared_vat);
         peers[i].deinit();
     }
 

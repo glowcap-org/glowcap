@@ -592,7 +592,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
         // after. What the budget guarantees is what follows — the connection
         // is condemned and closed with the typed abort. (The abort *kind* is
         // pinned hermetically in core_host_budget_test.zig.)
-        _ = flood_conn.call(flood, .{ .verb = "flood", .args = &.{} }, arena.allocator()) catch {};
+        _ = flood_conn.call(flood, "flood", &.{}, arena.allocator()) catch {};
         var polls: usize = 0;
         while (flood_conn.abortReason() == null and polls < 500) : (polls += 1) {
             _ = flood_conn.stepReadable(10) catch break;
@@ -604,14 +604,13 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     // The sibling still gets ordinary answers after the flooder was closed.
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const reply = try sibling_conn.call(echo, .{ .verb = "hit", .args = &.{} }, arena.allocator());
+    const reply = try sibling_conn.call(echo, "hit", &.{}, arena.allocator());
     switch (reply) {
         .fulfilled => |arg| try std.testing.expectEqual(@as(i64, 1), arg.integer),
         .broken => |reason| {
             std.debug.print("echo broke: {s}\n", .{reason});
             return error.EchoBroke;
         },
-        .give => return error.ExpectedValue,
     }
 }
 

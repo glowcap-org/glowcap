@@ -32,9 +32,15 @@ import {
 	LIST,
 	NOTIFY,
 	OFFER_INBOX,
+	OFFER_SIGNALING,
 	OPEN,
 	POST,
 	REGISTER,
+	SIG_ANSWER,
+	SIG_CANDIDATE,
+	SIGNAL_ANSWER,
+	SIGNAL_CANDIDATE,
+	SIGNAL_OFFER,
 	SUBSCRIBE,
 	TYPING,
 	WATCH,
@@ -313,6 +319,80 @@ export class Directory {
 	 * `mintInboxFor` request. */
 	async offerInbox(forNick: string, inbox: Ref): Promise<void> {
 		await this.session.send(this.#directory, OFFER_INBOX, [forNick, inbox]);
+	}
+
+	// ── WebRTC signaling carried by the directory (ADR-0089) ────────────────
+	// One row per target designator: the reply capability the answer and the
+	// far peer's candidates ride back on, plus whoever is waiting on each.
+	readonly #signals = new Map<
+		string,
+		{
+			reply: Ref;
+			onAnswer: ((sdp: string) => void) | null;
+			sink: ((ice: string) => void) | null;
+		}
+	>();
+
+	#signalRow(designator: string) {
+		let row = this.#signals.get(designator);
+		if (row === undefined) {
+			const fresh = {
+				reply: null as unknown as Ref,
+				onAnswer: null as ((sdp: string) => void) | null,
+				sink: null as ((ice: string) => void) | null,
+			};
+			fresh.reply = this.session.spawn((verb, args) => {
+				if (verb === SIG_ANSWER) {
+					fresh.onAnswer?.(typeof args[0] === "string" ? args[0] : "");
+				} else if (verb === SIG_CANDIDATE) {
+					fresh.sink?.(typeof args[0] === "string" ? args[0] : "");
+				}
+				return null;
+			});
+			this.#signals.set(designator, fresh);
+			row = fresh;
+		}
+		return row;
+	}
+
+	/** File this member's WebRTC signaling inbox with the directory
+	 * (`offerSignaling`): offers and candidates aimed at this member's `webrtc`
+	 * designator arrive on it as `offer(id, sdp)` / `candidate(id, ice)`. */
+	async offerSignaling(inbox: Ref): Promise<void> {
+		await this.session.send(this.#directory, OFFER_SIGNALING, [inbox]);
+	}
+
+	/** Start one signaling exchange toward `designator` and resolve the far
+	 * peer's SDP answer. The answer rides a reply capability this method spawns,
+	 * because directory behaviors return nothing (every signaling message is an
+	 * eventual send). */
+	async signalOffer(designator: string, sdp: string): Promise<string> {
+		const row = this.#signalRow(designator);
+		const answer = new Promise<string>((resolve) => (row.onAnswer = resolve));
+		await this.session.send(this.#directory, SIGNAL_OFFER, [designator, sdp, row.reply]);
+		return answer;
+	}
+
+	/** Answer exchange `id` with this member's SDP answer (the answering half). */
+	signalAnswer(id: string, sdp: string): void {
+		this.session.tell(this.#directory, SIGNAL_ANSWER, [id, sdp]).catch(() => {});
+	}
+
+	/** Trickle one ICE candidate. `key` is the target's designator on the
+	 * offering side, or the exchange id on the answering side; the directory
+	 * resolves which from the calling session. */
+	signalCandidate(key: string, ice: string): void {
+		this.session.tell(this.#directory, SIGNAL_CANDIDATE, [key, ice]).catch(() => {});
+	}
+
+	/** Register the sink for candidates the far peer of `designator`'s exchange
+	 * trickles back. Returns a disposer. */
+	onSignalCandidate(designator: string, sink: (ice: string) => void): () => void {
+		const row = this.#signalRow(designator);
+		row.sink = sink;
+		return () => {
+			if (row.sink === sink) row.sink = null;
+		};
 	}
 
 	/** Close the session, ending every room's `messages` stream. */

@@ -116,6 +116,12 @@ async fn enliven_round_trips_then_caches() {
 			let reply2 = conn.send(&again, "hello", &[]).await.unwrap();
 			assert_eq!(reply2, Argument::Symbol("alive".into()));
 
+			// Listen (CapTP `op:listen`): a held capability's resolution comes
+			// back through the vow — a listen on an already-settled capability
+			// answers at once.
+			let settled = conn.listen(&cap).await.unwrap();
+			assert!(matches!(settled, Argument::Reference(_)));
+
 			conn.close();
 			host.await.unwrap();
 		})
@@ -488,18 +494,19 @@ async fn promise_pipelining_drives_a_dependent_chain() {
 						return Err(format!("no such method: {verb}"));
 					}
 					let done = Cell::new(false);
-					let task = factory.spawn(move |task_verb, _args| match task_verb {
-						"assign" => Ok(Argument::String("assigned".into())),
-						"complete" => {
-							done.set(true);
-							Ok(Argument::String("done".into()))
-						}
-						"status" => Ok(Argument::String(
-							if done.get() { "done" } else { "open" }.into(),
-						)),
-						other => Err(format!("no such method: {other}")),
-					})
-					.map_err(|error| error.to_string())?;
+					let task = factory
+						.spawn(move |task_verb, _args| match task_verb {
+							"assign" => Ok(Argument::String("assigned".into())),
+							"complete" => {
+								done.set(true);
+								Ok(Argument::String("done".into()))
+							}
+							"status" => Ok(Argument::String(
+								if done.get() { "done" } else { "open" }.into(),
+							)),
+							other => Err(format!("no such method: {other}")),
+						})
+						.map_err(|error| error.to_string())?;
 					Ok((&task).into())
 				})
 				.unwrap();
@@ -550,14 +557,15 @@ async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
 						if verb != "create" {
 							return Err(format!("no such method: {verb}"));
 						}
-						let child = stale_origin.spawn(|child_verb, _args| {
-							if child_verb == "ping" {
-								Ok(Argument::Symbol("alive".into()))
-							} else {
-								Err(format!("no such method: {child_verb}"))
-							}
-						})
-						.map_err(|error| error.to_string())?;
+						let child = stale_origin
+							.spawn(|child_verb, _args| {
+								if child_verb == "ping" {
+									Ok(Argument::Symbol("alive".into()))
+								} else {
+									Err(format!("no such method: {child_verb}"))
+								}
+							})
+							.map_err(|error| error.to_string())?;
 						Ok((&child).into())
 					})
 					.unwrap();
@@ -592,14 +600,10 @@ async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
 			.unwrap();
 			ready_rx.await.unwrap();
 			let introducer = sibling_client.fetch("introducer").await.unwrap();
-			let root = Ref::try_from(
-				&sibling_client.send(&introducer, "get", &[]).await.unwrap(),
-			)
-			.expect("the sibling introduces the Host-owned root");
-			let child = Ref::try_from(
-				&sibling_client.send(&root, "create", &[]).await.unwrap(),
-			)
-			.expect("create returns the turn-spawned child");
+			let root = Ref::try_from(&sibling_client.send(&introducer, "get", &[]).await.unwrap())
+				.expect("the sibling introduces the Host-owned root");
+			let child = Ref::try_from(&sibling_client.send(&root, "create", &[]).await.unwrap())
+				.expect("create returns the turn-spawned child");
 			assert_eq!(
 				sibling_client.send(&child, "ping", &[]).await.unwrap(),
 				Argument::Symbol("alive".into())
@@ -1642,6 +1646,88 @@ async fn a_silent_partner_times_the_dial_out_rather_than_parking_it() {
 			.expect("a partner that never handshakes must not open a session");
 			assert_eq!(error.kind(), crate::ErrorKind::TimedOut);
 			silent.await.unwrap();
+		})
+		.await;
+}
+
+// Off-turn settlement: a behavior mints a resolver pair
+// (`Host::spawn_resolver`), defers its answer onto the pair's vow
+// (`Resolver::forward_turn`), and returns; the caller's reply arrives only
+// when the parked resolver settles later — after real awaited work — as its
+// own top-level event. The consuming settle verbs make one-shot a type fact,
+// so the broken arm exercises a second call's fresh resolver.
+#[tokio::test]
+async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
+	use std::cell::RefCell;
+	use std::rc::Rc;
+
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let captp = Host::new_host();
+			let parked: Rc<RefCell<Option<crate::Resolver>>> = Rc::new(RefCell::new(None));
+			let behavior_host = captp.clone();
+			let behavior_parked = Rc::clone(&parked);
+			captp.publish_giftable("worker", move || {
+				let host = behavior_host.clone();
+				let parked = Rc::clone(&behavior_parked);
+				Box::new(move |_verb, _args| {
+					let resolver = host.spawn_resolver().map_err(|e| e.to_string())?;
+					resolver.forward_turn().map_err(|e| e.to_string())?;
+					*parked.borrow_mut() = Some(resolver);
+					Ok(Argument::Void)
+				})
+			});
+			let server = listen_with_host("127.0.0.1:0", captp).await.unwrap();
+			let addr = server.local_addr().unwrap();
+			let host = tokio::task::spawn_local(async move {
+				let conn = server.accept().await.unwrap();
+				conn.serve().await;
+			});
+
+			let conn = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			let worker = conn.fetch("worker").await.unwrap();
+
+			// The worker's "real work": wait until the behavior parked its
+			// resolver, then settle it from the loop, top-level.
+			let take_parked = || async {
+				loop {
+					if let Some(resolver) = parked.borrow_mut().take() {
+						break resolver;
+					}
+					tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+				}
+			};
+
+			let fulfilled = async {
+				take_parked()
+					.await
+					.fulfill(&Argument::String("computed off-turn".into()))
+					.unwrap();
+			};
+			let (reply, ()) = tokio::join!(conn.send(&worker, "work", &[]), fulfilled);
+			assert_eq!(reply.unwrap(), Argument::String("computed off-turn".into()));
+
+			let broken_arm = async {
+				take_parked().await.break_with("worker gave up").unwrap();
+			};
+			let (broken, ()) = tokio::join!(conn.send(&worker, "work", &[]), broken_arm);
+			let error = broken.unwrap_err();
+			assert_eq!(error.kind(), ErrorKind::Broken);
+			assert!(
+				error.message().unwrap_or("").contains("worker gave up"),
+				"break carries the worker's words, got {:?}",
+				error.message()
+			);
+
+			conn.close();
+			host.await.unwrap();
 		})
 		.await;
 }

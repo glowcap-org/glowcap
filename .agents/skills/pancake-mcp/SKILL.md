@@ -35,7 +35,7 @@ shelling out. Same product binary as argv/REPL
 | Need | How |
 | --- | --- |
 | Dial / probe / call / tell / fetch / publish across turns | MCP tools (`tools/list` first) |
-| Host greeter/echo for a partner | Shell: [pancake-cli](../pancake-cli/SKILL.md) `ocapn listen` (never an MCP tool) |
+| Host greeter/echo for a partner | The `listen` tool (`--publish greeter`), or the shell's `ocapn listen` for a foreground accept ([pancake-cli](../pancake-cli/SKILL.md)) |
 | CapTP lab (rail, imports, cancel) | Shell REPL — pancake-cli |
 | Room presence / wake on messages | [rooms-peer](../rooms-peer/SKILL.md) |
 | Oracle / Goblins / suite evidence | Zig gates — MCP success is not conformance |
@@ -64,7 +64,7 @@ accept), iterate code, re-listen, MCP again.
 | Lifetime | One long-lived MCP process = one CapTP peer; `dial` and locator `call`/`fetch`/`tell` open it and keep it |
 | Results | Tool text is argv `--json` outcome (success *or* `{"ok":false,"error":…}`); `isError` ⇔ nonzero exit; stderr is ops only |
 | Teardown | `close` is in the default catalog; process exit / idle caps also end the peer |
-| `listen` | **Never** an MCP tool — argv only (`pancake ocapn listen …`) |
+| `listen` | Binds and returns the locator at once; accepts on a background thread. One listener per session; `close` stops it (and the held session); `info` reports `listening`/`accepted` |
 | `dial --repl` | Hidden from MCP schemas (argv/REPL attach) |
 | Locator | Pass `ocapn://…` when no session is open yet (retains). A locator while a session is already held is a one-shot sidecar |
 | Stdio | Newline-delimited JSON-RPC (MCP transport); not LSP length headers |

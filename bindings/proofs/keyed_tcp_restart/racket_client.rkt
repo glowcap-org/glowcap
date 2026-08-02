@@ -30,17 +30,25 @@
 (define (call-greeter! uri ready expected)
   (define c (connect uri))
   (semaphore-wait ready)
-  ;; On this transport the designator *is* the key, so the identity the handshake
-  ;; proved has to be the one that was dialed, and its key has to spell it.
+  ;; On this transport the designator is the peer's *durable* identity, so the
+  ;; identity the handshake proved has to be the one that was dialed.
   (define proved (session-partner-identity c))
   (unless (equal? (partner-identity-designator proved) expected)
     (error 'keyed-tcp-restart "partner signed ~a, not the dialed ~a"
            (partner-identity-designator proved) expected))
-  (unless (equal? (bytes->hex-string (partner-identity-session-key proved)) expected)
-    (error 'keyed-tcp-restart "partner key ~a does not spell its designator ~a"
-           (bytes->hex-string (partner-identity-session-key proved)) expected))
-  (unless (session-partner-designator-is-key? c)
-    (error 'keyed-tcp-restart "a keyed-tcp partner's designator is its session key"))
+  ;; And its session key is deliberately NOT that identity: every connection
+  ;; signs with its own key (ADR-0097), so a session key is not a name and
+  ;; comparing the two would prove nothing.
+  (when (equal? (bytes->hex-string (partner-identity-session-key proved)) expected)
+    (error 'keyed-tcp-restart
+           "session key still spells the durable designator; sessions are not keyed per connection"))
+  ;; What proved the durable identity is the hello's session-key-attestation
+  ;; credential, which is what a caller needing a proved peer reads.
+  (unless (eq? (partner-identity-provenance proved) 'durable-key-attestation)
+    (error 'keyed-tcp-restart "keyed-tcp durable provenance is ~a, not the attestation credential"
+           (partner-identity-provenance proved)))
+  (unless (partner-identity-durable-authenticated? proved)
+    (error 'keyed-tcp-restart "a keyed-tcp partner's durable identity is authenticated"))
   (define g (session-fetch c "greeter"))
   (define reply (session-send c g 'greet))
   (unless (equal? reply GREETING)

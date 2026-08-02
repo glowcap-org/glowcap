@@ -389,6 +389,7 @@ fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
         \\
         ,
         .hand_wrapped = &.{"pancake_host_pending_dial"},
+        .header_path = "include/pancake_host.h",
         .specials = &.{
             .{ .T = cd.PancakeHostBehavior, .spelling = "_PancakeHostBehavior" },
             .{ .T = cd.PancakeHostCtxFree, .spelling = "_pointer" },

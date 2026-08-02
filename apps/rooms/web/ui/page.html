@@ -21,131 +21,23 @@
 		<link rel="stylesheet" href="page.css" />
 	</head>
 	<body>
-		<div class="app">
-			<nav class="sidebar" aria-label="Rooms">
-				<div class="workspace">
-					<button id="railToggle" class="mark-btn"
-						title="Hide the rooms list"
-						aria-label="Rooms and direct messages"
-						aria-pressed="true"></button>pancake <small>rooms</small>
-				</div>
-				<div class="section">
-					<div class="section-head">
-						<span>Rooms</span>
-						<button id="newRoomBtn" title="Create or open a room"
-							aria-label="Create or open a room"
-							aria-controls="newRoom"
-							aria-expanded="false">+</button>
-					</div>
-					<div id="newRoom" class="newroom">
-						<input id="newRoomInput" placeholder="new-room-name"
-							aria-label="New room name" maxlength="32" />
-					</div>
-					<ul id="roomList"></ul>
-				</div>
-				<div class="section dms">
-					<div class="section-head">
-						<span>Direct messages</span>
-						<button id="newDmBtn" title="Message a member directly"
-							aria-label="Start a direct message"
-							aria-controls="newDm"
-							aria-expanded="false" hidden>+</button>
-					</div>
-					<div id="newDm" class="newroom">
-						<input id="newDmInput" placeholder="member name"
-							aria-label="Member to message" maxlength="32" />
-					</div>
-					<ul id="dmList"></ul>
-				</div>
-				<div
-					class="sidebar-foot"><span id="dot" class="dot"></span><span id="status" role="status" aria-live="polite">connecting…</span></div>
-			</nav>
-
-			<div class="workarea">
-				<header class="topbar">
-					<button id="backBtn" class="icon mark-btn"
-						title="Rooms and direct messages"
-						aria-label="Rooms and direct messages"
-						aria-pressed="true"></button>
-					<h1 id="roomTitle">
-						<button id="leaveBtn" class="title-btn" type="button"
-							disabled><span class="hash" id="roomSigil"
-								hidden>#</span><span
-								id="roomName">No room yet</span><span
-								class="leave-x" aria-hidden="true"></span></button>
-					</h1>
-					<span class="provenance" id="provenance"
-						role="note"><span class="lock" id="provenanceLock"></span><span id="provenanceText"></span></span>
-					<span class="spacer"></span>
-					<button id="notifyToggle" class="icon"
-						title="Notify me when I'm mentioned"
-						aria-label="Toggle mention notifications"
-						aria-pressed="false"
-						hidden></button>
-					<button id="themeToggle" class="icon"
-						title="Toggle light / syrup"
-						aria-label="Toggle light or dark theme"></button>
-					<button id="membersToggle" class="icon count-btn"
-						aria-pressed="true" title="Members" hidden><span
-							class="count-mark" aria-hidden="true"></span><span
-							id="memberCount">0</span></button>
-				</header>
-
-				<div class="content" id="content">
-					<div class="stream">
-						<div id="banner" class="banner" role="status"
-							aria-live="polite"></div>
-						<section id="log" aria-live="polite"
-							aria-label="Messages"></section>
-						<div class="join-wrap" id="joinScreen">
-							<form id="joinForm" class="join">
-								<h2>Join a room</h2>
-								<p
-									class="lead">Pick a room and a name — capability-secure chat, no account. Entering a room that does not exist yet opens it.</p>
-								<label for="room">Room</label>
-								<input id="room" placeholder="general"
-									value="general"
-									aria-label="Room name" maxlength="32" />
-								<label for="nick">Display name</label>
-								<input id="nick" placeholder="your name"
-									aria-describedby="nickError"
-									maxlength="32" autofocus />
-								<p id="nickError" class="error" role="alert"></p>
-								<button id="joinBtn">Join room</button>
-								<button type="button" id="browseRoomsBtn"
-									class="ghost-link">Browse live rooms</button>
-							</form>
-						</div>
-						<button id="jump" class="jump"
-							aria-label="Jump to latest messages"><span>Latest messages</span></button>
-						<div class="composer">
-							<div id="emojiPop" class="emoji-pop" role="group"
-								aria-label="Emoji"></div>
-							<div class="composer-status">
-								<div id="typing" class="typing"
-									aria-hidden="true"></div>
-								<div id="hint"
-									class="hint"><b>Enter</b> to send · <b>Shift+Enter</b> for a new line · <b>**bold**</b> · <b>*italic*</b> · <b>`code`</b> · <b>@name</b> · <b>:smile:</b> · <b>/me</b></div>
-							</div>
-							<form id="composer" hidden>
-								<textarea id="line" rows="1"
-									placeholder="Message" autocomplete="off"
-									aria-label="Message"></textarea>
-								<button type="button" id="emojiBtn"
-									class="emoji-btn" title="Emoji"
-									aria-label="Insert emoji"></button>
-								<button id="sendBtn" type="submit">Send</button>
-							</form>
-						</div>
-					</div>
-					<aside class="members" id="memberPane" aria-label="Members">
-						<h2>Members</h2>
-						<p id="presenceSummary">Join a room to see who is here.</p>
-						<ul id="members"></ul>
-					</aside>
-				</div>
+		<!-- The interface is drawn by page.js and lives entirely under this
+		     element; the components own their own structure. What sits here is
+		     what a reader gets when that does not happen — the script disabled,
+		     or the bundle failing to load — because a page that draws itself owes
+		     an explanation when it cannot. React replaces these children on
+		     mount, so a working page never shows them. -->
+		<div id="root">
+			<div class="boot">
+				<h1>pancake rooms needs JavaScript</h1>
+				<p>This page is not a view onto a chat server. It runs a peer in
+					your browser: it holds the room as a capability, and messages
+					you send directly to someone travel between the two of you
+					without the room seeing them. None of that can happen without
+					scripting.</p>
+				<p>If scripting is on and you are still reading this, the page
+					script did not load. Reloading is worth a try.</p>
 			</div>
-			<div id="sheetScrim" aria-hidden="true"></div>
 		</div>
 		<script type="module" src="page.js"></script>
 	</body>

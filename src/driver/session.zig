@@ -26,6 +26,8 @@ const host_mod = @import("host.zig");
 const driver = @import("mod.zig");
 const Settled = driver.Settled;
 const Capability = driver.Capability;
+const Value = driver.Value;
+const Reply = driver.Reply;
 const Identity = driver.Identity;
 const Budget = driver.Budget;
 const Error = driver.Error;
@@ -107,14 +109,23 @@ pub const Session = struct {
     }
 
     /// Chain fetch-then-send without blocking (see `Served.beginSendNamed`).
-    pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
-        try self.hs.served.beginSendNamed(&self.host.core.vat, pending, name, msg, terminal);
+    /// Args are owning-tier `Value`s; the pending machinery owns its own clone
+    /// of the lowered message, so the caller's slices are borrowed for this
+    /// call only.
+    pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
+        try self.hs.served.beginSendNamed(&self.host.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
         try self.host.core.flushSession(self.hs);
     }
 
     /// Chain fetch-then-tell without blocking (see `Served.beginTellNamed`).
-    pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
-        try self.hs.served.beginTellNamed(&self.host.core.vat, pending, name, msg, terminal);
+    pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
+        try self.hs.served.beginTellNamed(&self.host.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
         try self.host.core.flushSession(self.hs);
     }
 
@@ -142,170 +153,182 @@ pub const Session = struct {
         return self.host.core.partnerIdentity(self.hs);
     }
 
-    /// Enroll a capability this session holds under a node-unique token, so it
-    /// can be handed to a third party, and return that token.
-    ///
-    /// `fetch` below enrolls its own result. A capability that arrived any
-    /// other way — returned from a call, lifted from a delivered argument —
-    /// has no token until this gives it one, and the node cannot route a
-    /// capability it was never told the home of, so replying with an
-    /// unenrolled one would name a position that means nothing on the
-    /// recipient's session.
-    ///
-    /// Takes and returns a whole `model.FarRef` rather than a position, because
-    /// the enrolled row records whether the position names a settled capability
-    /// or a promise the partner has not settled, and a far reference encodes the
-    /// same either way, so the import row cannot tell them apart. Reading the
-    /// kind off the reference the caller already holds is what makes a
-    /// position naming one kind and a kind argument naming the other
-    /// unconstructible on this tier. What comes back is the enrolled row's own
-    /// reference, so the token is ready to hand on as it stands.
-    ///
-    /// Idempotent per import, so one object never wears two identities. A
-    /// position this session does not hold is refused
-    /// `HostError.ForeignArgument`, and a position already enrolled under the
-    /// other kind is refused `HostError.EnrolledKindConflict`.
-    pub fn enroll(self: *Session, reference: model.FarRef) !model.FarRef {
-        const token = try self.host.core.enrollCapability(
-            self.hs,
-            reference.import_position.int(),
-            reference.kind,
-        );
-        return .{ .import_position = .from(token), .kind = reference.kind };
-    }
-
-    /// Fetch a partner's published capability by `name`, returning a far
-    /// `Ref`. The fulfilled capability is enrolled under a node-unique token
-    /// before it is dispatched (ADR-0069), so handing it back to the partner —
-    /// or re-gifting it — routes to the right exporter. An unpublished name
-    /// returns `Error.FetchBroken`; any other fulfill returns
+    /// Fetch a partner's published capability by `name`, returning its opaque
+    /// Host `Capability` (ADR-0096). The fulfilled reference is lifted while
+    /// its owning session is known, so handing it back to the partner — or to
+    /// a third party — routes to the right exporter without the application
+    /// ever holding a wire position. An unpublished name returns
+    /// `Error.FetchBroken`; any other fulfill returns
     /// `Error.FetchNotACapability`.
-    pub fn fetch(self: *Session, name: []const u8) !actors.Ref {
+    pub fn fetch(self: *Session, name: []const u8) !Capability {
         var capture = driver.FetchCapture{};
         const id = try self.host.core.fetch(self.hs, name);
         try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.FetchCapture.record });
         return switch (capture.outcome orelse return Error.ConnectionClosed) {
-            .capability => |far_ref| .{ .far = far_ref },
+            .capability => |far_ref| self.host.core.liftCapability(self.hs, .{ .far = far_ref }),
             .broken => Error.FetchBroken,
             .not_a_capability => Error.FetchNotACapability,
         };
     }
 
-    /// The reason-bearing fetch: the partner's settlement whole, materialized
-    /// into `arena`.
-    pub fn fetchSettled(self: *Session, name: []const u8, arena: std.mem.Allocator) !Settled {
+    /// The reason-bearing fetch: the partner's settlement whole, lifted and
+    /// materialized into `arena` (reset the arena to reclaim it).
+    pub fn fetchSettled(self: *Session, name: []const u8, arena: std.mem.Allocator) !Reply {
         var capture = driver.SettleCapture{ .arena = arena };
         const id = try self.host.core.fetch(self.hs, name);
         try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
-        return capture.finish();
+        return self.replyFromSettled(self.hs, arena, try capture.finish());
     }
 
-    /// Eventual-send `msg` to `target` and block until the reply settles,
-    /// materializing both `Settled` arms into caller-owned `arena`. Returns
-    /// `ConnectionClosed` if the partner leaves before the reply settles.
-    pub fn call(self: *Session, target: actors.Ref, msg: actors.Message, arena: std.mem.Allocator) !Settled {
-        const vow = try self.send(target, msg);
-        return self.settleVow(vow, arena);
+    /// Eventual-send to `target` and block until the reply settles,
+    /// materializing both `Reply` arms into caller-owned `arena`. The node
+    /// routes the capability to its exporter session, so a redeemed or
+    /// re-gifted capability is called the same way a directly fetched one is;
+    /// an argument foreign to the routed session is refused whole
+    /// (`ForeignArgument`). Returns `ConnectionClosed` if the partner leaves
+    /// before the reply settles.
+    pub fn call(self: *Session, target: Capability, verb: []const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        const routed = try self.routedSend(target, verb, args, &scratch);
+        return self.replyVowOn(routed.session, routed.vow, arena);
     }
 
-    /// Fetch by `name`, returning the enrolled token as a `model.Reference` —
-    /// the routable spelling `callReference` / `sendReference` take, which
-    /// rides its exporter session even when that is not this one.
-    pub fn fetchReference(self: *Session, name: []const u8) !model.Reference {
-        var capture = driver.FetchCapture{};
-        const id = try self.host.core.fetch(self.hs, name);
-        try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.FetchCapture.record });
-        return switch (capture.outcome orelse return Error.ConnectionClosed) {
-            .capability => |far_ref| .{ .far = far_ref },
-            .broken => Error.FetchBroken,
-            .not_a_capability => Error.FetchNotACapability,
-        };
+    /// Eventual-send to `target`, returning the reply's vow without blocking;
+    /// settle it with `settleVow` or observe it with `on`. Args are borrowed
+    /// for this call: the actor layer owns its clone before this returns.
+    pub fn send(self: *Session, target: Capability, verb: []const u8, args: []const Value) !actors.Vow {
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        const routed = try self.routedSend(target, verb, args, &scratch);
+        return routed.vow;
     }
 
-    /// Eventual-send to a reference-keyed target and block until the reply
-    /// settles. The node routes the token to its exporter session, so a
-    /// redeemed or re-gifted capability is called the same way a directly
-    /// fetched one is; an argument foreign to the routed session is refused
-    /// whole (`ForeignArgument`).
-    pub fn callReference(self: *Session, target: model.Reference, verb: []const u8, args: []const model.Argument, arena: std.mem.Allocator) !Settled {
-        if (self.refForTarget(target) == null) return Error.UncallableTarget;
-        const routed = try self.host.core.routeSend(self.hs, target, args);
-        const vow = try routed.session.served.send(&self.host.core.vat, routed.target, .{ .verb = verb, .args = args });
-        return self.settleVowOn(routed.session, vow, arena);
+    /// One lowered, routed delivery, the prologue `call` / `send` / `tell`
+    /// share: gate the target on object kind, lower it and the args on this
+    /// session, and route to the exporter session. The lowered args live in
+    /// `scratch`, which must outlive the served verb that consumes them.
+    const RoutedDelivery = struct { session: *driver_core.HostSession, target: actors.Ref, args: []const model.Argument };
+
+    fn routeDelivery(self: *Session, target: Capability, args: []const Value, scratch: *std.heap.ArenaAllocator) !RoutedDelivery {
+        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
+        // A local capability sends as its Vat actor directly: a same-side
+        // call needs no wire position, so no export is minted and no binding
+        // root is taken (ADR-0101).
+        if (self.host.core.localActorFor(target)) |local| {
+            return .{ .session = self.hs, .target = local, .args = lowered };
+        }
+        const target_ref = try self.targetForSend(target);
+        const routed = try self.host.core.routeSend(self.hs, target_ref, lowered);
+        return .{ .session = routed.session, .target = routed.target, .args = lowered };
     }
 
-    /// Eventual-send `msg` to `target`, returning the reply's vow without
-    /// blocking; settle it with `settleVow` or observe it with `on`.
-    pub fn send(self: *Session, target: actors.Ref, msg: actors.Message) !actors.Vow {
-        const vow = try self.hs.served.send(&self.host.core.vat, target, msg);
-        // A far send owes the wire its encode now. A near send queued a local
-        // turn instead — driving it here would settle the vow before the
-        // caller could register a listener, so the drive waits for the next
-        // flush or settle (the borrowing tier's contract exactly).
-        if (target == .far) try self.host.core.flushSession(self.hs);
-        return vow;
-    }
-
-    /// `send` to a reference-keyed target (see `callReference` for routing).
-    pub fn sendReference(self: *Session, target: model.Reference, verb: []const u8, args: []const model.Argument) !actors.Vow {
-        if (self.refForTarget(target) == null) return Error.UncallableTarget;
-        const routed = try self.host.core.routeSend(self.hs, target, args);
-        const vow = try routed.session.served.send(&self.host.core.vat, routed.target, .{ .verb = verb, .args = args });
+    /// The one lowered, routed eventual-send `call` / `send` share: route,
+    /// send, and flush a far send's encode. A near send queues a local turn
+    /// instead — driving it here would settle the vow before the caller could
+    /// register a listener, so the drive waits for the next flush or settle
+    /// (the borrowing tier's contract exactly).
+    fn routedSend(self: *Session, target: Capability, verb: []const u8, args: []const Value, scratch: *std.heap.ArenaAllocator) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
+        const routed = try self.routeDelivery(target, args, scratch);
+        const vow = try routed.session.served.send(&self.host.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
         if (routed.target == .far) try self.host.core.flushSession(routed.session);
-        return vow;
+        return .{ .session = routed.session, .vow = vow };
     }
 
     /// Listen on the promise `target` names, returning a vow for its
     /// settlement (see `Served.listenTo`). A promise this partner handed us
     /// settles through a notification it delivers, so this is how a received
-    /// promise is waited on; `listenSettled` is the blocking form. A far
-    /// target routes through the node the way `callReference` routes, so a
-    /// node token is listened on its exporter session. A give that arrives in
-    /// the settlement is redeemed on the way through, exactly as one arriving
-    /// in a call's reply is. No `refForTarget` guard here: that guard admits
-    /// only far *objects*, and a listen's usual target is a far promise.
-    pub fn listenTo(self: *Session, target: model.Reference) !actors.Vow {
+    /// promise capability is waited on; `listenSettled` is the blocking form.
+    /// A remote target routes through the node, so a re-gifted promise is
+    /// listened on its exporter session. A give that arrives in the
+    /// settlement is redeemed on the way through, exactly as one arriving in
+    /// a call's reply is. No object-kind gate here: a listen's usual target
+    /// is a promise capability.
+    pub fn listenTo(self: *Session, target: Capability) !actors.Vow {
         return (try self.listenToRouted(target)).vow;
     }
 
     /// Listen on the promise `target` names and block until it settles,
-    /// materializing the outcome into `arena`.
-    pub fn listenSettled(self: *Session, target: model.Reference, arena: std.mem.Allocator) !Settled {
+    /// lifting the outcome into `arena`.
+    pub fn listenSettled(self: *Session, target: Capability, arena: std.mem.Allocator) !Reply {
         const routed = try self.listenToRouted(target);
         // Drive the session the listen actually rides, which for a routed
-        // token is the exporter's, not this view's.
-        return self.settleVowOn(routed.session, routed.vow, arena);
+        // capability is the exporter's, not this view's.
+        return self.replyVowOn(routed.session, routed.vow, arena);
     }
 
-    fn listenToRouted(self: *Session, target: model.Reference) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
-        if (target == .far) {
-            const routed = try self.host.core.routeSend(self.hs, target, &.{});
+    fn listenToRouted(self: *Session, target: Capability) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
+        const target_ref = try self.host.core.lowerCapability(self.hs, target);
+        if (target_ref == .far) {
+            const routed = try self.host.core.routeSend(self.hs, target_ref, &.{});
             const vow = try routed.session.served.listenTo(.{ .far = routed.target.far });
             // The `op:listen` owes the wire its encode now, like a far send's.
             try self.host.core.flushSession(routed.session);
             return .{ .session = routed.session, .vow = vow };
         }
-        // Every non-far shape is refused `InvalidReference` by the engine verb.
-        const vow = try self.hs.served.listenTo(target);
+        // A near capability is local; the engine verb refuses the non-promise
+        // shapes with `InvalidReference`.
+        const vow = try self.hs.served.listenTo(target_ref);
         return .{ .session = self.hs, .vow = vow };
     }
 
     /// Promise pipelining against a far `vow` (see `Served.sendToAnswer`).
-    pub fn sendToAnswer(self: *Session, vow: actors.Vow, msg: actors.Message) !actors.Vow {
-        const next = try self.hs.served.sendToAnswer(&self.host.core.vat, vow, msg);
+    pub fn sendToAnswer(self: *Session, vow: actors.Vow, verb: []const u8, args: []const Value) !actors.Vow {
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
+        const next = try self.hs.served.sendToAnswer(&self.host.core.vat, vow, .{ .verb = verb, .args = lowered });
         try self.host.core.flushSession(self.hs);
         return next;
     }
 
-    /// Block until `vow` settles, materializing the outcome into `arena`.
-    pub fn settleVow(self: *Session, vow: actors.Vow, arena: std.mem.Allocator) !Settled {
-        return self.settleVowOn(self.hs, vow, arena);
+    /// Block until `vow` settles, lifting the outcome into `arena`.
+    pub fn settleVow(self: *Session, vow: actors.Vow, arena: std.mem.Allocator) !Reply {
+        return self.replyVowOn(self.hs, vow, arena);
     }
 
-    fn settleVowOn(self: *Session, hs: *driver_core.HostSession, vow: actors.Vow, arena: std.mem.Allocator) !Settled {
+    /// The blocking settle every `Reply`-returning verb shares: capture the
+    /// wire-shaped settlement into `arena`, then lift it on `hs` — after the
+    /// wait, outside any listener fire, the same order the C ABI lifts at its
+    /// action drain. The lifted tree's spines live in `arena` and its leaves
+    /// alias the capture, which is why a reply has no `deinit`: reset the
+    /// arena and both go together.
+    fn replyVowOn(self: *Session, hs: *driver_core.HostSession, vow: actors.Vow, arena: std.mem.Allocator) !Reply {
         var capture = driver.SettleCapture{ .arena = arena };
         try self.awaitVow(hs, vow, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
-        return capture.finish();
+        return self.replyFromSettled(hs, arena, try capture.finish());
+    }
+
+    /// Lift an already-captured wire settlement on this session into a
+    /// `Reply` (the REPL's cooperative queue captures first and renders
+    /// later; ordinary blocking verbs never need this).
+    pub fn liftSettled(self: *Session, settled: Settled, arena: std.mem.Allocator) !Reply {
+        return self.replyFromSettled(self.hs, arena, settled);
+    }
+
+    fn replyFromSettled(self: *Session, hs: *driver_core.HostSession, arena: std.mem.Allocator, settled: Settled) !Reply {
+        return switch (settled) {
+            .fulfilled => |arg| .{ .fulfilled = try self.host.core.liftValue(hs, arena, arg) },
+            .broken => |reason| .{ .broken = reason },
+            // The owning tier redeems a give inside the wait it settles under;
+            // one that still surfaces is a broken introduction, not a value.
+            .give => .{ .broken = "unredeemed handoff give" },
+        };
+    }
+
+    /// The eventual-send target gate `call` / `send` / `tell` share: only an
+    /// object capability is a send target. A promise capability is listened on
+    /// (`listenTo`) or pipelined through its answer vow (`sendToAnswer`),
+    /// never sent to directly.
+    fn targetForSend(self: *Session, target: Capability) !model.Reference {
+        const target_ref = try self.host.core.lowerCapability(self.hs, target);
+        const object = switch (target_ref) {
+            .near => |near| near.kind == .object,
+            .far => |far| far.kind == .object,
+            else => false,
+        };
+        if (!object) return Error.UncallableTarget;
+        return target_ref;
     }
 
     /// Register `listener` on host vow `id` behind a settle flag and block
@@ -342,10 +365,14 @@ pub const Session = struct {
         };
     }
 
-    /// Fire-and-forget eventual-send (see `Served.tell`).
-    pub fn tell(self: *Session, target: actors.Ref, msg: actors.Message) !void {
-        try self.hs.served.tell(&self.host.core.vat, target, msg);
-        try self.host.core.flushSession(self.hs);
+    /// Fire-and-forget eventual-send (see `Served.tell`), routed exactly as
+    /// `call` routes.
+    pub fn tell(self: *Session, target: Capability, verb: []const u8, args: []const Value) !void {
+        var scratch = std.heap.ArenaAllocator.init(self.allocator);
+        defer scratch.deinit();
+        const routed = try self.routeDelivery(target, args, &scratch);
+        try routed.session.served.tell(&self.host.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
+        try self.host.core.flushSession(routed.session);
     }
 
     /// Observe `vow` with a caller listener (see `Vat.on`). The listener fires
@@ -354,14 +381,47 @@ pub const Session = struct {
         return self.hs.served.port.on(&self.host.core.vat, vow, listener);
     }
 
-    /// Spawn a local actor and return a capability to it (see `Served.spawn`).
+    /// Spawn a local actor and return its opaque capability. `Behavior` is
+    /// Value-shaped (see `driver_core.Hosting`): its handler receives lifted
+    /// `Value` args and answers with a `Value`, so hosting code speaks opaque
+    /// capabilities end to end.
     pub fn spawn(self: *Session, comptime Behavior: type, initial: Behavior) !Capability {
-        return self.hs.served.spawn(&self.host.core.vat, Behavior, initial);
+        const ref = try self.host.core.vat.spawn(driver_core.Hosting(Behavior), .{ .inner = initial });
+        errdefer self.host.core.vat.discardFreshActor(ref);
+        // The capability slot adopts the spawn root (ADR-0101); wire
+        // positions mint lazily at first marshal, so releasing the last
+        // handle of a never-passed spawn reclaims the actor.
+        return self.host.core.liftLocalActor(ref);
     }
 
-    /// Publish an actor a partner can `fetch` by `name` (see `Served.publish`).
+    /// Publish an actor a partner can `fetch` by `name`. `Behavior` is
+    /// Value-shaped like `spawn`'s.
     pub fn publish(self: *Session, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
-        return self.hs.served.publish(&self.host.core.vat, name, Behavior, initial);
+        const exported = try self.hs.served.publish(&self.host.core.vat, name, driver_core.Hosting(Behavior), .{ .inner = initial });
+        return self.host.core.liftCapability(self.hs, exported.nearRef());
+    }
+
+    /// Enliven a complete sturdyref by Host-level select-or-dial (ADR-0098
+    /// step 4): the host resolves the sturdyref's peer to the live dialed
+    /// session it names, or dials it, so the caller never picks the session —
+    /// the peer named in the sturdyref does. The settled capability arrives
+    /// lifted, like every owning-tier reference.
+    pub fn enliven(self: *Session, sturdy: model.SturdyRef) !Capability {
+        return self.host.enliven(sturdy);
+    }
+
+    /// `enliven` from an `ocapn://…/s/…` sturdyref URI string.
+    pub fn enlivenUri(self: *Session, uri_str: []const u8) !Capability {
+        const sturdy = try model.uri.parseSturdyref(self.allocator, uri_str);
+        defer model.uri.freeSturdyref(self.allocator, sturdy);
+        return self.enliven(sturdy);
+    }
+
+    /// Release one application retain on `cap`. The final release retires the
+    /// opaque identity — a later use fails closed — and, for a remote
+    /// capability, queues its exact wire GC release.
+    pub fn release(self: *Session, cap: Capability) !void {
+        try self.host.core.releaseCapability(cap, 1);
     }
 
     /// One blocking pump cycle across the host: drain actions, wait for any
@@ -402,21 +462,6 @@ pub const Session = struct {
     /// The partner's retained abort diagnostic, or null.
     pub fn abortReason(self: *const Session) ?[]const u8 {
         return self.hs.served.abortReason();
-    }
-
-    /// The eventual-send target gate the reference verbs share: only a near or
-    /// far *object* reference is a target. A promise-kind near/far, a bare
-    /// answer-promise, a sturdy, and a broken reference are refused
-    /// `UncallableTarget` — pipelining rides the answer vow (`sendToAnswer`),
-    /// never a promise-kind target — and a near object that names no live
-    /// export resolves to nothing rather than being coerced into a vat actor
-    /// id, which is a different number space.
-    fn refForTarget(self: *Session, target: model.Reference) ?actors.Ref {
-        return switch (target) {
-            .far => |far_ref| if (far_ref.kind == .object) actors.Ref{ .far = far_ref } else null,
-            .near => |near_ref| if (near_ref.kind == .object) self.hs.served.refForExport(near_ref.export_position.int()) else null,
-            .promise, .sturdy, .broken => null,
-        };
     }
 };
 
@@ -502,6 +547,44 @@ pub const Server = struct {
     /// changes.
     pub fn publishGiftable(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
         return self.host.publishGiftable(name, Behavior, initial);
+    }
+
+    /// Remove the host-wide alias `name` (see `PollHost.unpublish`): a later
+    /// fetch misses on every accepted session, while issued capabilities and
+    /// deposited gifts keep the exact actor. A minted durable name is refused
+    /// here; it leaves through `removeDurable` (ADR-0098).
+    pub fn unpublish(self: *Server, name: []const u8) error{ UnknownPublication, ReservedDurableNamespace }!void {
+        return self.host.unpublish(name);
+    }
+
+    /// Publish `initial` under a freshly minted durable swiss name and return
+    /// the complete sturdyref URI (`ocapn://…`), allocated with `allocator`
+    /// and owned by the caller (ADR-0098): unpredictable, never reassigned,
+    /// removable only through `removeDurable`, structurally disjoint from
+    /// every mutable alias. Entropy is drawn here, at the I/O boundary; the
+    /// sans-io core only ever sees the bytes. `Behavior` is Value-shaped like
+    /// every owning-tier behavior.
+    pub fn publishDurable(self: *Server, allocator: std.mem.Allocator, comptime Behavior: type, initial: Behavior) ![]u8 {
+        var entropy: [engine.durable_swiss_entropy_len]u8 = undefined;
+        self.host.io.randomSecure(&entropy) catch return driver.Error.MintEntropyFailed;
+        const swiss = try self.host.core.publishDurable(entropy, driver_core.Hosting(Behavior), .{ .inner = initial });
+        var designator_buf: [128]u8 = undefined;
+        const designator = try self.localDesignator(&designator_buf);
+        return model.uri.writeSturdyref(allocator, .{
+            .peer = .{
+                .transport = self.listener.transportName(),
+                .designator = designator,
+                .hints = model.Hints.emptyFalse(),
+            },
+            .swissnum = swiss.slice(),
+        });
+    }
+
+    /// Remove a minted durable publication (see `driver_core.Host.removeDurable`):
+    /// the old sturdyref misses from now on, while issued capabilities and
+    /// deposited gifts keep the exact actor.
+    pub fn removeDurable(self: *Server, swiss: []const u8) error{ UnknownPublication, NotDurableName }!void {
+        return self.host.core.removeDurable(swiss);
     }
 
     pub fn accept(self: *Server) !*Session {

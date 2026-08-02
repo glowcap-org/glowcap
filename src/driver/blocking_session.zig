@@ -27,7 +27,7 @@ const net = @import("net");
 const driver = @import("mod.zig");
 const Error = driver.Error;
 const Identity = driver.Identity;
-const Capability = driver.Capability;
+const Exported = driver.Exported;
 const Settled = driver.Settled;
 const drawSessionSecret = driver.drawSessionSecret;
 const Served = driver.Served;
@@ -72,7 +72,7 @@ pub const BlockingSession = struct {
     /// Tear down the serve core and close the connection. Does not free the
     /// borrowed peer.
     pub fn deinit(self: *BlockingSession) void {
-        self.served.deinit();
+        self.served.deinit(&self.vat);
         self.vat.deinit();
         self.conn.deinit();
     }
@@ -184,13 +184,14 @@ pub const BlockingSession = struct {
 
     // ── Vat verbs (delegate to the serve core) ───────────────────────────────
 
-    /// Spawn a local actor and return a capability to it (see `Served.spawn`).
-    pub fn spawn(self: *BlockingSession, comptime Behavior: type, initial: Behavior) !Capability {
+    /// Spawn a local actor and return its export-bound handle (see
+    /// `Served.spawn`; this borrowing tier speaks wire positions by choice).
+    pub fn spawn(self: *BlockingSession, comptime Behavior: type, initial: Behavior) !Exported {
         return self.served.spawn(&self.vat, Behavior, initial);
     }
 
     /// Publish an actor a partner can `fetch` by `name` (see `Served.publish`).
-    pub fn publish(self: *BlockingSession, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
+    pub fn publish(self: *BlockingSession, name: []const u8, comptime Behavior: type, initial: Behavior) !Exported {
         return self.served.publish(&self.vat, name, Behavior, initial);
     }
 
@@ -478,28 +479,66 @@ pub fn connectVia(
 ) !BlockingSession {
     const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
     // The dial-side identity pin: on a key-designator transport the dialed
-    // designator *is* the partner's key, so pin the peer to it before the
-    // handshake pump — the engine then refuses an `op:start-session` signed by
-    // any other key (`PartnerKeyMismatch`), fail-closed, before the session
-    // opens. This is what makes a keyed-tcp (or iroh) designator trustworthy
-    // to re-dial: whoever answers must prove the key the locator named.
+    // designator *is* the partner's durable identity, so pin it before the
+    // handshake pump and the engine refuses a hello claiming any other one,
+    // fail-closed, before the session opens (ADR-0097). What makes the claim
+    // trustworthy is the transport on an authenticated one and the hello's
+    // attestation otherwise; this pin is the claim check both answer to, and
+    // it is what makes a keyed designator trustworthy to re-dial.
     if (nl.designatorScheme() == .key) {
         const expected = crypto.PeerKey.fromDesignator(locator.designator) orelse
             return error.InvalidAddress;
-        peer.expectPartnerKey(expected);
+        // An iroh dial's QUIC handshake reaches the node id it named or
+        // fails, so on an authenticated transport the dial itself is proof;
+        // on a cleartext keyed transport it is only an expectation the
+        // hello's attestation must satisfy.
+        peer.expectPartnerDurableKey(expected, if (nl.authentication() == .authenticated_transport)
+            .transport_verified
+        else
+            .dial_expectation);
+    }
+    // The resident's declared mechanism selects the verification contract
+    // (ADR-0097): on a durable-key-attestation transport the partner's
+    // key-designator location claim must carry a verifying credential.
+    if (nl.authentication() == .durable_key_attestation) {
+        peer.requirePartnerAttestation();
     }
     const conn = try nl.dial(peer, locator, .{ .read = read_buf, .write = write_buf });
     var vat = BlockingSession.over(allocator, peer, conn);
     vat.handshake = handshake;
     errdefer vat.deinit();
+    // An ephemeral dialer signs the address placeholder and claims no durable
+    // identity; a keyed dialer advertises its key designator and, on a
+    // durable-key-attestation transport, mints the ADR-0097 credential for it
+    // (`engine.keyedHelloHints`). Borrowed hints clone at `sendCopying`.
+    var entry_buf: [2]model.HintEntry = undefined;
+    var attestation_sig: crypto.Signature = undefined;
+    // `Identity.keyed` names the caller's *durable* identity, not the key this
+    // connection signs with (ADR-0097). It supplies the designator and signs
+    // the credential; the session draws its own key like any other, so this
+    // tier is not an exception to per-connection session identity.
+    const session_secret = try drawSessionSecret(conn.io);
+    const hints = switch (identity) {
+        .ephemeral => model.Hints.emptyFalse(),
+        .keyed => |k| try engine.keyedHelloHints(
+            &entry_buf,
+            &attestation_sig,
+            "",
+            nl.authentication() == .durable_key_attestation,
+            &k.secret,
+            session_secret.publicKey(),
+            locator.transport,
+            k.designator,
+        ),
+    };
     const self_locator: model.PeerLocator = .{
         .transport = locator.transport,
         .designator = identity.dialedDesignator(),
-        .hints = model.Hints.emptyFalse(),
+        .hints = hints,
     };
     switch (identity) {
         .ephemeral => try vat.startKeyedSession(self_locator),
-        .keyed => |k| try vat.startKeyedSessionWithSecret(self_locator, k.secret),
+        .keyed => try vat.startKeyedSessionWithSecret(self_locator, session_secret),
     }
     return vat;
 }
@@ -563,12 +602,18 @@ pub fn acceptVia(
     var vat = BlockingSession.over(allocator, peer, conn);
     vat.handshake = handshake;
     errdefer vat.deinit();
+    // The listener's declared mechanism selects the verification contract
+    // (ADR-0097), the accept half of the install `connectVia` does on dial.
+    if (listener.authentication() == .durable_key_attestation) {
+        peer.requirePartnerAttestation();
+    }
 
     // Signing designator/hint come from the one accept resolver (ADR-0078),
     // same table the bindings call through `pancake_host_plan_accept`.
     var local_buf: [net.tcp.designator_buf_len]u8 = undefined;
     var key_designator: [crypto.PeerKey.designator_len]u8 = undefined;
     const transport = listener.transportName();
+    var keyed_secret: ?crypto.SecretKey = null;
     const server_designator: []const u8, const accepted_local_addr: []const u8 = switch (listener.designatorScheme()) {
         .address => .{ "", listener.localDesignator(&local_buf) },
         .key => blk: {
@@ -580,19 +625,39 @@ pub fn acceptVia(
             // listener, so designator ≡ session key by construction — the
             // responder half of the invariant the dial-side pin verifies.
             key_designator = secret.publicKey().toDesignator();
+            keyed_secret = secret;
             break :blk .{ key_designator[0..], listener.localHint(&local_buf) };
         },
     };
     const plan = driver.core.planAccept(transport, server_designator, accepted_local_addr);
-    var entry_buf: [1]model.HintEntry = undefined;
+    // A keyed listener's hello carries its bound address and, on a
+    // durable-key-attestation transport, the ADR-0097 credential
+    // (`engine.keyedHelloHints`); an address listener signs no hints beyond
+    // the direct-addresses spelling it always used.
+    var entry_buf: [2]model.HintEntry = undefined;
+    var attestation_sig: crypto.Signature = undefined;
+    // As on the dial side: the caller's keyed identity is the durable one that
+    // names this listener and signs the credential, while the accepted session
+    // signs with its own key (ADR-0097).
+    const session_secret = try drawSessionSecret(conn.io);
+    const hints = if (keyed_secret) |*secret| try engine.keyedHelloHints(
+        &entry_buf,
+        &attestation_sig,
+        plan.direct_addresses_hint,
+        listener.authentication() == .durable_key_attestation,
+        secret,
+        session_secret.publicKey(),
+        transport,
+        plan.designator,
+    ) else model.Hints.forDirectAddresses(plan.direct_addresses_hint, entry_buf[0..1]);
     const self_locator: model.PeerLocator = .{
         .transport = transport,
         .designator = plan.designator,
-        .hints = model.Hints.forDirectAddresses(plan.direct_addresses_hint, &entry_buf),
+        .hints = hints,
     };
     switch (identity) {
         .ephemeral => try vat.startKeyedSession(self_locator),
-        .keyed => |secret| try vat.startKeyedSessionWithSecret(self_locator, secret),
+        .keyed => try vat.startKeyedSessionWithSecret(self_locator, session_secret),
     }
     return vat;
 }

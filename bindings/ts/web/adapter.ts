@@ -31,7 +31,7 @@ import type {
 	Symbols,
 } from "../stack/internal/ffi/runtime.ts";
 import { type AbiLayout, layoutFromWasmDescriptor } from "../stack/internal/layout.ts";
-import { webSocketChannel } from "./ws_channel.ts";
+import { webSocketChannel } from "../stack/ws_channel.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
 
 /** The wasm exports the adapter itself drives; every `pancake_*` symbol the
@@ -73,10 +73,9 @@ export interface WebAdapter {
 export function makeWebAdapter(
 	exports: WasmExports,
 	descriptorWords: Uint32Array,
-	urls: { wsUrl?: WsUrl; rendezvousUrl?: (designator: string) => string } = {},
+	urls: { wsUrl?: WsUrl } = {},
 ): WebAdapter {
 	const wsUrl = urls.wsUrl ?? defaultWsUrl;
-	const rendezvousUrl = urls.rendezvousUrl;
 	const layout: AbiLayout = layoutFromWasmDescriptor(descriptorWords);
 
 	// A memory view must be re-taken after any call that can grow memory.
@@ -312,17 +311,6 @@ export function makeWebAdapter(
 				"a browser cannot bind a listener; host the accepting side on a dlopen runtime",
 			);
 		},
-		// A `keyed-relay` peer is reached through the relay's rendezvous leg: the
-		// dialer opens `rendezvousUrl(designator)` and is bridged onto the held
-		// inbound socket the target registered (ADR-0088). Present only when the
-		// page configured a rendezvous URL; without it, `keyed-relay` fails loud.
-		...(rendezvousUrl !== undefined
-			? {
-				connectRendezvous(designator: string) {
-					return connectWebSocket(rendezvousUrl(designator));
-				},
-			}
-			: {}),
 	};
 
 	return { adapter: { ffi, net, layout }, trampolineImport };

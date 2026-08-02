@@ -128,10 +128,10 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     var coord_vat = actors.Vat.init(allocator);
     defer coord_vat.deinit();
     var coord_port = actors.Port.init(allocator, coord_peer);
-    defer coord_port.deinit();
+    defer coord_port.deinit(&coord_vat);
     const target = try coord_vat.spawn(Counter, .{ .n = 0 });
     const care = try actors.caretaker(&coord_vat, target);
-    try coord_port.bindExport(care.proxy, 7);
+    try coord_port.bindExport(&coord_vat, care.proxy, 7);
     // Hand-wired pairing: the agent addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try coord_peer.exportObject(7);
@@ -140,7 +140,7 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     var agent_vat = actors.Vat.init(allocator);
     defer agent_vat.deinit();
     var agent_port = actors.Port.init(allocator, agent_peer);
-    defer agent_port.deinit();
+    defer agent_port.deinit(&agent_vat);
 
     // Live: the agent calls the proxy; the coordinator forwards to its local
     // target and the forwarded send's result settles the agent's far answer.

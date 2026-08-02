@@ -855,6 +855,50 @@ const signature_arm_reads: []const Ban = &.{
     },
 };
 
+/// An unowned deferral marker in first-party source is a decision hidden in a
+/// comment. The boundary it defers belongs where the release bar can see it:
+/// `docs/boundaries.md`, `docs/roadmap.md`, or an ADR — or the fix lands now,
+/// which prerelease already names as the default verdict. Third-party and
+/// generated trees (extracted Zig packages, cargo `target/`) are skipped, and
+/// this file is excluded because the table must name the markers it bans.
+const deferral_markers: []const Ban = blk: {
+    const needles: []const []const u8 = &.{ "TODO", "FIXME", "XXX:", "HACK:" };
+    const why = "an unowned deferral marker hides a decision; fix it now (prerelease) or record the boundary in docs/boundaries.md, docs/roadmap.md, or an ADR";
+    const dirs = [_][]const u8{
+        "src",        "cli",      "test", "tools",
+        "examples",   "bench",    "apps", "interop",
+        "transports", "bindings", "ui",   "ci",
+    };
+    var rows: [dirs.len + 1]Ban = undefined;
+    for (rows[0..dirs.len], dirs) |*row, dir| {
+        row.* = .{
+            .where = .{ .tree = .{
+                .dir = dir,
+                .suffixes = &.{
+                    ".zig", ".rs", ".py", ".rkt", ".ts",   ".js",
+                    ".c",   ".h",  ".sh", ".css", ".html",
+                },
+                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache", "zig-out" },
+                .exclude = &.{"tools/check/meta_check/bans.zig"},
+            } },
+            .kind = .forbid,
+            .needles = needles,
+            .check = "deferral-markers",
+            .why = why,
+        };
+    }
+    // The build scripts live at their roots, outside every tree above.
+    rows[dirs.len] = .{
+        .where = .{ .files = &.{ "build.zig", "site/build.zig" } },
+        .kind = .forbid,
+        .needles = needles,
+        .check = "deferral-markers",
+        .why = why,
+    };
+    const frozen = rows;
+    break :blk &frozen;
+};
+
 pub const all: []const Ban =
     captp_io_spine_table ++
     transport_vocabulary ++
@@ -866,7 +910,8 @@ pub const all: []const Ban =
     readme_c_verb_names ++
     unobserved_outcome_cap_rows ++
     goblins_runtime_portability ++
-    signature_arm_reads;
+    signature_arm_reads ++
+    deferral_markers;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 

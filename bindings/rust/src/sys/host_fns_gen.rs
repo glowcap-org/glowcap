@@ -164,6 +164,26 @@ extern "C" {
 		ctx: *mut c_void,
 		free: PancakeHostCtxFree,
 	) -> c_int;
+	pub fn pancake_host_unpublish(
+		host: *mut PancakeHost,
+		name: *const c_uchar,
+		name_len: usize,
+	) -> c_int;
+	pub fn pancake_host_publish_durable(
+		host: *mut PancakeHost,
+		entropy: *const c_uchar,
+		entropy_len: usize,
+		behavior: PancakeHostBehavior,
+		ctx: *mut c_void,
+		free: PancakeHostCtxFree,
+		out_swiss: *mut c_uchar,
+		swiss_cap: usize,
+	) -> c_int;
+	pub fn pancake_host_remove_durable(
+		host: *mut PancakeHost,
+		swiss: *const c_uchar,
+		swiss_len: usize,
+	) -> c_int;
 	pub fn pancake_host_session_fetch(
 		session: *mut PancakeHostSession,
 		name: *const c_uchar,
@@ -174,6 +194,33 @@ extern "C" {
 		session: *mut PancakeHostSession,
 		sturdyref_uri: *const c_uchar,
 		sturdyref_uri_len: usize,
+		out_vow: *mut u64,
+	) -> c_int;
+	pub fn pancake_host_enliven(
+		host: *mut PancakeHost,
+		sturdyref_uri: *const c_uchar,
+		sturdyref_uri_len: usize,
+		out_vow: *mut u64,
+	) -> c_int;
+	pub fn pancake_host_spawn_resolver(
+		host: *mut PancakeHost,
+		out_vow_id: *mut u64,
+		out_resolver_id: *mut u64,
+	) -> c_int;
+	pub fn pancake_host_resolver_fulfill(
+		host: *mut PancakeHost,
+		resolver_id: u64,
+		value: *const PancakeArgument,
+	) -> c_int;
+	pub fn pancake_host_resolver_break(
+		host: *mut PancakeHost,
+		resolver_id: u64,
+		message: *const c_uchar,
+		message_len: usize,
+	) -> c_int;
+	pub fn pancake_host_session_listen(
+		session: *mut PancakeHostSession,
+		target: *const PancakeReference,
 		out_vow: *mut u64,
 	) -> c_int;
 	pub fn pancake_host_session_send(
@@ -231,6 +278,7 @@ extern "C" {
 		args_len: usize,
 		out_reply: *mut PancakeArgument,
 	) -> c_int;
+	pub fn pancake_host_turn_forward_vow(turn: *mut PancakeHostTurn, vow_id: u64) -> c_int;
 	pub fn pancake_host_turn_spawn(
 		turn: *mut PancakeHostTurn,
 		behavior: PancakeHostBehavior,
@@ -271,10 +319,6 @@ extern "C" {
 	pub fn pancake_host_session_partner_identity(
 		session: *mut PancakeHostSession,
 		out: *mut PancakePartnerIdentity,
-	) -> c_int;
-	pub fn pancake_host_session_partner_designator_is_key(
-		session: *mut PancakeHostSession,
-		out_matches: *mut u32,
 	) -> c_int;
 	pub fn pancake_host_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 }

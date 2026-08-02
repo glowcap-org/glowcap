@@ -6,10 +6,13 @@
 // the keyed handshake and session authority run end to end and the relay holds
 // no capability.
 //
-// Two transports, dispatched by what the WebSocket names:
+// Three legs, dispatched by what the WebSocket names:
 //   - `?to=host:port`         a raw TCP socket (kernel-backpressured).
 //   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through @pancake/iroh's
 //                             `dialLocatorForRelay`.
+//   - `?rendezvous=<id>`      a bridge onto the inbound socket a non-listening
+//                             peer registered under its key designator at
+//                             `/register?id=<id>` (the ADR-0088 cold-dial leg).
 //
 // Run it directly; it prints `DENO-RELAY-READY <port>` on stdout once listening:
 //     deno run --allow-net --allow-ffi --allow-env --allow-read \
@@ -19,7 +22,13 @@
 // rooms relay in apps/rooms/web/relay.ts); this reference relays wherever
 // it is pointed so the conformance proofs can drive it.
 
-import { denoIrohChannel, denoTcpChannel, type RelayConfig, webSocketRelay } from "@pancake/relay";
+import {
+	denoIrohChannel,
+	denoTcpChannel,
+	type RelayConfig,
+	Rendezvous,
+	webSocketRelay,
+} from "@pancake/relay";
 
 // Liveness is the idle timeout; the per-session byte total is a runaway backstop
 // over the session's life, not a memory bound (instantaneous memory is bounded
@@ -40,12 +49,41 @@ const relayConfig: RelayConfig = {
 	maxBytesPerSession: 1024 * 1024 * 1024, // 1 GiB
 };
 
+// The cold-dial rendezvous table (ADR-0088): identity → held inbound sockets.
+// The registration cap is the bounded-resources posture the other legs carry
+// through `relayConfig`: a flood of fresh identities cannot pin unbounded held
+// sockets. An identity already holding a socket replenishes its own queue
+// freely (the embedding app adds per-identity policy, as with the allow-list).
+const rendezvous = new Rendezvous();
+const max_registrations = 64;
+
 /** Dispatch one upgraded WebSocket to the channel its query names, then hand it
- * to the shared byte pump. One of `?to=host:port` or `?locator=<uri>` must be
- * present; the dials are @pancake/relay's shared, hardened channel factories. */
+ * to the shared byte pump. One of `?to=host:port`, `?locator=<uri>`, or
+ * `?rendezvous=<id>` must be present; the dials are @pancake/relay's shared,
+ * hardened channel factories, and a rendezvous is a bridge onto a held
+ * registered socket. */
 function relay(socket: WebSocket, query: URLSearchParams): void {
 	const to = query.get("to");
 	const locator = query.get("locator");
+	const rendezvous_id = query.get("rendezvous");
+	if (rendezvous_id !== null) {
+		// Take only after the upgrade succeeded: `take` removes the registration,
+		// and a refusal that consumed it would strand the registered peer's held
+		// socket (nothing closes it, so its accept parks and the pool never
+		// replenishes).
+		const held = rendezvous.take(rendezvous_id);
+		if (held === undefined) {
+			socket.close(1011, "rendezvous: peer not registered");
+			return;
+		}
+		void webSocketRelay(
+			socket,
+			() => Promise.resolve(held),
+			"rendezvous: registered peer went away",
+			relayConfig,
+		);
+		return;
+	}
 	if (locator !== null) {
 		void webSocketRelay(
 			socket,
@@ -80,7 +118,24 @@ Deno.serve({
 	onListen: ({ port }) => console.log(`DENO-RELAY-READY ${port}`),
 }, (req) => {
 	const url = new URL(req.url);
-	if (url.pathname !== "/relay" || req.headers.get("upgrade") !== "websocket") {
+	// RFC 6455 makes the Upgrade token case-insensitive, and clients disagree
+	// on the casing (net/rfc6455 sends "WebSocket").
+	if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+		return new Response("relay only", { status: 404 });
+	}
+	if (url.pathname === "/register") {
+		const id = url.searchParams.get("id");
+		if (id === null) return new Response("register requires ?id=<designator>", { status: 400 });
+		if (!rendezvous.has(id) && rendezvous.registered().length >= max_registrations) {
+			return new Response("rendezvous capacity exceeded", { status: 503 });
+		}
+		const { socket, response } = Deno.upgradeWebSocket(req);
+		// Register at once, not at onopen: the wrap buffers the accept side's
+		// early hello from the instant the socket exists (ADR-0088).
+		rendezvous.register(id, socket);
+		return response;
+	}
+	if (url.pathname !== "/relay") {
 		return new Response("relay only", { status: 404 });
 	}
 	const { socket, response } = Deno.upgradeWebSocket(req);

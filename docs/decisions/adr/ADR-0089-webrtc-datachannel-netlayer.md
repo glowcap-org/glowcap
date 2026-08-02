@@ -1,8 +1,15 @@
 # ADR-0089: WebRTC DataChannel Netlayer
 
-**Status:** Decided and implemented for signaled peers; standalone rendezvous and
-generic Host completion integration remain in
-[docs/roadmap.md](../../roadmap.md).
+**Status:** Decided and implemented. The standalone dial ships in the
+TypeScript stack: a host configured with signaling authority
+(`Host.setSignaling`) dials a bare `webrtc` locator through the one dial path,
+proven by `zig build webrtc-browser-to-browser`; handoff redemption over it is
+proven live by `zig build rooms-web-dm-webrtc`, with the room directory
+carrying the signaling. The native completion tier ships too:
+`completion.Loop(webrtc.Backend)` adopts signaled peers and dials through a
+configured `SignalingAuthority` under `driver.Bridge` + the generic Host,
+proven by `zig build webrtc-loop`, and the native three-party redeem over a
+bare `webrtc` give is proven by `zig build webrtc-bridge-redeem`.
 **Date:** 2026-07-21
 **Decision:** pancake gains a `webrtc` transport: a reliable, ordered WebRTC
 DataChannel that carries a keyed OCapN session byte-for-byte between two peers,
@@ -13,10 +20,14 @@ netlayer resident over its C ABI, a companion archive
 `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs — the
 SDP offer/answer and ICE candidates — can be exchanged through an OCapN
 capability rather than a bespoke signaling server: the shipped scenarios prove
-that exchange and the keyed session after it. Composing the resulting channel
-with generic Host adoption and three-party redemption remains open. Standalone
-cold dial likewise remains open because a bare locator carries no signaling
-authority.
+that exchange and the keyed session after it. In the TypeScript stack the dial
+executor composes the whole bring-up: a host configured with signaling
+authority dials a bare `webrtc` locator, connect and handoff-redeem share that
+one path, and the rooms app redeems a live `webrtc` give with the room
+carrying the signaling. The native completion tier holds the same shape:
+`webrtc.Backend` adopts signaled peers and dials through a configured
+authority under the generic Host, and the native three-party redeem over a
+bare `webrtc` give runs live (`zig build webrtc-bridge-redeem`).
 
 This ADR builds on the iroh netlayer sidecar (ADR-0055), the à-la-carte
 transport archive split (ADR-0059), the browser binding (ADR-0070, whose
@@ -115,11 +126,11 @@ Neither replaces the other: DTLS secures the pipe, the keyed handshake proves
 who is on the far end of it.
 
 A bare `webrtc` locator names the designator but carries no authority through
-which to signal it. A signaling-capable application can supply that authority
-separately on an existing CapTP relationship. Generic Host adoption and
-three-party redemption do not yet perform that composition. This is why the
-dial classifier recognizes the `signaling` shape while a resident deliberately
-exposes no fake address-based `dial` or `listen` method.
+which to signal it. The application supplies that authority on the dialing
+host (`Host.setSignaling`), and the dial executor performs the composition:
+the dial classifier's `signaling` shape routes to the exchange rather than a
+socket, while a resident deliberately exposes no fake address-based `dial` or
+`listen` method. A host with no configured authority refuses the dial.
 
 ## OCapN-native signaling
 
@@ -147,15 +158,16 @@ two designators it introduces, the same way a room routes a chat line. A room is
 the natural host for it (members already meet there), but any peer both parties
 can reach can carry the exchange, including a peer reached over iroh or a relay.
 
-**Proposed composition with the three-party handoff.** WebRTC redemption will
-need two movements instead of one. The existing handoff delivers a
-`desc:handoff-give` that names an exporter and a way to reach it; the recipient
-dials that way and then runs the keyed handshake. For `webrtc`, the missing Host
-composition must pair the exporter's designator with separately held signaling
-authority, run the offer, answer, and candidate exchange, adopt the resulting
-DataChannel, and continue withdrawal over its keyed session. The shipped
-signaling scenarios prove that the channel and session can be established; they
-do not prove this handoff-redemption path.
+**Composition with the three-party handoff.** WebRTC redemption is two
+movements instead of one. The existing handoff delivers a `desc:handoff-give`
+that names an exporter and a way to reach it; the recipient dials that way and
+then runs the keyed handshake. For `webrtc`, the dial executor pairs the
+exporter's designator with the dialing host's configured signaling authority,
+runs the offer, answer, and candidate exchange, adopts the resulting
+DataChannel, and continues withdrawal over its keyed session. The rooms app
+proves the whole path live (`zig build rooms-web-dm-webrtc`): the give's
+exporter locator names a bare `webrtc` designator and the room directory
+carries the exchange as ordinary OCapN messages.
 
 This keeps signaling inside the object-capability model. There is no signaling
 server to run, authenticate, or secure separately: the right to signal a peer is
@@ -190,20 +202,42 @@ to that sidecar peer. The object itself holds no WebRTC state and parses no
 payload. It moves opaque strings between two designators, the same
 byte-transparency the room and the relay hold.
 
-**Proposed redemption by signaling, then handshake.** A future WebRTC handoff
-path must obtain both the exporter's designator and a signaling capability. The
-redeeming recipient would act as the offerer, establish the DataChannel through
-the shipped signaling verbs, adopt the keyed session into the generic Host, and
-continue withdrawal there. The signaling fixtures stop before this composition;
-they do not turn a `desc:handoff-give` into a redeemed WebRTC capability.
+**Redemption by signaling, then handshake.** A WebRTC handoff redemption
+obtains the exporter's designator from the give and the signaling capability
+from its own host's configuration. The redeeming recipient acts as the
+offerer, establishes the DataChannel through the signaling verbs, adopts the
+keyed session, and continues withdrawal there. The rooms app carries the
+production form: members file signaling inboxes with the directory
+(`offerSignaling`), and the directory routes `signalOffer` / `signalAnswer` /
+`signalCandidate` between designators without parsing a payload
+(`apps/rooms/server/main.ts`, `apps/rooms/lib/signaling.ts`).
+
+**Where the redeeming host's signaling authority comes from.** The bootstrap
+question both proposals above leave open is settled by the same seam ADR-0088
+settled it for `keyed-relay`. A recipient holding only a give whose exporter
+locator names a `webrtc` designator has no signaling capability in hand, and
+the locator deliberately carries none. So the authority is deployment
+configuration of the dialing host, the sibling of `Host.setRendezvousUrl`:
+`Host.setSignaling` takes the language-level face of whatever signaling
+capability the application holds (`SignalingAuthority`: deliver an offer and
+resolve its answer, trickle candidates both ways). When a dial plan classifies
+as `signaling`, the dial executor drives the exchange through that authority,
+adopts the DataChannel, and runs the keyed handshake over it — connect and
+handoff-redeem share the path. Shipped and proven by
+`zig build webrtc-browser-to-browser`, whose offerer dials the bare locator. A
+locator that names its own signaling route (a `?signaling=` hint) is
+deliberately not part of this step. A route-bearing hint is new wire surface,
+and the hints extension shape is in the upstream conversation ADR-0097 opened;
+configured authority needs no new wire bytes, so it shipped first, exactly as
+the configured rendezvous relay shipped before a self-describing locator.
 
 **The `webrtc` locator and the dial classifier.** A `webrtc` locator carries a
-designator, not a dialable address or an embedded capability. `planDial` therefore
-classifies it as the third shape, `signaling`, rather than `host_port` or
-`peer_id`. A bare `connect` has no signaling authority and fails before
-pretending it can dial. A future generic Host redemption path must be given that
-authority separately, open the channel through the exchange above, and adopt
-the resulting keyed session.
+designator, not a dialable address or an embedded capability. `planDial`
+therefore classifies it as the third shape, `signaling`, rather than
+`host_port` or `peer_id`. The dial executor answers that shape with the
+configured authority's exchange, opens the channel, and adopts the keyed
+session; a host with no configured authority refuses instead of pretending it
+can dial, and a relay classifying targets refuses the shape outright.
 
 ## STUN/TURN posture: direct where possible, relayed only when it cannot be
 

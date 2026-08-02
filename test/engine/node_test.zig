@@ -1504,3 +1504,80 @@ test "a relayed resolution carrying a sturdyref relays, because a sturdyref mean
     try std.testing.expect(settled.* == .fulfill);
     try std.testing.expectEqualStrings("durable-swiss", settled.fulfill.reference.sturdy.swissnum);
 }
+
+test "a relayed resolution carrying a routing token emits the wire import position, never the token" {
+    // `Peer.applyRelayedResolution` is the one outbound path that bypasses
+    // `send`'s lowering chokepoint, so it lowers the resolution itself before
+    // storing it (ADR-0009/0069). A node-local routing token is meaningless
+    // to a partner and is not even a legal wire position — it sits in the
+    // reserved band ADR-0091 refuses inbound — so what reaches the wire has
+    // to be the real import position the token stands for. This drives that
+    // path with a token-carrying fulfillment and reads the emitted frame.
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x2c} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    // A raw-open fixture peer adopted by the node: an open session (so an
+    // injected listen is accepted) that still carries node services, which is
+    // what makes the lowering under test run at all.
+    var relaying_storage = engine.Peer.initRawOpenFixture(allocator);
+    defer relaying_storage.deinit();
+    const relaying_id = try node.registerPeerOver(&relaying_storage);
+    const relaying = &relaying_storage;
+
+    // This session imports a capability, and the node enrolls it under a
+    // routing token — the id an application holds and could name.
+    const wire_import: u64 = 7;
+    try relaying.session_state.registerImport(.from(wire_import));
+    const token = try node.enrollForeign(relaying_id, .{ .far = model.FarRef.object(wire_import) });
+    try std.testing.expectEqual(
+        model.ImportName.token,
+        std.meta.activeTag(model.ImportName.classify(token.far.import_position.int())),
+    );
+
+    // The same session holds a third-party promise its partner listens on, so
+    // the relayed resolution has somewhere to fire.
+    const relayed_position = model.ImportPosition.from(4);
+    try relaying.session_state.installThirdPartyImport(relayed_position, "exporter");
+    var partner = engine.Peer.initRawOpenFixture(allocator);
+    defer partner.deinit();
+    try partner.session_state.registerExport(.from(4));
+    try partner.session_state.registerExport(.from(9));
+    try partner.sendCopying(.{ .listen = .{
+        .target = .{ .near = .{ .export_position = .from(4), .kind = .promise } },
+        .listener = .{ .near = .{ .export_position = .from(9) } },
+        .wants_partial = false,
+    } });
+    _ = try partner.step();
+    try relaying.feedOwned(partner.takeOutbound().?);
+    _ = try relaying.step();
+    while (relaying.pollEvent()) |ev| {
+        var e = ev;
+        e.deinit();
+    }
+    while (relaying.takeOutbound()) |f| {
+        var frame_out = f;
+        frame_out.deinit();
+    }
+
+    // Relay a fulfillment naming the capability by its *token*.
+    const row_id = relaying.session_state.importedPromiseRowId(relayed_position) orelse 0;
+    try relaying.applyRelayedResolution(relayed_position, row_id, .{
+        .fulfill = .{ .reference = token },
+    });
+    _ = try relaying.step();
+
+    // The emitted fire names the wire import the token stood for. The token's
+    // own integer must appear nowhere in the frame.
+    var frame = relaying.takeOutbound() orelse return error.NoResolveEmitted;
+    defer frame.deinit();
+    const bytes = frame.bytes();
+
+    var token_digits: [24]u8 = undefined;
+    const token_text = try std.fmt.bufPrint(&token_digits, "{d}", .{token.far.import_position.int()});
+    try std.testing.expect(std.mem.indexOf(u8, bytes, token_text) == null);
+
+    var wire_digits: [24]u8 = undefined;
+    const wire_text = try std.fmt.bufPrint(&wire_digits, "{d}", .{wire_import});
+    try std.testing.expect(std.mem.indexOf(u8, bytes, wire_text) != null);
+}

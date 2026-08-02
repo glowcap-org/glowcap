@@ -12,6 +12,10 @@
 // re-exports the public members.
 
 import {
+	DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
+	DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION,
+} from "@pancake/abi";
+import {
 	attenuateProxy,
 	caretakerProxy,
 	currentTurnSession,
@@ -26,6 +30,7 @@ import { type Argument, type Behavior, Ref, refFromId } from "./value.ts";
 import { Host } from "./host.ts";
 import {
 	fetchLike,
+	listenFar,
 	type MintAwaitHandle,
 	type PromiseFactoryHandle,
 	RemotePromise,
@@ -66,6 +71,48 @@ export interface PartnerIdentity {
 	/** The verbatim location record the key and the designator were read from,
 	 * empty when the handshake captured none. */
 	readonly locatorRecord: Uint8Array;
+	/** How the durable identity in {@link PartnerIdentity.designator} was
+	 * authenticated, if at all. Session identity, durable identity, and this
+	 * provenance are three separate facts (ADR-0097): a caller that requires a
+	 * proved durable peer reads this, never whether the designator equals the
+	 * session key — that is a coincidence of today's key reuse and stops
+	 * holding once each connection draws a fresh session key. */
+	readonly provenance: DurableProvenance;
+}
+
+/** How a partner's advertised durable identity was authenticated, the third
+ * fact {@link PartnerIdentity} reports beside session key and designator.
+ *
+ * `authenticated-transport` means the transport layer proved the partner's
+ * durable key (iroh's QUIC handshake, or WebRTC's DTLS binding under
+ * capability-authorized signaling). `durable-key-attestation` means the hello
+ * carried a `session-key-attestation` signed by the durable key its designator
+ * names and it verified (`keyed-tcp`, `keyed-relay`), which is static
+ * authorization rather than proof the signer is live on this connection.
+ * `unauthenticated` means no durable identity was proved: an address transport
+ * designates a socket address rather than a key, and a partner that advertised
+ * an address on a key transport claimed no durable identity. */
+export type DurableProvenance =
+	| "authenticated-transport"
+	| "durable-key-attestation"
+	| "unauthenticated";
+
+/** Whether this identity's durable name was cryptographically authenticated,
+ * by either mechanism — the predicate to ask when an operation requires a
+ * proved durable peer. */
+export function durableIdentityAuthenticated(id: PartnerIdentity): boolean {
+	return id.provenance !== "unauthenticated";
+}
+
+function provenanceFromAbi(raw: number): DurableProvenance {
+	switch (raw) {
+		case DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT:
+			return "authenticated-transport";
+		case DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION:
+			return "durable-key-attestation";
+		default:
+			return "unauthenticated";
+	}
 }
 
 /** How long a partner has to finish the keyed handshake once the byte channel
@@ -505,6 +552,15 @@ export class Session {
 	 * returned identity is opaque and Host-scoped; wire export positions stay
 	 * inside pancake. Callable from inside a served turn (a factory's `create`
 	 * minting the task it replies with). */
+	/** Listen on a promise capability this session holds (CapTP `op:listen`,
+	 * ADR-0095): the returned handle settles with the promise's resolution,
+	 * which may be any value, not only a capability. A re-gifted promise
+	 * routes to its exporter session transparently. */
+	listen(target: Ref): RemotePromise {
+		this.#guardOpen();
+		return listenFar(this.#makePromiseFactory(), target);
+	}
+
 	spawn(behavior: Behavior): Ref {
 		return spawnHosted(this.#makeHosting(), behavior);
 	}
@@ -776,30 +832,10 @@ export class Session {
 				L.PARTNER_IDENTITY_LOCATOR_RECORD_OFF,
 				L.PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF,
 			),
+			provenance: provenanceFromAbi(
+				dv.getUint32(L.PARTNER_IDENTITY_PROVENANCE_OFF, true),
+			),
 		};
-	}
-
-	/** Whether the partner proved it owns the designator it advertised, which
-	 * is true when that designator is exactly its verified session key written
-	 * in canonical hex.
-	 *
-	 * The comparison lives in the library so that no caller has to re-derive
-	 * it. It answers for a key-designator transport (`keyed-tcp`, `iroh`,
-	 * `webrtc`, and `keyed-relay`), where the key is the name. An address
-	 * transport such as `tcp` names a socket address that the key does not
-	 * determine, so the answer there is false, and false is the correct answer
-	 * rather than a failure.
-	 *
-	 * It throws for the same two reasons {@link partnerIdentity} does: the
-	 * partner's key has not arrived yet, or this session was opened without
-	 * partner verification. */
-	partnerDesignatorIsKey(): boolean {
-		this.#guardOpen();
-		const out = new Uint8Array(4);
-		checkHost(
-			driverS.pancake_host_session_partner_designator_is_key(this.#ptr, ab(out)),
-		);
-		return new DataView(out.buffer).getUint32(0, true) !== 0;
 	}
 
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────

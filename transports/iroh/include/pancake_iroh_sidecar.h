@@ -148,6 +148,13 @@ pancake_iroh_sidecar_conn *pancake_iroh_sidecar_accept(pancake_iroh_sidecar_endp
 pancake_iroh_sidecar_conn *pancake_iroh_sidecar_accept_timeout(
     pancake_iroh_sidecar_endpoint *ep, int32_t timeout_ms);
 
+/* Write the connection's QUIC-authenticated remote endpoint id — the 32-byte
+ * Ed25519 public key TLS verified during the handshake — into `out_key32`
+ * (caller-owned, at least 32 bytes). The transport-layer peer proof the
+ * driver installs as pre-feed CapTP hello policy on accept paths (ADR-0097).
+ * Returns 0 on success, -1 on failure. Borrows the handle. */
+int32_t pancake_iroh_sidecar_conn_remote_node_id(const pancake_iroh_sidecar_conn *conn, uint8_t *out_key32);
+
 /* Read up to `len` bytes into `buf`, blocking until at least one byte
  * arrives. Returns the byte count (> 0), 0 at clean end of stream (the
  * partner finished its send side or closed the connection cleanly), or -1 on

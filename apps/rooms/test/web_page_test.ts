@@ -96,6 +96,24 @@ try {
 
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
 
+	// The page draws itself, so page.html carries an explanation for when it
+	// cannot. Two things have to hold: the interface replaces it on mount, or the
+	// message would sit under a working page; and it is actually reached when the
+	// bundle is not, which is the case nobody sees until it happens to them.
+	if (await tab.locator(".boot").count() !== 0) {
+		fail("the boot message survived mount; it would sit under the running page");
+	}
+	{
+		const dark = await browser.newContext();
+		const blind = await dark.newPage();
+		await blind.route("**/page.js", (route) => route.fulfill({ status: 503, body: "" }));
+		await blind.goto(`http://127.0.0.1:${httpPort}/`);
+		if (!await blind.locator(".boot").isVisible()) {
+			fail("a page whose bundle did not load shows a reader nothing at all");
+		}
+		await dark.close();
+	}
+
 	// Join a room as a real peer: fill the nick and room, press Join.
 	await tab.fill("#nick", "web-alice");
 	await tab.fill("#room", "lobby");
@@ -196,6 +214,37 @@ try {
 			return { x: r.left, y: r.top, size: `${bars.width}×${bars.height}` };
 		}, sel);
 	type Mark = Awaited<ReturnType<typeof markBox>>;
+	// Anything that truncates has to be tall enough for the text it truncates.
+	// An element that clips horizontally for an ellipsis clips vertically too, so
+	// a line box shorter than the font's own metrics takes the descenders off with
+	// it — a `g` loses its tail, and only on the layout where the truncation is
+	// switched on. The stylesheet cannot be read for this: it depends on the
+	// font's metrics at the size in force, which is why it is measured here.
+	const descendersIntact = async (where: string) => {
+		const clipped = await tab.evaluate(() =>
+			[...document.querySelectorAll<HTMLElement>("*")].flatMap((e) => {
+				const style = getComputedStyle(e);
+				if (style.textOverflow !== "ellipsis" || style.overflow === "visible") return [];
+				const text = e.textContent?.trim();
+				if (!text) return [];
+				const box = e.getBoundingClientRect();
+				if (box.height === 0) return [];
+				const range = document.createRange();
+				range.selectNodeContents(e);
+				const ink = range.getBoundingClientRect();
+				const above = box.top - ink.top, below = ink.bottom - box.bottom;
+				if (above <= 0.5 && below <= 0.5) return [];
+				const named = e.id ? "#" + e.id : "." + e.className.split(" ")[0];
+				return [
+					`${named} ("${text.slice(0, 20)}") loses ${above.toFixed(1)}px above and ` +
+					`${below.toFixed(1)}px below, at line-height ${style.lineHeight}`,
+				];
+			})
+		);
+		if (clipped.length > 0) fail(`text is cut off ${where}: ${clipped.join("; ")}`);
+	};
+	await descendersIntact("beside the conversation");
+
 	const sameMark = (where: string, a: Mark, b: Mark) => {
 		for (const axis of ["x", "y"] as const) {
 			if (Math.abs(a[axis] - b[axis]) > 0.5) {
@@ -224,6 +273,9 @@ try {
 	// owes the reader a way back to the conversation it covered.
 	await tab.setViewportSize({ width: 390, height: 844 });
 	await tab.waitForTimeout(400);
+	// The narrow layout is where the room name truncates, so it is where a line
+	// box too short for its glyphs actually shows.
+	await descendersIntact("on a phone");
 
 	const reachable = await tab.evaluate(() =>
 		document.querySelector("#members .dm-btn")!
@@ -265,8 +317,9 @@ try {
 
 	console.log(
 		"PASS: the rooms page ran as a browser peer — joined a room through /relay and " +
-			"round-tripped a line over the room capability, no JSON bridge; and both rails " +
-			"hold their layout and their way back on a phone",
+			"round-tripped a line over the room capability, no JSON bridge; both rails " +
+			"hold their layout and their way back on a phone; nothing that truncates " +
+			"cuts off its own descenders; and a page that cannot draw itself says so",
 	);
 } finally {
 	clearTimeout(deadline);

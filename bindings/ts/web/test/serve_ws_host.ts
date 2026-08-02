@@ -11,12 +11,12 @@
 import {
 	type Channel,
 	Host,
-	type Ref,
+	Ref,
 	Session,
 	socketAddrDesignator,
 	TRANSPORT_KEYED_TCP,
 } from "@pancake/stack";
-import { webSocketChannel } from "../ws_channel.ts";
+import { webSocketChannel } from "@pancake/stack";
 
 const tcpOnly = Deno.args.includes("--tcp-only");
 const addressArg = Deno.args.find((a) => !a.startsWith("-"));
@@ -73,12 +73,9 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 					session.publish("greeter", (verb, args) => {
 						if (verb !== "greet") throw new Error(`unknown verb ${verb}`);
 						const name = args[0] as string;
-						const callback = args[1] as Ref | undefined;
-						if (
-							callback instanceof Object && callback !== null &&
-							"reference" in callback
-						) {
-							void session.tell(callback as Ref, "notify", [`saw ${name}`]);
+						const callback = args[1];
+						if (callback instanceof Ref) {
+							void session.tell(callback, "notify", [`saw ${name}`]);
 						}
 						return `hello ${name}`;
 					});
@@ -116,12 +113,9 @@ async function serveTcpHost(
 					session.publish("greeter", (verb, args) => {
 						if (verb !== "greet") throw new Error(`unknown verb ${verb}`);
 						const name = args[0] as string;
-						const callback = args[1] as Ref | undefined;
-						if (
-							callback instanceof Object && callback !== null &&
-							"reference" in callback
-						) {
-							void session.tell(callback as Ref, "notify", [`saw ${name}`]);
+						const callback = args[1];
+						if (callback instanceof Ref) {
+							void session.tell(callback, "notify", [`saw ${name}`]);
 						}
 						return `hello ${name}`;
 					});

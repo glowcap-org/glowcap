@@ -24,6 +24,7 @@ process, and a far target defers the answer onto the forwarded send's vow.
 from __future__ import annotations
 
 import ctypes
+import inspect
 from dataclasses import dataclass
 import threading
 from typing import Callable, Optional
@@ -138,6 +139,10 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
             result = _run_hosted(entry, verb, args)
             if isinstance(result, Forward):
                 return await session.send(result.target, result.verb, result.args)
+            if inspect.isawaitable(result):
+                # A local send to an async behavior simply awaits it; the
+                # resolver machinery is only for wire-served turns.
+                return await result
             return result
         except PancakeException:
             raise
@@ -157,6 +162,10 @@ async def _tell_local(session, ctx: int, verb: str, args: list) -> None:
             result = _run_hosted(entry, verb, args)
         if isinstance(result, Forward):
             await session.tell(result.target, result.verb, result.args)
+        elif inspect.isawaitable(result):
+            # Await so an async behavior's raise lands here instead of
+            # surfacing as a never-awaited coroutine warning.
+            await result
     except Exception:  # noqa: BLE001 — no answer to break
         pass
 
@@ -186,7 +195,7 @@ def _exit_deliver(prior: Optional[object]) -> None:
 def _current_turn_for(session: object) -> Optional[int]:
     """The current turn pointer when it belongs to ``session``'s Host."""
     current_turn = getattr(_turn_state, "current_turn", None)
-    if current_turn is not None and current_turn[1] is session.host:
+    if current_turn is not None and current_turn[1] is getattr(session, "host", None):
         return current_turn[0]
     return None
 
@@ -217,7 +226,23 @@ def _turn_break(turn: int, message: str) -> int:
 def _settle_reply(turn: int, result, out_reply) -> int:
     # Resolve a behavior's already-chased result into the turn's answer: a
     # plain value (None is the void ack) marshals into the reply slot; a
-    # surviving `Forward` defers through the host's turn-forward.
+    # surviving `Forward` defers through the host's turn-forward; an
+    # awaitable (an async behavior) defers onto a resolver vow the enclosing
+    # feed's Host settles when the awaitable completes.
+    if inspect.isawaitable(result):
+        arriving = getattr(_turn_state, "active_deliver_session", None)
+        owner = getattr(arriving, "host", None) if arriving is not None else None
+        if owner is None:
+            return _turn_break(turn, "async behavior outside a session feed")
+        if not owner._defer_turn_to_awaitable(turn, result):
+            return _turn_break(turn, _host_last_error() or "deferral refused")
+        # The behavior's own reply is a void placeholder; the real answer
+        # rides the resolver vow.
+        void_keep: list = []
+        void_arg = _arg_to_c(None, void_keep)
+        ctypes.memmove(out_reply, ctypes.byref(void_arg), ctypes.sizeof(_Argument))
+        _reply_state.last_reply_keep = (void_arg, void_keep)
+        return _OK
     if isinstance(result, Forward):
         # The host forwards: the real answer rides the forwarded send's vow and
         # out_reply gets a void placeholder. Buffers stay pinned by `keep`

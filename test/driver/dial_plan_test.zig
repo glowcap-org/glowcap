@@ -143,6 +143,20 @@ test "planDial webrtc: a non-key designator is DesignatorNotPeerKey" {
     try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.webrtc, "not-a-key", "", .redeem));
 }
 
+test "planDial keyed-relay: a key designator produces a rendezvous plan" {
+    const plan = try planDial(transport.keyed_relay, key_designator, "", .redeem);
+    try std.testing.expectEqual(Shape.rendezvous, std.meta.activeTag(plan));
+}
+
+test "planDial keyed-relay: ignores posture and hint (the relay mapping is host state)" {
+    const plan = try planDial(transport.keyed_relay, key_designator, "1.2.3.4:5", .{ .explicit = 3 });
+    try std.testing.expectEqual(Shape.rendezvous, std.meta.activeTag(plan));
+}
+
+test "planDial keyed-relay: a non-key designator is DesignatorNotPeerKey" {
+    try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.keyed_relay, "not-a-key", "", .redeem));
+}
+
 test "planAccept webrtc: signs the server key, carries no hint" {
     const plan = planAccept(transport.webrtc, key_designator, "127.0.0.1:7000");
     try std.testing.expectEqualStrings(key_designator, plan.designator);

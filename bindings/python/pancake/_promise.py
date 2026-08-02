@@ -36,6 +36,14 @@ async def _await_minted(session, vow: int):
     return await settled
 
 
+def _classify_live_ref(result, label: str) -> Ref:
+    """Classify a settled mint as an opaque Host capability -- the shared
+    verdict under ``_fetch_like`` and the host-level select-or-dial enliven."""
+    if not isinstance(result, Ref):
+        raise FetchFailed(label)
+    return result
+
+
 async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> Ref:
     # The one mint/await/classify body under `fetch` and `enliven`: mint
     # the host vow with `mint`, await its drain-routed completion, and
@@ -283,6 +291,20 @@ class RemotePromise(asyncio.Future):
             self.set_exception(exc)
         else:
             self.set_result(task.result())
+
+
+def _listen_far(session, target) -> RemotePromise:
+    """``Session.listen``'s wire half: mint the listen vow over a held far
+    promise (CapTP ``op:listen``) and hand back the settle handle. The vow is
+    plain -- a listen may settle to any value, not only a capability."""
+    ref = _ref_to_c(target._live())
+    out = ctypes.c_uint64()
+    _check_host(_host.pancake_host_session_listen(
+        session.raw, ctypes.byref(ref), ctypes.byref(out),
+    ))
+    vow = out.value
+    session.host.vow_minted(vow, session)
+    return _promise_for(session, vow)
 
 
 def _send_far(session, target, verb: str, args: list) -> RemotePromise:

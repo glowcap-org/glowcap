@@ -29,11 +29,33 @@ Two pinned sources disagree on the shape accepted for a peer locator's hints:
 | draft Netlayers specification | hints are “just a mapping of information” |
 | Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | the constructor contract accepts only false or a string |
 
-pancake currently represents non-empty hints as a Syrup dict. That project
-behavior cannot be assumed to cross the Goblins constructor boundary. This
-finding records only the pinned source mismatch; it does not decide which hints
-shape upstream should choose or make a pancake-specific extension an OCapN
-finding.
+pancake currently represents non-empty hints as a Syrup dict. The constructor
+contract applies only where Goblins-side code builds a locator. The wire
+unmarshaller constructs nodes through the raw constructor, so a dict-hinted
+locator arriving on the wire does decode, and `zig build goblins-gift-hints`
+observes that live. This finding records only the pinned source mismatch; it
+does not decide which hints shape upstream should choose or make a
+pancake-specific extension an OCapN finding.
+
+## Handoff withdrawal looks up sessions by the full node value
+
+Two pinned observations in the same Goblins revision treat locator hints
+differently:
+
+| Source | Says |
+| ------ | ---- |
+| Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | `same-node-location?` compares transport and designator, "ignoring hints" |
+| Spritely Goblins (`goblins/ocapn/captp.rkt`) | withdrawal resolves its session via `locations->open-session-names`, keyed by the full node value |
+
+The withdrawal lookup is `equal?`-keyed over the whole node, hints included,
+and the table is registered under the partner's hello-declared location. The
+consequence, observed live: a `desc:handoff-give` redeems only when its
+exporter locator equals the exporter's hello-declared location hints-and-all.
+`zig build goblins-gift-hints` passes because the hinted location is advertised
+in the exporter's hello and the give embeds it verbatim; a give hint the hello
+did not carry misses the session lookup and the withdrawal errors. As above,
+this records the pinned behavior without deciding whether hints should
+participate in that lookup.
 
 Run:
 

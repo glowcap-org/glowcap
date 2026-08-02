@@ -85,12 +85,30 @@ pub const symbols = [_]Symbol{
     },
     .{ .name = "pancake_host_session_spawn", .out_params = &.{4} },
     .{ .name = "pancake_host_publish", .out_params = &.{} },
+    .{ .name = "pancake_host_unpublish", .out_params = &.{} },
+    .{ .name = "pancake_host_publish_durable", .out_params = &.{6} },
+    .{ .name = "pancake_host_remove_durable", .out_params = &.{} },
     .{
         .name = "pancake_host_session_fetch",
         .out_params = &.{3},
         .section = "Fetch and enliven — each mints a host vow (out param).",
     },
     .{ .name = "pancake_host_session_enliven", .out_params = &.{3} },
+    .{ .name = "pancake_host_enliven", .out_params = &.{3} },
+    .{
+        .name = "pancake_host_spawn_resolver",
+        .out_params = &.{ 1, 2 },
+        .section = "Off-turn settlement: a behavior defers its answer onto a resolver vow\nand the work's completion settles it later, top-level.",
+    },
+    .{
+        .name = "pancake_host_resolver_fulfill",
+        .out_params = &.{},
+    },
+    .{
+        .name = "pancake_host_resolver_break",
+        .out_params = &.{},
+    },
+    .{ .name = "pancake_host_session_listen", .out_params = &.{2} },
     .{
         .name = "pancake_host_session_send",
         .out_params = &.{6},
@@ -123,6 +141,10 @@ pub const symbols = [_]Symbol{
         .python_omit = "a Python behavior tells through the session verbs",
         .racket_omit = "a Racket behavior tells through the session verbs",
     },
+    .{
+        .name = "pancake_host_turn_forward_vow",
+        .out_params = &.{},
+    },
     .{ .name = "pancake_host_turn_spawn", .out_params = &.{4} },
     .{ .name = "pancake_host_turn_break", .out_params = &.{} },
     .{ .name = "pancake_host_ref_release", .section = "Capability lifetime, teardown, diagnostics." },
@@ -139,7 +161,6 @@ pub const symbols = [_]Symbol{
         .racket_omit = "the Racket surface reads the retained abort through session_last_abort's struct view alone",
     },
     .{ .name = "pancake_host_session_partner_identity", .out_params = &.{1} },
-    .{ .name = "pancake_host_session_partner_designator_is_key", .out_params = &.{1} },
     .{ .name = "pancake_host_last_error", .out_params = &.{0} },
     .{
         .name = "pancake_host_clear_last_error",

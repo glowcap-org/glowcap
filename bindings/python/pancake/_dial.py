@@ -46,7 +46,12 @@ class _PeerIdDial:
     tag: str = "peer_id"
 
 
-_ResolvedDial = Union[_HostPortDial, _PeerIdDial]
+@dataclass(frozen=True, slots=True)
+class _RendezvousDial:
+    tag: str = "rendezvous"
+
+
+_ResolvedDial = Union[_HostPortDial, _PeerIdDial, _RendezvousDial]
 
 
 def _decode_plan_view(sources, ptr, length: int) -> str:
@@ -100,6 +105,8 @@ def _plan_dial(transport_name: str, designator: str, hint: str,
     if plan.shape == _abi.DIAL_SHAPE_SIGNALING:
         raise PancakeError(_ERR_INVALID_ARGUMENT,
             "webrtc signaling dial shape requires a signaling-aware adapter; a bare locator cannot open it")
+    if plan.shape == _abi.DIAL_SHAPE_RENDEZVOUS:
+        return _RendezvousDial()
     raise PancakeError(_ERR_INVALID_ARGUMENT, f"unknown dial shape {plan.shape}")
 
 
@@ -187,6 +194,26 @@ async def dial_parsed_locator(
         )
         iroh_session.owns_host = owns_host
         return iroh_session
+    if isinstance(plan, _RendezvousDial):
+        # A `keyed-relay` peer holds an inbound socket at a relay under its key
+        # designator; the byte path is the relay's rendezvous bridge, and the
+        # relay mapping is this host's deployment configuration, exactly like
+        # the redeem reachability posture beside it (ADR-0088).
+        rendezvous_url = dial_host.rendezvous_url
+        if rendezvous_url is None:
+            raise PancakeError(_ERR_INVALID_ARGUMENT,
+                "keyed-relay dial: no rendezvous relay configured; set Host.rendezvous_url first")
+        from ._ws import connect_websocket
+        ws_transport = await connect_websocket(rendezvous_url(designator))
+        try:
+            session = await Session.establish_dialed_locator(
+                dial_host, transport_name, designator, ws_transport, handshake_timeout_ms,
+            )
+            session.owns_host = owns_host
+            return session
+        except BaseException:
+            ws_transport.close()
+            raise
     reader, writer = await asyncio.open_connection(plan.host, plan.port)
     transport = _StreamTransport(reader, writer)
     try:

@@ -39,6 +39,11 @@ enum DialPlan {
 	/// channel comes up through an offer/answer/ICE exchange before the keyed
 	/// handshake. Cannot be opened from a bare locator; handoff-redeem only.
 	Signaling,
+	/// A rendezvous-bridged transport (keyed-relay) — no dialable address; the
+	/// peer holds an inbound socket at a relay under its key designator, and
+	/// the dialer opens the relay rendezvous leg its host is configured for
+	/// (ADR-0088).
+	Rendezvous,
 }
 
 /// Host-owned pending-dial views (not input-buffer aliases).
@@ -110,6 +115,9 @@ fn plan_dial(
 	}
 	if plan.shape == sys::DIAL_SHAPE_SIGNALING {
 		return Ok(DialPlan::Signaling);
+	}
+	if plan.shape == sys::DIAL_SHAPE_RENDEZVOUS {
+		return Ok(DialPlan::Rendezvous);
 	}
 	Err(Error::with_detail(
 		sys::ERR_INVALID_ARGUMENT,
@@ -241,6 +249,37 @@ pub(crate) async fn dial_parsed_locator(
 			"webrtc signaling dial requires a signaling-aware adapter; a bare locator cannot open it"
 				.to_string(),
 		)),
+		DialPlan::Rendezvous => {
+			// The relay mapping is deployment configuration of the dialing
+			// host, exactly like the redeem reachability posture beside it.
+			#[cfg(feature = "rendezvous")]
+			{
+				let url = shared.rendezvous_url_of(designator).ok_or_else(|| {
+					Error::with_detail(
+						sys::ERR_INVALID_ARGUMENT,
+						"keyed-relay dial: no rendezvous relay configured; call Host::set_rendezvous_url first"
+							.to_string(),
+					)
+				})?;
+				let stream = crate::ws_stream::connect_websocket(&url).await?;
+				Session::establish_dialed_locator(
+					shared,
+					transport,
+					designator,
+					stream,
+					handshake_timeout,
+				)
+				.await
+			}
+			#[cfg(not(feature = "rendezvous"))]
+			{
+				Err(Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"this build has no rendezvous WebSocket dial; rebuild with the rendezvous feature"
+						.to_string(),
+				))
+			}
+		}
 	}?;
 	session.set_owns_host(owns_host);
 	Ok(session)

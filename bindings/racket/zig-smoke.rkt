@@ -245,6 +245,57 @@
 
 (printf "racket zig-smoke OK: high-level listen/accept hosted a keyed session\n")
 
+;; ── Off-turn settlement: a behavior defers onto a resolver vow ────────────────
+;; The worker's behavior mints a resolver pair inside its turn
+;; (`host-spawn-resolver`), defers its answer onto the pair's vow
+;; (`resolver-forward-turn!`), parks the resolver, and returns; the main
+;; thread settles it later, top level, and the caller's send completes only
+;; then. The broken arm exercises a second call's fresh resolver and the
+;; caller hears the worker's own words.
+(define rv-server (listen "127.0.0.1" 0))
+(define rv-ready (make-semaphore 0))
+(define rv-parked (box #f))
+(define rv-serve
+  (thread
+   (lambda ()
+     (define hsession (accept rv-server))
+     (define worker-host (session-host hsession))
+     (host-publish-giftable worker-host "worker"
+                            (lambda (method . args)
+                              (define pair (host-spawn-resolver worker-host))
+                              (resolver-forward-turn! pair)
+                              (set-box! rv-parked pair)
+                              (void)))
+     (semaphore-post rv-ready)
+     (session-serve hsession))))
+(define rv-session (connect (tcp-locator "127.0.0.1" (server-port rv-server))))
+(semaphore-wait rv-ready)
+(define rv-worker (session-fetch rv-session "worker"))
+
+(define rv-reply-ch (make-channel))
+(void (thread (lambda () (channel-put rv-reply-ch (session-send rv-session rv-worker 'work)))))
+(let loop () (unless (unbox rv-parked) (sleep 0.005) (loop)))
+(resolver-fulfill! (unbox rv-parked) "computed off-turn")
+(expect (equal? "computed off-turn" (channel-get rv-reply-ch))
+        "resolver: the deferred answer settled off-turn")
+
+(set-box! rv-parked #f)
+(define rv-broke-ch (make-channel))
+(void (thread
+       (lambda ()
+         (channel-put rv-broke-ch
+                      (with-handlers ([(lambda (_) #t) (lambda (e) (exn-message e))])
+                        (session-send rv-session rv-worker 'work))))))
+(let loop () (unless (unbox rv-parked) (sleep 0.005) (loop)))
+(resolver-break! (unbox rv-parked) "worker gave up")
+(define rv-broke (channel-get rv-broke-ch))
+(expect (and (string? rv-broke) (regexp-match? #rx"worker gave up" rv-broke))
+        "resolver: the break carries the worker's words")
+(session-close! rv-session)
+(server-close! rv-server)
+
+(printf "racket zig-smoke OK: a behavior deferred its answer onto a resolver vow and settled off-turn\n")
+
 ;; ── Sturdyref enliven: durable (peer, swissnum) brought to life, then cached ──
 ;; The swissnum keys the bootstrap fetch, so a host publish under that name
 ;; answers the enliven (ADR-0012). The client enlivens a sturdyref, calls the
@@ -262,8 +313,20 @@
                      (lambda (bcom)
                        (methods
                         [(hello) (sym "alive")])))
+       ;; The host-wide porter answers every session, including the fresh
+       ;; connection host-enliven's dial arm opens below.
+       (host-publish-giftable (session-host hsession) "porter"
+                              (lambda (method . args) (sym "ported")))
        (semaphore-post en-ready)
+       ;; Serve the first client here while a sibling accepts the dial arm's
+       ;; connection.
+       (define second
+         (thread
+          (lambda ()
+            (with-handlers ([(lambda (_) #t) void])
+              (session-serve (accept en-server))))))
        (session-serve hsession)
+       (thread-wait second)
        (channel-put en-ch 'served)))))
 
 (define en-locator (tcp-locator "127.0.0.1" (server-port en-server)))
@@ -282,13 +345,33 @@
 (define en-again (session-enliven en-session en-sturdyref))
 (expect (equal? en-again en-cap) "enliven: a repeat enliven hits the cache")
 (expect (equal? (sym "alive") (session-send en-session en-again 'hello)) "enliven: the cached capability answers hello")
+;; Listen (CapTP op:listen): a held capability's resolution comes back through
+;; the vow — a listen on an already-settled capability answers at once.
+(define en-listened (session-await en-session (session-listen en-session en-cap)))
+(expect (ref? en-listened) "listen: the vow settles naming the capability")
+
+;; Host-level select-or-dial enliven (ADR-0098). SELECT: the sturdyref names
+;; a peer this host already dialed, so the enliven rides `en-session` and the
+;; capability answers there.
+(define hs-cap (host-enliven (session-host en-session) en-sturdyref))
+(expect (ref? hs-cap) "host-enliven: selected a live dialed session")
+(expect (equal? (sym "alive") (session-send en-session hs-cap 'hello))
+        "host-enliven: the selected capability answers")
+;; DIAL: a fresh host with no session stages a dial through the action queue,
+;; the executor opens the exporter session on its own serve thread, and the
+;; host-scoped wait settles over it.
+(define dial-host (make-fresh-host))
+(define dial-cap (host-enliven dial-host (string-append en-locator "/s/porter")))
+(expect (ref? dial-cap) "host-enliven: a cold sturdyref staged a dial and settled")
+(host-release! dial-host)
+
 (session-close! en-session)
 (define en-host-result (channel-get en-ch))
 (when (exn? en-host-result) (raise en-host-result))
 (expect (eq? 'served en-host-result) "enliven: host served to a clean close")
 (server-close! en-server)
 
-(printf "racket zig-smoke OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache\n")
+(printf "racket zig-smoke OK: a sturdyref enlivens to a live capability, a repeat enliven hits the cache, and a listen settles\n")
 
 ;; ── The codec host option: a Cap'n Proto session end to end ──────────────────
 ;; `listen`/`connect` take `#:codec`: both ends here negotiate Cap'n Proto, so
@@ -1148,6 +1231,57 @@
 
 (printf "racket zig-smoke OK: an on listener fires outside the host lock and can enqueue\n")
 
+;; ── Alias-only unpublish ──────────────────────────────────────────────────────
+;; Discovery moves, the issued capability does not: after
+;; `host-unpublish-giftable` a fetch of the name breaks even on the session
+;; that fetched it before, a second removal is a loud #f, and the ref fetched
+;; before removal still answers.
+(define up-server (listen "127.0.0.1" 0))
+(host-publish-giftable (server-host up-server) "ephemeral" (methods [(probe) 11]))
+(define up-thread
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) void])
+       (define hsession (accept up-server))
+       (session-serve hsession)))))
+(define up-session (connect (tcp-locator "127.0.0.1" (server-port up-server))))
+(define up-cap (session-fetch up-session "ephemeral"))
+(expect (equal? 11 (session-send up-session up-cap 'probe)) "unpublish: the alias fetches and answers before removal")
+(expect (eq? #t (host-unpublish-giftable (server-host up-server) "ephemeral"))
+        "unpublish: removing a live alias reports #t")
+(expect (eq? #f (host-unpublish-giftable (server-host up-server) "ephemeral"))
+        "unpublish: removing an absent alias reports #f")
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (session-fetch up-session "ephemeral")
+          #f)
+        "unpublish: a fetch of the removed alias breaks on the session that fetched it")
+(expect (equal? 11 (session-send up-session up-cap 'probe))
+        "unpublish: the capability issued before removal still answers")
+
+;; Durable publication (ADR-0098): the minted swiss name fetches on the live
+;; session, removal makes a later fetch miss, and the capability issued before
+;; removal still answers.
+(define up-swiss (host-publish-durable (server-host up-server) (methods [(probe) 21])))
+(expect (and (= 50 (string-length up-swiss))
+             (equal? "pancake-durable-1-" (substring up-swiss 0 18)))
+        "durable: the minted swiss carries the durable prefix and length")
+(define up-durable (session-fetch up-session up-swiss))
+(expect (equal? 21 (session-send up-session up-durable 'probe))
+        "durable: the minted swiss fetches and answers")
+(expect (eq? #t (host-remove-durable (server-host up-server) up-swiss))
+        "durable: removing a live durable name reports #t")
+(expect (eq? #f (host-remove-durable (server-host up-server) up-swiss))
+        "durable: removing an absent durable name reports #f")
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (session-fetch up-session up-swiss)
+          #f)
+        "durable: a fetch of the removed name breaks")
+(expect (equal? 21 (session-send up-session up-durable 'probe))
+        "durable: the capability issued before removal still answers")
+(session-close! up-session)
+(kill-thread up-thread)
+(server-close! up-server)
+
 ;; ── A redeem dial must not park the host ──────────────────────────────────────
 ;; The recipient half of a three-party handoff opens its own socket to the
 ;; exporter (a DIAL action). A dial is a connect syscall plus a whole keyed
@@ -1164,7 +1298,10 @@
 ;; Host-wide, not session-published: deposit retains the actor before the
 ;; recipient's redeem dial opens, and withdrawal projects that exact actor onto
 ;; the new exporter session without resolving the alias again.
-(host-publish-giftable (server-host rd-e-server) "gifted" (methods [(use) 7]))
+(host-publish-giftable (server-host rd-e-server) "gifted"
+                       (let ([n (box 7)])
+                         (methods [(use) (unbox n)]
+                                  [(bump) (set-box! n 8) 8])))
 (define rd-release-e (make-semaphore 0))
 (define rd-e-thread
   (thread
@@ -1188,6 +1325,13 @@
 (define rd-gc (connect (tcp-locator "127.0.0.1" (server-port rd-e-server))
                        #:host (server-host rd-g-server)))
 (define rd-tool (session-fetch rd-gc "gifted"))
+;; Mutate the tool through the gifter, then replace the alias with a decoy:
+;; the later withdrawal must project the exact mutated actor the gifter holds,
+;; never whatever the name resolves to at withdraw time (ADR-0096, on the
+;; binding path).
+(expect (= 8 (session-send rd-gc rd-tool 'bump))
+        "redeem-dial: the gifter mutated the tool before introducing it")
+(host-publish-giftable (server-host rd-e-server) "gifted" (methods [(use) 0]))
 (define rd-g-ready (make-semaphore 0))
 (define rd-g-thread
   (thread
@@ -1253,8 +1397,8 @@
 (define rd-tool-cap (sync/timeout 30 rd-tool-ch))
 (expect (and rd-tool-cap (not (exn? rd-tool-cap)))
         "redeem-dial: the gifted capability settled after the exporter released")
-(expect (= 7 (session-send rd-r-main rd-tool-cap 'use))
-        "redeem-dial: the redeemed capability answered a direct call")
+(expect (= 8 (session-send rd-r-main rd-tool-cap 'use))
+        "redeem-dial: the redeemed capability is the exact mutated actor, not the alias's decoy")
 (session-close! rd-r-main)
 (session-close! rd-r-side)
 (session-close! rd-gc)

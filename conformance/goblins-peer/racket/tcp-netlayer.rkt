@@ -27,6 +27,7 @@
          goblins/actor-lib/methods
          goblins/actor-lib/sync-pr
          goblins/ocapn/structs-urls
+         (submod goblins/ocapn/structs-urls marshall)
          goblins/ocapn/netlayer/utils/read-write-procs
          racket/async-channel
          racket/match
@@ -61,13 +62,25 @@
 ;; a third Vat dials a peer directly or routes via an introducer
 ;; (the load-bearing signal that OCapN three-party handoff actually
 ;; happens).
+;; Optional `#:location-hints hints` — a value to advertise as the netlayer's
+;; own location hints (e.g. a hash of route metadata). The contracted
+;; `ocapn-node` constructor admits only #f-or-string hints, while the wire
+;; unmarshaller builds nodes through the raw constructor and accepts the
+;; draft's mapping shape; an advertised mapping hint must be exactly what a
+;; decoded hello would hold, so the hinted location is built through the
+;; unmarshaller's own constructor.
+(define make-wire-ocapn-node (cdr unmarshall::ocapn-node))
+
 (define (^tcp-netlayer _bcom
                        listen-host
                        listen-port
                        [announce-host listen-host]
-                       #:trace [trace-fn void])
+                       #:trace [trace-fn void]
+                       #:location-hints [location-hints #f])
   (define our-location
-    (ocapn-node 'tcp (format "~a:~a" announce-host listen-port) #f))
+    (if location-hints
+        (make-wire-ocapn-node 'tcp (format "~a:~a" announce-host listen-port) location-hints)
+        (ocapn-node 'tcp (format "~a:~a" announce-host listen-port) #f)))
 
   ;; Channel that the listener thread pushes new (input-port . output-port)
   ;; pairs onto. The Goblins netlayer body reads from it via sync/pr.
@@ -77,10 +90,18 @@
   ;; connections from a `network` actor; we get them from the OS via
   ;; `tcp-listen`/`tcp-accept`. The thread runs once `setup` is called
   ;; and lives for the netlayer's lifetime.
+  ;;
+  ;; `tcp-listen` runs here, on the caller's thread, not inside the thread
+  ;; below: returning from `setup` then means the port is accepting. Binding
+  ;; inside the thread made readiness a lie — a host could print `vat-ready`,
+  ;; and a peer could be handed a locator naming this vat, before anything was
+  ;; listening, so a dial raced the bind and failed with connection refused.
+  ;; That is the whole of the intermittent handoff failure: a give named an
+  ;; exporter whose listener had not bound yet.
   (define (start-tcp-listener)
+    (define listener (tcp-listen listen-port 5 #t listen-host))
     (thread
      (lambda ()
-       (define listener (tcp-listen listen-port 5 #t listen-host))
        (let loop ()
          (define-values (in out) (tcp-accept listener))
          (trace-fn 'accept our-location)
@@ -129,8 +150,15 @@
        [(self-location? loc)
         (same-node-location? our-location loc)]
        [(connect-to remote-node)
+        ;; Dial by transport + designator alone. Hints are route advice this
+        ;; netlayer does not need, and a node decoded off the wire can carry
+        ;; mapping-shaped hints (the unmarshaller uses the raw constructor),
+        ;; so the dial neither pins the empty-`#f` spelling nor reads the
+        ;; hints field through the contracted accessor.
         (match remote-node
-          [(ocapn-node 'tcp designator #f)
+          [(? (lambda (n) (and (ocapn-node? n)
+                               (eq? (ocapn-node-transport n) 'tcp))))
+           (define designator (ocapn-node-designator remote-node))
            (trace-fn 'connect our-location remote-node)
            (define-values (host port) (split-host-port designator))
            (define-values (in out) (tcp-connect host port))

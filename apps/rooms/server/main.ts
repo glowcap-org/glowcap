@@ -40,6 +40,7 @@
 import {
 	type Argument,
 	designatorHostPort,
+	durableIdentityAuthenticated,
 	encodePeerLocator,
 	formatPeerUri,
 	HINT_DIRECT_ADDRESSES,
@@ -51,6 +52,7 @@ import {
 	socketAddrDesignator,
 	TRANSPORT_IROH,
 	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
 } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { isUriLocator } from "../lib/locator.ts";
@@ -65,7 +67,7 @@ import {
 	ROOM_EXISTS,
 	RoomError,
 } from "../lib/errors.ts";
-import { MAX_DM_INBOXES, MAX_NICK } from "../lib/limits.ts";
+import { MAX_DM_INBOXES, MAX_NICK, MAX_SIGNAL_EXCHANGES } from "../lib/limits.ts";
 import {
 	DIRECTORY,
 	ENTER,
@@ -74,9 +76,16 @@ import {
 	LIST,
 	NOTIFY,
 	OFFER_INBOX,
+	OFFER_SIGNALING,
 	OPEN,
 	POST,
 	REGISTER,
+	SIG_ANSWER,
+	SIG_CANDIDATE,
+	SIG_OFFER,
+	SIGNAL_ANSWER,
+	SIGNAL_CANDIDATE,
+	SIGNAL_OFFER,
 	SUBSCRIBE,
 	TYPING,
 	WATCH,
@@ -127,10 +136,52 @@ interface Introduction {
 	inbox: Ref;
 	inboxes: Map<string, Ref>;
 	registrar: Session;
+	/** The member's one WebRTC signaling inbox (`offerSignaling`), or null.
+	 * The directory routes offers and candidates for the member's `webrtc`
+	 * designator here; released with the introduction. */
+	signaling: Ref | null;
 }
 
 /** Introducible members, by nick. */
 const introductions = new Map<string, Introduction>();
+
+/** Members reachable at a `webrtc` locator, by that locator's designator. A
+ * `signalOffer` names the designator (that is all a `webrtc` locator carries),
+ * so this is the index that finds whose signaling inbox carries the exchange.
+ * A row lives exactly as long as its registration. */
+const webrtcDesignators = new Map<string, string>();
+
+/** One in-flight WebRTC signaling exchange: who started it (and the reply
+ * capability their answer and candidates ride back on), and which member
+ * answers it. Transient scratch for one channel bring-up, capped by
+ * `MAX_SIGNAL_EXCHANGES` with oldest-first eviction. */
+interface SignalExchange {
+	originator: Session;
+	reply: Ref;
+	targetKey: string;
+}
+
+const signalExchanges = new Map<string, SignalExchange>();
+const signalExchangeOrder: string[] = [];
+let nextSignalExchange = 0;
+
+function dropSignalExchange(id: string): void {
+	const exchange = signalExchanges.get(id);
+	if (exchange === undefined) return;
+	signalExchanges.delete(id);
+	giveBackInbox(exchange.originator, exchange.reply);
+}
+
+/** The exchange `session` originated toward `designator`, if one is live. A
+ * scan, bounded by the exchange cap. */
+function originatedExchange(session: Session, designator: string): string | null {
+	const targetKey = webrtcDesignators.get(designator);
+	if (targetKey === undefined) return null;
+	for (const [id, exchange] of signalExchanges) {
+		if (exchange.originator === session && exchange.targetKey === targetKey) return id;
+	}
+	return null;
+}
 
 /** Whether `locator` names the connection registering it — or, where that cannot
  * be known, whether the directory has any grounds to refuse.
@@ -154,19 +205,22 @@ const introductions = new Map<string, Introduction>();
  * and that keying the directory's own connections is what would close it — a
  * larger change than this function. */
 function claimsOwnLocator(session: Session, locator: string): boolean {
-	let keyed = false;
+	let identity;
 	try {
-		keyed = session.partnerDesignatorIsKey();
+		identity = session.partnerIdentity();
 	} catch {
 		// No verified partner key on this connection: nothing to check against.
 		return true;
 	}
-	if (!keyed) return true;
+	// Only a durable identity the partner actually proved is worth checking a
+	// claim against (ADR-0097). An address designator names a socket the key
+	// does not determine, so there is nothing here to hold the claim to.
+	if (!durableIdentityAuthenticated(identity)) return true;
 	const claimed = isUriLocator(locator) ? parseLocator(locator).designator : socketAddrDesignator(
 		designatorHostPort(locator).hostname,
 		designatorHostPort(locator).port,
 	);
-	return claimed === session.partnerIdentity().designator;
+	return claimed === identity.designator;
 }
 
 /** File the registration and tell the member its nick is introducible.
@@ -212,7 +266,19 @@ function registerMember(
 	// can take it while that connection stands.
 	const prior = introductions.get(key);
 	if (prior !== undefined) withdrawIntroduction(key, prior);
-	introductions.set(key, { nick, inbox, inboxes: new Map(), registrar: session });
+	introductions.set(key, {
+		nick,
+		inbox,
+		inboxes: new Map(),
+		registrar: session,
+		signaling: null,
+	});
+	// A `webrtc` locator is reached by signaling, not a socket, so index the
+	// member under its designator for `signalOffer` routing.
+	if (isUriLocator(locator)) {
+		const loc = parseLocator(locator);
+		if (loc.transport === TRANSPORT_WEBRTC) webrtcDesignators.set(loc.designator, key);
+	}
 	session.tell(inbox, NOTIFY, ["registered", nick]).catch(() => {});
 	notifyWatchers("registered", nick, 1);
 }
@@ -229,6 +295,15 @@ function withdrawIntroduction(key: string, intro: Introduction): void {
 	introductions.delete(key);
 	releaseInboxes(intro);
 	forgetOfferedInboxes(key);
+	for (const [designator, owner] of [...webrtcDesignators]) {
+		if (owner === key) webrtcDesignators.delete(designator);
+	}
+	if (intro.signaling !== null) giveBackInbox(intro.registrar, intro.signaling);
+	for (const [id, exchange] of [...signalExchanges]) {
+		if (exchange.targetKey === key || exchange.originator === intro.registrar) {
+			dropSignalExchange(id);
+		}
+	}
 	notifyWatchers("unregistered", intro.nick, 0);
 }
 
@@ -588,6 +663,91 @@ export function directoryBehavior(session: Session) {
 				waiting.registrar.tell(waiting.inbox, NOTIFY, ["introducible", ownNick])
 					.catch(() => {});
 			}
+			return null;
+		}
+		if (verb === OFFER_SIGNALING) {
+			const offered = args[0];
+			if (!(offered instanceof Ref)) {
+				throw new Error("offerSignaling needs an inbox capability");
+			}
+			// One signaling inbox per member, filed under the caller's own
+			// registration exactly as `offerInbox` files a DM inbox.
+			const ownNick = registeredNickOf(session);
+			if (ownNick === null) {
+				throw new RoomError(NOT_REGISTERED, "offerSignaling needs a registered name");
+			}
+			const intro = introductions.get(nickKey(ownNick));
+			if (intro === undefined) throw new Error("offerSignaling found no registration");
+			if (intro.signaling !== null) giveBackInbox(session, intro.signaling);
+			intro.signaling = offered;
+			return null;
+		}
+		if (verb === SIGNAL_OFFER) {
+			const toDesignator = typeof args[0] === "string" ? args[0] : "";
+			const sdp = typeof args[1] === "string" ? args[1] : "";
+			const reply = args[2];
+			if (toDesignator.length === 0 || sdp.length === 0) {
+				throw new Error("signalOffer needs a designator and an offer sdp");
+			}
+			if (!(reply instanceof Ref)) {
+				throw new Error("signalOffer needs a reply capability");
+			}
+			if (registeredNickOf(session) === null) {
+				throw new RoomError(NOT_REGISTERED, "signalOffer needs a registered name");
+			}
+			const targetKey = webrtcDesignators.get(toDesignator);
+			const target = targetKey === undefined ? undefined : introductions.get(targetKey);
+			if (target === undefined || target.signaling === null) {
+				throw new RoomError(PEER_OFFLINE, "no signaling inbox for that designator");
+			}
+			// One live exchange per (caller, target): a repeat offer replaces the
+			// prior bring-up attempt, so a retry cannot strand rows.
+			const prior = originatedExchange(session, toDesignator);
+			if (prior !== null) dropSignalExchange(prior);
+			const id = `x${nextSignalExchange++}`;
+			signalExchanges.set(id, { originator: session, reply, targetKey: targetKey! });
+			signalExchangeOrder.push(id);
+			while (signalExchangeOrder.length > MAX_SIGNAL_EXCHANGES) {
+				dropSignalExchange(signalExchangeOrder.shift()!);
+			}
+			target.registrar.tell(target.signaling, SIG_OFFER, [id, sdp]).catch(() => {});
+			return null;
+		}
+		if (verb === SIGNAL_ANSWER) {
+			const id = typeof args[0] === "string" ? args[0] : "";
+			const sdp = typeof args[1] === "string" ? args[1] : "";
+			const exchange = signalExchanges.get(id);
+			if (exchange === undefined) return null; // evicted or settled: drop
+			// Only the exchange's target may answer it: the caller's session must be
+			// the registrar holding the target registration.
+			const target = introductions.get(exchange.targetKey);
+			if (target === undefined || target.registrar !== session) {
+				throw new Error("signalAnswer from a session that does not answer this exchange");
+			}
+			exchange.originator.tell(exchange.reply, SIG_ANSWER, [sdp]).catch(() => {});
+			return null;
+		}
+		if (verb === SIGNAL_CANDIDATE) {
+			const key = typeof args[0] === "string" ? args[0] : "";
+			const ice = typeof args[1] === "string" ? args[1] : "";
+			if (key.length === 0 || ice.length === 0) return null;
+			// The offering side names the target's designator (it holds no exchange
+			// id); the answering side names the exchange id it was offered. Resolve
+			// by who is calling, so neither can inject into the other's exchange.
+			const originated = originatedExchange(session, key);
+			if (originated !== null) {
+				const exchange = signalExchanges.get(originated)!;
+				const target = introductions.get(exchange.targetKey);
+				if (target === undefined || target.signaling === null) return null;
+				target.registrar.tell(target.signaling, SIG_CANDIDATE, [originated, ice])
+					.catch(() => {});
+				return null;
+			}
+			const exchange = signalExchanges.get(key);
+			if (exchange === undefined) return null; // evicted or settled: drop
+			const target = introductions.get(exchange.targetKey);
+			if (target === undefined || target.registrar !== session) return null;
+			exchange.originator.tell(exchange.reply, SIG_CANDIDATE, [ice]).catch(() => {});
 			return null;
 		}
 		if (verb === INTRODUCE) {

@@ -86,9 +86,23 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	pancake_host_session_publish: { parameters: [P, B, U, P, P, P, B], result: I, outBuffers: [6] },
 	pancake_host_session_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	pancake_host_publish: { parameters: [P, B, U, P, P, P], result: I, outBuffers: [] },
+	pancake_host_unpublish: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_publish_durable: {
+		parameters: [P, B, U, P, P, P, B, U],
+		result: I,
+		outBuffers: [6],
+	},
+	pancake_host_remove_durable: { parameters: [P, B, U], result: I, outBuffers: [] },
 	// Fetch and enliven — each mints a host vow (out param).
 	pancake_host_session_fetch: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_host_session_enliven: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	pancake_host_enliven: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	// Off-turn settlement: a behavior defers its answer onto a resolver vow
+	// and the work's completion settles it later, top-level.
+	pancake_host_spawn_resolver: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
+	pancake_host_resolver_fulfill: { parameters: [P, U64, B], result: I, outBuffers: [] },
+	pancake_host_resolver_break: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
+	pancake_host_session_listen: { parameters: [P, B, B], result: I, outBuffers: [2] },
 	// Send, tell, vows, projections.
 	pancake_host_session_send: { parameters: [P, B, B, U, B, U, B], result: I, outBuffers: [6] },
 	pancake_host_session_tell: { parameters: [P, B, B, U, B, U], result: I, outBuffers: [] },
@@ -100,6 +114,7 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	// out-reply is the raw pointer the trampoline was handed, so it crosses as
 	// a pointer, not a JS buffer.
 	pancake_host_turn_forward: { parameters: [P, B, B, U, B, U, P], result: I, outBuffers: [] },
+	pancake_host_turn_forward_vow: { parameters: [P, U64], result: I },
 	pancake_host_turn_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	pancake_host_turn_break: { parameters: [P, B, U], result: I, outBuffers: [] },
 	// Capability lifetime, teardown, diagnostics.
@@ -113,10 +128,5 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	},
 	pancake_host_session_last_abort: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_session_partner_identity: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_host_session_partner_designator_is_key: {
-		parameters: [P, B],
-		result: I,
-		outBuffers: [1],
-	},
 	pancake_host_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 });

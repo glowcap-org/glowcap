@@ -10,7 +10,7 @@
 //! which the host core turns into a signed give because the capability's home
 //! is the *other* session. The recipient's `call` hears the give, and its own
 //! pump answers the redeem: dials the exporter, withdraws, and settles the
-//! call with the live reference. One extra `callReference` on that reference
+//! call with the live capability. One extra `call` on that capability
 //! proves it really reaches the exporter's actor.
 //!
 //! The gifter's single serve loop is also the multiplex proof: it serves the
@@ -42,18 +42,19 @@ const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 10_000 },
 };
 
-const Treasure = support_actors.StaticReplyActor("greet", "hello from the exporter");
+const Treasure = support_actors.StaticReplyValueActor("greet", "hello from the exporter");
 
 /// Replies to `introduce` with the capability it was constructed around. The
 /// reply's home is the gifter's *exporter* session, so the host core claims
 /// it and originates a signed give instead of resolving it as-is.
 const Introducer = struct {
-    treasure: model.Reference,
+    treasure: driver.Capability,
 
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "introduce")) return error.NoSuchMethod;
-        return .{ .reference = self.treasure };
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
+        return .{ .capability = self.treasure };
     }
 };
 
@@ -113,8 +114,7 @@ fn gifterServe(
         .hints = model.Hints.forDirectAddresses(exporter_hint, &hint_entry),
     });
     var treasure_view = driver.Session.view(&host, treasure_session);
-    const treasure = try treasure_view.fetchReference("treasure");
-    try std.testing.expect(treasure == .far);
+    const treasure = try treasure_view.fetch("treasure");
 
     const hs = try host.acceptWire(listener, listener.transportName(), bound, bound);
     var view = driver.Session.view(&host, hs);
@@ -148,12 +148,12 @@ fn serverSideRedeem(
     // it; the reply is a give naming the exporter, and this host — built by
     // `driver.listen`, not by hand — dials and redeems inside the call.
     const introducer = try accepted.fetch("introducer");
-    const introduced = try accepted.call(introducer, .{ .verb = "introduce" }, arena_state.allocator());
+    const introduced = try accepted.call(introducer, "introduce", &.{}, arena_state.allocator());
     if (introduced == .broken) std.debug.print("server-side redeem broke: {s}\n", .{introduced.broken});
     try std.testing.expect(introduced == .fulfilled);
-    try std.testing.expect(introduced.fulfilled == .reference);
+    try std.testing.expect(introduced.fulfilled == .capability);
 
-    const greeted = try accepted.callReference(introduced.fulfilled.reference, "greet", &.{}, arena_state.allocator());
+    const greeted = try accepted.call(introduced.fulfilled.capability, "greet", &.{}, arena_state.allocator());
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
     _ = exporter_designator;
@@ -209,16 +209,15 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
     const arena = arena_state.allocator();
 
     const introducer = try recipient.fetch("introducer");
-    const introduced = try recipient.call(introducer, .{ .verb = "introduce" }, arena);
+    const introduced = try recipient.call(introducer, "introduce", &.{}, arena);
     if (introduced == .broken) std.debug.print("introduce broke: {s}\n", .{introduced.broken});
     try std.testing.expect(introduced == .fulfilled);
-    try std.testing.expect(introduced.fulfilled == .reference);
-    const redeemed = introduced.fulfilled.reference;
-    try std.testing.expect(redeemed == .far);
+    try std.testing.expect(introduced.fulfilled == .capability);
+    const redeemed = introduced.fulfilled.capability;
 
     // The redeemed capability answers: this call routes over the exporter
     // session the recipient's own pump dialed during the wait above.
-    const greeted = try recipient.callReference(redeemed, "greet", &.{}, arena);
+    const greeted = try recipient.call(redeemed, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
 }
@@ -282,14 +281,13 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     const arena = arena_state.allocator();
 
     const introducer = try recipient.fetch("introducer");
-    const introduced = try recipient.call(introducer, .{ .verb = "introduce" }, arena);
+    const introduced = try recipient.call(introducer, "introduce", &.{}, arena);
     if (introduced == .broken) std.debug.print("keyed introduce broke: {s}\n", .{introduced.broken});
     try std.testing.expect(introduced == .fulfilled);
-    try std.testing.expect(introduced.fulfilled == .reference);
-    const redeemed = introduced.fulfilled.reference;
-    try std.testing.expect(redeemed == .far);
+    try std.testing.expect(introduced.fulfilled == .capability);
+    const redeemed = introduced.fulfilled.capability;
 
-    const greeted = try recipient.callReference(redeemed, "greet", &.{}, arena);
+    const greeted = try recipient.call(redeemed, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
 }
@@ -355,7 +353,7 @@ fn dialingGifter(
         .hints = model.Hints.emptyFalse(),
     });
     var treasure_view = driver.Session.view(&host, treasure_session);
-    const treasure = try treasure_view.fetchReference("treasure");
+    const treasure = try treasure_view.fetch("treasure");
 
     const to_redeemer = try host.connectLocator(.{
         .transport = model.transport.tcp,

@@ -1509,6 +1509,22 @@ pub fn build(b: *std.Build) void {
     const goblins_gift_step = b.step("goblins-gift", "Live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)");
     goblins_gift_step.dependOn(&run_goblins_gift.step);
 
+    // The same topology with a credential-bearing exporter locator: the give's
+    // hint dict carries a 64-byte session-key-attestation entry, and both live
+    // Goblins peers must decode, re-encode, and verify it byte-exactly
+    // (ADR-0097 migration step 1's live foreign-decode evidence).
+    const run_goblins_gift_hints = b.addRunArtifact(goblins_gift_exe);
+    run_goblins_gift_hints.setCwd(b.path("."));
+    run_goblins_gift_hints.has_side_effects = true;
+    run_goblins_gift_hints.addArg("--hinted-exporter");
+    // Its own fixed default so the plain and hinted runs can share an
+    // aggregate without racing one Bob port; `--port` is last-one-wins, so a
+    // `-Dport` pin still overrides.
+    run_goblins_gift_hints.addArg("--port=22170");
+    if (pin_port) |p| run_goblins_gift_hints.addArg(b.fmt("--port={d}", .{p}));
+    const goblins_gift_hints_step = b.step("goblins-gift-hints", "Live hinted-locator handoff vs Goblins: a give whose exporter locator carries the provisional session-key-attestation hint dict survives Goblins decode, re-encode, and signature verification (needs racket + goblins)");
+    goblins_gift_hints_step.dependOn(&run_goblins_gift_hints.step);
+
     // A relayed give read by live Goblins: pancake introduces a third party to
     // a promise it does not own, and the give reaches that party in a listener
     // fire rather than in an answer it asked for. Bob listens on N; Carol binds
@@ -1776,6 +1792,72 @@ pub fn build(b: *std.Build) void {
     webrtc_common_mod.addImport("pancake", lib_mod);
     webrtc_common_mod.addImport("webrtc", webrtc_resident_mod);
 
+    // Live WebRTC scale (ADR-0089's generic Host adoption): many DataChannels
+    // served from one loop thread through completion.Loop(webrtc.Backend) +
+    // driver.Bridge + driver_core.Host, signaling ferried by an in-process hub
+    // into the backend's thread-safe adoption entries. Rides `check` as a
+    // hermetic compile-only object and runs as a sidecar-linked sibling.
+    const webrtc_loop_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_loop/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_loop_compile_mod.addImport("pancake", lib_mod);
+    webrtc_loop_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_loop_compile_mod.addImport("webrtc_common", webrtc_common_mod);
+    webrtc_loop_compile_mod.addImport("interop_harness", interop_harness_mod);
+    const webrtc_loop_compile = b.addObject(.{ .name = "pancake-webrtc-loop-compile", .root_module = webrtc_loop_compile_mod });
+    check_step.dependOn(&webrtc_loop_compile.step);
+
+    const webrtc_loop_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_loop/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_loop_run_mod.addImport("pancake", lib_mod);
+    webrtc_loop_run_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_loop_run_mod.addImport("webrtc_common", webrtc_common_mod);
+    webrtc_loop_run_mod.addImport("interop_harness", interop_harness_mod);
+    linkWebrtcSidecar(b, webrtc_loop_run_mod, target);
+    const webrtc_loop_exe = b.addExecutable(.{ .name = "pancake-webrtc-loop", .root_module = webrtc_loop_run_mod });
+    webrtc_loop_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_loop_run = b.addRunArtifact(webrtc_loop_exe);
+    webrtc_loop_run.setCwd(b.path("."));
+    webrtc_loop_run.has_side_effects = true;
+    b.step("webrtc-loop", "Live WebRTC scale: many concurrent DataChannels served from one loop thread through the generic Host completion adapter (webrtc.Backend + Bridge + Host, ADR-0089; needs cargo)").dependOn(&webrtc_loop_run.step);
+
+    // The native three-party redeem over a bare webrtc give (ADR-0089's last
+    // evidence item): G/E/R each on Bridge + Loop over webrtc.Backend, all
+    // signaling through one in-process hub, R redeeming by Loop.dialLocator.
+    // Rides `check` as a hermetic compile-only object and runs as a
+    // sidecar-linked sibling.
+    const webrtc_bridge_redeem_compile_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_bridge_redeem/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_bridge_redeem_compile_mod.addImport("pancake", lib_mod);
+    webrtc_bridge_redeem_compile_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_bridge_redeem_compile_mod.addImport("interop_harness", interop_harness_mod);
+    const webrtc_bridge_redeem_compile = b.addObject(.{ .name = "pancake-webrtc-bridge-redeem-compile", .root_module = webrtc_bridge_redeem_compile_mod });
+    check_step.dependOn(&webrtc_bridge_redeem_compile.step);
+
+    const webrtc_bridge_redeem_run_mod = b.createModule(.{
+        .root_source_file = b.path("interop/webrtc_bridge_redeem/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    webrtc_bridge_redeem_run_mod.addImport("pancake", lib_mod);
+    webrtc_bridge_redeem_run_mod.addImport("webrtc", webrtc_resident_mod);
+    webrtc_bridge_redeem_run_mod.addImport("interop_harness", interop_harness_mod);
+    linkWebrtcSidecar(b, webrtc_bridge_redeem_run_mod, target);
+    const webrtc_bridge_redeem_exe = b.addExecutable(.{ .name = "pancake-webrtc-bridge-redeem", .root_module = webrtc_bridge_redeem_run_mod });
+    webrtc_bridge_redeem_exe.step.dependOn(&webrtc_probe_build.step);
+    const webrtc_bridge_redeem_run = b.addRunArtifact(webrtc_bridge_redeem_exe);
+    webrtc_bridge_redeem_run.setCwd(b.path("."));
+    webrtc_bridge_redeem_run.has_side_effects = true;
+    b.step("webrtc-bridge-redeem", "Live native three-party handoff over WebRTC: the recipient's loop redeems a give naming a bare webrtc designator, dialing through its configured signaling authority (ADR-0089; needs cargo)").dependOn(&webrtc_bridge_redeem_run.step);
+
     // The signaling object as a real OCapN capability over CapTP (ADR-0089 phase
     // 6, native half): the exporter hosts a signaling inbox behind a keyed
     // session, and the recipient drives offer/answer/candidate over that session
@@ -1868,7 +1950,7 @@ pub fn build(b: *std.Build) void {
     webrtc_browser_to_browser.setCwd(b.path("."));
     webrtc_browser_to_browser.has_side_effects = true;
     webrtc_browser_to_browser.step.dependOn(&wasm_driver_install.step);
-    b.step("webrtc-browser-to-browser", "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the signaling host out of the byte path (ADR-0089 phase 6; needs deno + a Playwright Chromium)").dependOn(&webrtc_browser_to_browser.step);
+    b.step("webrtc-browser-to-browser", "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the offerer dialing a bare webrtc locator through its host's configured signaling authority (Host.setSignaling), the signaling host out of the byte path (ADR-0089; needs deno + a Playwright Chromium)").dependOn(&webrtc_browser_to_browser.step);
 
     // The resident compiles as its own module over the same layer-module
     // instances, *outside* the `pancake` root namespace: its externs resolve
@@ -2328,6 +2410,39 @@ pub fn build(b: *std.Build) void {
         },
     };
 
+    // Keyed-relay rendezvous proof (ADR-0088): the binding cold-dials a
+    // registered non-listening peer by key designator through the reference
+    // relay's rendezvous bridge — the core classifies the locator as the
+    // rendezvous dial shape, and the host's configured relay mapping opens it.
+    // The shared harness stands up the relay and the registered Deno peer.
+    const keyed_relay_rendezvous_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-keyed-relay-rendezvous",
+            .description = "Keyed-relay rendezvous cold-dial proof: the Deno binding dials a registered peer through the reference relay (needs deno)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/deno_client.ts" },
+        },
+        .{
+            .step_name = "python-keyed-relay-rendezvous",
+            .description = "Keyed-relay rendezvous cold-dial proof: the Python binding dials a registered peer through the reference relay (needs deno + uv)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "uv", "run", "--with", "websockets", "python3", "bindings/proofs/keyed_relay_rendezvous/python_client.py" },
+        },
+        .{
+            .step_name = "racket-keyed-relay-rendezvous",
+            .description = "Keyed-relay rendezvous cold-dial proof: the Racket binding dials a registered peer through the reference relay (needs deno + racket)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "racket", "-y", "bindings/proofs/keyed_relay_rendezvous/racket_client.rkt" },
+        },
+        .{
+            .step_name = "rust-keyed-relay-rendezvous",
+            .description = "Keyed-relay rendezvous cold-dial proof: the Rust binding dials a registered peer through the reference relay (needs deno + cargo)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "rendezvous", "--example", "keyed_relay_rendezvous", "--" },
+        },
+        .{
+            .step_name = "zig-keyed-relay-rendezvous",
+            .description = "Keyed-relay rendezvous cold-dial proof: the native pancake CLI dials a registered peer through the reference relay via PANCAKE_RENDEZVOUS (needs deno)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "bash", "bindings/proofs/keyed_relay_rendezvous/zig_client.sh" },
+        },
+    };
+
     // Opt-in live dial-by-id over n0 relays + DNS/pkarr. Touches public infra;
     // never part of `check`. Offline dial-by-id is `local_discovery` in *-iroh-loop.
     const iroh_reach_clients = [_]BindingClientRow{
@@ -2396,6 +2511,12 @@ pub fn build(b: *std.Build) void {
             .aggregate_desc = "Per-binding keyed-tcp restart proof: happy path, squatter refusal, same-seed fresh-port restart, every binding",
             .needs_iroh_abi = false,
             .rows = &keyed_tcp_restart_clients,
+        },
+        .{
+            .aggregate_name = "bindings-keyed-relay-rendezvous",
+            .aggregate_desc = "Per-consumer keyed-relay rendezvous cold-dial proof: each language binding and the native CLI dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)",
+            .needs_iroh_abi = false,
+            .rows = &keyed_relay_rendezvous_clients,
         },
         .{
             .aggregate_name = "bindings-iroh-reachability",
@@ -2628,12 +2749,13 @@ pub fn build(b: *std.Build) void {
     // the upstream Syrup encoder re-deriving the committed corpus. Run this
     // before believing a protocol claim; `ci/gates.sh` runs the same set on
     // every push.
-    const check_external_step = b.step("check-external", "Run the core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role and the relayed give, and Syrup corpus parity (needs uv + racket + goblins)");
+    const check_external_step = b.step("check-external", "Run the core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role, the relayed give, the hinted-locator give, and Syrup corpus parity (needs uv + racket + goblins)");
     check_external_step.dependOn(ocapn_conformance_step);
     check_external_step.dependOn(ocapn_findings_step);
     check_external_step.dependOn(goblins_interop_step);
     check_external_step.dependOn(goblins_handoff_step);
     check_external_step.dependOn(goblins_gift_step);
+    check_external_step.dependOn(goblins_gift_hints_step);
     check_external_step.dependOn(goblins_relayed_give_step);
     check_external_step.dependOn(goblins_exporter_step);
     check_external_step.dependOn(fixture_gen_check_step);
@@ -3011,6 +3133,21 @@ pub fn build(b: *std.Build) void {
     const rooms_web_page_step = b.step("rooms-web-page", "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)");
     rooms_web_page_step.dependOn(&rooms_web_page.step);
 
+    // The page surviving the loss of its room server. Which state belongs to a
+    // directory session is only observable when one dies, so this kills the room
+    // out from under a joined page: it must notice, come back and re-enter on its
+    // own, keep the conversation the dead session delivered, and reach the room
+    // again over the new one. Same needs as rooms-web-page.
+    const rooms_web_reconnect = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/test/web_reconnect_test.ts",
+    });
+    rooms_web_reconnect.setCwd(b.path("."));
+    rooms_web_reconnect.has_side_effects = true;
+    rooms_web_reconnect.step.dependOn(&wasm_driver_install.step);
+    rooms_web_reconnect.step.dependOn(b.getInstallStep());
+    const rooms_web_reconnect_step = b.step("rooms-web-reconnect", "Prove the rooms page survives losing its room server: it notices, reconnects and re-enters its room untouched, keeps the conversation, and reaches the room again over the new session (needs deno + a Playwright Chromium)");
+    rooms_web_reconnect_step.dependOn(&rooms_web_reconnect.step);
+
     // The browser sends a direct message end to end: a real headless Chromium
     // redeems a room introduction and dials the member's iroh endpoint through
     // the relay, delivering off-room. Runs the room + relay over iroh, so it needs
@@ -3043,6 +3180,38 @@ pub fn build(b: *std.Build) void {
     rooms_web_dm_tabs.step.dependOn(b.getInstallStep());
     const rooms_web_dm_tabs_step = b.step("rooms-web-dm-tabs", "Prove two browser tabs direct-message each other by cold-dial relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser on a shared relay, deno-only (needs deno + a Playwright Chromium)");
     rooms_web_dm_tabs_step.dependOn(&rooms_web_dm_tabs.step);
+
+    // A NATIVE peer cold-dials a browser member by relay rendezvous (ADR-0088
+    // capability 5, the native-dialer row): the tab registers its keyed
+    // identity, the native Host redeems the room's introduction and bridges
+    // onto the held socket through its configured rendezvous mapping
+    // (`Host.setRendezvousUrl`), the keyed session opens native-to-tab
+    // off-room, and the reply rides back over the arriving connection. Same
+    // needs as rooms-web-dm-tabs.
+    const rooms_web_dm_native = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/test/web_dm_native_dial_test.ts",
+    });
+    rooms_web_dm_native.setCwd(b.path("."));
+    rooms_web_dm_native.has_side_effects = true;
+    rooms_web_dm_native.step.dependOn(&wasm_driver_install.step);
+    rooms_web_dm_native.step.dependOn(b.getInstallStep());
+    const rooms_web_dm_native_step = b.step("rooms-web-dm-native", "Prove a native peer cold-dials a browser member by relay rendezvous (ADR-0088): the tab registers its keyed identity, the native Host redeems a room introduction through its configured rendezvous mapping (Host.setRendezvousUrl), the keyed session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
+    rooms_web_dm_native_step.dependOn(&rooms_web_dm_native.step);
+
+    // The live webrtc handoff-redeem proof (ADR-0089): the give's exporter
+    // locator names a bare webrtc designator, the redeeming host signals
+    // through the room directory (Host.setSignaling), and the DM crosses the
+    // DataChannel with the room out of the byte path. Same needs as
+    // rooms-web-dm-tabs.
+    const rooms_web_dm_webrtc = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/test/web_dm_webrtc_test.ts",
+    });
+    rooms_web_dm_webrtc.setCwd(b.path("."));
+    rooms_web_dm_webrtc.has_side_effects = true;
+    rooms_web_dm_webrtc.step.dependOn(&wasm_driver_install.step);
+    rooms_web_dm_webrtc.step.dependOn(b.getInstallStep());
+    const rooms_web_dm_webrtc_step = b.step("rooms-web-dm-webrtc", "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only the offer/answer/candidate exchange (Host.setSignaling), the keyed session opens over the DataChannel off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
+    rooms_web_dm_webrtc_step.dependOn(&rooms_web_dm_webrtc.step);
 
     // A nickname is a claim the room grants and takes back, so a conversation
     // cannot be keyed on one. Three browser peers drive the sequence that used to
@@ -3086,13 +3255,18 @@ pub fn build(b: *std.Build) void {
     // browser config that stubs the non-browser FFI adapters. Bundling without
     // that config produces a different artifact. Preparing it here also keeps
     // container startup independent of package-cache state and bundling time.
+    // Minified, unlike the bundle serve.ts builds on the fly while developing.
+    // Size is part of it, but the deciding half is that the UI runtime ships a
+    // development build with its own diagnostics unless the bundle is minified:
+    // those belong in the browser console of whoever is editing the page, not in
+    // a deployed one.
     const rooms_deploy_bundle = b.addSystemCommand(&.{
-        "deno",                      "bundle",
-        "--platform",                "browser",
-        "--no-lock",                 "--quiet",
-        "--config",                  "bindings/ts/web/browser-bundle.json",
-        "apps/rooms/web/ui/main.ts", "-o",
-        "apps/rooms/web/ui/page.js",
+        "deno",                                "bundle",
+        "--platform",                          "browser",
+        "--no-lock",                           "--quiet",
+        "--minify",                            "--config",
+        "bindings/ts/web/browser-bundle.json", "apps/rooms/web/ui/main.tsx",
+        "-o",                                  "apps/rooms/web/ui/page.js",
     });
     rooms_deploy_bundle.setCwd(b.path("."));
     rooms_deploy_bundle.has_side_effects = true;

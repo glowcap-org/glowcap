@@ -93,15 +93,15 @@ const State = struct {
 const Inbox = struct {
     state: *State,
 
-    pub fn handle(self: *Inbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
-        const from = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "?";
-        const text = if (msg.args.len > 1 and msg.args[1] == .string) msg.args[1].string else "";
+    pub fn handle(self: *Inbox, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        if (!std.mem.eql(u8, verb, "notify")) return error.NoSuchMethod;
+        const from = if (args.len > 0 and args[0] == .string) args[0].string else "?";
+        const text = if (args.len > 1 and args[1] == .string) args[1].string else "";
         std.debug.print("[{s}] {s}: {s}\n", .{ self.state.nick, from, text });
         // A membership line carries its change as structured args; a plain chat
         // line does not, and a line from a member is presence too.
-        if (!applyPresence(self.state, msg.args) and !std.mem.eql(u8, from, "room")) {
+        if (!applyPresence(self.state, args) and !std.mem.eql(u8, from, "room")) {
             self.state.markPresent(from);
             self.state.markSeen(from);
         }
@@ -114,12 +114,12 @@ const Inbox = struct {
 const Watcher = struct {
     nick: []const u8,
 
-    pub fn handle(self: *Watcher, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
-        const kind = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "?";
-        const name = if (msg.args.len > 1 and msg.args[1] == .string) msg.args[1].string else "";
-        const count = if (msg.args.len > 2 and msg.args[2] == .integer) msg.args[2].integer else 0;
+    pub fn handle(self: *Watcher, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        if (!std.mem.eql(u8, verb, "notify")) return error.NoSuchMethod;
+        const kind = if (args.len > 0 and args[0] == .string) args[0].string else "?";
+        const name = if (args.len > 1 and args[1] == .string) args[1].string else "";
+        const count = if (args.len > 2 and args[2] == .integer) args[2].integer else 0;
         std.debug.print("[{s}] directory: {s} {s} ({d})\n", .{ self.nick, kind, name, count });
         return .{ .void = {} };
     }
@@ -127,7 +127,7 @@ const Watcher = struct {
 
 /// Print a `list`/`watch` snapshot — a list of `[name, count]` pairs — on one
 /// line, so discovery is visible before this client enters its room.
-fn printRooms(nick: []const u8, arg: model.Argument) void {
+fn printRooms(nick: []const u8, arg: driver.Value) void {
     std.debug.print("[{s}] rooms:", .{nick});
     var any = false;
     if (arg == .list) {
@@ -148,7 +148,7 @@ fn printRooms(nick: []const u8, arg: model.Argument) void {
 /// welcome), and `notify("room", text, "join"|"leave", nick)` marks that one member
 /// present or absent. Returns true when the line was a presence change, so the
 /// caller does not also count it as a chat line.
-fn applyPresence(state: *State, args: []const model.Argument) bool {
+fn applyPresence(state: *State, args: []const driver.Value) bool {
     if (args.len < 3 or args[2] != .string) return false;
     const kind = args[2].string;
     if (std.mem.eql(u8, kind, "roster")) {
@@ -246,14 +246,11 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     try runRoom(io, session, allocator, state, room_name, nick, line);
 }
 
-/// Lift a capability a `call` returned (a reference argument) into an
-/// `actors.Ref` we can send to.
-fn roomRefFromArg(arg: model.Argument) !actors.Ref {
-    if (arg != .reference) return error.NotACapability;
-    return switch (arg.reference) {
-        .far => |far_ref| actors.Ref{ .far = far_ref },
-        else => error.NotACapability,
-    };
+/// The capability a `call` returned, or a refusal when the reply carried
+/// something else.
+fn roomRefFromArg(arg: driver.Value) !driver.Capability {
+    if (arg != .capability) return error.NotACapability;
+    return arg.capability;
 }
 
 /// Enter-or-open lives here because it materializes settled outcomes through the
@@ -264,32 +261,29 @@ fn roomRefFromArg(arg: model.Argument) !actors.Ref {
 /// — so this tries `enter`, falls back to `open`, and on a creation race falls
 /// back to `enter` once more. The settled outcomes are materialized into a
 /// scratch arena that frees here; the returned far ref is POD and outlives it.
-fn enterOrOpen(session: *driver.Session, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
+fn enterOrOpen(session: *driver.Session, allocator: std.mem.Allocator, directory: driver.Capability, room_name: []const u8) !driver.Capability {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
-    const name_arg = model.Argument{ .string = room_name };
+    const name_arg = driver.Value{ .string = room_name };
 
-    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, "enter", &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.EnterFailed;
         },
-        .give => return error.EnterFailed,
     }
-    switch (try session.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, "open", &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.OpenFailed;
         },
-        .give => return error.UnexpectedIntroduction,
     }
-    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, "enter", &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => return error.EnterFailed,
-        .give => return error.UnexpectedIntroduction,
     }
 }
 
@@ -305,16 +299,14 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const scratch = arena.allocator();
-        switch (try session.call(directory, .{ .verb = "list", .args = &.{} }, scratch)) {
+        switch (try session.call(directory, "list", &.{}, scratch)) {
             .fulfilled => |arg| printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
-            .give => {},
         }
         const watcher = try session.spawn(Watcher, .{ .nick = nick });
-        switch (try session.call(directory, .{ .verb = "watch", .args = &.{watcher.arg()} }, scratch)) {
+        switch (try session.call(directory, "watch", &.{.{ .capability = watcher }}, scratch)) {
             .fulfilled => {}, // the snapshot reply; we already listed, so ignore it
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
-            .give => {},
         }
     }
 
@@ -324,10 +316,7 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
     // Subscribe, handing the room a capability to our inbox. Success is the
     // resolution; the room delivers the welcome and roster as our first `notify`
     // (the roster line), not as a return value.
-    _ = try session.send(room, .{
-        .verb = "subscribe",
-        .args = &.{ .{ .string = nick }, inbox.arg() },
-    });
+    _ = try session.send(room, "subscribe", &.{ .{ .string = nick }, .{ .capability = inbox } });
 
     // Bounded like every sibling client: if the roster never completes (a
     // member failed to join), fail loud with the seen-count message below
@@ -341,7 +330,7 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
             break;
         };
         if (!posted and state.allPresent()) {
-            try session.tell(room, .{ .verb = "post", .args = &.{.{ .string = line }} });
+            try session.tell(room, "post", &.{.{ .string = line }});
             posted = true;
         }
         if (progress) |p| {

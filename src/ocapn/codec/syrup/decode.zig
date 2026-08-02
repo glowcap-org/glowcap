@@ -1092,6 +1092,25 @@ fn readPeerLocatorView(bytes: []const u8, cursor: *usize, limit: usize) Error!mo
     };
 }
 
+/// Borrowed find over the lazy dict span: walk `{name value …}` in place and
+/// return the named entry's value borrowing the frame. No allocation — the
+/// handshake attestation lookup runs before session apply (ADR-0097). An
+/// exotic value under another name is skipped exactly as materialize skips it;
+/// an exotic value under the *searched* name reads as absent, which the caller
+/// refuses (fail closed), never accepts.
+fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
+    const bytes = hl.bytes;
+    var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
+    while (cursor < bytes.len and bytes[cursor] != '}') {
+        const step = nextSyrupHintStep(bytes, &cursor) catch return error.MalformedView;
+        switch (step) {
+            .known => |entry| if (std.mem.eql(u8, entry.name, name)) return entry.value,
+            .skipped => {},
+        }
+    }
+    return null;
+}
+
 fn syrupMaterializeHintList(
     allocator: std.mem.Allocator,
     hl: model.view.HintList,
@@ -1150,6 +1169,7 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
                 .list = .{
                     .bytes = span,
                     .materialize = syrupMaterializeHintList,
+                    .find = syrupFindHint,
                 },
             },
         };

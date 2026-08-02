@@ -28,8 +28,8 @@
 //! object export and hears the settlement, and a projection asker
 //! (`pancake-projection-asker.rkt`), where Goblins writes canonical `op:get`
 //! and `op:index` at pancake's responders — proving acceptance of the frames
-//! (arrival is asserted in the inbound answer table), not a Goblins-observed
-//! settlement. Together the brackets prove the bidirectional capability:
+//! (each expected answer is latched as it appears in the inbound answer
+//! table), not a Goblins-observed settlement. Together the brackets prove the bidirectional capability:
 //! pancake drives Goblins, and Goblins drives a pancake actor.
 //!
 //! This is not part of the hermetic `zig build check`: it needs `racket` + the
@@ -55,7 +55,13 @@ const host = "127.0.0.1";
 const default_port: u16 = 22099;
 const frame_cap: usize = 1 << 16;
 
-const deadline_ms: u64 = 20_000;
+/// The wait each scenario allows its Goblins child, matching every sibling
+/// driver in this directory. Finite is the contract (an unbounded wait is a
+/// hang, not a slow test); 60s rather than 20s because these scenarios run
+/// inside `check-external` beside other Racket and uv steps, and a child
+/// starved of CPU by that concurrency was timing out the projection-asker
+/// scenario in the aggregate while passing standalone.
+const deadline_ms: u64 = 60_000;
 
 const host_script = "conformance/goblins-peer/racket/goblins-host.rkt";
 const dialer_script = "conformance/goblins-peer/racket/pancake-actor-call.rkt";
@@ -281,11 +287,12 @@ const ListenerScenario = struct {
     kind: []const u8,
     /// Which actor type to publish when `serves_actor` is true.
     actor: enum { greeter, projection } = .greeter,
-    /// Partner-minted answer positions that must exist in the session's
-    /// inbound answer table once the client is done — the arrival proof for
-    /// frames the client writes fire-and-forget (the projection asker's
-    /// `op:get` / `op:index`). Empty for scenarios whose success needle
-    /// already implies delivery.
+    /// Partner-minted answer positions that must appear in the session's
+    /// inbound answer table at some point while the client runs — the arrival
+    /// proof for frames the client writes fire-and-forget (the projection
+    /// asker's `op:get` / `op:index`). Latched per pump, because a partner
+    /// that has resolved its question may release the row before hanging up.
+    /// Empty for scenarios whose success needle already implies delivery.
     expect_inbound_answers: []const u64 = &.{},
 };
 
@@ -319,7 +326,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     var vat: ?actors.Vat = null;
     defer if (vat) |*v| v.deinit();
     var port: ?actors.Port = null;
-    defer if (port) |*p| p.deinit();
+    defer if (port) |*p| p.deinit(&vat.?);
     if (scenario.serves_actor) {
         const export_position = try peer.registerBootstrapCap(scenario.swiss);
         vat = actors.Vat.init(allocator);
@@ -327,11 +334,11 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
         switch (scenario.actor) {
             .greeter => {
                 const greeter = try vat.?.spawn(Greeter, .{});
-                try port.?.bindExport(greeter, export_position);
+                try port.?.bindExport(&vat.?, greeter, export_position);
             },
             .projection => {
                 const provider = try vat.?.spawn(ProjectionResponder, .{});
-                try port.?.bindExport(provider, export_position);
+                try port.?.bindExport(&vat.?, provider, export_position);
             },
         }
     }
@@ -379,6 +386,13 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     // 6. Drive until Goblins has what it came for and hangs up. Some scenarios
     //    exit before the TCP session closes; a wall-clock cap prevents wedging.
     var served = false;
+    // Arrival is latched as it happens, never read off the table at the end: a
+    // partner that has resolved its question may legally release the row with
+    // `op:gc-answers` before it hangs up, and Goblins does. Sampling each pump
+    // proves what this bracket claims — the frames arrived and minted their
+    // answers — instead of racing the partner's release.
+    var seen_answers = [_]bool{false} ** 8;
+    std.debug.assert(scenario.expect_inbound_answers.len <= seen_answers.len);
     const pump_deadline = harness.deadlineAfter(io, deadline_ms);
     while (true) {
         if (harness.expired(io, pump_deadline)) break;
@@ -389,6 +403,9 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
             if (vat) |*v| {
                 if (port.?.serve(v, &event) catch false) served = true;
             }
+        }
+        for (scenario.expect_inbound_answers, 0..) |position, i| {
+            if (peer.session_state.hasInboundAnswer(.from(position))) seen_answers[i] = true;
         }
         if (progress == .closed) break;
     }
@@ -424,8 +441,8 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     //    expected partner-minted answer position must have landed in the
     //    session's inbound answer table, or the "accepted the frames" claim
     //    rode a teardown race instead of the wire.
-    for (scenario.expect_inbound_answers) |position| {
-        if (!peer.session_state.hasInboundAnswer(.from(position))) {
+    for (scenario.expect_inbound_answers, 0..) |position, i| {
+        if (!seen_answers[i]) {
             std.debug.print(
                 "goblins-interop: expected inbound answer {d} never arrived ({s} scenario)\n",
                 .{ position, scenario.kind },

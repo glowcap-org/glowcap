@@ -51,9 +51,8 @@ const dial_flags = [_]Flag{
 pub const commands = [_]Command{
     .{
         .name = "listen",
-        .help = "Bind a listener, print its ocapn:// locator, accept partners",
-        .argv_only = true,
-        .mcp_never = true,
+        .help = "Bind a listener, print its ocapn:// locator, accept partners (in the background off argv)",
+        .mcp_default = true,
         .flags = &listen_flags,
         .run = ocapn.cmdListen,
     },
@@ -75,11 +74,11 @@ pub const commands = [_]Command{
     .{
         .name = "call",
         .session_verb = .call,
-        .help = "Call a published name or #<import>",
+        .help = "Call a published name or #<cap>",
         .mcp_default = true,
         .positionals = &[_]Positional{
             .{ .name = "locator", .help = "ocapn:// URI when no session is open", .required = false },
-            .{ .name = "name", .help = "published name or #<import>" },
+            .{ .name = "name", .help = "published name or #<cap>" },
             .{ .name = "verb", .help = "method name" },
             .{ .name = "args", .help = "method arguments", .variadic = true, .required = false },
         },
@@ -88,11 +87,11 @@ pub const commands = [_]Command{
     .{
         .name = "tell",
         .session_verb = .tell,
-        .help = "Fire-and-forget to a published name or #<import>",
+        .help = "Fire-and-forget to a published name or #<cap>",
         .mcp_default = true,
         .positionals = &[_]Positional{
             .{ .name = "locator", .help = "ocapn:// URI when no session is open", .required = false },
-            .{ .name = "name", .help = "published name or #<import>" },
+            .{ .name = "name", .help = "published name or #<cap>" },
             .{ .name = "verb", .help = "method name" },
             .{ .name = "args", .help = "method arguments", .variadic = true, .required = false },
         },

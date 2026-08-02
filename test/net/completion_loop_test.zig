@@ -150,7 +150,7 @@ const LoopVat = struct {
         // fetches, exactly `driver.BlockingSession.publish`, now on the loop.
         const greeter = try self.vat.spawn(Greeter, .{});
         const position = try peer.registerBootstrapCap("thermostat");
-        try self.port.bindExport(greeter, position);
+        try self.port.bindExport(&self.vat, greeter, position);
         return self;
     }
 
@@ -163,7 +163,7 @@ const LoopVat = struct {
     fn free(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
         const allocator: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         const self: *LoopVat = @ptrCast(@alignCast(conn_ctx.?));
-        self.port.deinit();
+        self.port.deinit(&self.vat);
         self.vat.deinit();
         allocator.destroy(self);
     }
@@ -208,7 +208,7 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
     var session_port = actors.Port.init(allocator, &peer);
-    defer session_port.deinit();
+    defer session_port.deinit(&vat);
 
     try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
 
@@ -539,6 +539,12 @@ const FakeBackend = struct {
         }
     }
 
+    pub fn remotePartnerKey(self: *FakeBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *FakeBackend, comp: completion.Completion) void {
         _ = comp;
         self.recycles += 1;
@@ -677,6 +683,12 @@ const OneBadPartnerBackend = struct {
         } else {
             self.push(.{ .user_data = user_data, .result = 0 }); // clean EOF
         }
+    }
+
+    pub fn remotePartnerKey(self: *OneBadPartnerBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
     }
 
     pub fn recycleRecv(self: *OneBadPartnerBackend, comp: completion.Completion) void {
@@ -941,6 +953,12 @@ const ScriptBackend = struct {
         }
     }
 
+    pub fn remotePartnerKey(self: *ScriptBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *ScriptBackend, comp: completion.Completion) void {
         _ = comp;
         self.recycles += 1;
@@ -1180,6 +1198,12 @@ const HeldSendBackend = struct {
         } else {
             self.push(.{ .user_data = user_data, .result = 0 }); // clean EOF
         }
+    }
+
+    pub fn remotePartnerKey(self: *HeldSendBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
     }
 
     pub fn recycleRecv(self: *HeldSendBackend, comp: completion.Completion) void {
@@ -1463,6 +1487,12 @@ const DeadPeerBackend = struct {
         // The vanish surfaces: a read error, not a clean EOF (result 0).
         self.push(.{ .user_data = user_data, .result = read_error });
     }
+    pub fn remotePartnerKey(self: *DeadPeerBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *DeadPeerBackend, comp: completion.Completion) void {
         _ = comp;
         self.pool_free += 1;
@@ -1683,6 +1713,12 @@ const FanInBackend = struct {
         } else {
             self.push(.{ .user_data = user_data, .result = 0 });
         }
+    }
+
+    pub fn remotePartnerKey(self: *FanInBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
     }
 
     pub fn recycleRecv(self: *FanInBackend, comp: completion.Completion) void {

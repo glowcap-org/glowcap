@@ -1,36 +1,39 @@
-// The browser half of the cold-dial rendezvous (ADR-0088 capability 5). A
-// browser opens no listening socket, so it cannot be dialed. Instead it
-// registers its keyed identity and a held inbound socket at a relay; a peer that
-// redeems an introduction naming that identity is bridged onto the held socket,
-// and the keyed handshake runs end to end between them — the relay parses
-// nothing and holds no capability. The relay half is `@pancake/relay`'s
-// `Rendezvous`; this is the accepting side that runs in the browser.
+// The accepting half of the cold-dial rendezvous (ADR-0088 capability 5). A
+// peer that opens no listening socket — a browser tab, or any process behind a
+// NAT that declines a listener — cannot be dialed. Instead it registers its
+// keyed identity and a held inbound socket at a relay; a peer that redeems an
+// introduction naming that identity is bridged onto the held socket, and the
+// keyed handshake runs end to end between them — the relay parses nothing and
+// holds no capability. The relay half is `@pancake/relay`'s `Rendezvous`; this
+// is the accepting side, runtime-neutral over the `WebSocket` global.
 //
 // `serveRendezvous` keeps a small pool of registration sockets, each parked in
 // the accept handshake reading its socket until a dialer's bytes arrive through
-// the bridge (the browser handshake has no read deadline, so an idle
+// the bridge (a registration accept has no read deadline, so an idle
 // registration simply waits). When one is bridged and its session opens, the
-// host's giftables answer it and the pool replenishes, so the browser can be
+// host's giftables answer it and the pool replenishes, so the peer can be
 // cold-dialed again.
 //
-// The dialing side has exactly one mechanism, and it is not here: a peer
-// redeeming a `keyed-relay` handoff give reaches the registered browser through
-// the dial executor's `keyed-relay` intercept (`stack/dial.ts`), which opens the
-// same rendezvous channel over `net.connectRendezvous` and drives
-// `Session.establishDialedLocator` — the mirror of the `establishAccepted` this
-// module parks on. Keeping the redeeming side on that one path is what lets the
-// conformance proof pin a single cold-dial mechanism rather than a raw
-// dial-by-designator convenience beside it.
+// The dialing side has exactly one mechanism, and it is not here: the core
+// classifies a `keyed-relay` locator as the `rendezvous` dial shape, and the
+// dial executor's arm for it (`dial.ts`) opens the rendezvous channel the
+// dialing host was configured for (`Host.setRendezvousUrl`) and drives
+// `Session.establishDialedLocator` — the mirror of the `establishAccepted`
+// this module parks on. Keeping the redeeming side on that one path is what
+// lets the conformance proof pin a single cold-dial mechanism rather than a
+// raw dial-by-designator convenience beside it.
 
-import { type Host, Session, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
+import type { Host } from "./host.ts";
+import { Session } from "./session.ts";
+import { TRANSPORT_KEYED_RELAY } from "./locator.ts";
 import { webSocketChannel } from "./ws_channel.ts";
 
 // The keyed transport the rendezvous handshake runs under: the identity is a key
 // designator (`Host.designator`, 64 hex), there is no dialable address, and the
 // byte channel is the relay WebSocket. The keyed handshake authenticates the
-// designator; the dialing side reaches it through `connectRendezvous` on the
-// same symbol, so both ends must name the one source of truth for it — the
-// `dial.ts` intercept keys on this exact constant.
+// designator; the dialing side reaches it through the host's configured
+// rendezvous mapping on the same symbol, so both ends must name the one source
+// of truth for it — the locator parsed into the core's rendezvous plan names it.
 const RENDEZVOUS_TRANSPORT = TRANSPORT_KEYED_RELAY;
 
 // How many inbound sockets to hold ready at once, so a burst of cold-dials does

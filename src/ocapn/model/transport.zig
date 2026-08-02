@@ -35,3 +35,11 @@ pub const webrtc = "webrtc";
 /// Locator hint entry name that carries dial addresses when the designator is
 /// a key (`keyed-tcp`, `iroh`).
 pub const hint_direct_addresses = "direct-addresses";
+
+/// Locator hint entry name that carries the ADR-0097 durable-key credential: a
+/// 64-byte Ed25519 signature by the durable key the designator names, over the
+/// canonical `<session-key-attestation-v1 transport designator session-pubkey>`
+/// record. Required in the keyed hello of a transport whose designator has no
+/// lower-layer authentication (`keyed-tcp`, `keyed-relay`); session-credential
+/// metadata, never identity — locator and sturdyref equality ignore it.
+pub const hint_session_key_attestation = "session-key-attestation";

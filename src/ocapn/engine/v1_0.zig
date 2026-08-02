@@ -131,7 +131,9 @@ pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model
             // pattern the OCapN suite uses: no answer-position on the wire,
             // only a resolve-me-desc).
             const answer = deliver.answer orelse blk: {
-                const virtual = peer.session_state.allocateInboundAnswer();
+                // `answerPosition` is the one named crossing where a
+                // synthesized answer takes a wire-shaped seat (ADR-0091).
+                const virtual = peer.session_state.allocateInboundAnswer().answerPosition();
                 // Install before the resolver row below: a swallowed failure
                 // here would leave `v1_0_inbound_resolver_link` referencing a
                 // virtual answer absent from `inbound_answers`, breaking the

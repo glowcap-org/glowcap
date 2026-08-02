@@ -739,6 +739,30 @@ test "libpancake_host: publish, fetch, send, tell, and the enliven cache hit's p
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expect(cache_hit.fired);
     _ = try cache_hit.requireRef();
+
+    // Listen on a capability this session holds (`op:listen` through the C
+    // seam): CapTP answers a listen on an already-settled capability at once,
+    // so the vow settles naming the same object — proof the round trip ran.
+    // The vow is plain, and it rides the same SETTLE drain as every other.
+    var listened = CapturedSettle{};
+    var listen_vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_listen(pair.a, &widget_ref, &listen_vow));
+    watches.add(client, listen_vow, &listened);
+    try std.testing.expect(!listened.fired);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    _ = try listened.requireRef();
+
+    // The seam's own refusals: a null target or vow slot never reaches the
+    // core (the InvalidReference semantics for a bad target are pinned at the
+    // core tier, `test/driver/core_host_test.zig`).
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_listen(pair.a, null, &listen_vow),
+    );
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        cd.pancake_host_session_listen(pair.a, &widget_ref, null),
+    );
 }
 
 test "libpancake_host: a nonzero local_turn_budget constructs a host (ADR-0076)" {
@@ -1770,6 +1794,116 @@ test "libpancake_host: keyed-tcp accept signs locator with direct-addresses; emp
     try std.testing.expect(std.mem.indexOf(u8, bytes, designator[0..]) != null);
 }
 
+test "libpancake_host: a 64-byte seed gives every session its own signing key" {
+    // ADR-0097 step 4 at the byte-fed tier. The core draws no entropy, so the
+    // embedder supplies a session-key root after the durable identity in the
+    // one seed buffer, and each session then signs with its own key. The
+    // 32-byte call stays accepted and keeps the durable-key posture, which is
+    // what makes this additive for an existing embedder.
+    const pancake = @import("pancake");
+    const crypto = pancake.foundation.crypto;
+
+    const durable = [_]u8{0x71} ** 32;
+    var seed_with_root: [64]u8 = undefined;
+    @memcpy(seed_with_root[0..32], &durable);
+    @memcpy(seed_with_root[32..], &[_]u8{0x72} ** 32);
+
+    var host: ?*cd.PancakeHost = null;
+    try expectOk(cd.pancake_host_new(&seed_with_root, seed_with_root.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, 0, &host));
+    defer _ = cd.pancake_host_release(host);
+
+    // Two sessions, two hellos. Each carries the key that session signed with.
+    var first: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_accepted(host, "tcp", 3, "127.0.0.1:7401", 14, null, 0, &first));
+    defer _ = cd.pancake_host_session_release(first);
+    var second: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_accepted(host, "tcp", 3, "127.0.0.1:7402", 14, null, 0, &second));
+    defer _ = cd.pancake_host_session_release(second);
+
+    var first_key: [32]u8 = undefined;
+    var second_key: [32]u8 = undefined;
+    inline for (.{ .{ first, &first_key }, .{ second, &second_key } }) |pair| {
+        var mf: c.PancakeManagedFrame = undefined;
+        try expectOk(cd.pancake_host_session_take_outbound(pair[0], &mf));
+        defer c.pancake_managed_frame_release(&mf);
+        const view = try pancake.ocapn.codec.syrup.decodeBody(.{ .bytes = mf.bytes.?[0..mf.len], .shape = .byte });
+        @memcpy(pair[1], view.start_session.session_pubkey[0..32]);
+    }
+
+    try std.testing.expect(!std.mem.eql(u8, &first_key, &second_key));
+    // And neither is the durable identity, which stays the host's own name.
+    const durable_key = crypto.SecretKey.fromSeed(durable).publicKey();
+    try std.testing.expect(!std.mem.eql(u8, &first_key, durable_key.asBytes()));
+    try std.testing.expect(!std.mem.eql(u8, &second_key, durable_key.asBytes()));
+}
+
+test "libpancake_host: one PartnerIdentity reports session key, durable name, and provenance apart" {
+    // ADR-0097 evidence item 11 at the C tier: the three facts are one struct
+    // and are not conflated. A keyed-tcp partner's durable identity is
+    // authenticated by the hello's session-key-attestation credential, so the
+    // C constant a caller reads is the attestation row — never a
+    // designator-equals-session-key comparison, which this ABI no longer
+    // offers because it stops holding once session keys go fresh.
+    const pancake = @import("pancake");
+    const crypto = pancake.foundation.crypto;
+
+    const server_seed = [_]u8{0x6d} ** 32;
+    const designator = crypto.SecretKey.fromSeed(server_seed).publicKey().toDesignator();
+    const hint = "127.0.0.1:9100";
+
+    var client: ?*cd.PancakeHost = null;
+    try expectOk(cd.pancake_host_new(&[_]u8{0x6c} ** 32, 32, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, 0, &client));
+    defer _ = cd.pancake_host_release(client);
+    var server: ?*cd.PancakeHost = null;
+    try expectOk(cd.pancake_host_new(&server_seed, server_seed.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, 0, &server));
+    defer _ = cd.pancake_host_release(server);
+
+    var accepted: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_accepted(
+        server,
+        "keyed-tcp",
+        9,
+        &designator,
+        designator.len,
+        hint.ptr,
+        hint.len,
+        &accepted,
+    ));
+    defer _ = cd.pancake_host_session_release(accepted);
+    var dialed: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_dialed_locator(
+        client,
+        "keyed-tcp",
+        9,
+        &designator,
+        designator.len,
+        &dialed,
+    ));
+    defer _ = cd.pancake_host_session_release(dialed);
+
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{ client, server };
+    const pair = Pair{ .a = dialed, .b = accepted };
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(cd.pancake_host_session_is_open(dialed) != 0);
+
+    var identity: cd.PancakePartnerIdentity = undefined;
+    try expectOk(cd.pancake_host_session_partner_identity(dialed, &identity));
+
+    // Session identity: 32 raw key bytes.
+    try std.testing.expectEqual(@as(usize, 32), identity.session_key_len);
+    // Durable identity: the 64-hex designator, a different length and a
+    // different spelling from the key above.
+    try std.testing.expectEqualStrings(&designator, identity.designator.?[0..identity.designator_len]);
+    try std.testing.expectEqual(identity.session_key_len * 2, identity.designator_len);
+    // Provenance: what authenticated that durable name.
+    try std.testing.expectEqual(
+        cd.PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION,
+        identity.provenance,
+    );
+}
+
 // ── Dial / accept planner (pancake_host_plan_dial / _plan_accept) ────────────
 //
 // The C wrapper over driver_core.planDial / planAccept: the transport dispatch,
@@ -1826,6 +1960,12 @@ test "plan_dial C: iroh redeem picks direct with a hint, configured without" {
     try std.testing.expectEqualStrings("1.2.3.4:5", plan.addresses.?[0..plan.addresses_len]);
     try expectOk(planDialC("iroh", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
     try std.testing.expectEqual(cd.PANCAKE_DIAL_REACH_CONFIGURED, plan.reach_kind);
+}
+
+test "plan_dial C: keyed-relay resolves to the rendezvous shape" {
+    var plan: cd.PancakeDialPlan = undefined;
+    try expectOk(planDialC("keyed-relay", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
+    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_RENDEZVOUS, plan.shape);
 }
 
 test "plan_dial C: iroh connect carries the explicit posture, none is a typed refusal" {
@@ -1896,4 +2036,202 @@ test "libpancake_host: host_dialed refuses a session belonging to another host" 
     // The refusal is about the host, not the ticket: the same unknown ticket on
     // the session's own host is the documented no-op success.
     try expectOk(cd.pancake_host_dialed(dialer, 1, pair.a));
+}
+
+test "libpancake_host: select-or-dial enliven rides a live session, then parks on a staged dial" {
+    // ADR-0098 step 4 at the C seam: the embedder brings a complete sturdyref
+    // and no session. A peer it already dialed is selected; an unreached peer
+    // becomes an ordinary DIAL action, answered with the same two verbs a
+    // handoff redeem uses.
+    const client = try newHost(0x31);
+    defer _ = cd.pancake_host_release(client);
+    const server = try newHost(0x32);
+    defer _ = cd.pancake_host_release(server);
+
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{ client, server };
+    const pair = try openPair(&hosts, client, server, "127.0.0.1:7021", &dials, &watches);
+    defer _ = cd.pancake_host_session_release(pair.a);
+    defer _ = cd.pancake_host_session_release(pair.b);
+    var counter = Counter{};
+    var published: c.PancakeReference = undefined;
+    try expectOk(cd.pancake_host_session_publish(pair.b, "widget", 6, widgetBehavior, &counter, null, &published));
+
+    // SELECT: the sturdyref names the peer this host dialed, so no dial is
+    // staged and the vow settles over the live session.
+    const sturdyref = "ocapn://127.0.0.1%3A7021.tcp/s/widget";
+    var selected_vow: u64 = 0;
+    try expectOk(cd.pancake_host_enliven(client, sturdyref, sturdyref.len, &selected_vow));
+    try std.testing.expectEqual(@as(usize, 0), dials.len);
+    var selected = CapturedSettle{};
+    watches.add(client, selected_vow, &selected);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    _ = try selected.requireRef();
+    try std.testing.expectEqual(@as(usize, 0), dials.len);
+
+    // DIAL: an unreached peer parks the enliven and asks the embedder to dial.
+    const elsewhere = "ocapn://127.0.0.1%3A7022.tcp/s/widget";
+    var parked_vow: u64 = 0;
+    try expectOk(cd.pancake_host_enliven(client, elsewhere, elsewhere.len, &parked_vow));
+    var parked = CapturedSettle{};
+    watches.add(client, parked_vow, &parked);
+    _ = try drainActions(&hosts, &dials, &watches);
+    try std.testing.expectEqual(@as(usize, 1), dials.len);
+    try std.testing.expectEqualStrings(
+        "127.0.0.1:7022",
+        dials.items[0].designator[0..dials.items[0].designator_len],
+    );
+
+    // The embedder opens what it was told to and reports it; the parked
+    // enliven then runs over that session and settles the pre-minted vow.
+    const second = try newHost(0x33);
+    defer _ = cd.pancake_host_release(second);
+    var second_counter = Counter{};
+    var accepted: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_accepted(second, "tcp", 3, "127.0.0.1:7022", 14, null, 0, &accepted));
+    defer _ = cd.pancake_host_session_release(accepted);
+    var second_published: c.PancakeReference = undefined;
+    try expectOk(cd.pancake_host_session_publish(accepted, "widget", 6, widgetBehavior, &second_counter, null, &second_published));
+    var dialed: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_dialed_locator(client, "tcp", 3, "127.0.0.1:7022", 14, &dialed));
+    defer _ = cd.pancake_host_session_release(dialed);
+    const second_pair = Pair{ .a = dialed, .b = accepted };
+    const both = [_]?*cd.PancakeHost{ client, second };
+    try pump(&both, &.{second_pair}, &dials, &watches);
+    const ticket = dials.items[0].ticket;
+    dials.len = 0;
+    try expectOk(cd.pancake_host_dialed(client, ticket, dialed));
+    try pump(&both, &.{ pair, second_pair }, &dials, &watches);
+    _ = try parked.requireRef();
+}
+
+test "libpancake_host: a select-or-dial enliven breaks when the embedder cannot dial" {
+    const client = try newHost(0x34);
+    defer _ = cd.pancake_host_release(client);
+
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{client};
+
+    const elsewhere = "ocapn://127.0.0.1%3A7023.tcp/s/widget";
+    var parked_vow: u64 = 0;
+    try expectOk(cd.pancake_host_enliven(client, elsewhere, elsewhere.len, &parked_vow));
+    var parked = CapturedSettle{};
+    watches.add(client, parked_vow, &parked);
+    _ = try drainActions(&hosts, &dials, &watches);
+    try std.testing.expectEqual(@as(usize, 1), dials.len);
+
+    // Reporting the failure breaks the parked vow rather than stranding it.
+    const reason = "connection refused";
+    try expectOk(cd.pancake_host_dial_failed(client, dials.items[0].ticket, reason, reason.len));
+    _ = try drainActions(&hosts, &dials, &watches);
+    try std.testing.expect(parked.fired);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, parked.kind);
+}
+
+/// A behavior that defers its answer onto a resolver vow (ADR-0102): it
+/// mints the pair, forwards its turn, proves the in-turn settle refuses, and
+/// parks the resolver id for the test body — the stand-in for a worker that
+/// completes off-turn.
+const DeferCtx = struct {
+    host: ?*cd.PancakeHost = null,
+    resolver_id: u64 = 0,
+};
+
+fn deferringBehavior(
+    ctx: ?*anyopaque,
+    turn: ?*cd.PancakeHostTurn,
+    verb: [*]const u8,
+    verb_len: usize,
+    args: ?[*]const c.PancakeArgument,
+    args_len: usize,
+    out_reply: *c.PancakeArgument,
+) callconv(.c) i32 {
+    _ = .{ args, args_len };
+    if (!std.mem.eql(u8, verb[0..verb_len], "work")) return c.PANCAKE_ERR_INVALID_ARGUMENT;
+    const state: *DeferCtx = @ptrCast(@alignCast(ctx.?));
+    var vow_id: u64 = 0;
+    var resolver_id: u64 = 0;
+    const spawned = cd.pancake_host_spawn_resolver(state.host, &vow_id, &resolver_id);
+    if (spawned != c.PANCAKE_OK) return spawned;
+    const forwarded = cd.pancake_host_turn_forward_vow(turn, vow_id);
+    if (forwarded != c.PANCAKE_OK) return forwarded;
+    // A settle from inside the turn must refuse: the worker's completion
+    // re-enters top-level only.
+    var premature = argStr("early");
+    if (cd.pancake_host_resolver_fulfill(state.host, resolver_id, &premature) == c.PANCAKE_OK)
+        return c.PANCAKE_ERR_INTERNAL;
+    state.resolver_id = resolver_id;
+    out_reply.* = argBase();
+    return c.PANCAKE_OK;
+}
+
+test "libpancake_host: a behavior defers onto a resolver vow, and the settle re-enters top-level (ADR-0102)" {
+    const client = try newHost(0x71);
+    defer _ = cd.pancake_host_release(client);
+    const server = try newHost(0x72);
+    defer _ = cd.pancake_host_release(server);
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{ client, server };
+    const pair = try openPair(&hosts, client, server, "127.0.0.1:7031", &dials, &watches);
+
+    var state = DeferCtx{ .host = server };
+    var worker_local_ref: c.PancakeReference = .{ .id = 0 };
+    try expectOk(cd.pancake_host_session_publish(pair.b, "worker", 6, deferringBehavior, &state, null, &worker_local_ref));
+
+    var fetched = CapturedSettle{};
+    var fetched_vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_fetch(pair.a, "worker", 6, &fetched_vow));
+    watches.add(client, fetched_vow, &fetched);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    const worker_ref = try fetched.requireRef();
+
+    // The behavior returns and every wire quiesces, yet the answer is still
+    // open: the deferral holds it for the resolver.
+    var vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_send(pair.a, &worker_ref, "work", 4, null, 0, &vow));
+    var settled = CapturedSettle{};
+    watches.add(client, vow, &settled);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(!settled.fired);
+    try std.testing.expect(state.resolver_id != 0);
+
+    // Plain data only: a settle whose value names a capability refuses whole.
+    var cap_value = argRef(worker_ref);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_resolver_fulfill(server, state.resolver_id, &cap_value),
+    );
+
+    // The worker completes: the settle re-enters top-level, the deferred wire
+    // answer resolves, and the partner hears it.
+    var value = argStr("computed off-turn");
+    try expectOk(cd.pancake_host_resolver_fulfill(server, state.resolver_id, &value));
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(settled.fired);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqualStrings("computed off-turn", settled.text[0..settled.text_len]);
+
+    // One attempt: the resolver is consumed.
+    var late = argStr("late");
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_resolver_fulfill(server, state.resolver_id, &late),
+    );
+
+    // A second deferral settles broken, and the partner hears the worker's
+    // own words.
+    var second_vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_send(pair.a, &worker_ref, "work", 4, null, 0, &second_vow));
+    var broke = CapturedSettle{};
+    watches.add(client, second_vow, &broke);
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(!broke.fired);
+    try expectOk(cd.pancake_host_resolver_break(server, state.resolver_id, "worker gave up", 14));
+    try pump(&hosts, &.{pair}, &dials, &watches);
+    try std.testing.expect(broke.fired);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, broke.kind);
+    try std.testing.expectEqualStrings("worker gave up", broke.msg[0..broke.msg_len]);
 }

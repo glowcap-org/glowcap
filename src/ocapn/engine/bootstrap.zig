@@ -49,6 +49,10 @@ pub const LocalObjectProjection = struct {
     capture: *const fn (ctx: ?*anyopaque, scope: PeerId, export_position: model.ExportPosition) ?u64,
     project: *const fn (ctx: ?*anyopaque, scope: PeerId, target: u64) anyerror!ProjectedLocalTarget,
     rollback: *const fn (ctx: ?*anyopaque, scope: PeerId, target: u64, projected: ProjectedLocalTarget) void,
+    /// Release the deposit-capture root on a `local_target` gift row that died
+    /// (ADR-0101): consumed by withdrawal, replaced by a re-deposit, or
+    /// destroyed with its session's Peer.
+    release_target: *const fn (ctx: ?*anyopaque, target: u64) void,
 };
 
 /// A live gifter session named by a signed give. Deposits remain owned by that
@@ -196,20 +200,23 @@ pub const GiftRegistry = struct {
     /// Next `handoff_count` emitted on this Recipient–Exporter session.
     next_emitted_handoff_count: u64 = 0,
     /// Free everything a gift row owns. Used at deinit, on re-deposit overwrite,
-    /// and on the removed row a withdraw pulls out of the map.
-    fn freeGiftEntry(allocator: std.mem.Allocator, entry: *GiftEntry) void {
+    /// and on the removed row a withdraw pulls out of the map. An exact
+    /// `local_target` row also releases the deposit-capture actor root through
+    /// `projection` (ADR-0101); a null projection is the substrate with no
+    /// local-object composition, which never minted the root either.
+    fn freeGiftEntry(allocator: std.mem.Allocator, projection: ?LocalObjectProjection, entry: *GiftEntry) void {
         switch (entry.payload) {
             .provenance => |recipient_key| allocator.free(recipient_key),
             .verbatim_cap => |reference| model.freeReference(allocator, reference),
-            .local_target => {},
+            .local_target => |target| if (projection) |p| p.release_target(p.ctx, target),
         }
     }
 
-    pub fn deinit(self: *GiftRegistry, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *GiftRegistry, allocator: std.mem.Allocator, projection: ?LocalObjectProjection) void {
         var gift_it = self.gifts.iterator();
         while (gift_it.next()) |entry| {
             allocator.free(entry.key_ptr.*);
-            freeGiftEntry(allocator, entry.value_ptr);
+            freeGiftEntry(allocator, projection, entry.value_ptr);
         }
         self.gifts.deinit(allocator);
     }
@@ -236,10 +243,11 @@ pub const GiftRegistry = struct {
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
+        projection: ?LocalObjectProjection,
         gift_id: []const u8,
         gifted: model.Reference,
     ) !void {
-        try self.putGift(allocator, limits, gift_id, .{ .verbatim_cap = gifted });
+        try self.putGift(allocator, limits, projection, gift_id, .{ .verbatim_cap = gifted });
     }
 
     /// Deposit one exact node-local target. The id is opaque to the engine and
@@ -248,10 +256,11 @@ pub const GiftRegistry = struct {
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
+        projection: ?LocalObjectProjection,
         gift_id: []const u8,
         target: u64,
     ) !void {
-        try self.putGift(allocator, limits, gift_id, .{ .local_target = target });
+        try self.putGift(allocator, limits, projection, gift_id, .{ .local_target = target });
     }
 
     /// Deposit (or re-deposit) a gift withdrawable only by the recipient named in
@@ -263,11 +272,12 @@ pub const GiftRegistry = struct {
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
+        projection: ?LocalObjectProjection,
         gift_id: []const u8,
         recipient_key: []const u8,
     ) !void {
         if (recipient_key.len == 0) return session_mod.Error.MalformedMessage;
-        try self.putGift(allocator, limits, gift_id, .{ .provenance = recipient_key });
+        try self.putGift(allocator, limits, projection, gift_id, .{ .provenance = recipient_key });
     }
 
     /// Commit a deposit. A provenance key is copied; a verbatim reference is
@@ -276,6 +286,7 @@ pub const GiftRegistry = struct {
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
+        projection: ?LocalObjectProjection,
         gift_id: []const u8,
         spec: GiftPayload,
     ) !void {
@@ -301,7 +312,7 @@ pub const GiftRegistry = struct {
             // removed at withdraw, so a hit is always live): replace it in
             // place; the live count is unchanged. Another gifter owns another
             // session registry and never reaches this row.
-            freeGiftEntry(allocator, entry);
+            freeGiftEntry(allocator, projection, entry);
             entry.* = .{ .payload = stored };
             return;
         }
@@ -336,36 +347,12 @@ pub const GiftRegistry = struct {
         };
     }
 
-    /// The exact local target retained for `gift_id`, when that was the
-    /// deposited mode.
-    pub fn giftedLocalTarget(self: *const GiftRegistry, gift_id: []const u8) ?u64 {
-        const entry = self.gifts.get(gift_id) orelse return null;
-        return switch (entry.payload) {
-            .local_target => |target| target,
-            else => null,
-        };
-    }
-
     /// The deposit mode and payload for `gift_id`, or null if the gift is
     /// unknown. The returned slices and reference alias the registry-owned row,
     /// valid until the row is removed (`commitWithdraw`, overwrite, or `deinit`).
     fn giftPayload(self: *const GiftRegistry, gift_id: []const u8) ?GiftPayload {
         const entry = self.gifts.get(gift_id) orelse return null;
         return entry.payload;
-    }
-
-    /// The gifter side a signed give names. The Host uses it to select the live
-    /// Gifter–Exporter session whose registry owns the gift id.
-    pub fn giveGifterSide(give: model.HandoffGive) [32]u8 {
-        var gifter: [32]u8 = undefined;
-        // A give whose side name is not 32 bytes never verified; a zero side
-        // matches no deposited row, so it falls through to `InvalidGift`.
-        if (give.gifter_side.len == gifter.len) {
-            @memcpy(&gifter, give.gifter_side);
-        } else {
-            gifter = [_]u8{0} ** 32;
-        }
-        return gifter;
     }
 
     /// The withdrawal authority check: gift existence (a consumed gift's row is
@@ -488,10 +475,11 @@ pub const GiftRegistry = struct {
         self: *GiftRegistry,
         gifts: *GiftRegistry,
         allocator: std.mem.Allocator,
+        projection: ?LocalObjectProjection,
         receive: model.HandoffReceive,
     ) !?model.Reference {
         const prepared = try prepareWithdrawCommit(gifts, ownedGiftClaim(receive));
-        return self.commitWithdraw(gifts, allocator, prepared);
+        return self.commitWithdraw(gifts, allocator, projection, prepared);
     }
 
     /// Consume a gift after `prepareWithdrawCommit`. No allocation and no
@@ -500,6 +488,7 @@ pub const GiftRegistry = struct {
         self: *GiftRegistry,
         gifts: *GiftRegistry,
         allocator: std.mem.Allocator,
+        projection: ?LocalObjectProjection,
         prepared: PreparedWithdrawCommit,
     ) ?model.Reference {
         self.accepted_handoff_count = @max(self.accepted_handoff_count orelse 0, prepared.handoff_count);
@@ -516,7 +505,7 @@ pub const GiftRegistry = struct {
                 .verbatim_cap => |reference| reference,
                 else => null,
             };
-            if (moved == null) freeGiftEntry(allocator, &entry);
+            if (moved == null) freeGiftEntry(allocator, projection, &entry);
             return moved;
         }
         return null;
@@ -646,12 +635,18 @@ pub fn resolveForDeposit(
             const target = p.capture(p.ctx, scope orelse return session_mod.Error.InvalidGift, gifted.near.export_position) orelse return session_mod.Error.InvalidGift;
             transferred = true;
             model.freeReference(session.allocator, gifted);
-            try registry.depositLocalTarget(
+            registry.depositLocalTarget(
                 session.allocator,
                 session.limits,
+                local_projection,
                 request.gift_id,
                 target,
-            );
+            ) catch |err| {
+                // The capture retained the deposit root (ADR-0101); a refused
+                // deposit must hand it back or the actor leaks unrooted.
+                p.release_target(p.ctx, target);
+                return err;
+            };
             const answer = request.answer orelse return null;
             return .{ .resolve = .{
                 .answer = answer,
@@ -674,7 +669,7 @@ pub fn resolveForDeposit(
     // This registry belongs to the depositing session. The give's signed
     // session name selects it at withdrawal, so no peer-supplied namespace key
     // is retained beside the gift id.
-    try registry.depositOwned(session.allocator, session.limits, request.gift_id, gifted);
+    try registry.depositOwned(session.allocator, session.limits, local_projection, request.gift_id, gifted);
     transferred = true;
     const answer = request.answer orelse return null;
     return .{ .resolve = .{
@@ -783,20 +778,16 @@ pub const PreparedWithdraw = struct {
     /// Finish a successfully queued withdrawal. Every fallible resource was
     /// reserved by `resolveForWithdraw`; this consumes the gift infallibly and
     /// preserves a newly shared Port projection.
-    pub fn apply(self: *PreparedWithdraw, allocator: std.mem.Allocator, counters: *GiftRegistry) void {
+    pub fn apply(self: *PreparedWithdraw, allocator: std.mem.Allocator, projection: ?LocalObjectProjection, counters: *GiftRegistry) void {
         const prepared = self.commit orelse return;
         const gifts = self.gift_registry orelse unreachable;
-        if (counters.commitWithdraw(gifts, allocator, prepared)) |moved|
+        if (counters.commitWithdraw(gifts, allocator, projection, prepared)) |moved|
             model.freeReference(allocator, moved);
         self.commit = null;
         self.gift_registry = null;
         self.projection = null;
     }
 };
-
-fn preparedMessage(allocator: std.mem.Allocator, message: model.Message) !WithdrawOutcome {
-    return .{ .settled = .{ .message = try model.cloneMessage(allocator, message) } };
-}
 
 fn preparedBreak(allocator: std.mem.Allocator, answer: model.AnswerPosition, reason: []const u8) !PreparedWithdraw {
     return .{ .message = try model.cloneMessage(allocator, .{ .resolve = .{
@@ -805,7 +796,10 @@ fn preparedBreak(allocator: std.mem.Allocator, answer: model.AnswerPosition, rea
     } }) };
 }
 
-fn borrowedGiveGifterSide(give: model.view.HandoffGive) [32]u8 {
+/// The gifter side a signed give names, fixed-width for the session resolver.
+/// A give whose side name is not 32 bytes never verified; a zero side matches
+/// no deposited row, so it falls through to `InvalidGift`.
+fn giveGifterSide(give: model.view.HandoffGive) [32]u8 {
     var gifter: [32]u8 = undefined;
     if (give.gifter_side.len == gifter.len) {
         @memcpy(&gifter, give.gifter_side);
@@ -820,7 +814,7 @@ fn borrowedGiveGifterSide(give: model.view.HandoffGive) [32]u8 {
 /// before materializing attacker-controlled handoff data.
 pub fn liveGifterSession(resolver: ?GifterSessionResolver, give: model.view.HandoffGive) ?GifterSession {
     const r = resolver orelse return null;
-    return r.resolve(r.ctx, borrowedGiveGifterSide(give), give.gifter_exporter_session);
+    return r.resolve(r.ctx, giveGifterSide(give), give.gifter_exporter_session);
 }
 
 pub fn resolveForWithdraw(
@@ -834,10 +828,7 @@ pub fn resolveForWithdraw(
 ) !WithdrawOutcome {
     const borrowed_receive = request.receive;
     const gifter_session = liveGifterSession(gifter_session_resolver, borrowed_receive.signed_give) orelse
-        return preparedMessage(allocator, .{ .resolve = .{
-            .answer = request.answer,
-            .resolution = .{ .@"break" = .{ .message = "gifter session is not open" } },
-        } });
+        return .{ .settled = try preparedBreak(allocator, request.answer, "gifter session is not open") };
     // Derive the receiver identity this withdraw is checked against from *this*
     // session's keys. The receive names the recipient-to-exporter session, and
     // that is the session the withdraw arrived on, so its two ends are the
@@ -849,10 +840,7 @@ pub fn resolveForWithdraw(
     // to, so there is nothing to derive and nothing to check. That is the
     // in-process substrate the test harnesses drive.
     if (!try verifyHandoffReceiveWithGifterKey(allocator, borrowed_receive, &gifter_session.key)) {
-        return preparedMessage(allocator, .{ .resolve = .{
-            .answer = request.answer,
-            .resolution = .{ .@"break" = .{ .message = "invalid handoff signature" } },
-        } });
+        return .{ .settled = try preparedBreak(allocator, request.answer, "invalid handoff signature") };
     }
 
     const expected: ?handoff_names.ExpectedReceiver = derived: {
@@ -862,26 +850,17 @@ pub fn resolveForWithdraw(
         else
             handoff_names.ExpectedReceiver.fromPartner(partner_key);
         break :derived names catch {
-            return preparedMessage(allocator, .{ .resolve = .{
-                .answer = request.answer,
-                .resolution = .{ .@"break" = .{ .message = "handoff session names a malformed key" } },
-            } });
+            return .{ .settled = try preparedBreak(allocator, request.answer, "handoff session names a malformed key") };
         };
     };
 
     counters.validateWithdrawEnvelopeView(borrowed_receive, expected) catch |err| {
-        return preparedMessage(allocator, .{ .resolve = .{
-            .answer = request.answer,
-            .resolution = .{ .@"break" = .{ .message = withdrawRefusalReason(err) } },
-        } });
+        return .{ .settled = try preparedBreak(allocator, request.answer, withdrawRefusalReason(err)) };
     };
 
     if (!gifter_session.gifts.giftLive(borrowed_receive.signed_give.gift_id)) {
         const pending = try PendingReceive.initVerified(allocator, borrowed_receive) orelse
-            return preparedMessage(allocator, .{ .resolve = .{
-                .answer = request.answer,
-                .resolution = .{ .@"break" = .{ .message = "handoff session names a malformed key" } },
-            } });
+            return .{ .settled = try preparedBreak(allocator, request.answer, "handoff session names a malformed key") };
         return .{ .awaiting_deposit = .{
             .receive = pending,
             .gifter_peer_id = gifter_session.peer_id,

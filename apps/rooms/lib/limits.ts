@@ -20,6 +20,28 @@ export const MAX_LINE = 8192;
  * same bound for the Zig peer. */
 export const MAX_DM_INBOXES = 256;
 
+/** How many WebRTC signaling exchanges the directory holds at once. An
+ * exchange is transient scratch for one channel bring-up; the oldest is
+ * evicted when the cap is hit, so a flood of offers cannot pin unbounded
+ * routing rows. A candidate for an evicted exchange is dropped, which a
+ * caller experiences as a failed dial, not a wedged directory. */
+export const MAX_SIGNAL_EXCHANGES = 64;
+
+/** How long a member may pause mid-draft before we stop telling the room they
+ * are typing. */
+export const TYPING_IDLE_MS = 4_000;
+
+/** How long another member's typing flag stands, unrefreshed, before a reader
+ * clears it themselves — the guard against a dropped "stopped" leaving an
+ * indicator up for good.
+ *
+ * Derived rather than chosen, because the two are one decision. A reader has to
+ * wait longer than a sender pauses: shorter, and the indicator would clear while
+ * the sender still believes it is showing, then flick back on their next
+ * keystroke. Written as a sum, raising the pause raises the wait with it, which
+ * is the only relationship between them that has to hold. */
+export const TYPING_CLEAR_MS = TYPING_IDLE_MS + 2_000;
+
 /** Which transport a session holds to the room server, named for the UI so it
  * can label a direct-message path ("encrypted iroh QUIC" vs "a direct TCP
  * connection"). */

@@ -237,15 +237,17 @@ test "layout contentBelowTitle matches border+title inset" {
     try std.testing.expect(!c.contains(1, 21)); // past content
 }
 
-test "complete does not advertise argv-only CapTP leaves" {
+test "complete advertises listen (backgrounded) but not argv-only leaves" {
     var state = cli.repl_complete.State.init(std.testing.allocator);
     defer state.deinit();
     var out: [32]cli.repl_complete.Candidate = undefined;
     const n = cli.repl_complete.candidates(&state, "", &out);
+    var saw_listen = false;
     for (out[0..n]) |c| {
-        try std.testing.expect(!std.mem.eql(u8, c.token, "listen"));
+        if (std.mem.eql(u8, c.token, "listen")) saw_listen = true;
         try std.testing.expect(!std.mem.eql(u8, c.token, "locator"));
     }
+    try std.testing.expect(saw_listen);
 }
 
 test "copy gloss covers registry verbs" {

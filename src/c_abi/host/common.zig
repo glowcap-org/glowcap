@@ -118,7 +118,11 @@ pub fn errToCode(err: anyerror) i32 {
         error.InvalidArgument => PANCAKE_ERR_INVALID_ARGUMENT,
         // The node's fail-closed routing: a retired token or a dead vow row is
         // a lookup that found nothing, not a malformed request.
-        error.TokenRetired, error.NoSuchVow, error.UnknownCapability => shared.PANCAKE_ERR_NOT_FOUND,
+        error.TokenRetired, error.NoSuchVow, error.UnknownCapability, error.UnknownPublication => shared.PANCAKE_ERR_NOT_FOUND,
+        // Namespace misuse at the publication surfaces (ADR-0098): a mutable
+        // name in the reserved durable namespace, a durable removal aimed at
+        // a mutable name, or entropy reuse colliding with a live durable row.
+        error.ReservedDurableNamespace, error.NotDurableName, error.DurableNameCollision => PANCAKE_ERR_INVALID_ARGUMENT,
         // A condemned connection (crossed-hellos loser) refuses every verb;
         // the embedder writes its queued abort and releases it.
         error.ConnectionCondemned => shared.PANCAKE_ERR_CLOSED,
@@ -134,6 +138,9 @@ pub fn errToCode(err: anyerror) i32 {
         // already-enrolled row, a non-callable target, a projection on a local
         // vow, a late or duplicate listener, an unparseable locator.
         error.ReenteredHost,
+        error.SettleInTurn,
+        error.SessionlessVow,
+        error.NotALocalVow,
         error.PeerIdentityMismatch,
         error.ForeignSession,
         error.ForeignArgument,
@@ -301,7 +308,14 @@ pub fn publishHosted(
     }
     const ref = try spawnBridge(&session.host.vat, alloc, behavior, ctx, free);
     errdefer session.served.discardFreshActor(&session.host.vat, ref);
-    try session.served.bindExport(ref, position);
+    try session.served.bindExport(&session.host.vat, ref, position);
+    // The export binding roots the actor; the spawn root transfers to it
+    // (ADR-0101), so a session-hosted object lives exactly as long as some
+    // relationship — this binding, a lift, a gift — holds it.
+    session.host.vat.releaseActor(switch (ref) {
+        .local => |id| id,
+        .far => unreachable,
+    });
     return position;
 }
 
@@ -366,6 +380,26 @@ const HostRefContext = struct {
 
 fn decodeHostReference(ctx: HostRefContext, ref: shared.PancakeReference) anyerror!model.Reference {
     return ctx.inst.core.lowerCapability(ctx.session, ctx.inst.core.capabilityFromRaw(ref.id));
+}
+
+/// The plain-data decode behind a resolver settle (ADR-0102): every
+/// reference arm refuses, because the settle carries no session to home a
+/// capability — an answer that carries authority takes the turn's
+/// forward-to-send path instead.
+fn refusePlainReference(ctx: void, ref: shared.PancakeReference) anyerror!model.Reference {
+    _ = ctx;
+    _ = ref;
+    return HostError.ForeignArgument;
+}
+
+/// Convert one capability-free C argument for a resolver settle, into the
+/// instance's argument scratch (borrowed byte payloads; the vat's settle
+/// spine clones what a listener may outlive). Resets the scratch exactly as
+/// `msgFromC` does at a top-level call.
+pub fn plainArgumentFromC(inst: *Instance, arg: shared.PancakeArgument) !model.Argument {
+    if (!inst.core.in_callback)
+        _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
+    return shared.argumentFromCWith(anyerror, {}, refusePlainReference, inst.arg_scratch.allocator(), arg, 0, false);
 }
 
 fn encodeHostReference(ctx: HostRefContext, ref: model.Reference) anyerror!shared.PancakeReference {

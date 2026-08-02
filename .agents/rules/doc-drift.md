@@ -28,6 +28,7 @@ change as the state they describe:
 - `docs/architecture.md`
 - `docs/ladder.md`
 - `docs/roadmap.md`
+- `docs/upstream-watch.md`
 - `docs/capabilities.md`
 - `docs/consuming-from-c.md`
 - `docs/cli.md`
@@ -122,5 +123,3 @@ surface; do not let old plan language masquerade as current architecture.
 - A Zig doc comment naming `Type.method` is a claim `zig build meta-check`
   checks (`checkZigDocSymbolClaims`): the method must be declared under `src/`.
   Fix the name or delete the claim; do not weaken the check.
-- When scaffolding topology changes, update `.agents/README.md`,
-  `tools/check/meta_check.zig`, and the affected tool overlay docs together.

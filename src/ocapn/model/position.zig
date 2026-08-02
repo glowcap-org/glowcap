@@ -25,6 +25,8 @@
 //! message arm already names, so a typed element would buy no safety the arm
 //! does not already give.
 
+const std = @import("std");
+
 /// A position in this peer's local export space, an object or promise this peer
 /// hosts and a partner may import. `op:deliver` to a `desc:export` names one.
 pub const ExportPosition = enum(u64) {
@@ -151,3 +153,76 @@ pub const AnswerPosition = enum(u64) {
         return To.from(self.int());
     }
 };
+
+/// The base of the reserved band inside the inbound-answer space (ADR-0010).
+/// At and above this, an answer is one the session synthesized for the V1.0
+/// resolver-only call pattern; below it, the partner named it on the wire.
+/// Answer positions are partner-named, so the reservation is enforced in
+/// validation: an inbound claim inside the band is refused, and only that
+/// refusal makes the virtual namespace collision-free.
+///
+/// Like `REDEEMED_TOKEN_BASE` above, it lives beside the space it partitions,
+/// with `AnswerName` as the only thing that reads it directly; `session`
+/// re-exports it for its mint and its tests.
+pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = 0x8000_0000_0000_0000;
+
+/// An answer this session synthesized above `VIRTUAL_INBOUND_ANSWER_BASE` for
+/// a V1.0 resolver-only call (ADR-0010): the partner asked with a resolver
+/// capability and no wire answer-position, so the session names the answer
+/// itself.
+pub const VirtualAnswer = enum(u64) {
+    _,
+
+    pub fn int(self: VirtualAnswer) u64 {
+        return @intFromEnum(self);
+    }
+
+    /// The seat a virtual answer takes in the inbound-answer table, beside the
+    /// partner-named rows. Named rather than `int()` so the one site that lets
+    /// a synthesized answer stand as a wire-shaped one is greppable, exactly
+    /// as `RedeemedToken.wirePosition` marks the token's lowering.
+    pub fn answerPosition(self: VirtualAnswer) AnswerPosition {
+        return AnswerPosition.from(self.int());
+    }
+};
+
+/// What an id in the inbound-answer space names: a position the partner chose,
+/// or an answer this session synthesized. The same contract as `ImportName`
+/// (ADR-0091): `classify` is the only way to hold one, the switch is
+/// exhaustive, and a band carved later becomes a compile error.
+pub const AnswerName = union(enum) {
+    wire: AnswerPosition,
+    virtual: VirtualAnswer,
+
+    /// The single seam. An integer becomes a name here or nowhere.
+    pub fn classify(id: u64) AnswerName {
+        return if (id >= VIRTUAL_INBOUND_ANSWER_BASE)
+            .{ .virtual = @enumFromInt(id) }
+        else
+            .{ .wire = AnswerPosition.from(id) };
+    }
+
+    pub fn int(self: AnswerName) u64 {
+        return switch (self) {
+            .wire => |w| w.int(),
+            .virtual => |v| v.int(),
+        };
+    }
+};
+
+comptime {
+    // The virtual inbound-answer base must sit above the partner-named answer
+    // range it reserves against; a base of 0 would reserve everything and admit
+    // nothing.
+    std.debug.assert(0 < VIRTUAL_INBOUND_ANSWER_BASE);
+    // The two reserved bands must not overlap: the token band sits strictly
+    // below the virtual-answer band, so refusing one never admits the other.
+    std.debug.assert(REDEEMED_TOKEN_BASE < VIRTUAL_INBOUND_ANSWER_BASE);
+    // Export positions occupy the space below both. One session allocator mints
+    // them all, which settles collision *within* a session; between sessions it
+    // settles nothing, so a session is also held to its own slice of that space
+    // (`export_base` / `export_position_end`). Whoever mints the sessions carves
+    // those slices and asserts its own tiling. `engine.Node` is the one that
+    // does, and it derives its slot width from `REDEEMED_TOKEN_BASE` so the
+    // top slice ends exactly where the reserved space starts.
+}

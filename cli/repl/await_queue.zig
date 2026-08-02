@@ -220,7 +220,7 @@ pub const Queue = struct {
                     try store.appendLine(.tip, "tip: Esc cancels the active wait; queued CapTP turns still run");
                 } else if (std.mem.eql(u8, reason, "wait timed out")) {
                     try store.setLine(active.block_idx, .error_line, "! WaitTimedOut");
-                    try store.appendLine(.tip, "tip: #0 is bootstrap — fetch then call #<import> from the Imports rail");
+                    try store.appendLine(.tip, "tip: fetch a name, then call #<cap> with the id it prints");
                 } else if (active.composed and active.pending.stage == .fetching) {
                     // The chain broke at the fetch leg: the name is not
                     // published on the peer, so say so and coach the fix.
@@ -258,7 +258,7 @@ pub const Queue = struct {
         }
 
         if (std.mem.eql(u8, active.verb, "fetch")) {
-            const import_pos = importPosFromFetch(settled) catch |err| {
+            const import_pos = capIdFromFetch(ctx.session, settled) catch |err| {
                 try finishErr(store, active.block_idx, err);
                 self.clearActive();
                 try self.startNext(ctx, store, progress);
@@ -277,7 +277,15 @@ pub const Queue = struct {
             const prev = ctx.sink;
             ctx.sink = .{ .buffer = &out };
             defer ctx.sink = prev;
-            try ocapn.printSettled(ctx, settled);
+            // The queue captured the wire settlement while the pump ran; lift
+            // it into the opaque reply here, at render time.
+            var lift_arena = std.heap.ArenaAllocator.init(self.gpa);
+            defer lift_arena.deinit();
+            const reply: driver.Reply = if (ctx.session) |session|
+                try session.liftSettled(settled, lift_arena.allocator())
+            else
+                .{ .broken = "session closed" };
+            try ocapn.printSettled(ctx, reply);
             const text = std.mem.trimEnd(u8, out.items, "\n");
             if (text.len == 0) {
                 try store.setLine(active.block_idx, .result, "ok");
@@ -396,9 +404,10 @@ pub const Queue = struct {
                 const args = try ocapn.parseArgsList(active.gpa, tokens[3..]);
                 defer active.gpa.free(args);
 
-                if (try ocapn.parseImportTarget(target_tok)) |target| {
+                if (try ocapn.parseImportTarget(target_tok)) |raw| {
+                    const target = session.host.core.capabilityFromRaw(raw);
                     if (sverb == .tell) {
-                        try session.tell(target, .{ .verb = active.tokens[2], .args = args });
+                        try session.tell(target, active.tokens[2], args);
                         try store.setLine(active.block_idx, .result, "told");
                         if (progress.glossOnce("tell")) |g| {
                             var gbuf: [256]u8 = undefined;
@@ -408,7 +417,7 @@ pub const Queue = struct {
                         active.deinit();
                         return .finished;
                     }
-                    const vow = try session.send(target, .{ .verb = active.tokens[2], .args = args });
+                    const vow = try session.send(target, active.tokens[2], args);
                     try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
                     _ = session.stepReadable(0) catch {};
                     self.active = active;
@@ -419,15 +428,14 @@ pub const Queue = struct {
                 // begin chains fetch-then-deliver inside the driver, and this
                 // queue just waits on the terminal listener.
                 const listener = actors.Listener{ .ctx = &active.flag, .func = driver.SettleFlag.fire };
-                const msg = actors.Message{ .verb = active.tokens[2], .args = args };
                 // `begin*Named` owns `pending.msg_arena` from the moment it
                 // initializes it, and its own errdefer frees it on any failure.
                 // Only claim it here once the call has returned, or a refusal
                 // frees the arena twice.
                 if (sverb == .tell) {
-                    try session.beginTellNamed(&active.pending, target_tok, msg, listener);
+                    try session.beginTellNamed(&active.pending, target_tok, active.tokens[2], args, listener);
                 } else {
-                    try session.beginSendNamed(&active.pending, target_tok, msg, listener);
+                    try session.beginSendNamed(&active.pending, target_tok, active.tokens[2], args, listener);
                 }
                 active.composed = true;
                 _ = session.stepReadable(0) catch {};
@@ -438,25 +446,17 @@ pub const Queue = struct {
     }
 };
 
-fn farRefFromFetch(settled: driver.Settled) !actors.Ref {
+/// Lift a fetch settlement's reference into the session's opaque capability
+/// id — the number the fetch result line shows and `#N` feeds back.
+fn capIdFromFetch(session_opt: ?*driver.Session, settled: driver.Settled) !u64 {
+    const session = session_opt orelse return driver.Error.ConnectionClosed;
     return switch (settled) {
         .fulfilled => |arg| switch (arg) {
-            .reference => |reference| switch (reference) {
-                .far => |far| .{ .far = far },
-                else => driver.Error.FetchNotACapability,
-            },
+            .reference => |reference| (try session.host.core.liftCapability(session.hs, reference)).raw(),
             else => driver.Error.FetchNotACapability,
         },
         .broken => error.FetchBroken,
         .give => driver.Error.FetchNotACapability,
-    };
-}
-
-fn importPosFromFetch(settled: driver.Settled) !u64 {
-    const ref = try farRefFromFetch(settled);
-    return switch (ref) {
-        .far => |far| far.import_position.int(),
-        .local => driver.Error.FetchNotACapability,
     };
 }
 
@@ -486,7 +486,7 @@ fn finishErr(store: *blocks.Store, block_idx: usize, err: anyerror) !void {
     const msg = std.fmt.bufPrint(&buf, "! {s}", .{@errorName(err)}) catch "! error";
     try store.setLine(block_idx, .error_line, msg);
     if (err == error.WaitTimedOut) {
-        try store.appendLine(.tip, "tip: Esc cancels; #0 is bootstrap — fetch then call #<import> from the Imports rail");
+        try store.appendLine(.tip, "tip: Esc cancels; fetch a name, then call #<cap> with the id it prints");
         return;
     }
     if (copy.tipForErrorDetail(@errorName(err))) |tip| {

@@ -14,7 +14,7 @@ const actors = @import("actors");
 const gc = @import("gc.zig");
 const vocab = @import("vocab.zig");
 const Error = vocab.Error;
-const Capability = vocab.Capability;
+const Exported = vocab.Exported;
 
 /// A hook run before the vat serves each drained event. Return true to claim
 /// the event and skip the vat's serve dispatch; a hook error propagates out of
@@ -80,9 +80,10 @@ pub const Served = struct {
         return .{ .port = actors.Port.init(allocator, peer) };
     }
 
-    /// Tear down the Port. Does not free the borrowed peer or shared Vat.
-    pub fn deinit(self: *Served) void {
-        self.port.deinit();
+    /// Tear down the Port, releasing its export-binding actor roots into
+    /// `vat` (ADR-0101). Does not free the borrowed peer or shared Vat.
+    pub fn deinit(self: *Served, vat: *actors.Vat) void {
+        self.port.deinit(vat);
     }
 
     /// Borrowed view of the partner's retained `op:abort` (kind + message).
@@ -224,12 +225,12 @@ pub const Served = struct {
     /// position is reserved here; the partner can address the capability only
     /// once it first marshals onto the wire, or after an explicit grant
     /// through `peer.exportObject` (ADR-0074).
-    pub fn spawn(self: *Served, vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Capability {
+    pub fn spawn(self: *Served, vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Exported {
         const position = try self.port.peer.exportNextObject();
         errdefer self.port.peer.session_state.releaseUnsharedExport(.from(position));
         const ref = try vat.spawn(Behavior, initial);
         errdefer vat.discardFreshActor(ref);
-        try self.port.bindExport(ref, position);
+        try self.port.bindExport(vat, ref, position);
         return .{ .position = position, .ref = ref };
     }
 
@@ -239,7 +240,7 @@ pub const Served = struct {
     /// surface publishes through its `Served`, so it is defined once here.
     /// Returns the capability at its allocated export position, carrying the
     /// vat-local `ref` so the publisher can keep talking to its own actor.
-    pub fn publish(self: *Served, vat: *actors.Vat, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
+    pub fn publish(self: *Served, vat: *actors.Vat, name: []const u8, comptime Behavior: type, initial: Behavior) !Exported {
         const prior = self.port.peer.session_state.bootstrapLookup(name);
         const position = try self.port.peer.registerBootstrapCap(name);
         errdefer {
@@ -248,7 +249,14 @@ pub const Served = struct {
         }
         const ref = try vat.spawn(Behavior, initial);
         errdefer vat.discardFreshActor(ref);
-        try self.port.bindExport(ref, position);
+        try self.port.bindExport(vat, ref, position);
+        // The export binding roots the actor; the spawn root transfers to it
+        // (ADR-0101), so a session-published object lives exactly as long as
+        // some relationship — this binding, a lift, a gift — holds it.
+        vat.releaseActor(switch (ref) {
+            .local => |id| id,
+            .far => unreachable,
+        });
         return .{ .position = position, .ref = ref };
     }
 
@@ -266,8 +274,8 @@ pub const Served = struct {
     }
 
     /// Bind `actor` at `position` on this session's export table.
-    pub fn bindExport(self: *Served, actor: actors.Ref, position: u64) !void {
-        try self.port.bindExport(actor, position);
+    pub fn bindExport(self: *Served, vat: *actors.Vat, actor: actors.Ref, position: u64) !void {
+        try self.port.bindExport(vat, actor, position);
     }
 
     /// The local actor bound at `position`, or null when nothing is bound

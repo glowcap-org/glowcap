@@ -51,6 +51,15 @@ async function main(): Promise<void> {
 	brokerToBob.serve().catch(() => {});
 	const bobDm = await brokerToBob.fetch("dm");
 
+	// Replace the alias with a decoy before any introduction: the gift must
+	// retain the exact inbox the broker holds, not whatever the name resolves
+	// to at withdrawal (ADR-0096's exact-object identity, on the binding path).
+	const decoyInbox: string[] = [];
+	bob.host.publishGiftable("dm", (verb, args) => {
+		if (verb === "tell") decoyInbox.push(String(args[0]));
+		return null;
+	});
+
 	// Returning Bob's dm to a *different* connection (Carol's) trips the
 	// transparent gifter, which originates the three-party handoff.
 	broker.host.publishGiftable(
@@ -76,8 +85,11 @@ async function main(): Promise<void> {
 			`Bob's inbox did not receive the direct DM (got ${JSON.stringify(inbox)})`,
 		);
 	}
+	if (decoyInbox.length !== 0) {
+		fail(`the DM leaked to the alias's decoy (got ${JSON.stringify(decoyInbox)})`);
+	}
 	console.log(
-		"gifter-handoff: OK, Carol DMed Bob directly via a broker introduction (broker never relayed)",
+		"gifter-handoff: OK, Carol DMed Bob's exact inbox via a broker introduction, across an alias replacement (broker never relayed)",
 	);
 
 	// ── Teardown ─────────────────────────────────────────────────────────────────

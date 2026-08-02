@@ -12,6 +12,7 @@ const served = @import("served.zig");
 const vocab = @import("vocab.zig");
 const host = @import("host.zig");
 const capability = @import("capability.zig");
+const value = @import("value.zig");
 const host_action = @import("host_action.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
 const action_drain = @import("action_drain.zig");
@@ -40,7 +41,19 @@ pub const HostError = host.HostError;
 pub const EnlivenPeerPolicy = host.EnlivenPeerPolicy;
 pub const PeerProvenance = host.PeerProvenance;
 pub const EnlivenStart = host.EnlivenStart;
-pub const HostRef = capability.Ref;
+/// The opaque Host-scoped capability identity (ADR-0096): what an owning-tier
+/// application holds instead of an actor id or a wire position. The same
+/// identity the C ABI and every binding carry as their `Ref`.
+pub const Capability = capability.Ref;
+/// The owning tier's passable value and reply (see `value.zig`): data arms
+/// mirror `model.Argument`, capability mentions are opaque.
+pub const Value = value.Value;
+pub const Reply = value.Reply;
+/// The Value-shaped hosted-behavior adapter and its per-delivery window
+/// (see `host.zig`): how an owning-tier behavior answers with opaque
+/// capabilities instead of wire references.
+pub const Hosting = host.Hosting;
+pub const HostTurn = host.HostTurn;
 
 pub const Error = vocab.Error;
 pub const Budget = vocab.Budget;
@@ -49,9 +62,10 @@ pub const SettleFlag = vocab.SettleFlag;
 pub const FetchCapture = vocab.FetchCapture;
 pub const Identity = vocab.Identity;
 pub const PartnerIdentity = vocab.PartnerIdentity;
+pub const DurableProvenance = vocab.DurableProvenance;
 pub const AcceptIdentity = vocab.AcceptIdentity;
 pub const Vow = vocab.Vow;
-pub const Capability = vocab.Capability;
+pub const Exported = vocab.Exported;
 pub const Settled = vocab.Settled;
 pub const unreachable_client_designator = vocab.unreachable_client_designator;
 pub const DesignatorScheme = vocab.DesignatorScheme;

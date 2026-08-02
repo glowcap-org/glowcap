@@ -2,8 +2,10 @@
 //!
 //! Both overlay schemes complete and unbroken (symlinks, Cursor `.mdc`
 //! mirrors), the hook and MCP configurations, rule/skill/persona index parity
-//! in both directions, agent routing, and rule frontmatter. These are the
-//! checks that keep the scaffolding a public API whose consumers act on what
+//! in both directions (including skill purpose parity across the two catalogs
+//! and the ratchet skill's landing map), agent routing, and rule frontmatter.
+//! These are the checks that keep the scaffolding a public API whose
+//! consumers act on what
 //! it says. Wired by the meta-check driver (`tools/check/meta_check.zig`).
 
 const std = @import("std");
@@ -516,7 +518,40 @@ pub fn checkSkillCatalog(
         if (std.mem.indexOf(u8, agents_readme, agents_needle) == null) {
             try appendViolation(gpa, violations, ".agents/README.md: missing skills table entry for `{s}`", .{entry.path});
         }
+
+        // A skill's purpose is one fact spelled in two tables; hold the
+        // spellings identical so neither copy can drift behind the other.
+        const catalog_purpose = tableRowThirdCell(readme, catalog_needle);
+        const index_purpose = tableRowThirdCell(agents_readme, agents_needle);
+        if (catalog_purpose != null and index_purpose != null and
+            !std.mem.eql(u8, catalog_purpose.?, index_purpose.?))
+        {
+            try appendViolation(gpa, violations, "skill `{s}`: purpose text differs between .agents/README.md and .agents/skills/README.md; one fact, one spelling", .{entry.path});
+        }
     }
+}
+
+/// Returns the trimmed third `|` cell of the first line containing `needle`,
+/// or null when no such line or cell exists.
+fn tableRowThirdCell(contents: []const u8, needle: []const u8) ?[]const u8 {
+    const at = std.mem.indexOf(u8, contents, needle) orelse return null;
+    const line_start = if (std.mem.lastIndexOfScalar(u8, contents[0..at], '\n')) |nl| nl + 1 else 0;
+    const line_end = std.mem.indexOfScalarPos(u8, contents, at, '\n') orelse contents.len;
+    var cells = std.mem.splitScalar(u8, contents[line_start..line_end], '|');
+    _ = cells.next();
+    _ = cells.next();
+    const purpose = cells.next() orelse return null;
+    return std.mem.trim(u8, purpose, " \t");
+}
+
+test "tableRowThirdCell reads the purpose cell of a matching table row" {
+    const doc =
+        "| Skill | Purpose |\n" ++
+        "| ----- | ------- |\n" ++
+        "| [ratchet](ratchet/SKILL.md) | Land the lesson |\n";
+    try std.testing.expectEqualStrings("Land the lesson", tableRowThirdCell(doc, "[ratchet]").?);
+    try std.testing.expect(tableRowThirdCell(doc, "[absent]") == null);
+    try std.testing.expect(tableRowThirdCell("no pipes here [ratchet]", "[ratchet]") == null);
 }
 
 /// Project personas under `.agents/personas/` are anonymous lenses only.
@@ -661,6 +696,64 @@ pub fn checkRuleFrontmatter(
         if (frontmatterValue(frontmatter, "globs:") == null and !std.mem.eql(u8, always, "true")) {
             try appendViolation(gpa, violations, ".agents/rules/{s}: frontmatter needs `globs:` or `alwaysApply: true` to route the rule", .{entry.path});
         }
+    }
+}
+
+/// The ratchet skill's landing map names the meta-check modules by concern;
+/// that list is a prose claim about `tools/check/meta_check/`, so it drifts
+/// the moment a module lands unnamed. Both directions: every check module is
+/// named in the skill (`util.zig` is shared helpers, not a landing target),
+/// and every bare `.zig` span the skill names exists under `tools/check/` or
+/// its `meta_check/` subdirectory.
+pub fn checkRatchetModuleMap(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const skill_path = ".agents/skills/ratchet/SKILL.md";
+    const skill = root.readFileAlloc(io, skill_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for module-map check with {s}", .{ skill_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(skill);
+
+    var modules = root.openDir(io, "tools/check/meta_check", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "tools/check/meta_check: failed to open for module-map check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer modules.close(io);
+
+    var it = modules.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        if (std.mem.eql(u8, entry.name, "util.zig")) continue;
+
+        var needle_buf: [128]u8 = undefined;
+        const needle = std.fmt.bufPrint(&needle_buf, "`{s}`", .{entry.name}) catch continue;
+        if (std.mem.indexOf(u8, skill, needle) == null) {
+            try appendViolation(gpa, violations, "{s}: landing map is missing meta-check module `{s}` (or exclude it deliberately in checkRatchetModuleMap)", .{ skill_path, entry.name });
+        }
+    }
+
+    var rest = skill;
+    while (std.mem.indexOfScalar(u8, rest, '`')) |start| {
+        const after = rest[start + 1 ..];
+        const end = std.mem.indexOfScalar(u8, after, '`') orelse break;
+        const span = after[0..end];
+        rest = after[end + 1 ..];
+        if (!std.mem.endsWith(u8, span, ".zig")) continue;
+        // Path-shaped spans are held by the Markdown link check instead.
+        if (std.mem.indexOfScalar(u8, span, '/') != null) continue;
+
+        var meta_buf: [192]u8 = undefined;
+        const in_meta = std.fmt.bufPrint(&meta_buf, "tools/check/meta_check/{s}", .{span}) catch continue;
+        if (root.access(io, in_meta, .{})) |_| continue else |_| {}
+        var driver_buf: [192]u8 = undefined;
+        const in_check = std.fmt.bufPrint(&driver_buf, "tools/check/{s}", .{span}) catch continue;
+        if (root.access(io, in_check, .{})) |_| continue else |_| {}
+        try appendViolation(gpa, violations, "{s}: names `{s}`, which is not a file under tools/check/ or tools/check/meta_check/", .{ skill_path, span });
     }
 }
 

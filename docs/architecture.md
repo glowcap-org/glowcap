@@ -70,7 +70,7 @@ embedding pancake behind another runtime. Most Zig programs start higher.
 | --- | --- |
 | `driver.Session` | You want one owned connection and blocking application calls. Handoffs are redeemed before a call returns. |
 | `driver.PollHost` | You want one identity across several file-descriptor-backed sessions. |
-| `driver.BlockingSession` | You own the connection and buffers and want the lower-level blocking path. A call may return a handoff for you to redeem. |
+| `driver.BlockingSession` | You own the connection and buffers and want the lower-level blocking path, or your transport has no pollable descriptor (an in-process pipe, a WebRTC peer) so `PollHost` cannot wait on it. Values are the actor layer's own references and messages rather than opaque host capabilities, and a call may return a handoff for you to redeem. |
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own its I/O. This is the core exposed to bindings. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 

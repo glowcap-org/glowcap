@@ -73,10 +73,19 @@ export function entryFor(id: bigint): BehaviorEntry | undefined {
 // composes exactly as it does over the wire). Returns the terminal — a plain
 // value (or void), or the first `Forward` whose target is not hosted here
 // (far, promise, or an unknown near id). `runHosted` is the public face.
+/** A behavior result carried between dispatch and settle: a plain value, a
+ * forward, a bare ack, or an async behavior's pending promise. */
+type BehaviorResult = Argument | Forward | void | PromiseLike<Argument | void>;
+
+/** Whether a behavior's result is an async behavior's pending promise. */
+function isThenable(result: BehaviorResult): result is PromiseLike<Argument | void> {
+	return typeof (result as { then?: unknown } | null | undefined)?.then === "function";
+}
+
 function chaseLocalForwards(
 	entry: BehaviorEntry,
-	result: Argument | Forward | void,
-): Argument | Forward | void {
+	result: BehaviorResult,
+): BehaviorResult {
 	// The wire path defers each hop onto a fresh turn, so a forward cycle
 	// there loops asynchronously; the local chase runs hops synchronously and
 	// must bound them, or a caretaker forwarding to itself spins this loop
@@ -90,7 +99,7 @@ function chaseLocalForwards(
 		const inner = entry.resolveLocal !== null ? entry.resolveLocal(target.id) : undefined;
 		if (inner === undefined) return result;
 		entry = inner;
-		result = inner.run(result.verb, result.args) as Argument | Forward | void;
+		result = inner.run(result.verb, result.args) as BehaviorResult;
 	}
 	return result;
 }
@@ -110,7 +119,7 @@ export function runHosted(
 	verb: string,
 	args: Argument[],
 	turn: Ptr | null = null,
-): { result: Argument | Forward | void } | undefined {
+): { result: BehaviorResult } | undefined {
 	const entry = registry.get(id);
 	if (entry === undefined) return undefined;
 	if (turn === null) {
@@ -159,6 +168,12 @@ export function sendLocal(
 			if (result instanceof Forward) {
 				return await forwardFar(result.target, result.verb, result.args);
 			}
+			if (isThenable(result)) {
+				// A local send to an async behavior simply awaits it; the
+				// resolver machinery is only for wire-served turns.
+				const value = await result;
+				return value === undefined ? null : value;
+			}
 			return result === undefined ? null : result;
 		} catch (err) {
 			if (err instanceof PancakeError) throw err;
@@ -180,6 +195,10 @@ export async function tellLocal(
 		const result = runHosted(ctx, verb, args)?.result;
 		if (result instanceof Forward) {
 			await forwardFar(result.target, result.verb, result.args);
+		} else if (isThenable(result)) {
+			// Await so an async behavior's rejection lands in this catch
+			// instead of surfacing as an unhandled rejection.
+			await result;
 		}
 	} catch {
 		// no answer to break
@@ -328,9 +347,30 @@ function turnBreak(turn: Ptr, message: string): number {
 // turn-forward.
 function settleReply(
 	turn: Ptr,
-	result: Argument | Forward | void,
+	result: BehaviorResult,
 	outReply: Ptr,
 ): number {
+	if (isThenable(result)) {
+		// An async behavior: defer this turn's answer onto a resolver vow and
+		// settle it when the promise does (ADR-0102). The deferral needs the
+		// owning Host, which the enclosing feed bracket carries.
+		const owner = activeDeliver?.hostOwner as
+			| { deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean }
+			| undefined;
+		if (owner === undefined || typeof owner.deferTurnToPromise !== "function") {
+			return turnBreak(turn, "async behavior outside a session feed");
+		}
+		if (!owner.deferTurnToPromise(turn, result)) {
+			return turnBreak(turn, hostLastError() ?? "deferral refused");
+		}
+		// The behavior's own reply is a void placeholder; the real answer
+		// rides the resolver vow.
+		const keep: Uint8Array[] = [];
+		const buf = encodeArgs([null], keep);
+		ffi.writeMemory(outReply, buf);
+		lastReplyKeep = { buf, keep };
+		return OK;
+	}
 	if (result instanceof Forward) {
 		// The host forwards: the real answer rides the forwarded send's vow and
 		// out_reply gets a void placeholder. Buffers stay pinned until it returns.

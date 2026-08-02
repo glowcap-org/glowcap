@@ -18,11 +18,11 @@ const driver = pancake.driver;
 /// The published greeter: answers `greet(name)` with a greeting built in the
 /// turn's arena, which outlives the reply encode and nothing more.
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        if (msg.args.len != 1 or msg.args[0] != .string) return error.BadInvocation;
-        return .{ .string = try std.fmt.allocPrint(turn.arena, "Hello, {s}", .{msg.args[0].string}) };
+        if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
+        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
+        return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{args[0].string}) };
     }
 };
 
@@ -51,18 +51,13 @@ fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !voi
     );
     defer session.deinit();
 
-    const greeter = try session.fetch("greeter"); // a capability, by name
+    const greeter = try session.fetch("greeter"); // an opaque capability, by name
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const settled = try session.call(greeter, .{
-        .verb = "greet",
-        .args = &.{.{ .string = "world" }},
-    }, arena.allocator());
+    const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
     switch (settled) {
-        .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
+        .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
         .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
-        // `driver.Session` redeems handoffs before returning.
-        .give => unreachable,
     }
 }
 

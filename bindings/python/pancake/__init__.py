@@ -83,6 +83,7 @@ from ._locator import (
 from ._host import Host
 from ._promise import RemotePromise
 from ._session import (
+    DurableProvenance,
     PartnerIdentity,
     RedeemedReply,
     Session,
@@ -118,6 +119,7 @@ __all__ = [
     # Application surface
     "Session",
     "RedeemedReply",
+    "DurableProvenance",
     "PartnerIdentity",
     "RemotePromise",
     "Server",

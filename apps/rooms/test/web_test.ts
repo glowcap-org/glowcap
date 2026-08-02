@@ -8,7 +8,7 @@
 // room: a keyed OCapN session established over `/relay`.
 
 import { classifyRelayTarget, Host as PancakeHost, Session } from "@pancake/stack";
-import { webSocketChannel } from "@pancake/web/channel";
+import { webSocketChannel } from "@pancake/stack";
 import { DIRECTORY, LIST } from "../lib/protocol.ts";
 import {
 	relayAllowed,

@@ -37,12 +37,17 @@ pub const HostAction = union(enum) {
     need_gift_id: struct { ticket: u64 },
     /// A host vow with no in-process listener settled fulfilled: `value` is a
     /// deep clone the host owns, valid until the next `nextAction` call,
-    /// which frees it. Route it to whatever awaits the vow.
+    /// which frees it. Route it to whatever awaits the vow. `peer_id` is the
+    /// session the value belongs to, and is never absent: a fulfilled value
+    /// may carry a capability, which only its own session can project.
     settled: struct { peer_id: engine.PeerId, vow_id: u64, value: model.Argument },
     /// A host vow with no in-process listener settled broken: `message` is
     /// host-owned with the same until-next-`nextAction` lifetime (empty when
-    /// the break carried no reason, or when retaining one failed).
-    failed: struct { peer_id: engine.PeerId, vow_id: u64, message: []const u8 },
+    /// the break carried no reason, or when retaining one failed). `peer_id`
+    /// is null when the vow rode no session at all — a select-or-dial enliven
+    /// whose dial never opened one (ADR-0098). A break carries no value, so
+    /// every drain routes it by `vow_id` alone.
+    failed: struct { peer_id: ?engine.PeerId, vow_id: u64, message: []const u8 },
 };
 
 /// Free every owned byte view a `HostAction` may carry. POD arms are no-ops.

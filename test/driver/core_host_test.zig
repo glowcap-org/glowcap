@@ -204,6 +204,71 @@ test "core host: two hosts complete the keyed handshake over fed bytes" {
     try std.testing.expectEqual(@as(usize, 0), dials.items.len);
 }
 
+test "core host: keyed-tcp handshake mints and verifies the durable-key credential end to end" {
+    // ADR-0097 step 2, byte-fed: the acceptor's hello advertises its key
+    // designator, so `helloAndEnroll` mints the session-key-attestation hint,
+    // and the dialer's `mintShell` installed the contract, so its verifier
+    // demands and checks it. The dialer's own hello claims the address
+    // placeholder (no durable identity), which the acceptor's contract passes.
+    const allocator = std.testing.allocator;
+    const acceptor_seed = [_]u8{0x2b} ** 32;
+    var dialer = Host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer dialer.deinit();
+    var acceptor = Host.init(allocator, acceptor_seed, Host.Options.withFrameCap(frame_cap));
+    defer acceptor.deinit();
+
+    const designator = crypto.SecretKey.fromSeed(acceptor_seed).publicKey().toDesignator();
+    const accepted = try acceptor.openAccepted("keyed-tcp", designator[0..], "127.0.0.1:7777");
+    const dialed = try dialer.openDialedLocator(.{
+        .transport = "keyed-tcp",
+        .designator = designator[0..],
+        .hints = model.Hints.emptyFalse(),
+    });
+    const pair = Pair{ .ah = &dialer, .a = dialed, .bh = &acceptor, .b = accepted };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    try pumpToQuiescence(allocator, &.{ &dialer, &acceptor }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+    try std.testing.expect(accepted.sessionOpen());
+}
+
+test "core host: a credential-less keyed claim is refused before a same-chunk frame applies" {
+    // ADR-0097's one-chunk rule at the byte-fed tier: the hello and a deliver
+    // arrive in one `feedBytes` chunk. Without the credential check the valid
+    // hello would open the session and the deliver would apply; with it, the
+    // hello is refused at the pre-open chokepoint and the session never
+    // opens, so the trailing frame cannot apply under the unproven identity.
+    const allocator = std.testing.allocator;
+    const host_seed = [_]u8{0x2c} ** 32;
+    var host = Host.init(allocator, host_seed, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const own_designator = crypto.SecretKey.fromSeed(host_seed).publicKey().toDesignator();
+    const conn = try host.openAccepted("keyed-tcp", own_designator[0..], "127.0.0.1:7778");
+
+    var sender = engine.Peer.initNegotiating(allocator);
+    defer sender.deinit();
+    const partner_secret = crypto.SecretKey.fromSeed([_]u8{0x2d} ** 32);
+    const partner_designator = partner_secret.publicKey().toDesignator();
+    var entry = [_]model.HintEntry{.{
+        .name = model.transport.hint_direct_addresses,
+        .value = .{ .string = "127.0.0.1:7779" },
+    }};
+    try sender.sendKeyedStartSession(.v1_0, .{
+        .transport = "keyed-tcp",
+        .designator = partner_designator[0..],
+        .hints = .{ .entries = entry[0..] },
+    }, partner_secret);
+    _ = try sender.step();
+    var hello = sender.takeOutbound().?;
+    defer hello.deinit();
+
+    const deliver_bytes = "<10'op:deliver<11'desc:export7+>[]11+f>";
+    const chunk = try std.mem.concat(allocator, u8, &.{ hello.bytes(), deliver_bytes });
+    defer allocator.free(chunk);
+    try std.testing.expectError(error.PartnerAttestationMissing, host.feedBytes(conn, chunk));
+    try std.testing.expect(!conn.sessionOpen());
+}
+
 test "core host: verified session directory authenticates an early handoff gifter" {
     const allocator = std.testing.allocator;
     var gifter = Host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
@@ -233,6 +298,201 @@ test "core host: verified session directory authenticates an early handoff gifte
     try exporter.releaseSession(pair.b);
     try std.testing.expect(resolver.resolve(resolver.ctx, gifter_side, &session_name) == null);
     try gifter.releaseSession(pair.a);
+}
+
+test "session identity: an old handoff certificate cannot resolve against a session opened after reconnect" {
+    // ADR-0097 evidence item 10, the property fresh per-session keys exist to
+    // provide. A `desc:handoff-give` names its gifter–exporter session by the
+    // side names derived from both ends' session keys. While every session in a
+    // host reused that host's durable key those names were a function of the
+    // two *hosts*, so reconnecting the same pair rebuilt the identical names
+    // and a stale certificate resolved against the replacement session. With a
+    // key per connection the names are a function of the connection, and the
+    // old certificate resolves against nothing.
+    //
+    // Liveness is deliberately not what makes this pass: a live session
+    // between the same durable peers exists throughout the final assertions.
+    // The sibling test above already covers "the session closed"; this one
+    // covers "a different session is open in its place", which is the case
+    // reconnect actually produces and the one key reuse got wrong.
+    //
+    // Out of scope, and stated rather than implied: replaying a whole captured
+    // keyed-TCP hello can revive its own static session claim on another
+    // cleartext connection. Fresh keys isolate *honest* reconnects; they do not
+    // make a cleartext channel replay-safe, which ADR-0075 records.
+    const allocator = std.testing.allocator;
+    var opts = Host.Options.withFrameCap(frame_cap);
+    opts.session_seeds = .{ .rooted = [_]u8{0xc1} ** crypto.SEED_BYTES };
+    var gifter = Host.init(allocator, [_]u8{0x0c} ** 32, opts);
+    defer gifter.deinit();
+    var exporter = Host.init(allocator, [_]u8{0x0d} ** 32, opts);
+    defer exporter.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    // The first connection, and the certificate names it would carry.
+    const first = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7321", &dials);
+    const first_peer = first.b.served.port.peer;
+    const old_gifter_side = try engine.handoff_names.sideName(first_peer.session_state.partnerSessionKey().?);
+    const old_exporter_side = try engine.handoff_names.sideName(first_peer.session_state.localSessionKey().?);
+    const old_session = engine.handoff_names.sessionName(old_gifter_side, old_exporter_side);
+
+    const resolver = exporter.node.gifterSessionResolver().?;
+    try std.testing.expect(resolver.resolve(resolver.ctx, old_gifter_side, &old_session) != null);
+
+    // Honest reconnect: both halves go away and the same two hosts, with the
+    // same durable identities, open a fresh connection.
+    try exporter.releaseSession(first.b);
+    try gifter.releaseSession(first.a);
+    const second = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7322", &dials);
+    const second_peer = second.b.served.port.peer;
+    const new_gifter_side = try engine.handoff_names.sideName(second_peer.session_state.partnerSessionKey().?);
+    const new_exporter_side = try engine.handoff_names.sideName(second_peer.session_state.localSessionKey().?);
+    const new_session = engine.handoff_names.sessionName(new_gifter_side, new_exporter_side);
+
+    // The teeth: the replacement session really does have different names.
+    // Without this the refusal below could pass for the wrong reason, and
+    // under key reuse this is exactly the assertion that fails.
+    try std.testing.expect(!std.mem.eql(u8, &old_gifter_side, &new_gifter_side));
+    try std.testing.expect(!std.mem.eql(u8, &old_session, &new_session));
+
+    // The property itself: the stale certificate's names resolve to nothing,
+    // while a live session to the same durable peer is open and resolving.
+    try std.testing.expect(resolver.resolve(resolver.ctx, old_gifter_side, &old_session) == null);
+    try std.testing.expect(resolver.resolve(resolver.ctx, new_gifter_side, &new_session) != null);
+
+    // Nor can the stale side name borrow the new session by naming it: the
+    // resolver matches the pair, so neither half of an old certificate can be
+    // mixed with a current one.
+    try std.testing.expect(resolver.resolve(resolver.ctx, old_gifter_side, &new_session) == null);
+    try std.testing.expect(resolver.resolve(resolver.ctx, new_gifter_side, &old_session) == null);
+
+    // This is also the whole of "and must not consume a new deposit with the
+    // same gift id" (ADR-0097 item 10). A withdrawal reaches a gift registry
+    // only through this resolver — it is what hands back the `gifts` a
+    // consuming withdraw operates on — so a certificate whose names resolve to
+    // nothing never reaches any registry, and a gift deposited on the
+    // replacement session under a reused id is unreachable by it rather than
+    // defended against after the fact.
+    const live = resolver.resolve(resolver.ctx, new_gifter_side, &new_session).?;
+    try std.testing.expectEqual(second_peer.giftRegistry(), live.gifts);
+
+    try exporter.releaseSession(second.b);
+    try gifter.releaseSession(second.a);
+}
+
+test "core host: select-or-dial enlivens over a live session, and parks on a staged dial" {
+    // ADR-0098 step 4 at the byte-fed tier: the same select-or-dial the native
+    // PollHost performs, driven by an embedder that only answers actions.
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |d| allocator.free(d.designator);
+        dials.deinit(allocator);
+    }
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7801", &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+
+    // SELECT: the sturdyref names a peer this host already dialed, so the
+    // enliven rides that session and no dial is ever staged.
+    const selected = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7801", "widget"));
+    try std.testing.expectEqual(@as(usize, 0), dials.items.len);
+    var settled = CapturedRef{};
+    try client.vowOn(selected, .{ .ctx = &settled, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    _ = try settled.require();
+    try std.testing.expectEqual(@as(usize, 0), dials.items.len);
+
+    // DIAL: an unreached peer parks the enliven on a staged dial, which
+    // reaches the embedder as the ordinary `dial` action — one ticket space,
+    // so the embedder's dial arm is unchanged.
+    var second = Host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer second.deinit();
+    const parked_vow = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7802", "widget"));
+    try std.testing.expect(parked_vow != selected);
+    // The vow is parked, not rowed: an observer is refused exactly as it is
+    // for a dedup-cache hit, and the outcome arrives as an action.
+    try std.testing.expectError(
+        driver.core.HostError.NoSuchVow,
+        client.vowOn(parked_vow, .{ .ctx = &settled, .func = CapturedRef.record }),
+    );
+    _ = try drainActions(allocator, &.{ &client, &server }, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    try std.testing.expectEqualStrings("127.0.0.1:7802", dials.items[0].designator);
+
+    // The embedder opens the connection it was told to and reports it; the
+    // parked enliven then runs over that fresh session.
+    const accepted = try second.openAccepted("tcp", "127.0.0.1:7802", &.{});
+    _ = try accepted.served.publish(&accepted.host.vat, "widget", Widget, .{});
+    const dialed = try client.openDialedLocator(tcpLocator("127.0.0.1:7802"));
+    const second_pair = Pair{ .ah = &client, .a = dialed, .bh = &second, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &second }, &.{second_pair}, &dials);
+    const ticket = dials.items[0].ticket;
+    allocator.free(dials.items[0].designator);
+    _ = dials.orderedRemove(0);
+    try client.exporterDialed(ticket, dialed);
+
+    // The pre-minted vow settles through the action queue, naming the widget.
+    // Drain by hand: the shared `drainActions` swallows completions, and this
+    // one is the whole point.
+    var saw_parked = false;
+    var rounds: usize = 0;
+    while (rounds < 64) : (rounds += 1) {
+        const moved = try shuttleAll(&.{ pair, second_pair });
+        var acted = false;
+        for ([_]*Host{ &client, &second }) |host| {
+            while (try host.nextAction()) |action| {
+                acted = true;
+                switch (action) {
+                    .settled => |s| if (s.vow_id == parked_vow) {
+                        try std.testing.expect(s.value == .reference);
+                        saw_parked = true;
+                    },
+                    else => {},
+                }
+            }
+        }
+        if (!moved and !acted) break;
+    }
+    try std.testing.expect(saw_parked);
+}
+
+test "core host: a select-or-dial enliven breaks when its staged dial fails" {
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |d| allocator.free(d.designator);
+        dials.deinit(allocator);
+    }
+
+    const parked_vow = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7803", "widget"));
+    _ = try drainActions(allocator, &.{&client}, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    const ticket = dials.items[0].ticket;
+    allocator.free(dials.items[0].designator);
+    _ = dials.orderedRemove(0);
+
+    // The embedder could not open it: the parked vow breaks rather than
+    // stranding, and it breaks host-scoped — no session ever existed.
+    try client.dialFailed(ticket, "connection refused");
+    var broke = false;
+    while (try client.nextAction()) |action| {
+        switch (action) {
+            .failed => |f| if (f.vow_id == parked_vow) {
+                try std.testing.expect(f.peer_id == null);
+                broke = true;
+            },
+            else => {},
+        }
+    }
+    try std.testing.expect(broke);
 }
 
 test "core host: sturdyref peer mismatch and accepted TCP assertion refuse before fetch" {
@@ -306,6 +566,12 @@ test "core host: publish, fetch, and a settled send over fed bytes" {
 /// so a call says *which* registration answered rather than only that one did.
 const Tagged = struct {
     row: *TaggedRow,
+
+    pub fn clone(self: *const Tagged, allocator: std.mem.Allocator) !Tagged {
+        _ = allocator;
+        return .{ .row = self.row };
+    }
+
     pub fn handle(self: *Tagged, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "mutate")) {
@@ -496,6 +762,497 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     try recipient.vowOn(replacement_vow, .{ .ctx = &replacement_reply, .func = CapturedString.record });
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
     try std.testing.expectEqualStrings("replacement", replacement_reply.buf[0..replacement_reply.len]);
+}
+
+test "core host: unpublish removes discovery on every session while issued capabilities and deposited gifts keep the exact actor" {
+    // The alias-only unpublish scenario (ADR-0096): all three required
+    // outcomes in one production Host. Fresh lookup of the removed alias
+    // fails — including on a Port that fetched it before, because the
+    // registry is the one discovery authority and a fetch leaves no
+    // per-session alias copy behind — while a capability issued before
+    // removal remains callable and a gift deposited before removal still
+    // redeems the exact (mutated) actor.
+    const allocator = std.testing.allocator;
+    var exporter = Host.init(allocator, [_]u8{0x1e} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer exporter.deinit();
+    var gifter = Host.init(allocator, [_]u8{0x16} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer gifter.deinit();
+    var recipient = Host.init(allocator, [_]u8{0x1c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer recipient.deinit();
+    const hosts = [_]*Host{ &exporter, &gifter, &recipient };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |parked| allocator.free(parked.designator);
+        dials.deinit(allocator);
+    }
+
+    var widget_freed = false;
+    var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
+    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &widget_row });
+
+    // Gifter dials the exporter, fetches the widget (issuing a capability and
+    // projecting the actor on this Port), and mutates it.
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7021", &dials);
+    var widget = CapturedRef{};
+    try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+    const widget_ref = try widget.require();
+    var mutated = CapturedString{};
+    try gifter.vowOn(try gifter.send(g_to_e.a, widget_ref, .{ .verb = "mutate", .args = &.{} }), .{ .ctx = &mutated, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+    try std.testing.expectEqualStrings("mutated-original", mutated.buf[0..mutated.len]);
+
+    // The introduction deposits the gift on the gifter-facing exporter Port.
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7022", &dials);
+    _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = widget_ref });
+    var introducer = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    const introduce_vow = try recipient.send(r_to_g.a, try introducer.require(), .{ .verb = "introduce", .args = &.{} });
+    var redeemed = CapturedRef{};
+    try recipient.vowOn(introduce_vow, .{ .ctx = &redeemed, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    const parked = dials.items[0];
+
+    // Remove the alias after the deposit and before the recipient's own
+    // exporter session exists. A second removal of the same name is a loud
+    // miss, and the projection query observes the removal too.
+    try exporter.unpublish("widget");
+    try std.testing.expectError(error.UnknownPublication, exporter.unpublish("widget"));
+    try std.testing.expectEqual(@as(?u64, null), try exporter.publishedPosition(g_to_e.b, "widget"));
+
+    // Outcome 1a: a fresh fetch of the removed alias breaks on the Port that
+    // fetched it before — discovery is registry-only, with no session copy.
+    var stale_fetch = CapturedRef{};
+    try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &stale_fetch, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    try std.testing.expect(stale_fetch.broken);
+
+    // Outcome 2: the capability issued before removal remains callable and
+    // still reads the mutated state.
+    var issued = CapturedString{};
+    try gifter.vowOn(try gifter.send(g_to_e.a, widget_ref, .{ .verb = "tag", .args = &.{} }), .{ .ctx = &issued, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    try std.testing.expectEqualStrings("mutated-original", issued.buf[0..issued.len]);
+
+    // Outcome 3: the deposited gift still redeems the exact actor over the
+    // recipient's own exporter session, opened after the removal.
+    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7021", &.{});
+    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const r_to_e = try recipient.openDialedLocator(.{
+        .transport = redeem_view.transport,
+        .designator = redeem_view.designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
+    const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try std.testing.expect(r_to_e.sessionOpen());
+    try recipient.exporterDialed(parked.ticket, r_to_e);
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    const token_ref = try redeemed.require();
+    var exact = CapturedString{};
+    try recipient.vowOn(try recipient.send(r_to_g.a, token_ref, .{ .verb = "tag", .args = &.{} }), .{ .ctx = &exact, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try std.testing.expectEqualStrings("mutated-original", exact.buf[0..exact.len]);
+
+    // Outcome 1b: the removed alias also misses on the fresh Port the redeem
+    // opened, so no session ever resolves it again.
+    var fresh_fetch = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_e, "widget"), .{ .ctx = &fresh_fetch, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try std.testing.expect(fresh_fetch.broken);
+
+    // Alias-only: the actor survives the unpublish through its remaining
+    // roots (the two exporter Ports' export bindings; the consumed gift's
+    // root transferred to the withdraw projection).
+    try std.testing.expect(!widget_freed);
+
+    // A never-fetched alias has only its alias root: unpublish alone reclaims
+    // it (ADR-0101), observed at the next Vat turn boundary.
+    var unfetched_freed = false;
+    var unfetched_row = TaggedRow{ .tag = "unfetched", .freed = &unfetched_freed };
+    _ = try exporter.publishGiftable("unfetched", Tagged, .{ .row = &unfetched_row });
+    try exporter.unpublish("unfetched");
+    var boundary_freed = false;
+    var boundary_row = TaggedRow{ .tag = "boundary", .freed = &boundary_freed };
+    const boundary = try exporter.vat.spawn(Tagged, .{ .row = &boundary_row });
+    _ = try exporter.vat.near(boundary, .{ .verb = "tag" });
+    try std.testing.expect(unfetched_freed);
+
+    // Closing the sessions that project the widget releases the last roots
+    // (each session releases exactly its own retains), and the boundary turn
+    // reclaims the actor before Host teardown.
+    try exporter.releaseSession(g_to_e.b);
+    try exporter.releaseSession(e_accepts_r);
+    _ = try exporter.vat.near(boundary, .{ .verb = "tag" });
+    try std.testing.expect(widget_freed);
+}
+
+/// Spawns one unnamed stateful actor per `make` and replies with it: how a
+/// test obtains a capability to an actor no alias ever named (ADR-0096
+/// evidence item 2).
+const UnnamedMaker = struct {
+    row: *TaggedRow,
+    pub fn handle(self: *UnnamedMaker, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
+        const cap = try driver.spawnAt(turn, Tagged, .{ .row = self.row });
+        return cap.arg();
+    }
+};
+
+test "core host: an unnamed local target deposits and withdraws as the exact mutated actor" {
+    // ADR-0096 evidence item 2: no alias anywhere near the gifted object. The
+    // exporter's maker spawns it unnamed inside a turn; the gifter reaches it
+    // through an ordinary call reply, lifts and re-lowers it through its own
+    // Host to make it routable, mutates it, and introduces it. Withdrawal
+    // projects the exact actor.
+    const allocator = std.testing.allocator;
+    var exporter = Host.init(allocator, [_]u8{0x2e} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer exporter.deinit();
+    var gifter = Host.init(allocator, [_]u8{0x26} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer gifter.deinit();
+    var recipient = Host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer recipient.deinit();
+    const hosts = [_]*Host{ &exporter, &gifter, &recipient };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |parked| allocator.free(parked.designator);
+        dials.deinit(allocator);
+    }
+
+    var widget_freed = false;
+    var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
+    _ = try exporter.publishGiftable("maker", UnnamedMaker, .{ .row = &widget_row });
+
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7031", &dials);
+    var maker = CapturedRef{};
+    try gifter.vowOn(try gifter.fetch(g_to_e.a, "maker"), .{ .ctx = &maker, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+
+    // The unnamed widget arrives in an ordinary call reply, and the gifter
+    // mutates it over that same session.
+    var made = CapturedRef{};
+    try gifter.vowOn(try gifter.send(g_to_e.a, try maker.require(), .{ .verb = "make", .args = &.{} }), .{ .ctx = &made, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+    const made_ref = try made.require();
+    var mutated = CapturedString{};
+    try gifter.vowOn(try gifter.send(g_to_e.a, made_ref, .{ .verb = "mutate", .args = &.{} }), .{ .ctx = &mutated, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+    try std.testing.expectEqualStrings("mutated-original", mutated.buf[0..mutated.len]);
+
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7032", &dials);
+
+    // Lifting the bare reply reference and lowering it onto the
+    // recipient-facing session is what makes it routable for re-gifting —
+    // the same lift/lower seam the owning facade fuses into its argument
+    // walk. The result is a Node token whose home is the exporter session.
+    const lifted = try gifter.liftCapability(g_to_e.a, made_ref);
+    const widget_ref = try gifter.lowerCapability(r_to_g.b, lifted);
+    _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = widget_ref });
+    var introducer = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    var redeemed = CapturedRef{};
+    try recipient.vowOn(try recipient.send(r_to_g.a, try introducer.require(), .{ .verb = "introduce", .args = &.{} }), .{ .ctx = &redeemed, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    const parked = dials.items[0];
+
+    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7031", &.{});
+    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const r_to_e = try recipient.openDialedLocator(.{
+        .transport = redeem_view.transport,
+        .designator = redeem_view.designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
+    const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try recipient.exporterDialed(parked.ticket, r_to_e);
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+
+    // The withdrawn capability is the exact unnamed actor, mutated state and
+    // all. No alias existed for any lookup to consult.
+    const token_ref = try redeemed.require();
+    var exact = CapturedString{};
+    try recipient.vowOn(try recipient.send(r_to_g.a, token_ref, .{ .verb = "tag", .args = &.{} }), .{ .ctx = &exact, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try std.testing.expectEqualStrings("mutated-original", exact.buf[0..exact.len]);
+}
+
+/// A persistent becomer: `bump` installs the next state through `become`, so
+/// two Ports observing one history is the discriminating cross-Port claim
+/// (ADR-0096 evidence item 5's `become` half).
+const Becomer = struct {
+    pub const snapshot_persistent = true;
+    n: i64,
+
+    pub fn handle(self: *const Becomer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
+        if (std.mem.eql(u8, msg.verb, "bump")) {
+            try turn.become(Becomer, .{ .n = self.n + 1 });
+            return .{ .integer = self.n + 1 };
+        }
+        return error.NoSuchMethod;
+    }
+};
+
+test "core host: one actor's become history is observed across two Ports" {
+    const allocator = std.testing.allocator;
+    var server = Host.init(allocator, [_]u8{0x3a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var alice = Host.init(allocator, [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer alice.deinit();
+    var bob = Host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer bob.deinit();
+    const hosts = [_]*Host{ &server, &alice, &bob };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    _ = try server.publishGiftable("counter", Becomer, .{ .n = 0 });
+    const a = try openPair(allocator, &alice, &server, "127.0.0.1:7041", &dials);
+    const b = try openPair(allocator, &bob, &server, "127.0.0.1:7042", &dials);
+    var a_cap = CapturedRef{};
+    try alice.vowOn(try alice.fetch(a.a, "counter"), .{ .ctx = &a_cap, .func = CapturedRef.record });
+    var b_cap = CapturedRef{};
+    try bob.vowOn(try bob.fetch(b.a, "counter"), .{ .ctx = &b_cap, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+
+    const CapturedInt = struct {
+        value: ?i64 = null,
+        fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            if (resolution == .fulfilled and resolution.fulfilled == .integer)
+                self.value = resolution.fulfilled.integer;
+        }
+    };
+
+    // Alice's bump becomes n=1; Bob reads the installed history, not a copy.
+    var bumped = CapturedInt{};
+    try alice.vowOn(try alice.send(a.a, try a_cap.require(), .{ .verb = "bump", .args = &.{} }), .{ .ctx = &bumped, .func = CapturedInt.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expectEqual(@as(?i64, 1), bumped.value);
+    var bob_read = CapturedInt{};
+    try bob.vowOn(try bob.send(b.a, try b_cap.require(), .{ .verb = "get", .args = &.{} }), .{ .ctx = &bob_read, .func = CapturedInt.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expectEqual(@as(?i64, 1), bob_read.value);
+
+    // And the other direction: Bob's bump lands in the history Alice reads.
+    var bob_bump = CapturedInt{};
+    try bob.vowOn(try bob.send(b.a, try b_cap.require(), .{ .verb = "bump", .args = &.{} }), .{ .ctx = &bob_bump, .func = CapturedInt.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expectEqual(@as(?i64, 2), bob_bump.value);
+    var alice_read = CapturedInt{};
+    try alice.vowOn(try alice.send(a.a, try a_cap.require(), .{ .verb = "get", .args = &.{} }), .{ .ctx = &alice_read, .func = CapturedInt.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expectEqual(@as(?i64, 2), alice_read.value);
+}
+
+test "core host: a target reached directly and through handoff lifts to one Host identity" {
+    // ADR-0096 evidence item 7, the positive remote half of target
+    // pass-invariant equality: both paths explicitly use the same live
+    // exporter session, so the canonical import row makes the two arrivals
+    // one opaque identity.
+    const allocator = std.testing.allocator;
+    var exporter = Host.init(allocator, [_]u8{0x4e} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer exporter.deinit();
+    var gifter = Host.init(allocator, [_]u8{0x46} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer gifter.deinit();
+    var recipient = Host.init(allocator, [_]u8{0x4c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer recipient.deinit();
+    const hosts = [_]*Host{ &exporter, &gifter, &recipient };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |parked| allocator.free(parked.designator);
+        dials.deinit(allocator);
+    }
+
+    var widget_freed = false;
+    var widget_row = TaggedRow{ .tag = "original", .freed = &widget_freed };
+    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &widget_row });
+
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7051", &dials);
+    var widget = CapturedRef{};
+    try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7052", &dials);
+    _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = try widget.require() });
+    var introducer = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    var redeemed = CapturedRef{};
+    try recipient.vowOn(try recipient.send(r_to_g.a, try introducer.require(), .{ .verb = "introduce", .args = &.{} }), .{ .ctx = &redeemed, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    const parked = dials.items[0];
+
+    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7051", &.{});
+    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const r_to_e = try recipient.openDialedLocator(.{
+        .transport = redeem_view.transport,
+        .designator = redeem_view.designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
+    const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try recipient.exporterDialed(parked.ticket, r_to_e);
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    const token_ref = try redeemed.require();
+
+    // The same target, reached the other way: an ordinary fetch over the very
+    // session the redeem opened.
+    var direct = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_e, "widget"), .{ .ctx = &direct, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+
+    // Both arrivals lift to one canonical opaque identity and compare Equal.
+    const via_handoff = try recipient.liftCapability(r_to_g.a, token_ref);
+    const via_fetch = try recipient.liftCapability(r_to_e, try direct.require());
+    try std.testing.expect(via_handoff.eql(via_fetch));
+}
+
+test "core host: restore under two live sessions breaks only the missing target's answers" {
+    // ADR-0096 evidence item 10. The Vat state rewinds; sessions, positions,
+    // and authority do not. A target created after the snapshot vanishes on
+    // restore: an answered delivery to its export breaks with the typed
+    // missing-actor reason, a fresh answered delivery does the same rather
+    // than retargeting, and both sessions keep serving.
+    const allocator = std.testing.allocator;
+    var server = Host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var alice = Host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer alice.deinit();
+    var bob = Host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer bob.deinit();
+    const hosts = [_]*Host{ &server, &alice, &bob };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    var stable_freed = false;
+    var stable_row = TaggedRow{ .tag = "stable", .freed = &stable_freed };
+    _ = try server.publishGiftable("stable", Tagged, .{ .row = &stable_row });
+
+    const a = try openPair(allocator, &alice, &server, "127.0.0.1:7043", &dials);
+    const b = try openPair(allocator, &bob, &server, "127.0.0.1:7044", &dials);
+    var stable_cap = CapturedRef{};
+    try alice.vowOn(try alice.fetch(a.a, "stable"), .{ .ctx = &stable_cap, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+
+    var snap = try server.vat.snapshot();
+    defer snap.deinit();
+
+    // Spawned after the snapshot and projected on Bob's Port.
+    var late_freed = false;
+    var late_row = TaggedRow{ .tag = "late", .freed = &late_freed };
+    _ = try server.publishGiftable("late", Tagged, .{ .row = &late_row });
+    var late_cap = CapturedRef{};
+    try bob.vowOn(try bob.fetch(b.a, "late"), .{ .ctx = &late_cap, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    const late_ref = try late_cap.require();
+
+    try server.vat.restore(&snap);
+
+    // An answered delivery to the vanished target breaks its answer with the
+    // typed reason; the session stays open.
+    var broke = CapturedRef{};
+    try bob.vowOn(try bob.send(b.a, late_ref, .{ .verb = "tag", .args = &.{} }), .{ .ctx = &broke, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expect(broke.broken);
+    try std.testing.expect(std.mem.indexOf(u8, broke.reason_buf[0..broke.reason_len], "NoSuchActor") != null);
+    try std.testing.expect(b.a.sessionOpen() and b.b.sessionOpen());
+
+    // The position never retargets: a second delivery breaks the same way.
+    var still_broke = CapturedRef{};
+    try bob.vowOn(try bob.send(b.a, late_ref, .{ .verb = "tag", .args = &.{} }), .{ .ctx = &still_broke, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expect(still_broke.broken);
+
+    // Both sessions keep serving: the surviving target answers on Alice's.
+    var alive = CapturedString{};
+    try alice.vowOn(try alice.send(a.a, try stable_cap.require(), .{ .verb = "tag", .args = &.{} }), .{ .ctx = &alive, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ a, b }, &dials);
+    try std.testing.expectEqualStrings("stable", alive.buf[0..alive.len]);
+}
+
+test "core host: durable and mutable swiss namespaces are disjoint, and a removed durable name misses across restart" {
+    // ADR-0098 evidence item 5. The reserved prefix is the cross-restart
+    // invariant: mutable binds refuse it structurally, the durable mint
+    // produces only names inside it, removal reclaims the row, and a fresh
+    // Host (the restart) simply misses — no tombstone anywhere.
+    const allocator = std.testing.allocator;
+    var server = Host.init(allocator, [_]u8{0x6a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var client = Host.init(allocator, [_]u8{0x6b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    // Structural refusal at every mutable bind: the host-wide alias verb and
+    // the session-level bootstrap bind both refuse the reserved prefix.
+    var decoy_freed = false;
+    var decoy_row = TaggedRow{ .tag = "decoy", .freed = &decoy_freed };
+    try std.testing.expectError(
+        error.ReservedDurableNamespace,
+        server.publishGiftable("pancake-durable-1-not-actually-minted", Tagged, .{ .row = &decoy_row }),
+    );
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7071", &dials);
+    try std.testing.expectError(
+        error.ReservedDurableNamespace,
+        pair.b.served.publish(&pair.b.host.vat, "pancake-durable-1-still-not-minted", Tagged, .{ .row = &decoy_row }),
+    );
+
+    // Mint a durable name and reach it over the wire like any published name.
+    var kept_freed = false;
+    var kept_row = TaggedRow{ .tag = "durable", .freed = &kept_freed };
+    const minted = try server.publishDurable([_]u8{0xab} ** 16, Tagged, .{ .row = &kept_row });
+    try std.testing.expect(pancake.ocapn.session.Session.isDurableSwiss(minted.slice()));
+    var fetched = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, minted.slice()), .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    _ = try fetched.require();
+
+    // The two removal verbs refuse each other's namespace, and a durable
+    // name is never reassignable: a second mint from the same entropy fails
+    // loud instead of retargeting.
+    try std.testing.expectError(error.ReservedDurableNamespace, server.unpublish(minted.slice()));
+    try std.testing.expectError(error.NotDurableName, server.removeDurable("plain-alias"));
+    var usurper_freed = false;
+    var usurper_row = TaggedRow{ .tag = "usurper", .freed = &usurper_freed };
+    try std.testing.expectError(
+        error.DurableNameCollision,
+        server.publishDurable([_]u8{0xab} ** 16, Tagged, .{ .row = &usurper_row }),
+    );
+
+    // Removal reclaims the row: a fresh fetch of the old sturdyref misses,
+    // and a fresh mint does not reuse the removed bytes.
+    try server.removeDurable(minted.slice());
+    var missed = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, minted.slice()), .{ .ctx = &missed, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(missed.broken);
+    const reminted = try server.publishDurable([_]u8{0xcd} ** 16, Tagged, .{ .row = &kept_row });
+    try std.testing.expect(!std.mem.eql(u8, reminted.slice(), minted.slice()));
+
+    // The restart: a fresh Host with an empty durable registry. The old
+    // sturdyref misses rather than retargets, and a mutable alias still
+    // cannot squat the durable bytes.
+    var restarted = Host.init(allocator, [_]u8{0x6a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer restarted.deinit();
+    var client2 = Host.init(allocator, [_]u8{0x6c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client2.deinit();
+    try std.testing.expectError(
+        error.ReservedDurableNamespace,
+        restarted.publishGiftable(minted.slice(), Tagged, .{ .row = &decoy_row }),
+    );
+    const pair2 = try openPair(allocator, &client2, &restarted, "127.0.0.1:7072", &dials);
+    var restart_miss = CapturedRef{};
+    try client2.vowOn(try client2.fetch(pair2.a, minted.slice()), .{ .ctx = &restart_miss, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client2, &restarted }, &.{pair2}, &dials);
+    try std.testing.expect(restart_miss.broken);
 }
 
 test "core host: closing the gifter session destroys its deposited gifts and breaks later withdraw" {
@@ -1122,6 +1879,217 @@ test "core host: crossed dials with mismatched designator spellings keep one key
     try std.testing.expectEqual(@as(usize, 0), b.partner_by_side.count());
 }
 
+test "session identity: crossed-hello ordering is per connection, and duplicate collapse is not yet" {
+    // ADR-0097 evidence item 9. The tiebreak is two operations over two
+    // different identities, and fresh session keys are what force them apart:
+    //
+    //   * matching asks *which two attempts are racing*, and that is a
+    //     question about the durable peer — both connections name the same one;
+    //   * ordering asks *which one survives*, and that is a question about
+    //     session identity — the two connections' own keys.
+    //
+    // While every session reused its host's durable key one value answered
+    // both, so the split was invisible and a wrong reading still worked. Here
+    // each host draws per-session keys, so the durable identities are equal on
+    // both racing connections and cannot order anything; only the session ids
+    // can. Both ends must still converge on the same survivor.
+    const allocator = std.testing.allocator;
+    var a_opts = Host.Options.withFrameCap(frame_cap);
+    a_opts.session_seeds = .{ .rooted = [_]u8{0xd1} ** crypto.SEED_BYTES };
+    var b_opts = Host.Options.withFrameCap(frame_cap);
+    b_opts.session_seeds = .{ .rooted = [_]u8{0xd2} ** crypto.SEED_BYTES };
+    var a = Host.init(allocator, [_]u8{0x01} ** 32, a_opts);
+    defer a.deinit();
+    var b = Host.init(allocator, [_]u8{0xff} ** 32, b_opts);
+    defer b.deinit();
+
+    // Each side accepts on the address the other dials, so both crossed-hellos
+    // tables match by durable peer and each end runs the tiebreak itself.
+    const a_accept = try a.openAccepted("tcp", "127.0.0.1:9100", &.{});
+    const b_accept = try b.openAccepted("tcp", "127.0.0.1:9101", &.{});
+    const a_dialed = try a.openDialedLocator(tcpLocator("127.0.0.1:9101"));
+    const b_dialed = try b.openDialedLocator(tcpLocator("127.0.0.1:9100"));
+
+    // The teeth: no connection's session key is its host's durable key, so a
+    // tiebreak reading durable keys would be comparing values this race never
+    // uses — and, being equal across both of a host's connections, could not
+    // order them anyway. These assertions fail under key reuse.
+    const a_durable = crypto.derivePublicIdentifier(a.node.secretKey().publicKey());
+    const b_durable = crypto.derivePublicIdentifier(b.node.secretKey().publicKey());
+    const a_dial_id = crypto.derivePublicIdentifier(a_dialed.sessionSecret().publicKey());
+    const b_dial_id = crypto.derivePublicIdentifier(b_dialed.sessionSecret().publicKey());
+    try std.testing.expect(!std.mem.eql(u8, &a_dial_id.bytes, &a_durable.bytes));
+    try std.testing.expect(!std.mem.eql(u8, &b_dial_id.bytes, &b_durable.bytes));
+    // And a host's own two connections differ from each other, which is what
+    // makes "which session" a real question rather than a restatement of
+    // "which host".
+    const a_accept_id = crypto.derivePublicIdentifier(a_accept.sessionSecret().publicKey());
+    try std.testing.expect(!std.mem.eql(u8, &a_dial_id.bytes, &a_accept_id.bytes));
+
+    var a_hello = (try a_dialed.takeOutbound()) orelse return error.MissingAHello;
+    defer a_hello.deinit();
+    var b_hello = (try b_dialed.takeOutbound()) orelse return error.MissingBHello;
+    defer b_hello.deinit();
+    var a_accept_hello = (try a_accept.takeOutbound()) orelse return error.MissingAAcceptHello;
+    defer a_accept_hello.deinit();
+    var b_accept_hello = (try b_accept.takeOutbound()) orelse return error.MissingBAcceptHello;
+    defer b_accept_hello.deinit();
+
+    // Cross-feed: each dialed hello lands on the peer's accepted session, and
+    // each accepted hello lands on the peer's dialed session.
+    try b.feed(b_accept, a_hello.view());
+    try a.feed(a_accept, b_hello.view());
+    try b.feed(b_dialed, a_accept_hello.view());
+    try a.feed(a_dialed, b_accept_hello.view());
+
+    // `tcp` proves no durable identity, so there is nothing here a collapse
+    // may match on: a partner's declared location is a claim, and pancake
+    // refuses to condemn a live session on one — the same refusal
+    // `liveSessionForDial` makes, and for the same squatting reason. The
+    // crossed-hellos declared-location match is this transport's only
+    // collapse, with the weakness ADR-0030 states; these dialers sign the
+    // unreachable-client placeholder, so it does not fire. The keyed sibling
+    // below is where collapse is proved.
+    try std.testing.expect(!a_accept.condemned and !a_dialed.condemned);
+    try std.testing.expect(!b_accept.condemned and !b_dialed.condemned);
+
+    try a.releaseSession(a_accept);
+    try a.releaseSession(a_dialed);
+    try b.releaseSession(b_accept);
+    try b.releaseSession(b_dialed);
+}
+
+test "session identity: a crossed pair on a keyed transport collapses to the same survivor on both ends" {
+    // ADR-0097 evidence item 9, the half that needs a proved durable identity.
+    // Two hosts reach each other twice over `keyed-tcp`, each connection
+    // signing with its own key. The duplicate is invisible to session identity
+    // — four connections, four different keys — so collapse has to recognise
+    // the peer by the durable name its hello proves, and both ends have to
+    // reach the same verdict or one would talk into a session the other
+    // condemned.
+    const allocator = std.testing.allocator;
+    const a_seed = [_]u8{0x01} ** 32;
+    const b_seed = [_]u8{0xff} ** 32;
+    var a_opts = Host.Options.withFrameCap(frame_cap);
+    a_opts.session_seeds = .{ .rooted = [_]u8{0xe1} ** crypto.SEED_BYTES };
+    var b_opts = Host.Options.withFrameCap(frame_cap);
+    b_opts.session_seeds = .{ .rooted = [_]u8{0xe2} ** crypto.SEED_BYTES };
+    var a = Host.init(allocator, a_seed, a_opts);
+    defer a.deinit();
+    var b = Host.init(allocator, b_seed, b_opts);
+    defer b.deinit();
+
+    const a_designator = crypto.SecretKey.fromSeed(a_seed).publicKey().toDesignator();
+    const b_designator = crypto.SecretKey.fromSeed(b_seed).publicKey().toDesignator();
+
+    // Each host declares its own durable identity, so its *dials* advertise
+    // that name too. Without this a dialer signs the unreachable-client
+    // placeholder, which names no durable peer — and a host that never says
+    // who it is genuinely has no identity for a partner to collapse on, which
+    // is the same honest boundary the address-transport sibling records.
+    try a.setSelfDesignator(a_designator[0..]);
+    try b.setSelfDesignator(b_designator[0..]);
+
+    // Each host accepts under its own durable identity and dials the other's,
+    // so both hellos advertise a durable name the partner can hold them to.
+    const a_accept = try a.openAccepted("keyed-tcp", a_designator[0..], "127.0.0.1:9200");
+    const b_accept = try b.openAccepted("keyed-tcp", b_designator[0..], "127.0.0.1:9201");
+    const a_dialed = try a.openDialedLocator(.{
+        .transport = "keyed-tcp",
+        .designator = b_designator[0..],
+        .hints = model.Hints.emptyFalse(),
+    });
+    const b_dialed = try b.openDialedLocator(.{
+        .transport = "keyed-tcp",
+        .designator = a_designator[0..],
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    // The teeth: all four connections carry distinct session keys, so nothing
+    // below can be explained by two of them sharing one.
+    const ids = [_][32]u8{
+        crypto.derivePublicIdentifier(a_accept.sessionSecret().publicKey()).bytes,
+        crypto.derivePublicIdentifier(a_dialed.sessionSecret().publicKey()).bytes,
+        crypto.derivePublicIdentifier(b_accept.sessionSecret().publicKey()).bytes,
+        crypto.derivePublicIdentifier(b_dialed.sessionSecret().publicKey()).bytes,
+    };
+    for (ids, 0..) |left, i| {
+        for (ids[i + 1 ..]) |right| try std.testing.expect(!std.mem.eql(u8, &left, &right));
+    }
+
+    var a_hello = (try a_dialed.takeOutbound()) orelse return error.MissingAHello;
+    defer a_hello.deinit();
+    var b_hello = (try b_dialed.takeOutbound()) orelse return error.MissingBHello;
+    defer b_hello.deinit();
+    var a_accept_hello = (try a_accept.takeOutbound()) orelse return error.MissingAAcceptHello;
+    defer a_accept_hello.deinit();
+    var b_accept_hello = (try b_accept.takeOutbound()) orelse return error.MissingBAcceptHello;
+    defer b_accept_hello.deinit();
+
+    try b.feed(b_accept, a_hello.view());
+    try a.feed(a_accept, b_hello.view());
+    try b.feed(b_dialed, a_accept_hello.view());
+    try a.feed(a_dialed, b_accept_hello.view());
+
+    // Each host keeps exactly one of its two connections...
+    try std.testing.expect(a_accept.condemned != a_dialed.condemned);
+    try std.testing.expect(b_accept.condemned != b_dialed.condemned);
+    // ...and the two survivors are the two ends of the same connection, which
+    // is the property that makes a crossed pair collapse rather than leave two
+    // half-open sessions.
+    try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
+    try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+
+    try a.releaseSession(a_accept);
+    try a.releaseSession(a_dialed);
+    try b.releaseSession(b_accept);
+    try b.releaseSession(b_dialed);
+}
+
+test "durable publication: a sturdyref issued before a restart still names a live object after it" {
+    // What "durable bootstrap" actually requires of the library, and where the
+    // storage belongs. The core is sync and no-I/O, so it cannot own a file;
+    // what it owes instead is that a durable name be *reproducible*, and
+    // `mintDurableSwiss` is a pure function of the caller's 16 entropy bytes.
+    // An embedder that keeps those bytes therefore rebuilds the identical
+    // sturdyref after a restart, and re-binds it to a freshly spawned actor.
+    // The persistence is the embedder's, which is the only place it can be.
+    const allocator = std.testing.allocator;
+    const seed = [_]u8{0x7d} ** 32;
+    const entropy = [_]u8{0x5e} ** engine.durable_swiss_entropy_len;
+
+    // Before the restart: publish, and keep the sturdyref a caller was handed.
+    var issued: [engine.durable_swiss_len]u8 = undefined;
+    {
+        var host = Host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+        defer host.deinit();
+        const swiss = try host.publishDurable(entropy, Widget, .{});
+        issued = swiss.bytes;
+    }
+
+    // The restart: a new process, the same durable identity, the same stored
+    // entropy, a new actor behind the name.
+    var host = Host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const rebound = try host.publishDurable(entropy, Widget, .{});
+
+    // The name a caller is still holding resolves to the rebound object.
+    try std.testing.expectEqualSlices(u8, &issued, &rebound.bytes);
+
+    // And it is a live publication on this host, not merely an equal string:
+    // a partner session fetching that swiss reaches the actor.
+    var client = Host.init(allocator, [_]u8{0x7e} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &host, "127.0.0.1:7331", &dials);
+    var captured = CapturedRef{};
+    const vow = try client.fetch(pair.a, &issued);
+    try client.vowOn(vow, .{ .ctx = &captured, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &host }, &.{pair}, &dials);
+    _ = try captured.require();
+}
+
 test "core host: vow rows retire on settle; the map stays empty and release frees the rest" {
     const allocator = std.testing.allocator;
     var client = Host.init(allocator, [_]u8{0x4a} ** 32, Host.Options.withFrameCap(frame_cap));
@@ -1429,7 +2397,7 @@ test "designatorSchemeForTransport maps iroh and keyed-tcp to key" {
     try std.testing.expectEqual(driver.core.DesignatorScheme.address, driver.core.designatorSchemeForTransport("tcp"));
 }
 
-test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMismatch" {
+test "byte-fed iroh dial pin: a hello claiming another identity is refused; a same-name forgery is unproven" {
     const allocator = std.testing.allocator;
 
     const honest_seed = [_]u8{0x41} ** 32;
@@ -1438,7 +2406,8 @@ test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMism
     var uri_buf: [96]u8 = undefined;
     const uri = try std.fmt.bufPrint(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
 
-    // Happy path: acceptor Host seed ≡ dialed iroh designator → pin holds.
+    // Happy path: the acceptor advertises the dialed identity, so the dialer's
+    // claim pin holds and the session opens.
     {
         var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
@@ -1458,7 +2427,34 @@ test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMism
         try std.testing.expect(accepted.sessionOpen());
     }
 
-    // Negative: acceptor signs with a different key under the dialed designator.
+    // A peer advertising a *different* identity than the one dialed is refused
+    // before the session opens — the claim pin, which is what survives fresh
+    // session keys (ADR-0097).
+    {
+        const other_seed = [_]u8{0x43} ** 32;
+        const other_designator = crypto.SecretKey.fromSeed(other_seed).publicKey().toDesignator();
+        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+        defer dialer.deinit();
+        var acceptor = Host.init(allocator, other_seed, Host.Options.withFrameCap(frame_cap));
+        defer acceptor.deinit();
+
+        const accepted = try acceptor.openAccepted("iroh", other_designator[0..], &.{});
+        const loc = try model.uri.parsePeer(allocator, uri);
+        defer model.freePeerLocator(allocator, loc);
+        const dialed = try dialer.openDialedLocator(loc);
+        var hello = accepted.served.port.peer.takeOutbound().?;
+        defer hello.deinit();
+        try std.testing.expectError(error.PartnerDesignatorMismatch, dialer.feed(dialed, hello.view()));
+        try std.testing.expect(!dialed.sessionOpen());
+    }
+
+    // A peer that advertises the dialed identity while signing with another
+    // key is *not* caught in band, and must not be reported as though it were.
+    // Under fresh session keys a session key is not an identity, so equality
+    // proves nothing; what proves an iroh peer is its QUIC handshake, which a
+    // byte-fed Host only has if its embedder supplies it. With no proof
+    // supplied the session reports `unauthenticated`, and every API that
+    // requires a proved durable peer refuses on that.
     {
         const squatter_seed = [_]u8{0x42} ** 32;
         var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
@@ -1470,13 +2466,20 @@ test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMism
         const loc = try model.uri.parsePeer(allocator, uri);
         defer model.freePeerLocator(allocator, loc);
         const dialed = try dialer.openDialedLocator(loc);
-        // Drive the acceptor's hello onto the dialer: the pin refuses before
-        // the session opens.
-        _ = try accepted.served.driveFed(&accepted.host.vat);
-        var hello = (try accepted.takeOutbound()) orelse return error.NoAcceptorHello;
+        var hello = accepted.served.port.peer.takeOutbound().?;
         defer hello.deinit();
-        try std.testing.expectError(error.PartnerKeyMismatch, dialer.feed(dialed, hello.view()));
-        try std.testing.expect(!dialed.sessionOpen());
+        try dialer.feed(dialed, hello.view());
+
+        const seen = try dialer.partnerIdentity(dialed);
+        try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, seen.provenance);
+        try std.testing.expect(!seen.durableIdentityAuthenticated());
+
+        // A sturdyref for that peer therefore refuses rather than enlivening
+        // against an identity nothing proved.
+        try std.testing.expectError(
+            error.PeerIdentityUnverified,
+            dialer.enliven(dialed, .{ .peer = loc, .swissnum = "s" }),
+        );
     }
 }
 
@@ -1661,7 +2664,7 @@ test "cross-session: a capability minted on one session is refused as an argumen
     // a colliding row the position is simply absent and any existence check
     // catches it, which is why this class hides.
     const foreign = try second.a.served.spawn(&second.a.host.vat, Pad, .{});
-    var pads: [8]driver.core.Capability = undefined;
+    var pads: [8]driver.core.Exported = undefined;
     for (&pads) |*p| p.* = try first.a.served.spawn(&first.a.host.vat, Pad, .{});
 
     // The property being proven: no pad on this session can ever wear the
@@ -1710,7 +2713,7 @@ test "cross-session: a capability minted on one session is refused as a send tar
     // passing it: the position names one of this session's own objects, or
     // nothing. Either way it is not the actor being held.
     const foreign = try second.a.served.spawn(&second.a.host.vat, Pad, .{});
-    var pads: [4]driver.core.Capability = undefined;
+    var pads: [4]driver.core.Exported = undefined;
     for (&pads) |*p| p.* = try first.a.served.spawn(&first.a.host.vat, Pad, .{});
 
     try std.testing.expectError(
@@ -1739,7 +2742,7 @@ test "cross-session: a capability minted under one host is refused on another ho
     const r = try openPair(allocator, &right, &right_partner, "127.0.0.1:7422", &dials);
 
     const under_left = try l.a.served.spawn(&l.a.host.vat, Pad, .{});
-    var pads: [4]driver.core.Capability = undefined;
+    var pads: [4]driver.core.Exported = undefined;
     for (&pads) |*p| p.* = try r.a.served.spawn(&r.a.host.vat, Pad, .{});
     for (pads) |p| {
         try std.testing.expect(p.position != under_left.position);
@@ -1963,6 +2966,12 @@ test "partner identity: a verified tcp session reports the key its handshake pro
     // does not determine it, so the key question has no claim to make here and
     // false is the correct answer rather than a failure.
     try std.testing.expect(!seen.designatorIsSessionKey());
+
+    // And the three facts stay distinct (ADR-0097): an address transport
+    // proves no durable identity, so provenance says so rather than the
+    // caller inferring it from the diagnostic above.
+    try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, seen.provenance);
+    try std.testing.expect(!seen.durableIdentityAuthenticated());
 }
 
 test "partner identity: a keyed-tcp partner proves it owns the designator it advertised" {
@@ -1996,6 +3005,145 @@ test "partner identity: a keyed-tcp partner proves it owns the designator it adv
     // The comparison is over canonical hex, not raw key bytes: the designator
     // is twice the key's length, so a raw-bytes comparison cannot match.
     try std.testing.expectEqual(seen.session_key.len * 2, seen.designator.len);
+
+    // The load-bearing fact is the provenance, not that equality (ADR-0097):
+    // keyed-tcp has no lower-layer proof, so what authenticated this durable
+    // name is the hello's credential. `designatorIsSessionKey` is a
+    // coincidence of today's key reuse and will answer false here once each
+    // connection draws a fresh session key, while this stays true.
+    try std.testing.expectEqual(driver.core.DurableProvenance.durable_key_attestation, seen.provenance);
+    try std.testing.expect(seen.durableIdentityAuthenticated());
+}
+
+test "session identity: a host signs each session with that session's own key" {
+    // ADR-0097 step 4's structural half. Which key signs a session is one
+    // named source (`SessionSeedSource`), and every consumer — the keyed hello
+    // and the handoff records naming the session — reads it through the
+    // session rather than reaching for the node's durable key. Pointing the
+    // source at distinct per-session seeds is the whole of the fresh-key
+    // switch, so this drives it to prove the seam actually carries.
+    const allocator = std.testing.allocator;
+
+    var opts = Host.Options.withFrameCap(frame_cap);
+    opts.session_seeds = .{ .rooted = [_]u8{0xa1} ** crypto.SEED_BYTES };
+    const durable_seed = [_]u8{0x4a} ** 32;
+    var host = Host.init(allocator, durable_seed, opts);
+    defer host.deinit();
+
+    // Two connections accepted on one listener, which is the simultaneous case
+    // a real host sees: same advertised identity, different sessions.
+    const first = try host.openAccepted("tcp", "127.0.0.1:7301", &.{});
+    const second = try host.openAccepted("tcp", "127.0.0.1:7301", &.{});
+
+    // Two sessions in one host, two different signing keys — and neither is
+    // the host's durable key, which stays the node's own identity.
+    const durable = crypto.SecretKey.fromSeed(durable_seed).publicKey();
+    const first_key = first.sessionSecret().publicKey();
+    const second_key = second.sessionSecret().publicKey();
+    try std.testing.expect(!first_key.eql(second_key));
+    try std.testing.expect(!first_key.eql(durable));
+    try std.testing.expect(!second_key.eql(durable));
+
+    // And the hello each session signed carries its own key, so the seam
+    // reaches the wire rather than stopping at the accessor.
+    var frame = first.served.port.peer.takeOutbound().?;
+    defer frame.deinit();
+    const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+    try std.testing.expectEqualSlices(u8, first_key.asBytes(), view.start_session.session_pubkey);
+
+    // Both sessions are open at once, so this is the simultaneous case and not
+    // two successive ones reusing a slot (ADR-0097 item 1). What stays equal
+    // across them is the durable identity: each advertises the host's own
+    // designator, which is the name a partner knows this host by, while the
+    // keys above differ per connection.
+    var second_frame = second.served.port.peer.takeOutbound().?;
+    defer second_frame.deinit();
+    const second_view = try pancake.ocapn.codec.syrup.decodeBody(second_frame.view());
+    try std.testing.expectEqualSlices(u8, second_key.asBytes(), second_view.start_session.session_pubkey);
+    try std.testing.expectEqualStrings(
+        view.start_session.acceptable_location.designator,
+        second_view.start_session.acceptable_location.designator,
+    );
+}
+
+test "session identity: a give is signed by its session's key, not the host's durable key" {
+    // The deepest coupling ADR-0097 step 4 has to move. A `desc:handoff-give`
+    // names the gifter-exporter *session*, so its `gifter_side` must derive
+    // from that session's key. While every session reuses its host's durable
+    // key the two are the same bytes and a durable-key signature looks
+    // correct; under distinct per-session keys they diverge, and only a
+    // genuinely session-scoped signer still names the side the exporter
+    // derives from the key it verified.
+    const allocator = std.testing.allocator;
+
+    var opts = Host.Options.withFrameCap(frame_cap);
+    opts.session_seeds = .{ .rooted = [_]u8{0xb1} ** crypto.SEED_BYTES };
+    const durable_seed = [_]u8{0x4b} ** 32;
+    var gifter = Host.init(allocator, durable_seed, opts);
+    defer gifter.deinit();
+    var exporter = Host.init(allocator, [_]u8{0x4c} ** 32, opts);
+    defer exporter.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7311", &dials);
+
+    // The gifter's side of this session, as the exporter will derive it: from
+    // the key that signed the hello it verified.
+    const session_key = pair.b.served.port.peer.session_state.partnerSessionKey().?;
+    const from_session = try engine.handoff_names.sideName(session_key);
+    const durable = crypto.SecretKey.fromSeed(durable_seed).publicKey();
+    const from_durable = try engine.handoff_names.sideName(durable.asBytes());
+
+    // The two really are different names here, so the assertion below has
+    // teeth rather than passing on coincidence.
+    try std.testing.expect(!std.mem.eql(u8, &from_session, &from_durable));
+
+    // And the key the node signs this session's handoff records with is the
+    // session's own, so the side it writes is `from_session`.
+    const signer = pair.a.sessionSecret().publicKey();
+    try std.testing.expectEqualSlices(u8, session_key, signer.asBytes());
+}
+
+test "partner identity: an authenticated transport reports transport provenance on both legs" {
+    // The three provenances are selected by the transport's mechanism, not by
+    // a key-shaped designator (ADR-0097). `iroh` is an authenticated-transport
+    // row, so a session whose adapter installed the verified binding reports
+    // that mechanism — and a session on the same transport where no binding
+    // was installed reports `unauthenticated` rather than inferring proof from
+    // the designator's shape.
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    const server_seed = [_]u8{0x3d} ** 32;
+    var server = Host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const designator = keyedDesignator(server_seed);
+    const accepted = try server.openAccepted("iroh", &designator, &.{});
+    const dialed = try client.openDialedLocator(.{
+        .transport = "iroh",
+        .designator = &designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    // What the iroh adapter installs off the QUIC handshake; the byte-fed core
+    // is handed the proof rather than inferring one.
+    dialed.served.port.peer.expectPartnerDurableKey(crypto.SecretKey.fromSeed(server_seed).publicKey(), .transport_verified);
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+
+    const bound = try client.partnerIdentity(pair.a);
+    try std.testing.expectEqual(driver.core.DurableProvenance.authenticated_transport, bound.provenance);
+    try std.testing.expect(bound.durableIdentityAuthenticated());
+
+    // The acceptor's side had no binding installed (nothing proved the dialer
+    // to it), so it reports the honest absence.
+    const unbound = try server.partnerIdentity(pair.b);
+    try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, unbound.provenance);
+    try std.testing.expect(!unbound.durableIdentityAuthenticated());
 }
 
 test "partner identity: a session that does not verify its partner reports no identity" {
@@ -2464,4 +3612,151 @@ test "listen: an unsettled listen vow breaks when its session goes" {
     try client.releaseSession(pair.a);
     try std.testing.expect(broke);
     try server.releaseSession(pair.b);
+}
+
+/// A behavior that defers its answer onto a resolver vow (ADR-0102) and
+/// parks the pair's ids for the test body — the stand-in for a worker that
+/// completes off-turn.
+const Deferring = struct {
+    host: *Host,
+    out_resolver: *u64,
+    out_vow: *u64,
+
+    pub fn handle(self: *Deferring, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        if (!std.mem.eql(u8, msg.verb, "work")) return error.NoSuchMethod;
+        const pair = try self.host.spawnResolver();
+        try self.host.turnForwardVow(turn, pair.vow_id);
+        self.out_resolver.* = pair.resolver_id;
+        self.out_vow.* = pair.vow_id;
+        return .{ .void = {} };
+    }
+};
+
+test "core host: a behavior defers onto a resolver vow and the settle re-enters top-level (ADR-0102)" {
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |d| allocator.free(d.designator);
+        dials.deinit(allocator);
+    }
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7821", &dials);
+
+    var minted_resolver: u64 = 0;
+    var minted_vow: u64 = 0;
+    _ = try pair.b.served.publish(&pair.b.host.vat, "worker", Deferring, .{
+        .host = &server,
+        .out_resolver = &minted_resolver,
+        .out_vow = &minted_vow,
+    });
+
+    var worker = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "worker"), .{ .ctx = &worker, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    const worker_ref = try worker.require();
+
+    var reply = CapturedString{};
+    try client.vowOn(
+        try client.send(pair.a, worker_ref, .{ .verb = "work", .args = &.{} }),
+        .{ .ctx = &reply, .func = CapturedString.record },
+    );
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    // The behavior returned and every wire quiesced, yet the answer is still
+    // open: the deferral holds it for the resolver.
+    try std.testing.expect(minted_resolver != 0);
+    try std.testing.expect(reply.len == 0 and !reply.broken);
+
+    // The read side belongs to no session, so every session-scoped vow verb
+    // refuses it.
+    try std.testing.expectError(
+        driver.core.HostError.SessionlessVow,
+        server.vowOn(minted_vow, .{ .ctx = &reply, .func = CapturedString.record }),
+    );
+    try std.testing.expectError(driver.core.HostError.SessionlessVow, server.vowSession(minted_vow));
+
+    // Only a resolver vow can carry a deferred answer: a wire vow refuses the
+    // turn-scoped forward's lookup. A verb the worker lacks, so this probe
+    // send breaks instead of re-running the deferral.
+    const wire_vow = try client.send(pair.a, worker_ref, .{ .verb = "nudge", .args = &.{} });
+    var probe_turn: actors.Turn = undefined; // never dereferenced: the row check refuses first
+    try std.testing.expectError(driver.core.HostError.NotALocalVow, client.turnForwardVow(&probe_turn, wire_vow));
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    // The worker completes: the settle re-enters at the top level, the
+    // deferred wire answer resolves, and the partner hears it.
+    try server.resolverFulfill(minted_resolver, .{ .string = "computed" });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqualStrings("computed", reply.text());
+
+    // One attempt: the resolver is consumed, and its vow row is gone.
+    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, "late"));
+    try std.testing.expectError(driver.core.HostError.NoSuchVow, server.vowSession(minted_vow));
+}
+
+test "core host: the action-queue ceiling covers parked enlivens, a fresh session, and every vow with no drain between" {
+    // The reservation ceiling has one owner (`Host.reserveActions`), and this
+    // is what it is for: pile up every class of already-promised notification
+    // at once — two parked select-or-dial enlivens, a session minted after
+    // them, and live vows on top — with no action drain in between to relieve
+    // the queue. Every settle must still land, because each was reserved
+    // before its promise existed.
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |d| allocator.free(d.designator);
+        dials.deinit(allocator);
+    }
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7841", &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+
+    // Two enlivens for peers this host has never dialed: both park, both
+    // pre-mint a vow id, and both reserve their own completion slot.
+    const parked_one = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7842", "widget"));
+    const parked_two = try client.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7843", "widget"));
+    try std.testing.expect(parked_one != parked_two);
+
+    // A live vow on the open session, and a session minted while both
+    // enlivens are still parked — the mint reserves the two notifications its
+    // own session owes without disturbing what the parked pair already hold.
+    var fetched = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
+    var third = Host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer third.deinit();
+    const spare = try third.openAccepted("tcp", "127.0.0.1:7844", &.{});
+    const spare_dialed = try client.openDialedLocator(tcpLocator("127.0.0.1:7844"));
+    const spare_pair = Pair{ .ah = &client, .a = spare_dialed, .bh = &third, .b = spare };
+
+    // Only now drain. Both dials surface, and answering them settles both
+    // parked vows through the queue that was reserved for them all along.
+    try pumpToQuiescence(allocator, &.{ &client, &server, &third }, &.{ pair, spare_pair }, &dials);
+    _ = try fetched.require();
+    try std.testing.expectEqual(@as(usize, 2), dials.items.len);
+
+    for (dials.items) |d| allocator.free(d.designator);
+    const tickets = [_]pancake.ocapn.engine.Node.PendingId{ dials.items[0].ticket, dials.items[1].ticket };
+    dials.clearRetainingCapacity();
+    // Fail both dials: the break is the same queued completion a success
+    // would take, and it needs the same reserved slot.
+    for (tickets) |ticket| try client.dialFailed(ticket, "unreachable in this scenario");
+
+    var settled_ids: [2]bool = .{ false, false };
+    while (try client.nextAction()) |action| {
+        switch (action) {
+            .failed => |f| {
+                if (f.vow_id == parked_one) settled_ids[0] = true;
+                if (f.vow_id == parked_two) settled_ids[1] = true;
+            },
+            else => {},
+        }
+    }
+    try std.testing.expect(settled_ids[0] and settled_ids[1]);
 }

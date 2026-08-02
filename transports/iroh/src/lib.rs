@@ -870,6 +870,30 @@ pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
 	}
 }
 
+/// Write the connection's QUIC-authenticated remote endpoint id — the 32-byte
+/// Ed25519 public key TLS verified during the handshake — into `out_key32`.
+/// This is the transport-layer peer proof the driver installs as pre-feed
+/// CapTP hello policy on accept paths (ADR-0097); a dial already carries the
+/// same guarantee, since iroh refuses to connect to any endpoint but the id
+/// it was asked for. Returns 0 on success, -1 on failure. Borrows the handle.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(
+	conn: *const PancakeIrohConn,
+	out_key32: *mut u8,
+) -> i32 {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		let conn = unsafe { &*conn };
+		*conn.conn.remote_id().as_bytes()
+	}));
+	match result {
+		Ok(bytes) => {
+			unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_key32, 32) };
+			0
+		}
+		Err(_) => -1,
+	}
+}
+
 /// Read up to `len` bytes from the stream into `buf`, blocking until at least
 /// one byte arrives. Returns the byte count (> 0), 0 at clean end of stream
 /// (the partner finished its send side or closed the connection cleanly), or

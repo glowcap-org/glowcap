@@ -198,6 +198,18 @@ pub const Turn = struct {
         return serve.forwardTurn(self.vat, self, target, msg);
     }
 
+    /// Defer this turn's answer onto `vow` (ADR-0102): the answer settles
+    /// when the vow does. The behavior-side half of off-turn settlement — a
+    /// handler mints a resolver pair (`Vat.spawnVow`), forwards its answer
+    /// here, hands the resolver to whatever completes the work, and returns
+    /// normally; the eventual `Vat.fulfillVow` / `Vat.breakVow` settles the
+    /// wire answer as its own top-level event. Legal only on a served turn
+    /// (`NotLocal`); on a no-answer wire `tell` there is nothing to defer and
+    /// the turn is simply marked forwarded.
+    pub fn forwardVow(self: *Turn, vow: Vow) anyerror!void {
+        return serve.forwardTurnVow(self.vat, self, vow);
+    }
+
     /// Break this turn's own answer with `message` — the served-turn spelling
     /// of a handler failure that must carry its diagnostic. A native handler
     /// breaks by returning an error, whose `@errorName` becomes the reason; a
@@ -368,18 +380,38 @@ fn replyOutlivesBox(self: *const Vat, value: model.Argument, moves_begin: ?usize
 /// alive). Deferring the swap to zero depth is what keeps a running outer
 /// frame's `self` valid across a reentrant inner become.
 fn finishCellRun(self: *Vat, id: u64) void {
-    // A running actor is never removed (the `callLocal` invariant).
+    // A running actor is never removed (the `callLocal` invariant, upheld by
+    // `releaseActor` deferring a root-zero removal to this unwind).
     const cell = self.actors.getPtr(id).?;
     cell.running -= 1;
     if (cell.running != 0) return;
-    const next = cell.pending_become orelse return;
-    cell.pending_become = null;
-    // Retire rather than release: a reply handed back by an earlier frame of
-    // this same actor may still borrow the outgoing box, and that frame has
-    // already returned, so no sever can reach it. `stageBecome` reserved this
-    // slot, so the append cannot fail here during unwind.
-    self.retired_boxes.appendAssumeCapacity(cell.box);
-    cell.box = next;
+    if (cell.pending_become) |next| {
+        cell.pending_become = null;
+        // Retire rather than release: a reply handed back by an earlier frame of
+        // this same actor may still borrow the outgoing box, and that frame has
+        // already returned, so no sever can reach it. `stageBecome` reserved this
+        // slot, so the append cannot fail here during unwind.
+        self.retired_boxes.appendAssumeCapacity(cell.box);
+        cell.box = next;
+    }
+    // A handler that released its own last root (ADR-0101) finishes its turn
+    // on live state; the retire happens here, at the frame the deferral named.
+    if (cell.roots == 0) retireActorRow(self, id);
+}
+
+/// Retire a zero-rooted, non-running actor row (ADR-0101): reserve the
+/// retired-list slots first, then remove the row and park its box until the
+/// next outermost-turn boundary — the borrowed-reply lifetime, so a reply an
+/// earlier turn handed out never dangles. On reservation failure the row
+/// stays, zero-rooted, until Vat teardown: a bounded leak, never a dangling
+/// box. A staged become can be pending here only while frames still run, and
+/// a running actor is never retired, so the row's box is the only parked one.
+pub fn retireActorRow(self: *Vat, id: u64) void {
+    self.retired_boxes.ensureUnusedCapacity(self.allocator, 1) catch return;
+    const removed = self.actors.fetchRemove(id) orelse unreachable;
+    std.debug.assert(removed.value.running == 0);
+    std.debug.assert(removed.value.pending_become == null);
+    self.retired_boxes.appendAssumeCapacity(removed.value.box);
 }
 
 /// Drop the vat's reference to every box a `become` swapped out. Called when an

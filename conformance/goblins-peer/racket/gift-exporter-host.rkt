@@ -10,7 +10,13 @@
 ;; pancake's `deposit-gift`, and Goblins serving the recipient's `withdraw-gift`.
 ;;
 ;; Usage:
-;;   racket gift-exporter-host.rkt <bind-host> <bind-port>
+;;   racket gift-exporter-host.rkt <bind-host> <bind-port> [hint-name hint-hex]
+;;
+;; With the optional pair, this vat's advertised location carries a hints
+;; mapping `{hint-name: <bytes of hint-hex>}` in its hello. The gifter then
+;; embeds that hinted location verbatim in its `desc:handoff-give`, which is
+;; how a session-key-attestation credential would ride an exporter locator
+;; (ADR-0097's provisional shape).
 ;;
 ;; Stdout (line-buffered NDJSON):
 ;;   {"v":1,"event":"vat-ready","vat":"goblins-bob","listen":"127.0.0.1:22120"}
@@ -54,6 +60,17 @@
       (string->number (vector-ref argv 1))
       22120))
 
+(define (hex->bytes s)
+  (define n (quotient (string-length s) 2))
+  (define out (make-bytes n))
+  (for ([i (in-range n)])
+    (bytes-set! out i (string->number (substring s (* 2 i) (+ 2 (* 2 i))) 16)))
+  out)
+
+(define location-hints
+  (and (>= (vector-length argv) 4)
+       (hash (vector-ref argv 2) (hex->bytes (vector-ref argv 3)))))
+
 (define (emit-ndjson event-fields)
   (define (escape s) (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))
   (define pairs
@@ -66,7 +83,8 @@
 (a-vat
  'run
  (lambda ()
-   (define tcp-netlayer (spawn ^tcp-netlayer listen-host listen-port))
+   (define tcp-netlayer
+     (spawn ^tcp-netlayer listen-host listen-port #:location-hints location-hints))
    (define mycapn (spawn-mycapn tcp-netlayer))
    (define nonce-registry ($ mycapn 'get-registry))
    (define greeter (spawn ^greeter))

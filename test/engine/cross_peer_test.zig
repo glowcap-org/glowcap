@@ -59,6 +59,29 @@ const GifterSessionFixture = struct {
     }
 };
 
+/// A deliberately permissive resolver: it returns a live gifter session no
+/// matter what side or session name the give carried. The resolver seam is
+/// application-supplied, so the engine must not trust it to have established
+/// the fixed widths production resolution guarantees.
+const PermissiveGifterSessionFixture = struct {
+    peer_id: engine.PeerId = .from(0),
+    key: [32]u8,
+    gifts: *engine.bootstrap.GiftRegistry,
+    resolve_calls: usize = 0,
+
+    fn resolve(ctx: ?*anyopaque, side: [32]u8, session_name: []const u8) ?engine.bootstrap.GifterSession {
+        _ = side;
+        _ = session_name;
+        const self: *PermissiveGifterSessionFixture = @ptrCast(@alignCast(ctx.?));
+        self.resolve_calls += 1;
+        return .{ .peer_id = self.peer_id, .key = self.key, .gifts = self.gifts };
+    }
+
+    fn resolver(self: *PermissiveGifterSessionFixture) engine.bootstrap.GifterSessionResolver {
+        return .{ .ctx = self, .resolve = resolve };
+    }
+};
+
 fn giveWith(gift_id: []const u8) model.HandoffGive {
     return .{
         .recipient_key = recipient_key[0..],
@@ -230,6 +253,7 @@ test "immediate deposited withdraw verifies the borrowed receive without ownersh
     try exporter.giftRegistry().depositOwned(
         measured,
         exporter.session_state.limits,
+        null,
         gift_id_a[0..],
         .{ .far = .{ .import_position = .from(9) } },
     );
@@ -374,6 +398,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     try peer.giftRegistry().depositOwned(
         allocator,
         peer.session_state.limits,
+        null,
         gift_id_a[0..],
         deposited,
     );
@@ -385,6 +410,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     try peer.giftRegistry().depositOwned(
         allocator,
         peer.session_state.limits,
+        null,
         gift_id_a[0..],
         redeposited,
     );
@@ -414,7 +440,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     };
     try std.testing.expectEqual(@as(u64, 10), fulfilled.reference.far.import_position.int());
     try std.testing.expect(peer.giftRegistry().giftLive(gift_id_a[0..]));
-    prepared.apply(allocator, peer.giftRegistry());
+    prepared.apply(allocator, null, peer.giftRegistry());
     try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
@@ -458,7 +484,7 @@ test "withdraw of a verbatim gifted cap reclaims the moved reference through the
     // outbound message before the original gift row is committed and freed.
     // The testing allocator is the verdict on both owners.
     const gifted = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "gifted-was-broken") } };
-    try peer.giftRegistry().depositOwned(allocator, peer.session_state.limits, gift_id_a[0..], gifted);
+    try peer.giftRegistry().depositOwned(allocator, peer.session_state.limits, null, gift_id_a[0..], gifted);
 
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
@@ -481,7 +507,7 @@ test "withdraw of a verbatim gifted cap reclaims the moved reference through the
         .@"break" => return error.TestUnexpectedBreak,
     };
     try std.testing.expectEqualStrings("gifted-was-broken", fulfilled.reference.broken.message);
-    prepared.apply(allocator, peer.giftRegistry());
+    prepared.apply(allocator, null, peer.giftRegistry());
     try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
@@ -506,6 +532,8 @@ const Projection = struct {
         if (self.fail) return error.ProjectionUnavailable;
         return .{ .export_position = self.position, .created = false };
     }
+
+    fn releaseTarget(_: ?*anyopaque, _: u64) void {}
 
     fn rollback(_: ?*anyopaque, _: engine.PeerId, _: u64, _: engine.bootstrap.ProjectedLocalTarget) void {}
 };
@@ -558,12 +586,14 @@ test "a withdraw projects the exact deposited local target on the receiving Port
         .capture = Projection.capture,
         .project = Projection.project,
         .rollback = Projection.rollback,
+        .release_target = Projection.releaseTarget,
     };
 
     const exact_target: u64 = 0xfeed;
     try exporter.giftRegistry().depositLocalTarget(
         allocator,
         exporter.session_state.limits,
+        null,
         gift_id_a[0..],
         exact_target,
     );
@@ -616,7 +646,7 @@ test "a withdraw projects the exact deposited local target on the receiving Port
     try std.testing.expectEqual(receiving_scope, projection.seen_scope.?);
     try std.testing.expectEqual(exact_target, projection.seen_target.?);
     try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
-    prepared.apply(allocator, exporter.giftRegistry());
+    prepared.apply(allocator, local_projection, exporter.giftRegistry());
     try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
@@ -664,6 +694,7 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             if (projected.created) self.rollbacks += 1;
         }
+        fn releaseTarget(_: ?*anyopaque, _: u64) void {}
     };
 
     var saw_send_oom = false;
@@ -682,10 +713,12 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
             .capture = TrackingProjection.capture,
             .project = TrackingProjection.project,
             .rollback = TrackingProjection.rollback,
+            .release_target = TrackingProjection.releaseTarget,
         };
         peer.giftRegistry().depositLocalTarget(
             fail_allocator,
             peer.session_state.limits,
+            null,
             gift_id_a[0..],
             0xfeed,
         ) catch continue;
@@ -864,6 +897,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     try exporter.giftRegistry().depositOwned(
         allocator,
         exporter.session_state.limits,
+        null,
         gift_id_a[0..],
         deposited,
     );
@@ -950,6 +984,7 @@ test "one exact gift wake does not scan unrelated pending withdrawals" {
     try exporter.giftRegistry().depositOwned(
         allocator,
         exporter.session_state.limits,
+        null,
         &gift_ids[target],
         .{ .far = model.FarRef.object(9) },
     );
@@ -1096,6 +1131,140 @@ test "an early withdraw verifies before waiting and retains only one accepted co
     };
     defer replay.deinit(allocator);
     try std.testing.expect(replay.message.?.resolve.resolution == .@"break");
+}
+
+test "a permissive resolver cannot pass malformed signed widths into pending retention" {
+    const allocator = std.testing.allocator;
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x75));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x76));
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+    const recipient_side = sideOf(recipient_pub);
+
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+    var permissive: PermissiveGifterSessionFixture = .{
+        .key = gifter_pub.bytes,
+        .gifts = peer.giftRegistry(),
+    };
+
+    // Each case is a correctly signed envelope whose signed gifter-side or
+    // gifter-session field has a width `PendingReceive` cannot retain. The
+    // signatures are real: the width check is the only thing standing between
+    // this envelope and the fixed-width copies. Short and long widths exercise
+    // the two distinct copy hazards.
+    const wrong = repeated(64, 0x11);
+    const Case = struct { session: []const u8, side: []const u8 };
+    const cases = [_]Case{
+        .{ .session = wrong[0..8], .side = gifter_side[0..] },
+        .{ .session = wrong[0..], .side = gifter_side[0..] },
+        .{ .session = gifter_session[0..], .side = wrong[0..8] },
+        .{ .session = gifter_session[0..], .side = wrong[0..] },
+    };
+
+    for (cases, 1..) |case, answer_at| {
+        var give: model.HandoffGive = .{
+            .recipient_key = recipient_pub.asBytes(),
+            .exporter = .{ .transport = "memory", .designator = "exporter" },
+            .gifter_exporter_session = case.session,
+            .gifter_side = case.side,
+            .gift_id = gift_id_a[0..],
+            .signature = "",
+        };
+        const give_signed = try syrup.canonicalHandoffGiveSignedBytes(allocator, give);
+        defer allocator.free(give_signed);
+        const give_sig = crypto.sign(&gifter_secret, give_signed);
+        give.signature = give_sig.asBytes();
+
+        var receive: model.HandoffReceive = .{
+            .receiving_session = receiving_session[0..],
+            .receiving_side = &recipient_side,
+            .handoff_count = 1,
+            .signed_give = give,
+            .signature = "",
+        };
+        const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+        defer allocator.free(receive_signed);
+        const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+        receive.signature = receive_sig.asBytes();
+
+        // The gift is deliberately absent, so a healthy envelope would reach
+        // pending retention; only the width check can turn this one away.
+        const calls_before = permissive.resolve_calls;
+        const handoff = model.Handoff{ .receive = receive };
+        const view_handoff = model.view.Handoff.fromOwned(&handoff);
+        var refused = switch (try engine.bootstrap.resolveForWithdraw(
+            allocator,
+            &peer.session_state,
+            peer.giftRegistry(),
+            permissive.resolver(),
+            null,
+            null,
+            .{ .receive = view_handoff.receive, .answer = .from(answer_at) },
+        )) {
+            .settled => |settled| settled,
+            .awaiting_deposit => |admission| {
+                var pending_receive = admission.receive;
+                pending_receive.deinit(allocator);
+                return error.TestUnexpectedPending;
+            },
+        };
+        defer refused.deinit(allocator);
+
+        // The resolver was consulted, so the break below came from the width
+        // boundary behind it, not from a closed gifter session.
+        try std.testing.expectEqual(calls_before + 1, permissive.resolve_calls);
+        const resolution_msg = refused.message.?;
+        try std.testing.expectEqual(answer_at, resolution_msg.resolve.answer.int());
+        const reason = switch (resolution_msg.resolve.resolution) {
+            .@"break" => |broken| broken.message,
+            .fulfill => return error.TestUnexpectedFulfill,
+        };
+        try std.testing.expectEqualStrings("handoff session names a malformed key", reason);
+
+        // A safe break and nothing else: no pending row, no replay
+        // advancement, no consumed gift.
+        try std.testing.expectEqual(@as(usize, 0), peer.pendingWithdrawCount());
+        try std.testing.expectEqual(@as(?u64, null), peer.giftRegistry().accepted_handoff_count);
+        try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
+    }
+
+    // Control: the same envelope shape with healthy widths reaches pending
+    // retention through the same permissive resolver, so the refusals above
+    // are attributable to the width boundary alone.
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
+    defer allocator.free(give_signed);
+    var receive: model.HandoffReceive = .{
+        .receiving_session = receiving_session[0..],
+        .receiving_side = &recipient_side,
+        .handoff_count = 1,
+        .signed_give = give,
+        .signature = "",
+    };
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    const handoff = model.Handoff{ .receive = receive };
+    const view_handoff = model.view.Handoff.fromOwned(&handoff);
+    const admission = switch (try engine.bootstrap.resolveForWithdraw(
+        allocator,
+        &peer.session_state,
+        peer.giftRegistry(),
+        permissive.resolver(),
+        null,
+        null,
+        .{ .receive = view_handoff.receive, .answer = .from(9) },
+    )) {
+        .awaiting_deposit => |pending| pending,
+        .settled => return error.TestUnexpectedSettlement,
+    };
+    var pending_receive = admission.receive;
+    defer pending_receive.deinit(allocator);
+    try std.testing.expectEqual(@as(u64, 1), pending_receive.handoff_count);
 }
 
 test "early-withdraw admission OOM leaves no pending row or replay state" {

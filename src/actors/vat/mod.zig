@@ -149,10 +149,20 @@ pub const Ref = union(enum) {
 /// unsettled until the turn runs or the partner resolves, observed with
 /// `Vat.on`.
 pub const Vow = union(enum) {
-    /// Result of a local send; settled by `Vat.drive`.
+    /// Result of a local send; settled by `Vat.drive`. A resolver vow
+    /// (`Vat.spawnVow`, ADR-0102) shares this arm and namespace and is
+    /// settled by `Vat.fulfillVow` / `Vat.breakVow` instead.
     local: u64,
     /// Result of a far send; the outbound answer position the partner resolves.
     far: model.AnswerPosition,
+};
+
+/// A resolver pair (ADR-0102): the vow is the read side, the resolver id is
+/// the settle authority, and neither confers the other. The resolver id lives
+/// in the minting vat's namespace and dies with it.
+pub const ResolverPair = struct {
+    vow: Vow,
+    resolver: u64,
 };
 
 /// A message to an actor: a verb (method selector) and its arguments. From the
@@ -417,6 +427,12 @@ pub const Error = error{
     /// or single-chunk byte limit. Admission happens before cloning or queue
     /// mutation, so this refusal never leaves a partial turn behind.
     ResourceExhausted,
+    /// `Vat.fulfillVow` / `Vat.breakVow` was called from inside a turn. A
+    /// resolver settle runs the vow's listener, which may open a nested
+    /// drive, so it is a top-level verb like `drive`: the worker's completion
+    /// re-enters as its own event, never inside the turn that minted it
+    /// (ADR-0102).
+    SettleInTurn,
     /// An ingress id was not minted by this Vat, or was already closed.
     UnknownIngress,
     /// Closing an ingress was attempted while it still had queued or running
@@ -451,7 +467,12 @@ pub const Port = struct {
         return .{ .allocator = allocator, .peer = peer };
     }
 
-    pub fn deinit(self: *Port) void {
+    /// Tear down this Port, releasing the export-binding root each projected
+    /// actor held (ADR-0101): a session's closure releases exactly the
+    /// retains that session held, never the actor itself.
+    pub fn deinit(self: *Port, vat: *Vat) void {
+        var bound = self.reverse_exports.keyIterator();
+        while (bound.next()) |actor_id| vat.releaseActor(actor_id.*);
         freeOwnedForwardContexts(self.allocator, &self.far_listeners);
         self.far_listeners.deinit(self.allocator);
         self.served_dropped_far.deinit(self.allocator);
@@ -537,21 +558,12 @@ pub const Port = struct {
         serve_mod.breakFarVows(self, message);
     }
 
-    pub fn bindExport(self: *Port, actor: Ref, position: u64) !void {
-        return serve_mod.bindExport(self, actor, position);
+    pub fn bindExport(self: *Port, vat: *Vat, actor: Ref, position: u64) !void {
+        return serve_mod.bindExport(self, vat, actor, position);
     }
 
     pub fn refForExport(self: *const Port, position: u64) ?Ref {
         return serve_mod.refForExport(self, position);
-    }
-
-    pub fn projectionForActor(self: *const Port, actor: Ref) ?model.NearRef {
-        const actor_id = switch (actor) {
-            .local => |id| id,
-            .far => return null,
-        };
-        const position = self.reverse_exports.get(actor_id) orelse return null;
-        return model.NearRef.object(position);
     }
 
     pub const Projection = struct {
@@ -559,8 +571,10 @@ pub const Port = struct {
         created: bool,
     };
 
-    /// Undo a bind that never became shared with the partner.
-    pub fn rollbackExport(self: *Port, actor: Ref, position: u64) void {
+    /// Undo a bind that never became shared with the partner. Dropping the
+    /// actor's last binding on this Port also releases the export-binding
+    /// root that bind took (ADR-0101).
+    pub fn rollbackExport(self: *Port, vat: *Vat, actor: Ref, position: u64) void {
         const actor_id = switch (actor) {
             .local => |id| id,
             .far => unreachable,
@@ -576,10 +590,12 @@ pub const Port = struct {
                     break;
                 }
             }
-            if (replacement) |other|
-                self.reverse_exports.getPtr(actor_id).?.* = other
-            else
+            if (replacement) |other| {
+                self.reverse_exports.getPtr(actor_id).?.* = other;
+            } else {
                 std.debug.assert(self.reverse_exports.remove(actor_id));
+                vat.releaseActor(actor_id);
+            }
         }
         self.peer.session_state.releaseUnsharedExport(.from(position));
     }
@@ -587,7 +603,7 @@ pub const Port = struct {
     /// Reuse or lazily mint this Port's canonical wire position for `actor`,
     /// reporting whether this call created the row. The receipt lets a caller
     /// whose larger transaction later fails roll back only authority it minted.
-    pub fn prepareProjection(self: *Port, actor: Ref) !Projection {
+    pub fn prepareProjection(self: *Port, vat: *Vat, actor: Ref) !Projection {
         const actor_id = switch (actor) {
             .local => |id| id,
             .far => return Error.NotLocal,
@@ -598,7 +614,7 @@ pub const Port = struct {
         };
         const position = try self.peer.exportNextObject();
         errdefer self.peer.session_state.releaseUnsharedExport(.from(position));
-        try self.bindExport(actor, position);
+        try self.bindExport(vat, actor, position);
         return .{
             .near = model.NearRef.object(position),
             .created = true,
@@ -606,8 +622,8 @@ pub const Port = struct {
     }
 
     /// Reuse or lazily mint this Port's canonical wire position for `actor`.
-    pub fn projectActor(self: *Port, actor: Ref) !model.NearRef {
-        return (try self.prepareProjection(actor)).near;
+    pub fn projectActor(self: *Port, vat: *Vat, actor: Ref) !model.NearRef {
+        return (try self.prepareProjection(vat, actor)).near;
     }
 };
 
@@ -646,6 +662,12 @@ pub const Vat = struct {
     /// mark is unsound; this index makes late-listener refusal independent of
     /// scheduling order.
     pending_local_vows: std.AutoHashMapUnmanaged(PendingLocalVowKey, void) = .{},
+    /// Resolver id → the local vow it settles (ADR-0102). A row is consumed
+    /// by the first settle attempt, so the map holds exactly the live settle
+    /// authorities; freed with the vat. Ids start at 1 so 0 stays unminted
+    /// for adapter tiers that want a null sentinel.
+    resolver_vows: std.AutoHashMapUnmanaged(u64, u64) = .{},
+    next_resolver: u64 = 1,
     // The turn and settle arenas below, plus the Vat-wide spare chunk's payload
     // arena, retain backing storage across a reset. A safety build does not
     // poison that retained region.
@@ -742,6 +764,7 @@ pub const Vat = struct {
         freeOwnedForwardContexts(self.allocator, &self.listeners);
         self.listeners.deinit(self.allocator);
         self.pending_local_vows.deinit(self.allocator);
+        self.resolver_vows.deinit(self.allocator);
         turn_mod.drainMovedReplies(self);
         self.moved_replies.deinit(self.allocator);
         turn_mod.drainRetiredBoxes(self);
@@ -887,6 +910,24 @@ pub const Vat = struct {
 
     pub fn hasActor(self: *const Vat, id: u64) bool {
         return self.actors.contains(id);
+    }
+
+    /// Add one explicit root to a live actor row (ADR-0101). Tolerant of an
+    /// absent row: a rooting relationship can outlive a row `restore` removed,
+    /// and its bookkeeping then fails closed instead of crashing.
+    pub fn retainActor(self: *Vat, id: u64) void {
+        if (self.actors.getPtr(id)) |cell| cell.roots += 1;
+    }
+
+    /// Release one explicit root (ADR-0101). The last root retires the row —
+    /// immediately when the actor is idle, or at its running frame's unwind —
+    /// and parks the box until the next outermost-turn boundary, the borrowed
+    /// reply's lifetime. Tolerant of an absent row, like `retainActor`.
+    pub fn releaseActor(self: *Vat, id: u64) void {
+        const cell = self.actors.getPtr(id) orelse return;
+        std.debug.assert(cell.roots > 0);
+        cell.roots -= 1;
+        if (cell.roots == 0 and cell.running == 0) turn_mod.retireActorRow(self, id);
     }
 
     /// The synchronous near-call (`$`): run `target`'s handler now and return its
@@ -1099,6 +1140,58 @@ pub const Vat = struct {
             error.OutOfMemory => error.OutOfMemory,
             else => Error.SendRejected,
         };
+    }
+
+    /// Mint a resolver pair (ADR-0102): a local vow backed by no queued turn,
+    /// and the resolver id that settles it. Two values on purpose — the
+    /// Goblins promise-pair shape — so holding the vow (the read side) never
+    /// confers the settle authority. Legal inside a turn, which is the
+    /// primary use: a behavior mints, defers its answer onto the vow
+    /// (`Turn.forwardVow`), hands the resolver to whatever completes the
+    /// work, and returns. The vow settles only through `fulfillVow` /
+    /// `breakVow`; both are top-level verbs, so the settle re-enters as its
+    /// own event, never inside the minting turn.
+    pub fn spawnVow(self: *Vat) Error!ResolverPair {
+        try self.pending_local_vows.ensureUnusedCapacity(self.allocator, 1);
+        try self.resolver_vows.ensureUnusedCapacity(self.allocator, 1);
+        const vow = self.next_vow;
+        self.next_vow += 1;
+        self.pending_local_vows.putAssumeCapacity(.{ .id = vow }, {});
+        const resolver = self.next_resolver;
+        self.next_resolver += 1;
+        self.resolver_vows.putAssumeCapacity(resolver, vow);
+        return .{ .vow = .{ .local = vow }, .resolver = resolver };
+    }
+
+    /// Settle a resolver vow fulfilled (ADR-0102). Top-level like `drive` —
+    /// the vow's listener may open a nested drive, so a settle from inside a
+    /// turn refuses (`SettleInTurn`) and re-enters later instead. One
+    /// attempt: the resolver is consumed up front, so a second settle and an
+    /// unknown resolver refuse alike (`AlreadySettled`), and an allocation
+    /// failure mid-settle leaves the vow permanently unsettled rather than
+    /// retryable — the same posture a queued turn's settle already has.
+    /// `value` is borrowed for the call; the settle spine clones what a
+    /// listener may outlive.
+    pub fn fulfillVow(self: *Vat, resolver: u64, value: model.Argument) Error!void {
+        try self.settleResolver(resolver, .{ .fulfilled = value });
+    }
+
+    /// Settle a resolver vow broken (ADR-0102). The same contract as
+    /// `fulfillVow`; `reason` is borrowed for the call — the listener fires
+    /// within it and retains nothing.
+    pub fn breakVow(self: *Vat, resolver: u64, reason: []const u8) Error!void {
+        try self.settleResolver(resolver, .{ .broken = reason });
+    }
+
+    fn settleResolver(self: *Vat, resolver: u64, resolution: Resolution) Error!void {
+        if (self.turn_depth != 0) return Error.SettleInTurn;
+        const entry = self.resolver_vows.fetchRemove(resolver) orelse return Error.AlreadySettled;
+        // The settle runs listeners under the drive discipline `settleLocal`
+        // requires: a listener may open a nested drive or far settle, and the
+        // settle arena's depth guard covers both.
+        self.drive_depth += 1;
+        defer self.drive_depth -= 1;
+        try self.settleLocal(entry.value, resolution);
     }
 
     /// Register a one-shot listener for `vow`. A local vow fires during

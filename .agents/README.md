@@ -40,6 +40,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [agent-scaffolding](rules/agent-scaffolding.md)     | The scaffolding is a public API for agents: living-state discipline, the gate, the ratchet, the budget |
 | [architecture](rules/architecture.md)               | Layer ownership, sync no-I/O core, codec/session/engine boundaries                                     |
 | [cli](rules/cli.md)                                 | Zig gates, generated state, git posture, live CapTP via pancake-cli, product CapTP wait budgets        |
+| [debugging](rules/debugging.md)                     | A failure is data: evidence before theory, ordered suspects, halved search, a fix that explains it     |
 | [doc-drift](rules/doc-drift.md)                     | Living-state docs must match current code or drop the state claim                                      |
 | [doc-voice](rules/doc-voice.md)                     | Human-readable prose for first-read docs and public examples                                           |
 | [memory](rules/memory.md)                           | Frame ownership, bounded borrows, copy budget, allocator discipline                                    |
@@ -57,6 +58,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [community-review](skills/community-review/SKILL.md) | OCapN / Goblins community-review preflight |
 | [pancake-cli](skills/pancake-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
 | [pancake-mcp](skills/pancake-mcp/SKILL.md) | In-host CapTP via project MCP |
+| [ratchet](skills/ratchet/SKILL.md) | Land a session's lesson at the strongest layer: check, fixture, rule line, or deletion |
 | [rooms-peer](skills/rooms-peer/SKILL.md) | Single-agent durable room presence and wake loop |
 | [rooms-team](skills/rooms-team/SKILL.md) | Multi-persona durable team in a pancake room |
 | [serena](skills/serena/SKILL.md) | Serena MCP operator notes for Zig |
@@ -80,4 +82,4 @@ file shape: [`personas/README.md`](personas/README.md).
 
 | Hook                                              | Purpose                                                |
 | ------------------------------------------------- | ------------------------------------------------------ |
-| [format-edited-file](hooks/format-edited-file.sh) | Per-edit `zig fmt` dispatch for agent-edited Zig files |
+| [format-edited-file](hooks/format-edited-file.sh) | Per-edit formatter dispatch (`zig fmt`, `rustfmt`, `deno fmt`) for agent-edited files |

@@ -1,0 +1,177 @@
+// Two browser tabs direct-message each other over a WebRTC DataChannel, the
+// room carrying only the signaling (ADR-0089, the live handoff-redeem proof).
+// Each tab joins with `?dm=webrtc`, so it advertises a bare
+// `ocapn://<key>.webrtc` locator and files a signaling inbox with the room
+// directory. When Alice direct-messages Bob, the room introduces her, and her
+// Host redeems the handoff give through the dial executor's `signaling` arm:
+// the offer, answer, and ICE candidates ride the directory as ordinary OCapN
+// messages (`signalOffer` / `signalAnswer` / `signalCandidate`), the
+// DataChannel opens tab-to-tab, and the keyed OCapN session runs over it with
+// the room out of the byte path. Bob answers over that same arriving
+// connection (`currentSession`), so a tab that never listens still replies.
+//
+// This is the composition ADR-0089 left open: a `desc:handoff-give` whose
+// exporter locator names a `webrtc` designator, redeemed end to end. The
+// locator carries no signaling route; the dialing host's authority is the
+// directory it already reaches (`Host.setSignaling`), the same configured
+// posture the keyed-relay cold dial holds.
+//
+// Needs deno, the wasm module (`zig build wasm-driver`), the native archives
+// (serve.ts's room server is native), and a Playwright Chromium
+// (`npx playwright install chromium && sudo npx playwright install-deps`).
+// Run: `deno run --allow-all apps/rooms/test/web_dm_webrtc_test.ts`.
+
+import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+
+const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
+const ROOT = new URL("../../../", import.meta.url).pathname;
+const ROOM = "lobby";
+const DM_TEXT = "hi Bob, privately, over a DataChannel the room only signaled";
+const REPLY_TEXT = "got it Alice, replying over the same channel";
+
+function fail(message: string): never {
+	console.error(`FAIL: ${message}`);
+	Deno.exit(1);
+}
+
+function freePort(): number {
+	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+	const port = (l.addr as Deno.NetAddr).port;
+	l.close();
+	return port;
+}
+
+async function waitForHttp(port: number): Promise<void> {
+	for (let i = 0; i < 400; i++) {
+		try {
+			const res = await fetch(`http://127.0.0.1:${port}/locator`);
+			await res.body?.cancel();
+			if (res.status === 200) return;
+		} catch {
+			// not up / room not ready yet
+		}
+		await new Promise((r) => setTimeout(r, 50));
+	}
+	fail("serve.ts did not answer with a room locator");
+}
+
+// Join `ROOM` as `nick` in a fresh, isolated tab, in webrtc DM mode, and wait
+// until the composer is live — the signal that the keyed session to the room
+// is up and the tab is advertising its `webrtc` identity.
+async function joinAs(browser: Browser, port: number, nick: string): Promise<{
+	context: BrowserContext;
+	tab: Page;
+}> {
+	const context = await browser.newContext();
+	const tab = await context.newPage();
+	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
+	// Surface the page's own error logs (the UI reports a failed dial or a
+	// signaling refusal there), so a red run says why instead of only where.
+	tab.on("console", (m) => {
+		if (m.type() === "error" || m.type() === "warning") {
+			console.error(`  [${nick} console.${m.type()}]`, m.text());
+		}
+	});
+	await tab.goto(`http://127.0.0.1:${port}/?dm=webrtc`);
+	await tab.fill("#nick", nick);
+	await tab.fill("#room", ROOM);
+	await tab.click("#joinBtn");
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
+		const status = await tab.textContent("#status").catch(() => "?");
+		fail(`${nick} never joined; status="${status}"`);
+	});
+	return { context, tab };
+}
+
+// Open a direct line to `peer` from `tab` by clicking their direct-line button
+// in the members list.
+async function openDmTo(tab: Page, peer: string): Promise<void> {
+	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
+	await button.waitFor({ state: "visible", timeout: 60_000 });
+	await button.click();
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
+}
+
+async function send(tab: Page, text: string): Promise<void> {
+	await tab.fill("#line", text);
+	await tab.press("#line", "Enter");
+}
+
+// Wait until a bubble carrying `text` is on screen in the active conversation.
+async function awaitBubble(tab: Page, text: string, who: string): Promise<void> {
+	await tab.waitForFunction(
+		(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
+		text,
+		{ timeout: 30_000 },
+	).catch(async () => {
+		const log = (await tab.textContent("#log").catch(() => "?")) ?? "?";
+		console.error(`  [${who} #log] ${JSON.stringify(log)}`);
+		fail(`${who} never rendered "${text}"`);
+	});
+}
+
+const deadline = setTimeout(() => fail("web-dm-webrtc scenario timed out after 120s"), 120_000);
+
+const httpPort = freePort();
+const roomPort = freePort();
+
+// serve.ts serves the page and runs the room + relay over plain TCP (no
+// `--transport=iroh`); the DM channel itself is WebRTC, so no cargo either.
+const web = new Deno.Command("deno", {
+	args: [
+		"run",
+		"--allow-ffi",
+		"--allow-read",
+		"--allow-net",
+		"--allow-env",
+		"--allow-run",
+		WEB,
+		String(httpPort),
+		String(roomPort),
+	],
+	cwd: ROOT,
+	stdout: "piped",
+	stderr: "inherit",
+}).spawn();
+
+let browser: Browser | null = null;
+try {
+	await waitForHttp(httpPort);
+
+	browser = await chromium.launch({ args: ["--no-sandbox"] });
+
+	// Both members advertise `webrtc` identities and file signaling inboxes.
+	const alice = await joinAs(browser, httpPort, "web-alice");
+	const bob = await joinAs(browser, httpPort, "web-bob");
+
+	// Alice redeems the introduction to Bob: her host's dial executor signals
+	// through the directory, the DataChannel opens, and the DM rides it.
+	await openDmTo(alice.tab, "web-bob");
+	await send(alice.tab, DM_TEXT);
+
+	// Bob renders it — the message crossed the DataChannel, with the room's
+	// only contribution the signaling exchange.
+	await openDmTo(bob.tab, "web-alice");
+	await awaitBubble(bob.tab, DM_TEXT, "Bob");
+
+	// Bob replies over the very connection Alice's message arrived on.
+	await send(bob.tab, REPLY_TEXT);
+	await awaitBubble(alice.tab, REPLY_TEXT, "Alice");
+
+	console.log(
+		"PASS: two browser tabs direct-messaged over a WebRTC DataChannel — the give's " +
+			"exporter locator named a bare webrtc designator, the redeeming host signaled " +
+			"through the room directory (Host.setSignaling), the keyed session opened over the " +
+			"DataChannel off-room, and the reply rode back over the same arriving connection",
+	);
+} finally {
+	clearTimeout(deadline);
+	if (browser) await browser.close().catch(() => {});
+	try {
+		web.kill();
+	} catch {
+		// already gone
+	}
+	await web.status;
+}
+Deno.exit(0);

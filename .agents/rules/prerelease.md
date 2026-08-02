@@ -41,3 +41,27 @@ Reverting on the first is the deferral above wearing a bug report as its excuse,
 and the follow-up task naming the prerequisite is the tell. Nor does losing
 confidence change the answer: work that was not trusted needs more verification,
 not smaller changes.
+
+**A red gate is where this rule is actually lost.** Everything above is easy to
+agree with while the tree is green. The moment a gate fails mid-slice, "get back
+to green" starts to feel like the job, and the cheapest green is always a
+retreat: revert the default, weaken the assertion, raise the budget, skip the
+step. Each one ends with a passing build and an unfixed defect, which is
+strictly worse than the red gate, because the red gate was telling you something
+and the green one is not.
+
+Green is what a root fix produces, never a goal that outranks it. So when a gate
+goes red on work you are landing:
+
+- Reproduce it alone before believing it, and before changing anything: the
+  [debugging rule](debugging.md) owns the method, and "fixing" a flake
+  produces a real defect.
+- Read the authority before designing around the failure. For protocol
+  behavior that is `conformance/` — the pinned Goblins source and the upstream
+  suite answer most "how is this supposed to work" questions outright, and a
+  guess dressed as a design is the expensive path.
+- Then name it a missing prerequisite or a contradiction, per the split above,
+  and act accordingly.
+
+Reporting the defect honestly instead of fixing it is not an exception to this.
+An accurate description of an unfixed thing is still an unfixed thing.

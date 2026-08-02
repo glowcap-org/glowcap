@@ -43,18 +43,25 @@
 ;; generated `IROH-REACH-REDEEM-DEFAULT`, Discovery;
 ;; `set-host-redeem-reachability!` lowers it for a relay-policy deployment);
 ;; `released?` guards the handle against use after release.
-(struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability released? codec))
+(struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability rendezvous-url released? codec))
 
 ;; `#:codec` is the wire grammar every session this host mints negotiates
 ;; in ('syrup by default, 'capnp for a Cap'n Proto session); both ends of a
 ;; session must carry the same codec. The host remembers the symbol so
 ;; `connect` can refuse an explicit codec that conflicts with a shared host's.
 (define (make-host seed #:codec [codec 'syrup] #:local-turn-budget [local-turn-budget 0])
-  (define sbuf (pin-immobile seed)) ; pin: the GC may move `seed` mid-call
-  (define-values (rc ptr) (pancake_host_new sbuf 32 HOST-FRAME-CAP 1 (codec-id codec) local-turn-budget))
+  ;; The durable identity followed by a session-key root drawn here, at this
+  ;; binding's entropy boundary, because the library draws none (ADR-0097).
+  ;; The root is fresh per process, so every CapTP session signs with its own
+  ;; key and a restart cannot recreate a prior session's handoff names; the
+  ;; durable half stays exactly `seed`, since a keyed locator's designator
+  ;; derives from it.
+  (define seed+root (bytes-append seed (crypto-random-bytes 32)))
+  (define sbuf (pin-immobile seed+root)) ; pin: the GC may move it mid-call
+  (define-values (rc ptr) (pancake_host_new sbuf 64 HOST-FRAME-CAP 1 (codec-id codec) local-turn-budget))
   (check/host rc)
   (define m (host ptr (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
-                  (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) codec))
+                  (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) codec))
   (register-finalizer m (lambda (q) (host-release! q #:close-sessions? #f)))
   m)
 
@@ -266,6 +273,57 @@
         (check/host (pancake_host_publish (host-ptr m) (pin-immobile nb) (bytes-length nb)
                                           tramp #f #f))))))
 
+;; Remove the Host-wide alias `name` (alias-only): a later fetch misses on
+;; every session, while issued refs and deposited gifts keep the exact actor,
+;; whose retained trampoline stays hosted for the host's life. Returns #f when
+;; no such alias exists.
+(define (host-unpublish-giftable m name)
+  (define nb (string->bytes/utf-8 name))
+  (call-with-host m
+    (lambda ()
+      (define rc (pancake_host_unpublish (host-ptr m) (pin-immobile nb) (bytes-length nb)))
+      (cond
+        [(= rc ERR-NOT-FOUND) #f]
+        [else (check/host rc) #t]))))
+
+;; Publish `behavior` under a freshly minted durable swiss name (ADR-0098) and
+;; return that name — the swiss to place in a sturdyref beside this host's own
+;; locator. The name is unpredictable, never reassigned, structurally disjoint
+;; from every mutable alias, and removable only through `host-remove-durable`.
+;; Entropy is drawn here, from the OS RNG.
+(define (host-publish-durable m behavior)
+  (define tramp (make-giftable-trampoline behavior))
+  (host-retain! m tramp)
+  (define entropy (crypto-random-bytes 16))
+  ;; Output buffer is mutable Racket bytes the FFI writes into — do not
+  ;; `pin-immobile` it (that copies, and the write would be discarded).
+  (define out (make-bytes 64))
+  ;; The host never owns the row (the free callback is #f), so a refused
+  ;; publish must retire the retained closure or it leaks for the host's life.
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e) (host-retire! m tramp) (raise e))])
+    (call-with-host m
+      (lambda ()
+        (define written
+          (pancake_host_publish_durable (host-ptr m)
+                                        (pin-immobile entropy) (bytes-length entropy)
+                                        tramp #f #f
+                                        out (bytes-length out)))
+        (when (<= written 0) (check/host written))
+        (bytes->string/utf-8 (subbytes out 0 written))))))
+
+;; Remove a minted durable publication (ADR-0098): the old sturdyref misses
+;; from now on, while issued refs and deposited gifts keep the exact actor.
+;; Returns #f when no such durable name exists.
+(define (host-remove-durable m swiss)
+  (define sb (string->bytes/utf-8 swiss))
+  (call-with-host m
+    (lambda ()
+      (define rc (pancake_host_remove_durable (host-ptr m) (pin-immobile sb) (bytes-length sb)))
+      (cond
+        [(= rc ERR-NOT-FOUND) #f]
+        [else (check/host rc) #t]))))
+
 ;; ── The hint-less iroh redeem posture ─────────────────────────────────────────
 ;; The iroh reachability posture this host uses to redeem a hint-less handoff
 ;; give — one whose exporter location names the exporter by node id alone, so
@@ -276,3 +334,11 @@
 (define (host-redeem-reachability-value m) (unbox (host-redeem-reachability m)))
 (define (set-host-redeem-reachability! m reachability)
   (set-box! (host-redeem-reachability m) reachability))
+
+;; The keyed-relay rendezvous mapping (ADR-0088): a procedure from the peer's
+;; key designator to the relay rendezvous WebSocket URL that bridges onto its
+;; held inbound socket — the keyed-relay sibling of the redeem-reachability
+;; posture above. #f until configured; a keyed-relay dial refuses without it.
+(define (host-rendezvous-url-value m) (unbox (host-rendezvous-url m)))
+(define (set-host-rendezvous-url! m url-of)
+  (set-box! (host-rendezvous-url m) url-of))

@@ -20,7 +20,7 @@ const HostAction = host_action.HostAction;
 /// `pending_flush` is the encode worklist (sessions that need
 /// `Served.driveFed`). `HostAction.flush` is a different queue by design:
 /// the embedder signal that outbound frames are ready to write.
-fn markDirty(self: *Host, peer_id: engine.PeerId) void {
+pub fn markDirty(self: *Host, peer_id: engine.PeerId) void {
     const session = self.sessions.get(peer_id) orelse return;
     if (session.flush_pending) return;
     // `Host.mint` reserves one FIFO slot per live session. Intrusive
@@ -165,7 +165,7 @@ fn drainWork(self: *Host) !void {
             // the Node's peek/commit seam. A fulfilled settle may still need a
             // fallible Vat clone; if it fails, the listener and Node action
             // both remain parked for the next action drain.
-            try self.actions.reserve(self.allocator, self.vows.count() + 2 * self.sessions.count() + 1);
+            try self.reserveActionsFor(1);
             const action = self.node.peekAction().?;
             progressed = true;
             try execNodeAction(self, action);
@@ -228,9 +228,9 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
 }
 
 pub fn queueHostAction(self: *Host, action: HostAction) !void {
-    // Preserve one completion slot per live vow and one flush plus one close
-    // notification per live session on top of this ordinary append.
-    try self.actions.reserve(self.allocator, self.vows.count() + 2 * self.sessions.count() + 1);
+    // The ceiling of already-promised notifications lives on the Host; this
+    // append is the one slot beyond it.
+    try self.reserveActionsFor(1);
     self.actions.pushReserved(action);
 }
 

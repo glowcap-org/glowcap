@@ -11,6 +11,7 @@ const binding_spine = @import("meta_check/binding_spine.zig");
 const docs = @import("meta_check/docs.zig");
 const project_shape = @import("meta_check/project_shape.zig");
 const ui = @import("meta_check/ui.zig");
+const rooms_ui = @import("meta_check/rooms_ui.zig");
 const scaffolding = @import("meta_check/scaffolding.zig");
 const c_abi = @import("meta_check/c_abi.zig");
 const captp_io_spine = @import("meta_check/captp_io_spine.zig");
@@ -60,6 +61,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.checkRequiredSubstrings(io, gpa, root, &violations);
     try scaffolding.checkRuleIndexAgreement(io, gpa, root, &violations);
     try scaffolding.checkSkillCatalog(io, gpa, root, &violations);
+    try scaffolding.checkRatchetModuleMap(io, gpa, root, &violations);
     try scaffolding.checkAgentPersonas(io, gpa, root, &violations);
     try scaffolding.checkAgentsRouting(io, gpa, root, &violations);
     try docs.checkMarkdownLinks(io, gpa, root, &violations);
@@ -77,6 +79,9 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try ui.checkUiCore(io, gpa, root, &violations);
     try ui.checkUiPaletteLiterals(io, gpa, root, &violations);
     try ui.checkUiThemeParity(io, gpa, root, &violations);
+    try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
+    try rooms_ui.checkRoomsLayerBans(io, gpa, root, &violations);
+    try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try project_shape.checkDocumentedBuildSteps(io, gpa, root, &violations);
     try c_abi.checkAbiVersionLockstep(io, gpa, root, &violations);
     try c_abi.checkAbiFreeingVerb(io, gpa, root, &violations);
@@ -115,6 +120,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try bans.runBans(io, gpa, root, &violations, bans.all);
     try captp_product.checkTransportVocabulary(io, gpa, root, &violations);
     try captp_product.checkDesignatorSchemeSync(io, gpa, root, &violations);
+    try captp_product.checkAuthenticationMechanismSync(io, gpa, root, &violations);
     try captp_product.checkReferenceRelayIrohLazy(io, gpa, root, &violations);
     try captp_product.checkProductionRelayClassifierLockstep(io, gpa, root, &violations);
     try c_abi.checkCAbiResolve(io, gpa, root, &violations);
@@ -131,8 +137,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try project_shape.checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
     try project_shape.checkRepositoryUrl(io, gpa, root, &violations, b.build_root.path orelse ".");
     try project_shape.checkPathIoCopies(io, gpa, root, &violations);
-    try project_shape.checkConnOverheadQuotes(io, gpa, root, &violations);
-    try project_shape.checkHostSessionBudgetQuotes(io, gpa, root, &violations);
+    try project_shape.checkFootprintBudgetQuotes(io, gpa, root, &violations);
     try fuzz.checkVendoredRunnerLicense(io, gpa, root, &violations);
     try fuzz.checkVendoredTestRunner(io, gpa, root, &violations, b.graph.zig_lib_directory.path orelse ".");
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);

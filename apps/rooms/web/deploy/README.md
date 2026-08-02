@@ -138,13 +138,17 @@ state and avoids bundling on boot. The server can bundle at runtime when its
 dependencies are already available, but the deployment does not rely on that
 fallback.
 
-The generated bundle is readable rather than minified. To build a smaller
-variant with the same browser-specific import configuration:
+The generated bundle is minified. That keeps it small, and it also selects the
+production build of the page's UI runtime: unminified, React ships a development
+build whose diagnostics belong in the console of whoever is editing the page
+rather than in a deployment. The bundle `serve.ts` builds on the fly while
+developing is the unminified one, for that reason. To rebuild the deployment
+artifact by hand:
 
 ```sh
 deno bundle --platform browser --no-lock --quiet --minify \
   --config bindings/ts/web/browser-bundle.json \
-  apps/rooms/web/ui/main.ts -o apps/rooms/web/ui/page.js
+  apps/rooms/web/ui/main.tsx -o apps/rooms/web/ui/page.js
 ```
 
 `page.js` is generated and gitignored.

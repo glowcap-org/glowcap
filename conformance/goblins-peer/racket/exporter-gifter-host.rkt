@@ -82,6 +82,10 @@
    ;; out, and the gift is minted against pancake as the exporter when a
    ;; recipient asks for it.
    (define greeter-vow (<- mycapn 'enliven greeter-sturdyref))
+   ;; Mutate the exporter-held actor before any introduction. The recipient's
+   ;; greeting must carry this mark even after pancake replaces the alias,
+   ;; which is what proves the gift retained the exact actor.
+   (<- greeter-vow 'prime "alice-mark-7")
    (define introducer (spawn ^introducer greeter-vow))
    ($ nonce-registry 'register introducer INTRODUCER-SWISS)
 

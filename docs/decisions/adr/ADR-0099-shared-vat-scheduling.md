@@ -153,10 +153,11 @@ The checked measurements are:
 - `Vat` is 448 inline bytes;
 - the fixed queue chunk is 4,152 bytes, below its 4,224-byte metadata ceiling;
 - the one Vat-wide spare retains at most 4,096 payload-arena bytes;
-- the per-session `HostSession` ceiling is 464 bytes, down from 768; Debug
-  reaches it and native ReleaseFast is 432 bytes. The 448-byte Vat is charged
-  once per Host, not once per session. No footprint budget was raised, and the
-  removed headroom was banked rather than reassigned.
+- the per-session `HostSession` ceiling is 496 bytes: 464 when this decision
+  cut it from 768, plus 32 for ADR-0097's per-session signing seed. The
+  448-byte Vat is charged once per Host, not once per session. This decision
+  raised no footprint budget, and the headroom it removed was banked rather
+  than reassigned.
 
 ## Scope (what this does not decide)
 

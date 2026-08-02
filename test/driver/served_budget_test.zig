@@ -29,10 +29,10 @@ test "drivePostBatch refuses a batch past its budget and the residual drains und
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
-    var served = driver.Served.over(allocator, &pair.p1);
-    defer served.deinit();
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
+    var served = driver.Served.over(allocator, &pair.p1);
+    defer served.deinit(&vat);
 
     const counter = try vat.spawn(Counter, .{});
 
@@ -60,10 +60,10 @@ test "drivePostBatch within budget drains and settles the local send's listener"
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
-    var served = driver.Served.over(allocator, &pair.p1);
-    defer served.deinit();
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
+    var served = driver.Served.over(allocator, &pair.p1);
+    defer served.deinit(&vat);
 
     const counter = try vat.spawn(Counter, .{});
     const vow = try vat.send(counter, .{ .verb = "hit", .args = &.{} });

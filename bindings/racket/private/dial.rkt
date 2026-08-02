@@ -36,6 +36,9 @@
          (only-in "pump.rkt" HANDSHAKE-TIMEOUT-MS))
 
 (lazy-require
+ ;; The WebSocket client loads only when a keyed-relay dial runs, so a minimal
+ ;; install without rfc6455 pays nothing until it asks for a rendezvous.
+ ["ws-transport.rkt" (ws-transport)]
  ["session.rkt"
   (establish-dialed-locator-session
    session-serve
@@ -45,6 +48,7 @@
 
 (provide (struct-out host-port-dial)
          (struct-out peer-id-dial)
+         (struct-out rendezvous-dial)
          plan-dial
          dial-parsed-locator
          dial-exporter
@@ -69,6 +73,9 @@
 ;; buffers; decode those subslices only — a non-alias is a contract break.
 (struct host-port-dial (host port) #:transparent)
 (struct peer-id-dial (addresses reach-kind reach-value) #:transparent)
+;; A keyed-relay locator names a peer with no dialable address: the byte path
+;; is the relay rendezvous bridge the dialing host is configured for (ADR-0088).
+(struct rendezvous-dial () #:transparent)
 
 ;; `sources` pairs each pinned base pointer with the Racket bytes it copied,
 ;; so the alias arithmetic runs on addresses the collector cannot move.
@@ -116,6 +123,7 @@
     [(= shape DIAL-SHAPE-SIGNALING)
      (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
                     "webrtc signaling dial requires a signaling-aware adapter; a bare locator cannot open it")]
+    [(= shape DIAL-SHAPE-RENDEZVOUS) (rendezvous-dial)]
     [else (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
                          "unknown dial shape ~a" shape)]))
 
@@ -144,6 +152,15 @@
      ((dynamic-require (iroh-dial-mod) 'connect-iroh/node)
       designator (peer-id-dial-addresses plan) reach* m
       #:handshake-timeout-ms handshake-timeout-ms)]
+    [(rendezvous-dial? plan)
+     ;; The relay mapping is deployment configuration of the dialing host,
+     ;; exactly like the redeem reachability posture beside it.
+     (define url-of (host-rendezvous-url-value m))
+     (unless url-of
+       (raise-pancake 'connect ERR-INVALID-ARGUMENT
+                      "keyed-relay dial: no rendezvous relay configured; call set-host-rendezvous-url! first"))
+     (establish-dialed-locator-session m transport designator (ws-transport (url-of designator))
+                                          #:handshake-timeout-ms handshake-timeout-ms)]
     [(host-port-dial? plan)
      (define-values (in out) (tcp-connect (host-port-dial-host plan) (host-port-dial-port plan)))
      (establish-dialed-locator-session m transport designator (port-transport in out)

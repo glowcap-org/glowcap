@@ -26,23 +26,17 @@ const runtime_name = "native-zig";
 /// One bench unit: create a task, assign it, complete it, read its status, and
 /// assert the status settled to the bytes `done`. The same four verbs every
 /// client runs, sequential send-and-settle, no pipelining.
-fn runUnit(conn: *driver.Session, root: actors.Ref, arena: std.mem.Allocator) !void {
-    const task = switch (try conn.call(root, .{ .verb = "create", .args = &.{.{ .bytes = "benchmark" }} }, arena)) {
+fn runUnit(conn: *driver.Session, root: driver.Capability, arena: std.mem.Allocator) !void {
+    const task = switch (try conn.call(root, "create", &.{.{ .bytes = "benchmark" }}, arena)) {
         .fulfilled => |arg| switch (arg) {
-            .reference => |reference| switch (reference) {
-                .far => |far_ref| actors.Ref{ .far = far_ref },
-                else => return error.CreateNotACapability,
-            },
+            .capability => |cap| cap,
             else => return error.CreateNotACapability,
         },
         .broken => return error.CreateBroke,
-        // The board's `create` answers with the task capability directly, never
-        // an introduction; a give here is a protocol surprise, not a benchmark.
-        .give => return error.CreateGaveIntroduction,
     };
-    _ = try conn.call(task, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} }, arena);
-    _ = try conn.call(task, .{ .verb = "complete", .args = &.{} }, arena);
-    const status = try conn.call(task, .{ .verb = "status", .args = &.{} }, arena);
+    _ = try conn.call(task, "assign", &.{.{ .bytes = "alice" }}, arena);
+    _ = try conn.call(task, "complete", &.{}, arena);
+    const status = try conn.call(task, "status", &.{}, arena);
     const ok = status == .fulfilled and status.fulfilled == .bytes and
         std.mem.eql(u8, status.fulfilled.bytes, "done");
     if (!ok) return error.StatusNotDone;
@@ -54,11 +48,11 @@ fn runUnit(conn: *driver.Session, root: actors.Ref, arena: std.mem.Allocator) !v
 /// instead of four. Only the final `status` is settled. This is the throughput
 /// unit; `runUnit` stays sequential so the latency row keeps measuring one
 /// round trip at a time.
-fn runUnitPipelined(conn: *driver.Session, root: actors.Ref, arena: std.mem.Allocator) !void {
-    const create = try conn.send(root, .{ .verb = "create", .args = &.{.{ .bytes = "benchmark" }} });
-    _ = try conn.sendToAnswer(create, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} });
-    _ = try conn.sendToAnswer(create, .{ .verb = "complete", .args = &.{} });
-    const status_promise = try conn.sendToAnswer(create, .{ .verb = "status", .args = &.{} });
+fn runUnitPipelined(conn: *driver.Session, root: driver.Capability, arena: std.mem.Allocator) !void {
+    const create = try conn.send(root, "create", &.{.{ .bytes = "benchmark" }});
+    _ = try conn.sendToAnswer(create, "assign", &.{.{ .bytes = "alice" }});
+    _ = try conn.sendToAnswer(create, "complete", &.{});
+    const status_promise = try conn.sendToAnswer(create, "status", &.{});
     const status = try conn.settleVow(status_promise, arena);
     const ok = status == .fulfilled and status.fulfilled == .bytes and
         std.mem.eql(u8, status.fulfilled.bytes, "done");
@@ -184,9 +178,10 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
 const Counter = struct {
     count: i64 = 0,
 
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
+    pub fn handle(self: *Counter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "hit")) return error.NoSuchMethod;
         self.count += 1;
         return .{ .integer = self.count };
     }
@@ -213,14 +208,14 @@ fn serveLocalCounter(server: *driver.Server) void {
 /// send, returning the sorted per-turn latencies (ns). Asserts the final count
 /// equals `n` (native Zig is ahead-of-time, so there is no warmup ahead of the
 /// window and the counter starts at zero).
-fn measureHits(io: std.Io, conn: *driver.Session, target: actors.Ref, n: usize, samples: []u64) !void {
+fn measureHits(io: std.Io, conn: *driver.Session, target: driver.Capability, n: usize, samples: []u64) !void {
     var arena_state = std.heap.ArenaAllocator.init(conn.allocator);
     defer arena_state.deinit();
 
     var final: i64 = 0;
     for (0..n) |i| {
         const start = nowNs(io);
-        const settled = try conn.call(target, .{ .verb = "hit", .args = &.{} }, arena_state.allocator());
+        const settled = try conn.call(target, "hit", &.{}, arena_state.allocator());
         samples[i] = nowNs(io) - start;
         if (settled != .fulfilled or settled.fulfilled != .integer) return error.HitNotAnInteger;
         final = settled.fulfilled.integer;
@@ -270,7 +265,7 @@ fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
 
     // (a) in_lang: the vat near path this connection surface gives.
     const local_cap = try conn.spawn(Counter, .{});
-    try measureHits(io, conn, local_cap.ref, n, in_lang);
+    try measureHits(io, conn, local_cap, n, in_lang);
 
     // (b) via_host: the published counter across the loopback pair.
     const far = try conn.fetch("counter");

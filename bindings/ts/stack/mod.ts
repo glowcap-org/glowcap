@@ -45,7 +45,7 @@ export {
 	tagged,
 } from "./value.ts";
 export { Context, type ContextAllocator } from "./context.ts";
-export { Host } from "./host.ts";
+export { Host, type SignalingAuthority } from "./host.ts";
 export { RemotePromise } from "./promise.ts";
 // The handshake bound is applied inside `Session`'s establish spine, which
 // every dial and every accept path reaches; the constant is exported so a
@@ -53,12 +53,20 @@ export { RemotePromise } from "./promise.ts";
 export {
 	type Channel,
 	currentSession,
+	durableIdentityAuthenticated,
+	type DurableProvenance,
 	HANDSHAKE_TIMEOUT_MS,
 	type PartnerIdentity,
 	Session,
 } from "./session.ts";
 export { classifyRelayTarget, connect, type RelayTarget } from "./dial.ts";
 export { KeyedTcpServer, listen, listenKeyedTcp, Server } from "./listen.ts";
+// The WebSocket byte channel and the cold-dial rendezvous accept half
+// (ADR-0088). Runtime-neutral: the `WebSocket` global is a web standard every
+// supported runtime ships. The dialing half is not a separate export — it is
+// the dial executor's `rendezvous` plan arm over `Host.setRendezvousUrl`.
+export { type RendezvousHandle, serveRendezvous } from "./rendezvous.ts";
+export { openWebSocketChannel, webSocketChannel } from "./ws_channel.ts";
 // Bun loads its FFI adapter asynchronously (its `bun:ffi` import stays off the
 // static graph), so a Bun program awaits this once before the first
 // synchronous FFI use (`new Host()`, `abiVersion()`). Deno and the browser
@@ -80,6 +88,7 @@ export {
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_KEYED_TCP,
 	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
 } from "./locator.ts";
 
 /** The linked library's ABI version as `[major, minor, patch]`. */

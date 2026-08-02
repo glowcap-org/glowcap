@@ -756,19 +756,19 @@ pub fn checkBindingPromiseSpine(
             // synchronous failure channel on a promise and escapes the caller's
             // own `.catch`. Rust carried this arm alone for a while, and the
             // two that lacked it both shipped that trap.
-            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "static failed", "\"failed\"", "pancake_host_vow_index", "pancake_host_vow_untag", "pancake_host_vow_get" },
+            .markers = &.{ "class RemotePromise", "index(", "untag(", "get(", "awaitMinted", "fetchLike", "promiseFor", "sendFar", "listenFar", "static failed", "\"failed\"", "pancake_host_vow_index", "pancake_host_vow_untag", "pancake_host_vow_get" },
         },
         .{
             .path = "bindings/python/pancake/_promise.py",
-            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def failed", "class Failed", "pancake_host_vow_get" },
+            .markers = &.{ "class RemotePromise", "def index", "def untag", "def get", "_await_minted", "_fetch_like", "def _promise_for", "def _send_far", "def _listen_far", "def failed", "class Failed", "pancake_host_vow_get" },
         },
         .{
             .path = "bindings/rust/src/promise.rs",
-            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "pancake_host_vow_index", "pancake_host_vow_get", "await_minted", "fetch_like", "fn send_promise", "Failed(" },
+            .markers = &.{ "struct RemotePromise", "fn index", "fn untag", "fn get", "pancake_host_vow_index", "pancake_host_vow_get", "await_minted", "fetch_like", "fn send_promise", "fn listen_promise", "Failed(" },
         },
         .{
             .path = "bindings/racket/private/promise.rkt",
-            .markers = &.{ "session-vow", "settle-vow!", "session-index", "session-untag", "session-get", "pancake_host_vow_index", "pancake_host_vow_get", "await-vow", "blocking-fetch", "session-far-send", "pancake_host_session_send", "pancake_host_session_tell", "pancake_host_vow_send" },
+            .markers = &.{ "session-vow", "settle-vow!", "session-index", "session-untag", "session-get", "pancake_host_vow_index", "pancake_host_vow_get", "await-vow", "blocking-fetch", "session-far-send", "listen-far", "pancake_host_session_send", "pancake_host_session_tell", "pancake_host_vow_send" },
         },
     };
     for (mods) |mod| {

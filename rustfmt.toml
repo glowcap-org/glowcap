@@ -5,3 +5,6 @@
 # cannot express. Enforced by `zig build bindings-fmt-check`.
 hard_tabs = true
 tab_spaces = 4
+# Standalone `rustfmt <file>` (the per-edit format hook) parses with this
+# edition; `cargo fmt` reads the same value from each crate's Cargo.toml.
+edition = "2021"

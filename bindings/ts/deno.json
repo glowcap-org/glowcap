@@ -20,9 +20,14 @@
     "include": [
       "**/*.ts"
     ],
+    // md/json are excluded so an explicit-path run (`deno fmt <path>`) cannot
+    // reach them: a path argument overrides `include`, and this formatter would
+    // re-wrap Markdown to lineWidth and re-tab JSON against .editorconfig.
     "exclude": [
       "abi/constants.ts",
-      "stack/internal/abi.ts"
+      "stack/internal/abi.ts",
+      "**/*.md",
+      "**/*.json"
     ]
   },
   "lint": {

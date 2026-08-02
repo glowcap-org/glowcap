@@ -23,3 +23,18 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
         }
     };
 }
+
+/// The owning-tier twin of `StaticReplyActor`: the same one-verb static reply
+/// as a Value-shaped behavior for `driver.Session.publish` / `spawn`, whose
+/// behaviors speak opaque capabilities (`driver.Hosting`).
+pub fn StaticReplyValueActor(comptime verb: []const u8, comptime reply: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), ht: *pancake.driver.HostTurn, v: []const u8, args: []const pancake.driver.Value) !pancake.driver.Value {
+            _ = self;
+            _ = ht;
+            _ = args;
+            if (!std.mem.eql(u8, v, verb)) return error.NoSuchMethod;
+            return .{ .string = reply };
+        }
+    };
+}

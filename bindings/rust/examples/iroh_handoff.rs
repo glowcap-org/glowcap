@@ -55,7 +55,7 @@ async fn run() -> Result<(), Fail> {
 	let exporter = Rc::new(listen_iroh(Reachability::Direct)?);
 	exporter
 		.host()
-		.publish_giftable("greeter", || Box::new(greeter));
+		.publish_giftable("greeter", || Box::new(greeter()));
 	let (exporter_id, exporter_addrs) = dialable(&exporter).await?;
 	accept_loop(Rc::clone(&exporter));
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
@@ -76,6 +76,22 @@ async fn run() -> Result<(), Fail> {
 	)
 	.await?;
 	let greeter_ref = to_exporter.fetch("greeter").await?;
+	// Mutate the held greeter, then replace the alias with a decoy: the give
+	// must retain the exact mutated actor, never whatever the alias resolves
+	// to at withdrawal (ADR-0096's exact-object identity, on the binding path).
+	let primed = to_exporter
+		.send(
+			&greeter_ref,
+			"prime",
+			&[Argument::String("gifter-mark".into())],
+		)
+		.await?;
+	if primed.as_str() != Some("primed") {
+		return Err(format!("prime did not land: {primed:?}").into());
+	}
+	exporter.host().publish_giftable("greeter", || {
+		Box::new(|_verb: &str, _args: &[Argument]| Ok(Argument::from("decoy")))
+	});
 	// The exporter's own signed session record names it by node id alone — not
 	// dialable under the relay-less Direct posture — so record its full dialable
 	// location (id + direct-addresses) as the give's exporter location.
@@ -109,7 +125,7 @@ async fn run() -> Result<(), Fail> {
 		.send(&greeter, "greet", &[Argument::String(NAME.into())])
 		.await?;
 	match &reply {
-		Argument::String(text) if text.contains(NAME) => {
+		Argument::String(text) if text.contains(NAME) && text.contains("gifter-mark") => {
 			println!("rust-iroh-handoff: greeter replied: {text}");
 		}
 		other => {
@@ -142,13 +158,25 @@ fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
 	});
 }
 
-// The published actor: answer `greet` by echoing the caller's name.
-fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
-	if verb == "greet" {
-		let name = args.first().and_then(Argument::as_str).unwrap_or("");
-		Ok(format!("hello {name} over iroh handoff").into())
-	} else {
-		Err(format!("no such method: {verb}"))
+// The published actor: `prime` stores a mark, `greet` echoes the caller's
+// name with it — so a redeemed call proves the exact mutated actor answered.
+fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+	let mut mark = String::new();
+	move |verb: &str, args: &[Argument]| {
+		if verb == "prime" {
+			mark = args
+				.first()
+				.and_then(Argument::as_str)
+				.unwrap_or("")
+				.to_string();
+			return Ok("primed".into());
+		}
+		if verb == "greet" {
+			let name = args.first().and_then(Argument::as_str).unwrap_or("");
+			Ok(format!("hello {name} over iroh handoff, {mark}").into())
+		} else {
+			Err(format!("no such method: {verb}"))
+		}
 	}
 }
 

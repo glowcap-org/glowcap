@@ -31,10 +31,10 @@ implementations exercised today are the upstream suite and Racket Goblins.
 ## Known gaps
 
 - pancake has live coverage in all three handoff roles: gifter, recipient, and
-  exporter. The exporter check proves deposit/withdraw choreography with a
-  stateless object republished under the same name; it does not prove that a
-  deposited object survives alias replacement or removal. There is no live
-  handoff coverage over a transport other than TCP.
+  exporter. The exporter check now proves exact-object identity: the Goblins
+  gifter primes the pancake-hosted actor, pancake replaces the alias with a
+  decoy, and the Goblins recipient's withdrawn call must observe the primed
+  original. There is no live handoff coverage over a transport other than TCP.
 - CapTP sessions within one Host currently reuse one signing key. Moving to the
   fresh per-connection keys required by OCapN first needs
   [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)'s
@@ -67,7 +67,7 @@ cannot remain marked as recurring evidence.
 | `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP: handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, and a Goblins call to a pancake actor. | A Goblins vow observing pancake's projection responders, live `op:untag`, or iroh. |
 | `zig build goblins-handoff` | yes | pancake redeems a Goblins give. | pancake as gifter or exporter. |
 | `zig build goblins-gift` | yes | pancake mints a give that Goblins redeems. | pancake as recipient or exporter. |
-| `zig build goblins-exporter` | yes | A Goblins pair deposits into and withdraws from pancake's gift registry. | Deposited-object identity across alias replacement/removal, state continuity across sessions, or handoff over a non-TCP transport. |
+| `zig build goblins-exporter` | yes | A Goblins pair deposits into and withdraws from pancake's gift registry, and the withdrawn object is the exact actor the gifter mutated, across an alias replacement. | Alias removal mid-flight, or handoff over a non-TCP transport. |
 | `zig build goblins-relayed-give` | yes | A Goblins recipient reads a signed give from a listener notification, dials the exporter, and calls the withdrawn capability. | pancake receiving that live introduction through `listenTo`. |
 | `zig build goblins-gc` | yes | Live inbound `op:gc-exports` after Goblins drops a near export. | Outbound GC, `op:gc-answers`, or binding finalizers. |
 | Binding `*-goblins-interop` steps | yes | Deno, Python, Rust, and Racket dial Goblins through the C ABI, enliven a sturdyref, and call it. | Bun or any binding as listener. | <!-- ci-gate: bindings-goblins-interop -->
@@ -110,9 +110,11 @@ For a quick manual call over Syrup/TCP, use the [CLI walkthrough](cli.md).
   nothing about the pancake-native profile.
 - **Suite TCP.** Goblins interop uses the `tcp` transport symbol. The upstream
   suite uses its own `tcp-testing-only` URLs.
-- **Target equality.** pancake compares references within one session and
-  deduplicates repeated sturdyref enlivenment there. It does not claim that
-  every path to the same remote target canonicalizes to one reference.
+- **Target equality.** A remote target reached directly and through handoff
+  on the same live exporter session canonicalizes to one Host identity, and
+  repeated sturdyref enlivenment on a session deduplicates. Two parallel
+  sessions to the same peer are not claimed to converge; ADR-0097's fresh-key
+  peer selection owns that.
 - **Signature verification.** Production uses `foundation.crypto`. The
   accepting verifier in test support is available only to in-process tests.
 

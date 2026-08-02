@@ -28,15 +28,15 @@ const driver = pancake.driver;
 /// The published actor: answers `greet(name)` with a greeting built in the
 /// turn's arena, which outlives the reply encode and nothing more.
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        if (msg.args.len != 1) return error.BadInvocation;
-        const name = switch (msg.args[0]) {
+        if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
+        if (args.len != 1) return error.BadInvocation;
+        const name = switch (args[0]) {
             .string => |s| s,
             else => return error.BadInvocation,
         };
-        return .{ .string = try std.fmt.allocPrint(turn.arena, "Hello, {s}", .{name}) };
+        return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{name}) };
     }
 };
 
@@ -84,17 +84,14 @@ pub fn main(init: std.process.Init) !void {
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const settled = try session.call(greeter, .{
-        .verb = "greet",
-        .args = &.{.{ .string = "world" }},
-    }, arena_state.allocator());
+    const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena_state.allocator());
 
     session.deinit();
     try hosting.await(io);
 
     const ok = switch (settled) {
-        .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, "Hello, world"),
-        .broken, .give => false,
+        .fulfilled => |value| value == .string and std.mem.eql(u8, value.string, "Hello, world"),
+        .broken => false,
     };
     if (!ok) return error.UnexpectedReply;
     std.debug.print("01: greeter fetched by name and called over an OCapN session on the `tcp` netlayer\n", .{});

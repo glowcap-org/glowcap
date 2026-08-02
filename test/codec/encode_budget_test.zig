@@ -26,6 +26,7 @@ const TotalCountingAllocator = struct {
     backing: std.mem.Allocator,
     allocs: usize = 0,
     grows: usize = 0,
+    shrinks: usize = 0,
 
     fn allocator(self: *TotalCountingAllocator) std.mem.Allocator {
         return .{
@@ -45,6 +46,7 @@ const TotalCountingAllocator = struct {
         const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
         const ok = self.backing.rawResize(memory, alignment, new_len, ret_addr);
         if (ok and new_len > memory.len) self.grows += 1;
+        if (ok and new_len < memory.len) self.shrinks += 1;
         return ok;
     }
 
@@ -55,6 +57,7 @@ const TotalCountingAllocator = struct {
             self.allocs += 1;
             self.grows += 1;
         }
+        if (result != null and new_len < memory.len) self.shrinks += 1;
         return result;
     }
 
@@ -147,4 +150,5 @@ test "encoding a large deliver costs one exact allocation and zero reallocs" {
     try std.testing.expect(frame.bytes().len > payload.len);
     try std.testing.expectEqual(@as(usize, 1), counter.allocs);
     try std.testing.expectEqual(@as(usize, 0), counter.grows);
+    try std.testing.expectEqual(@as(usize, 0), counter.shrinks);
 }

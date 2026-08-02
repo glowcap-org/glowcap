@@ -79,6 +79,7 @@ fn deliverGive(
     try exporter_peer.giftRegistry().deposit(
         exporter_peer.allocator,
         exporter_peer.limits(),
+        null,
         give.gift_id,
         give.recipient_key,
     );
@@ -125,7 +126,7 @@ fn withdrawGift(
     };
     try registry.validateWithdrawEnvelope(receive, expected);
     try gifter_gifts.validateWithdrawGift(receive);
-    _ = try registry.applyWithdraw(gifter_gifts, exporter_peer.allocator, receive);
+    _ = try registry.applyWithdraw(gifter_gifts, exporter_peer.allocator, null, receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpFrame(recipient, exporter_peer);
@@ -202,13 +203,13 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     var c_vat = actors.Vat.init(allocator);
     defer c_vat.deinit();
     var c_port = actors.Port.init(allocator, &exporter);
-    defer c_port.deinit();
+    defer c_port.deinit(&c_vat);
     const aff = try c_vat.spawn(affordance.Affordance, .{
         .store = &c_store,
         .last_subject = &last_subject,
         .served = &served,
     });
-    try c_port.bindExport(aff, AFFORDANCE_EXPORT);
+    try c_port.bindExport(&c_vat, aff, AFFORDANCE_EXPORT);
     // This test routes the handoff by hand (B imports the affordance position
     // out-of-band after the withdrawal), so C grants the bound position
     // explicitly; a withdraw served through the engine's bootstrap responder
@@ -288,7 +289,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     var b_vat = actors.Vat.init(allocator);
     defer b_vat.deinit();
     var b_port = actors.Port.init(allocator, &recipient_to_exporter);
-    defer b_port.deinit();
+    defer b_port.deinit(&b_vat);
     const ref: actors.Ref = .{ .far = model.FarRef.object(AFFORDANCE_EXPORT) };
     _ = try b_port.send(&b_vat, ref, .{
         .verb = affordance.invoke_verb,

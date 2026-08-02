@@ -71,11 +71,6 @@ pub fn popHead(
 /// passes this.
 pub const retain_all: usize = std.math.maxInt(usize);
 
-/// The steady backing bound the per-connection queues use. Capacity above it is
-/// one burst's, freed at the drain; capacity at or under it is steady traffic
-/// and stays, so ordinary turns never reallocate.
-pub const steady_fifo_bytes: usize = 4096;
-
 pub fn ActionFifo(comptime T: type) type {
     return struct {
         const Self = @This();

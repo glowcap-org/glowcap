@@ -15,10 +15,12 @@ test "everyday verbs are discoverable" {
 }
 
 test "mcp catalog is policy-driven" {
+    // Listen backgrounds off argv, so the MCP and REPL fronts carry it; only
+    // the readonly catalog (which hosts nothing) excludes it.
     const listen = cli.registry.find("listen").?;
-    try std.testing.expect(listen.mcp_never);
-    try std.testing.expect(!cli.registry.mcpVisible(listen, .default));
-    try std.testing.expect(!cli.registry.mcpVisible(listen, .full));
+    try std.testing.expect(!listen.mcp_never);
+    try std.testing.expect(cli.registry.mcpVisible(listen, .default));
+    try std.testing.expect(cli.registry.mcpVisible(listen, .full));
     try std.testing.expect(!cli.registry.mcpVisible(listen, .readonly));
 
     const dial = cli.registry.find("dial").?;
@@ -40,7 +42,7 @@ test "mcp catalog is policy-driven" {
     try std.testing.expect(!cli.registry.mcpVisible(locator, .readonly));
     try std.testing.expect(!cli.registry.mcpVisible(locator, .default));
     try std.testing.expect(!cli.registry.leafVisible(locator, .repl));
-    try std.testing.expect(!cli.registry.leafVisible(listen, .repl));
+    try std.testing.expect(cli.registry.leafVisible(listen, .repl));
     try std.testing.expect(cli.registry.leafVisible(dial, .repl));
 }
 
@@ -61,7 +63,7 @@ test "exit codes are distinct" {
     try std.testing.expect(cli.exit_codes.busy == 7);
 }
 
-test "mcp default catalog names exclude listen and include dial" {
+test "mcp default catalog names include listen and dial" {
     var names: std.ArrayList([]const u8) = .empty;
     defer names.deinit(std.testing.allocator);
     for (&cli.registry.commands) |*cmd| {
@@ -69,9 +71,11 @@ test "mcp default catalog names exclude listen and include dial" {
         try names.append(std.testing.allocator, cmd.name);
     }
     try std.testing.expect(names.items.len > 0);
+    var saw_listen = false;
     for (names.items) |n| {
-        try std.testing.expect(!std.mem.eql(u8, n, "listen"));
+        if (std.mem.eql(u8, n, "listen")) saw_listen = true;
     }
+    try std.testing.expect(saw_listen);
     var saw_dial = false;
     for (names.items) |n| {
         if (std.mem.eql(u8, n, "dial")) saw_dial = true;
@@ -100,7 +104,7 @@ test "tree has pancake griddle placeholder with status" {
     try std.testing.expect(help.run != null);
 }
 
-test "mcp tools/list body is valid JSON and excludes listen" {
+test "mcp tools/list body is valid JSON and includes listen" {
     const gpa = std.testing.allocator;
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(gpa);
@@ -111,13 +115,15 @@ test "mcp tools/list body is valid JSON and excludes listen" {
     try std.testing.expect(tools.items.len > 0);
     var saw_dial = false;
     var saw_close = false;
+    var saw_listen = false;
     for (tools.items) |t| {
         const name = t.object.get("name").?.string;
-        try std.testing.expect(!std.mem.eql(u8, name, "listen"));
+        if (std.mem.eql(u8, name, "listen")) saw_listen = true;
         if (std.mem.eql(u8, name, "dial")) saw_dial = true;
         if (std.mem.eql(u8, name, "close")) saw_close = true;
         _ = t.object.get("inputSchema") orelse return error.TestUnexpectedResult;
     }
+    try std.testing.expect(saw_listen);
     try std.testing.expect(saw_dial);
     try std.testing.expect(saw_close);
     try std.testing.expect(std.mem.endsWith(u8, body.items, "]}}"));
@@ -277,7 +283,7 @@ test "REPL everyday help matches Tab CapTP set" {
     };
     try cli.registry.helpEveryday(HelpW{ .list = &help_buf, .gpa = gpa }, .repl);
     // Row format is `  {name:<10}  …` — substring "locator" also appears in dial help.
-    try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  listen    ") == null);
+    try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  listen    ") != null);
     try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  locator   ") == null);
     try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  dial      ") != null);
     for (cli.registry.commands) |cmd| {

@@ -7,9 +7,15 @@
 //
 // This is the browser half of the mechanism that `web_relay_peer_test.ts`
 // proves in Deno. Both are their own process; here the browser is a separate
-// runtime entirely. serve.ts (room server + relay) and the page assets are served
-// from two local origins; only the relay WebSocket crosses between them, which
-// is exactly the shipped shape.
+// runtime entirely.
+//
+// The page and the relay share one origin, because that is what the shipped page
+// does: serve.ts serves the page, and the page dials `/relay` on the host it came
+// from. serve.ts refuses a relay dial whose Origin names a different host, so a
+// page somewhere else cannot use a reader's local relay to reach whatever it
+// likes; `relayOriginAllowed` in web_test.ts holds that rule. So the probe is
+// grafted onto a document serve.ts really served, and the wasm module, the relay,
+// and the room are all the real ones.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's children are native), and a Playwright Chromium
@@ -29,7 +35,15 @@ import { chromium } from "playwright";
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const PROBE = new URL("./browser_peer_probe.ts", import.meta.url).pathname;
-const WASM = new URL("../../../zig-out/wasm/pancake_host.wasm", import.meta.url);
+// The document the probe is grafted onto. It has to be a real response from
+// serve.ts and not one the test invents: a page the browser was handed without a
+// request going out has no address behind it, so Chromium files it under the
+// public address space and blocks everything it then asks of a local one. Of the
+// handful of things serve.ts serves, this is the one small inert document — the
+// room's own address, which is exactly what the probe is about to dial. Every
+// other path answers with the rooms page, which would run a second peer beside
+// the one under test.
+const PROBE_DOCUMENT = "/locator";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -43,18 +57,21 @@ function freePort(): number {
 	return port;
 }
 
+// Wait for the room's address, not merely for something to answer: the probe
+// dials the room, and it is grafted onto this very response. A 503 here is
+// serve.ts saying the room is not up yet.
 async function waitForHttp(port: number): Promise<void> {
 	for (let i = 0; i < 200; i++) {
 		try {
 			const res = await fetch(`http://127.0.0.1:${port}/locator`);
 			await res.body?.cancel();
-			if (res.status === 200 || res.status === 503) return;
+			if (res.status === 200) return;
 		} catch {
 			// not up yet
 		}
 		await new Promise((r) => setTimeout(r, 50));
 	}
-	fail("serve.ts did not answer on its HTTP port");
+	fail("serve.ts never published a room locator");
 }
 
 const BUNDLE_CONFIG =
@@ -88,7 +105,6 @@ const deadline = setTimeout(() => fail("browser-peer scenario timed out after 60
 
 const httpPort = freePort();
 const roomPort = freePort();
-const pagePort = freePort();
 
 // serve.ts: the room server + the /relay byte pipe.
 const web = new Deno.Command("deno", {
@@ -108,36 +124,32 @@ const web = new Deno.Command("deno", {
 	stderr: "inherit",
 }).spawn();
 
-const assetServer = new AbortController();
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
 	await waitForHttp(httpPort);
 
 	const probeJs = await bundleProbe();
-	const wasmBytes = await Deno.readFile(WASM);
-	const page = `<!doctype html><meta charset=utf-8><title>rooms browser peer probe</title>` +
-		`<pre id=status>connecting…</pre><script type=module>${probeJs}</script>`;
-
-	// Serve the page, the bundle-inlined HTML, and the wasm same-origin; the
-	// only cross-origin hop is the relay WebSocket to serve.ts, the shipped shape.
-	Deno.serve({ port: pagePort, signal: assetServer.signal }, (req) => {
-		const url = new URL(req.url);
-		if (url.pathname === "/pancake_host.wasm") {
-			return new Response(wasmBytes, {
-				headers: { "content-type": "application/wasm" },
-			});
-		}
-		return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
-	});
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();
 	tab.on("console", (m) => console.error("  [browser]", m.text()));
 	tab.on("pageerror", (e) => console.error("  [browser error]", e.message));
-	const relay = `127.0.0.1:${httpPort}`;
+
+	// No `relay` parameter: the probe defaults to the host it was loaded from,
+	// which is the whole point.
 	await tab.goto(
-		`http://127.0.0.1:${pagePort}/?relay=${relay}&roomHost=127.0.0.1&roomPort=${roomPort}`,
+		`http://127.0.0.1:${httpPort}${PROBE_DOCUMENT}?roomHost=127.0.0.1&roomPort=${roomPort}`,
 	);
+	// The shell the probe reports through, and then the probe. Everything it asks
+	// for from here — the wasm module, the relay socket — is a same-origin request
+	// to serve.ts, from the page's point of view and from serve.ts's.
+	await tab.evaluate(() => {
+		const status = document.createElement("pre");
+		status.id = "status";
+		status.textContent = "connecting…";
+		document.body.append(status);
+	});
+	await tab.addScriptTag({ content: probeJs, type: "module" });
 
 	// Wait for the probe to settle (dataset.done), then read #status.
 	await tab.waitForFunction(
@@ -158,11 +170,11 @@ try {
 
 	console.log(
 		"PASS: a real headless Chromium ran the @pancake/web peer, dialed the room " +
-			"through /relay, and listed the directory as a capability call",
+			"through /relay on the origin it was served from, and listed the directory " +
+			"as a capability call",
 	);
 } finally {
 	clearTimeout(deadline);
-	assetServer.abort();
 	if (browser) {
 		await browser.close().catch(() => {});
 	}

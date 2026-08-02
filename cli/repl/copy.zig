@@ -11,7 +11,7 @@ pub const workbench_ready =
 pub const coach_guide =
     \\CapTP walkthrough — dial an ocapn:// locator (listen --publish greeter is argv-only).
     \\Then: fetch greeter → call greeter greet world
-    \\Or deliver to the import: call #<n> greet world  (n from the Imports rail).
+    \\Or deliver to a held capability: call #<n> greet world  (n from a fetch's `cap` id).
     \\tour exports|imports|answers · guide exit returns to the workbench · ? reprints this.
 ;
 
@@ -19,7 +19,7 @@ pub const next_identity = "next: mint identity (pancake init) or set PANCAKE_IDE
 pub const next_connect = "next: dial ocapn://…";
 pub const next_session = "next: wait for the session to open, then fetch a name";
 pub const next_fetch = "next: fetch greeter";
-pub const next_deliver = "next: call greeter greet world   or   call #<import> greet world";
+pub const next_deliver = "next: call greeter greet world   or   call #<cap> greet world";
 pub const next_tables = "next: tour exports · tour imports · tour answers";
 pub const next_done = "walkthrough complete — guide exit, or keep calling";
 
@@ -48,16 +48,16 @@ pub const help_captp_map =
     \\CapTP noun map:
     \\  bootstrap  ask the peer for a published name (fetch)
     \\  export     a capability you offer on this session
-    \\  import     a capability the peer offered you (rail #N — call #<N> verb …)
+    \\  import     a wire position the peer offered (fetch prints the cap id #N takes)
     \\  answer     a promise for an answered deliver
-    \\  deliver    call / tell by published name or #<import>
+    \\  deliver    call / tell by published name or #<cap>
     \\  dial       open a session to a peer (listen is argv-only)
     \\  close      end the session (no table-reset API — close + redial)
 ;
 
 pub fn gloss(verb: []const u8) []const u8 {
-    if (std.mem.eql(u8, verb, "call")) return "Answered deliver: name or #<import>, then verb. Watch Answers.";
-    if (std.mem.eql(u8, verb, "tell")) return "Fire-and-forget: name or #<import>, then verb. No answer row.";
+    if (std.mem.eql(u8, verb, "call")) return "Answered deliver: name or #<cap>, then verb. Watch Answers.";
+    if (std.mem.eql(u8, verb, "tell")) return "Fire-and-forget: name or #<cap>, then verb. No answer row.";
     if (std.mem.eql(u8, verb, "fetch")) return "Bootstrap fetch → import N. Then: call greeter … or call #N …";
     if (std.mem.eql(u8, verb, "publish")) return "Export a builtin on this session for the partner to fetch.";
     if (std.mem.eql(u8, verb, "dial")) return "Open a CapTP session to a peer locator.";

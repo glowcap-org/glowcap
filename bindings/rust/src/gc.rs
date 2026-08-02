@@ -35,10 +35,11 @@ impl Drop for ImportGuard {
 	}
 }
 
-/// Drain the parked GC releases: one release delta per reclaimed token, then
-/// a kick so the op:gc-exports flushes. Best-effort — a refused release
-/// strands a partner export reclaimed at teardown, never a fault. Called at
-/// the head of Host progress and whenever a finalizer schedules it.
+/// Drain the parked GC releases: one release delta per reclaimed token. The
+/// op:gc-exports flush rides the kick `ImportGuard::drop` scheduled when it
+/// parked the id, so the drain itself never kicks. Best-effort — a refused
+/// release strands a partner export reclaimed at teardown, never a fault.
+/// Called at the head of Host progress and whenever a finalizer schedules it.
 pub(crate) fn drain(host: &HostShared) {
 	if host.raw().is_null() {
 		return;

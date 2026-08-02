@@ -138,6 +138,19 @@ pub const ListenConfig = struct {
 /// designator it dialed.
 pub const DesignatorScheme = enum { address, key };
 
+/// How a transport authenticates the durable identity its key designator
+/// names (ADR-0097), the netlayer half of the byte-fed
+/// `driver_core.vocab.AuthenticationMechanism` mirror. Designator grammar and
+/// authentication mechanism are separate contracts: `key` says what the
+/// designator *is*, this says what *proves* it. `authenticated_transport`
+/// means the transport layer itself proves the remote's durable key (iroh's
+/// QUIC handshake, WebRTC's capability-authorized DTLS). `durable_key_attestation`
+/// means no lower layer can, so the keyed hello carries a
+/// `session-key-attestation` credential signed by the durable key and the
+/// driver installs `engine.Peer.requirePartnerAttestation` before the
+/// handshake. `none` is the address posture: connection provenance only.
+pub const AuthenticationMechanism = enum { authenticated_transport, durable_key_attestation, none };
+
 /// The locator hint carrying a partner's comma-separated direct socket
 /// addresses — the transport-neutral dial-address channel a `key`-scheme
 /// designator needs, since the designator itself no longer says where to dial.
@@ -206,6 +219,9 @@ pub const Listener = struct {
         /// What this listener's designator is (see `DesignatorScheme`);
         /// matches its netlayer's declaration.
         designator_scheme: DesignatorScheme = .address,
+        /// How the designator is authenticated (see `AuthenticationMechanism`);
+        /// matches its netlayer's declaration.
+        authentication: AuthenticationMechanism = .none,
         accept: *const fn (ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection,
         /// Wait until `accept` would make progress, up to `timeout_ms`.
         /// Returns false on timeout (caller may re-check a stop latch), true
@@ -234,6 +250,9 @@ pub const Listener = struct {
     }
     pub fn designatorScheme(self: Listener) DesignatorScheme {
         return self.vtable.designator_scheme;
+    }
+    pub fn authentication(self: Listener) AuthenticationMechanism {
+        return self.vtable.authentication;
     }
     pub fn accept(self: Listener, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection {
         return self.vtable.accept(self.ctx, peer, bufs);
@@ -274,6 +293,10 @@ pub const Netlayer = struct {
         /// designator is the peer's key (iroh, keyed TCP) declares `key`, which
         /// is what arms the driver's dial-side identity pin.
         designator_scheme: DesignatorScheme = .address,
+        /// How the designator is authenticated (see `AuthenticationMechanism`).
+        /// Every `key`-scheme resident declares a non-`none` mechanism; the
+        /// driver installs the matching engine contract before the handshake.
+        authentication: AuthenticationMechanism = .none,
         dial: *const fn (ctx: *anyopaque, peer: *engine.Peer, locator: model.PeerLocator, bufs: Buffers) DialError!Connection,
         listen: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator, config: ListenConfig) ListenError!Listener,
         /// The host `std.Io` this resident runs on, or null for a resident
@@ -294,6 +317,9 @@ pub const Netlayer = struct {
     }
     pub fn designatorScheme(self: Netlayer) DesignatorScheme {
         return self.vtable.designator_scheme;
+    }
+    pub fn authentication(self: Netlayer) AuthenticationMechanism {
+        return self.vtable.authentication;
     }
     pub fn dial(self: Netlayer, peer: *engine.Peer, locator: model.PeerLocator, bufs: Buffers) DialError!Connection {
         return self.vtable.dial(self.ctx, peer, locator, bufs);

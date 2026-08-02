@@ -349,7 +349,7 @@ test "a failed export bind can discard the freshly spawned hosted actor" {
     var vat = actors.Vat.init(failing.allocator());
     defer vat.deinit();
     var port = actors.Port.init(failing.allocator(), &pair.p1);
-    defer port.deinit();
+    defer port.deinit(&vat);
 
     var freed = false;
     const F = struct {
@@ -366,7 +366,7 @@ test "a failed export bind can discard the freshly spawned hosted actor" {
     // The next allocation is the first export-binding map. This is the exact
     // post-spawn failure `publishHosted` unwinds through `discardFreshActor`.
     failing.fail_index = failing.alloc_index;
-    try std.testing.expectError(error.OutOfMemory, port.bindExport(actor, 7));
+    try std.testing.expectError(error.OutOfMemory, port.bindExport(&vat, actor, 7));
     vat.discardFreshActor(actor);
     try std.testing.expect(freed);
     try std.testing.expectError(actors.Error.NoSuchActor, vat.near(actor, .{ .verb = "poke" }));
@@ -383,7 +383,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
     var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit();
+    defer host_port.deinit(&host_vat);
 
     // A gate that refuses every call with its own diagnostic, then returns
     // normally: the staged break must win over the void return value.
@@ -397,7 +397,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     };
     var unused: u8 = 0;
     const gate = try host_vat.spawnHosted(.{ .ctx = &unused, .handle = Gate.handle, .free = null });
-    try host_port.bindExport(gate, 5);
+    try host_port.bindExport(&host_vat, gate, 5);
     // Hand-wired pairing: the caller addresses position 5 out-of-band, so the
     // bound position takes an explicit grant.
     try host_peer.exportObject(5);
@@ -410,7 +410,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
     var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit();
+    defer caller_port.deinit(&caller_vat);
 
     const BreakCapture = struct {
         broke: bool = false,
@@ -526,7 +526,7 @@ test "a Port cannot attribute work to a sibling ingress" {
     defer vat.closeIngress(own) catch unreachable;
     defer vat.closeIngress(sibling) catch unreachable;
     var port = actors.Port.init(allocator, &pair.p1);
-    defer port.deinit();
+    defer port.deinit(&vat);
     port.ingress = own;
     const counter = try vat.spawn(Counter, .{ .n = 0 });
 
@@ -748,16 +748,16 @@ test "far tell delivers with no answer and the partner replies nothing" {
     var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
     var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit();
+    defer host_port.deinit(&host_vat);
     const counter = try host_vat.spawn(Counter, .{ .n = 0 });
-    try host_port.bindExport(counter, 5);
+    try host_port.bindExport(&host_vat, counter, 5);
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
     var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
     var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit();
+    defer caller_port.deinit(&caller_vat);
 
     // Fire-and-forget: no answer requested, so the caller holds no promise.
     try caller_port.tell(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "increment" });
@@ -788,16 +788,16 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
     var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit();
+    defer host_port.deinit(&host_vat);
     const counter = try host_vat.spawn(Counter, .{ .n = 0 });
-    try host_port.bindExport(counter, 5);
+    try host_port.bindExport(&host_vat, counter, 5);
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
     var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
     var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit();
+    defer caller_port.deinit(&caller_vat);
 
     // A far send the host answers with the new count.
     const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
@@ -848,7 +848,7 @@ test "breakFarVows settles outstanding far vows broken" {
     var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
     var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit();
+    defer caller_port.deinit(&caller_vat);
 
     // A far send the partner never answers: the vow stays pending until the
     // connection it rode on is gone.
@@ -874,13 +874,13 @@ test "bindExport refuses a far ref with NotLocal" {
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
     var port = actors.Port.init(allocator, &pair.p1);
-    defer port.deinit();
+    defer port.deinit(&vat);
 
     // Only a local actor can answer an export position this vat hosts; a far
     // ref already lives on the partner.
     try std.testing.expectError(
         actors.Error.NotLocal,
-        port.bindExport(.{ .far = model.FarRef.object(3) }, 7),
+        port.bindExport(&vat, .{ .far = model.FarRef.object(3) }, 7),
     );
 }
 
@@ -1714,16 +1714,16 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     var host_vat = actors.Vat.init(allocator);
     defer host_vat.deinit();
     var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit();
+    defer host_port.deinit(&host_vat);
     const echo = try host_vat.spawn(EchoVerb, .{});
-    try host_port.bindExport(echo, 5);
+    try host_port.bindExport(&host_vat, echo, 5);
     try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
     var caller_vat = actors.Vat.init(allocator);
     defer caller_vat.deinit();
     var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit();
+    defer caller_port.deinit(&caller_vat);
     const remote: actors.Ref = .{ .far = model.FarRef.object(5) };
 
     const first = try caller_port.send(&caller_vat, remote, .{ .verb = "one" });
@@ -1801,7 +1801,7 @@ test "a far vow registered during breakFarVows also fires broken" {
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
     var port = actors.Port.init(allocator, caller_peer);
-    defer port.deinit();
+    defer port.deinit(&vat);
 
     const vow = try port.send(&vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "poke" });
     var late_broke = false;

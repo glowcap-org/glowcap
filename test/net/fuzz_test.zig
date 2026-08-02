@@ -403,6 +403,12 @@ const LifecycleBackend = struct {
         self.record(user_data, .close, 0);
     }
 
+    pub fn remotePartnerKey(self: *LifecycleBackend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *LifecycleBackend, comp: completion.Completion) void {
         _ = .{ self, comp };
     }

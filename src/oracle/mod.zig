@@ -471,6 +471,8 @@ const DrivenGiftSeams = struct {
         return .{ .export_position = position, .created = true };
     }
 
+    fn releaseTarget(_: ?*anyopaque, _: u64) void {}
+
     fn rollback(ctx: ?*anyopaque, scope: engine.PeerId, opaque_target: u64, projected: engine.bootstrap.ProjectedLocalTarget) void {
         const self: *DrivenGiftSeams = @ptrCast(@alignCast(ctx.?));
         if (!projected.created or scope != self.recipient_scope or opaque_target != target) return;
@@ -531,6 +533,7 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
         .capture = DrivenGiftSeams.capture,
         .project = DrivenGiftSeams.project,
         .rollback = DrivenGiftSeams.rollback,
+        .release_target = DrivenGiftSeams.releaseTarget,
     });
     exporter_node.setGifterSessionResolver(.{ .ctx = &seams, .resolve = DrivenGiftSeams.resolveGifterSession });
 

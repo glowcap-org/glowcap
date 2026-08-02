@@ -271,7 +271,8 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         // A new platform backend allowlists itself here in the same change
         // that gates its import.
         const platform_gated = std.mem.endsWith(u8, file_path, "net/completion/uring.zig") or
-            std.mem.endsWith(u8, file_path, "net/completion/socket_tcp.zig");
+            std.mem.endsWith(u8, file_path, "net/completion/socket_tcp.zig") or
+            std.mem.endsWith(u8, file_path, "net/wake_channel.zig");
         if (!platform_gated and
             (std.mem.indexOf(u8, contents, "std.os.linux") != null or
                 std.mem.indexOf(u8, contents, "std.os.windows") != null))

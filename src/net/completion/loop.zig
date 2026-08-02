@@ -147,6 +147,7 @@ fn validateBackend(comptime Backend: type) void {
         "submitClose",
         "recycleRecv",
         "poll",
+        "remotePartnerKey",
     };
     inline for (required) |name| {
         if (!@hasDecl(Backend, name)) {
@@ -474,8 +475,10 @@ pub const Stop = union(enum) {
 };
 
 /// Which kind of submitted operation a completion belongs to. Packed into the low
-/// bits of `user_data`; the rest is the connection slot index.
-const Op = enum(u3) { accept, connect, recv, send, close };
+/// bits of `user_data`; the rest is the connection slot index. `wake` is the
+/// one op with no connection: the out-of-band wake recv (ADR-0102) always
+/// carries slot 0 and is dispatched before any slot lookup.
+const Op = enum(u3) { accept, connect, recv, send, close, wake };
 
 fn userData(op: Op, slot: usize) u64 {
     return (@as(u64, slot) << 3) | @intFromEnum(op);
@@ -747,6 +750,20 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// Closes whose `submitClose` failed and must be retried. Zero on
         /// every healthy loop, so the retry sweep never runs.
         pending_close_submits: usize = 0,
+        /// The out-of-band wake (ADR-0102): a recv armed on a socketpair half
+        /// whose completion runs `handler` on this thread and re-arms. The
+        /// sanctioned cross-thread entry — a worker nudges the other half
+        /// (`driver.SettleMailbox.post`) — replacing the connect-and-drop
+        /// wake `runUntil` documents.
+        wake: ?struct {
+            fd: Fd,
+            ctx: ?*anyopaque,
+            handler: *const fn (?*anyopaque) void,
+        } = null,
+        /// A wake re-arm whose submit failed (transient ring pressure) and
+        /// must be retried; bounds the next wait like an owed close, so the
+        /// wake channel cannot silently go deaf.
+        wake_rearm_pending: bool = false,
         /// The slot whose `make_conn_ctx` is running, if any. Teardown of that
         /// slot is deferred until the hook returns: the context being built
         /// borrows the slot's peer, and reclaiming it underneath would free
@@ -930,6 +947,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // ops these closes retire are the only reason some connections
             // ever complete, and sleeping first can mean sleeping on them.
             self.retryPendingCloses();
+            self.retryWakeRearm();
 
             // Wake for whichever comes first: the caller's own deadline or the
             // nearest connection deadline the reaper below enforces.
@@ -941,7 +959,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // allocation failure and therefore transient. Bound the wait so
             // the retry above comes round again, instead of parking on a
             // completion that cannot arrive until it does.
-            if (self.pending_close_submits != 0) {
+            if (self.pending_close_submits != 0 or self.wake_rearm_pending) {
                 timeout = if (timeout < 0) close_retry_ms else @min(timeout, close_retry_ms);
             }
 
@@ -993,8 +1011,10 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// `Connection.runUntil`.
         ///
         /// If `done` is set from another thread, that thread must also wake
-        /// this loop's `poll` (for a listening loop, a connect-and-drop against
-        /// the bound port is enough). A flag set from a serve/vow callback on
+        /// this loop's `poll`: nudge the armed wake channel (`armWake`; a
+        /// `driver.SettleMailbox.wake` is the sanctioned entry) — or, on a
+        /// listening loop with no wake armed, a connect-and-drop against the
+        /// bound port still works. A flag set from a serve/vow callback on
         /// this thread needs no wake — the next loop iteration sees it.
         ///
         /// After return, slots may still hold armed recvs; call `closeAndDrain`
@@ -1128,6 +1148,13 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         fn dispatch(self: *Self, comp: Completion) !void {
             const slot = slotOf(comp.user_data);
             switch (opOf(comp.user_data)) {
+                // The out-of-band wake (ADR-0102): recycle the pool buffer
+                // that carried the nudge bytes, run the armed handler on this
+                // owning thread, and re-arm. No slot belongs to it.
+                .wake => {
+                    if (comp.recv_bytes != null) self.recycleRecvBuffer(comp);
+                    self.onWakeCompletion(comp.result);
+                },
                 // The only handler that may fail the loop: a dead accept re-arm
                 // is loop-global. Every per-connection handler resolves its own
                 // failures by closing that one connection.
@@ -1304,6 +1331,19 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             if (self.tearing_down) return;
             const c = self.liveConn(slot) orelse return;
             self.driveOut(slot, c) catch self.failConn(slot, c);
+        }
+
+        /// The transport-verified remote partner key (32-byte Ed25519) for
+        /// `slot`'s live connection, when the backend authenticates one — the
+        /// iroh backend reads it off the QUIC handshake (ADR-0097). Socket
+        /// backends carry no lower-layer peer identity and answer null; the
+        /// member is part of the total Backend contract (`validateBackend`).
+        /// A `MakeConnCtx` hook calls this at adoption, before the
+        /// connection's first byte feeds, to bind the CapTP hello to the
+        /// transport identity.
+        pub fn remotePartnerKey(self: *Self, slot: usize) ?[32]u8 {
+            const c = self.liveConn(slot) orelse return null;
+            return self.backend.remotePartnerKey(c.fd);
         }
 
         /// Close the connection at `slot` after a best-effort flush of
@@ -2136,6 +2176,49 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// ops on a backend whose `shutdownFd` cannot cancel them, so a failed
         /// submit is not a state the loop may sit in. The failure is an
         /// allocation one, so the next batch usually takes it.
+        /// Arm the out-of-band wake (ADR-0102): an ordinary recv on `fd` — a
+        /// socketpair half, which is a socket on purpose so every backend's
+        /// existing `submitRecv` carries it — whose completion runs `handler`
+        /// on the loop thread and re-arms. Call once, on the loop thread,
+        /// before workers hold the write half; the fd stays caller-owned
+        /// (the settle mailbox's, usually) and must outlive the loop's use.
+        pub fn armWake(
+            self: *Self,
+            fd: Fd,
+            ctx: ?*anyopaque,
+            handler: *const fn (?*anyopaque) void,
+        ) !void {
+            std.debug.assert(self.wake == null); // one wake channel per loop
+            self.wake = .{ .fd = fd, .ctx = ctx, .handler = handler };
+            try self.backend.submitRecv(userData(.wake, 0), fd);
+        }
+
+        /// A wake recv completed: run the handler and re-arm. A closed or
+        /// faulted channel (teardown pulled the mailbox) stays disarmed; a
+        /// re-arm the backend cannot admit right now is retried before the
+        /// next wait, bounded like an owed close.
+        fn onWakeCompletion(self: *Self, result: i32) void {
+            const wake = self.wake orelse return;
+            if (result <= 0) {
+                self.wake = null;
+                return;
+            }
+            wake.handler(wake.ctx);
+            self.backend.submitRecv(userData(.wake, 0), wake.fd) catch {
+                self.wake_rearm_pending = true;
+            };
+        }
+
+        fn retryWakeRearm(self: *Self) void {
+            if (!self.wake_rearm_pending) return;
+            const wake = self.wake orelse {
+                self.wake_rearm_pending = false;
+                return;
+            };
+            self.backend.submitRecv(userData(.wake, 0), wake.fd) catch return;
+            self.wake_rearm_pending = false;
+        }
+
         fn retryPendingCloses(self: *Self) void {
             if (self.pending_close_submits == 0) return;
             for (self.conns, 0..) |*c, slot| {

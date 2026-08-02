@@ -135,7 +135,10 @@ opens a fullscreen lab with the REPL in front: the conversation and the prompt
 take most of the screen, and a CapTP instrument rail for exports, imports, and
 answers sits beside them. Without a TTY it stays in line mode.
 
-A locator is optional. Start empty and `dial` inside, or dial first (`listen` stays argv-only):
+A locator is optional. Start empty and `dial` inside, or dial first. A REPL
+or MCP `listen` binds and answers with its locator at once, then accepts
+partners on a background thread; `close` stops it. The argv form below stays
+a foreground accept loop:
 
 ```sh
 # terminal A
@@ -157,9 +160,9 @@ help captp                   # CapTP noun map (+ light tip: guide)
 ?                            # short workbench tip (or guide coach while guided)
 guide                        # optional CapTP walkthrough (toggle); guide exit leaves
 dial ocapn://127.0.0.1%3A….tcp   # no quotes; listen is argv-only (blocking)
-fetch greeter                # mints an import N (see Imports rail)
+fetch greeter                # yields a capability id N (see Imports rail)
 call greeter greet world     # deliver by published name
-call #N greet world          # same deliver, addressed by import position
+call #N greet world          # same deliver, addressed by capability id
 close                        # tear down the session (no library "reset"; close + redial)
 tour exports                 # point at a CapTP pane
 focus                        # quiet/focus mode (collapse rail to counts)
@@ -228,6 +231,17 @@ A script picks its identity with `PANCAKE_STATE`, `PANCAKE_IDENTITY`, or
 `--identity`, and should pass `--json` on every verb. `ocapn info` prints the
 session summary: the front, the state path, and the partner's `abort_kind` and
 `abort` reason when one was retained.
+
+A `keyed-relay` locator names a peer that holds no listening socket — a
+browser tab, or any process that registered its identity at a relay instead.
+Point `PANCAKE_RENDEZVOUS` at the relay's rendezvous endpoint and the dial
+goes through it, with the keyed handshake still authenticating the peer end
+to end:
+
+```sh
+export PANCAKE_RENDEZVOUS=ws://127.0.0.1:8000/relay
+pancake --json ocapn call "ocapn://<key>.keyed-relay" greeter greet world
+```
 
 [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md) records the
 product boundary. [`shipped.md`](shipped.md) lists the commands that exist,

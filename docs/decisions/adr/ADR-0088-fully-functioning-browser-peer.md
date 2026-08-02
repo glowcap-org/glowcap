@@ -59,11 +59,12 @@ The browser must therefore hold every one of these, and does:
    the browser cannot open a fresh connection to it. It reaches the browser only
    if an intermediary already holds the browser's inbound socket and bridges the
    dial to it: a relay rendezvous keyed by the browser's identity. *Relay-
-   necessary and irreducibly so.* Built for two browser peers on a shared relay:
+   necessary and irreducibly so.* Built for any peer on a shared relay:
    `zig build rooms-web-dm-tabs` drives one browser tab cold-dialing another by
-   identity through the relay rendezvous. The general-stranger form — a *native*
-   peer cold-dialing the browser, or a redeemer on a *different* relay — is not
-   yet built, for the two honest reasons the cold-dial section below records.
+   identity through the relay rendezvous, and `zig build rooms-web-dm-native`
+   drives a native Deno peer cold-dialing the tab through the same leg. A
+   redeemer on a *different* relay is not yet built, for the honest reason the
+   cold-dial section below records.
 
 Capabilities 1–4 make the browser a full peer for every session it opens.
 Capability 5 is the reachability of a *listener*, which a browser is not; the
@@ -208,26 +209,40 @@ silently:
 - **The locator names the identity, not the relay.** An
   `ocapn://<designator>.keyed-relay` locator carries the browser's key, not the
   address of the relay it registered at. A redeemer reaches it only through a
-  relay it is already configured for (the ambient `rendezvousUrl` its adapter was
-  built with) — in practice the same relay and the same app. A cross-relay
-  cold-dial would need the locator to name its relay, either as deployment-local
-  shared-relay configuration or a future self-describing `?rendezvous-relay=`
-  hint. Neither is built.
-- **The dialer must itself carry a rendezvous adapter.** Only the browser binding
-  exposes `connectRendezvous` today, so the cold-*dialer* is a browser too. A
-  native runtime redeeming a `keyed-relay` give has no rendezvous adapter and
-  fails loud. Native cold-dial is future work.
+  relay it is already configured for (`Host.setRendezvousUrl`) — in practice
+  the same relay and the same app. A cross-relay cold-dial would need the
+  locator to name its relay, either as deployment-local shared-relay
+  configuration or a future self-describing `?rendezvous-relay=` hint. Neither
+  is built.
+- **The dialer must be configured for a rendezvous relay.** The core
+  classifies a `keyed-relay` locator as the `rendezvous` dial shape
+  (`PANCAKE_DIAL_SHAPE_RENDEZVOUS`), and a binding's dial executor answers it
+  by opening the WebSocket rendezvous leg the dialing host was configured
+  with: `Host.setRendezvousUrl` in the TypeScript stack (browser or native,
+  because `WebSocket` is a web-standard global), `Host.rendezvous_url` in the
+  Python binding (the optional `websockets` extra), `set-host-rendezvous-url!`
+  in the Racket binding (`net/rfc6455`), `Host::set_rendezvous_url` in the
+  Rust binding (the opt-in `rendezvous` feature over tokio-tungstenite), and
+  natively the `net.keyed_relay` resident — an in-tree RFC 6455 client over
+  TCP sockets whose relay URL is resident state, joined to the CLI's dial set
+  by `PANCAKE_RENDEZVOUS`. The same resident serves the registration half
+  through the netlayer listener contract, so a native non-listener can be
+  cold-dialed too. A host with no configured mapping fails loud. Proof
+  family: `zig build bindings-keyed-relay-rendezvous`, whose zig row drives
+  the installed CLI.
 - **The relay is on the inbound path.** A deployment that does not trust its relay
   runs TLS to it and keeps the keyed CapTP end to end on top, as `ADR-0086`
   already prescribes.
 
-**Status:** built for browser-to-browser cold-dial on a shared relay, proven by
-`zig build rooms-web-dm-tabs` (two browser tabs: one registers its identity, the
-other redeems a room introduction by cold-dialing it, the keyed session opens
-tab-to-tab through the relay off-room, and a reply rides back over the arriving
-connection). Still designed, not built: a *native* peer cold-dialing the browser
-(no native rendezvous adapter) and a *cross-relay* cold-dial (the locator names
-no relay).
+**Status:** built for any dialer on a shared relay. `zig build
+rooms-web-dm-tabs` proves the browser-to-browser form (two tabs: one registers
+its identity, the other redeems a room introduction by cold-dialing it, the
+keyed session opens tab-to-tab through the relay off-room, and a reply rides
+back over the arriving connection). `zig build rooms-web-dm-native` proves the
+native form: a Deno peer on the dlopen stack redeems a room introduction and
+cold-dials the tab through the rendezvous mapping its host was configured with.
+Still designed, not built: a *cross-relay* cold-dial (the locator names no
+relay).
 
 ## Status and proof matrix
 
@@ -239,7 +254,8 @@ no relay).
 | Redeem handoff + direct DM to a member | necessary (byte carrier) | shipped | `rooms-web-dm` |
 | Redeemed-introduction back-channel reply | relay-less | shipped | `rooms-web-dm`, `demo-rooms-dm-back` |
 | Cold-dialed by another browser (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-tabs` |
-| Cold-dialed by a native peer / across relays | necessary (rendezvous) | designed | — |
+| Cold-dialed by a native peer (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-native` |
+| Cold-dialed across relays | necessary (rendezvous) | designed | — |
 
 ## Alternatives Considered
 
@@ -279,13 +295,18 @@ it is what `currentSession()` enables.
   attribution), and `apps/rooms/test/web_dm_test.ts` (browser).
 - Cold-dial rendezvous: `Rendezvous` (identity → held buffering channel) and
   `webSocketChannel` in `@pancake/relay` (`bindings/ts/relay/rendezvous.ts`,
-  `bindings/ts/relay/ws_relay.ts`); the browser accept side `serveRendezvous`
-  (`bindings/ts/web/rendezvous.ts`); the dial executor's `keyed-relay` intercept
-  (`bindings/ts/stack/dial.ts`) over `net.connectRendezvous`; the resident-less
-  `keyed-relay` transport symbol (`src/ocapn/model/transport.zig`,
-  `src/driver/core/vocab.zig`); the rooms relay endpoints and rooms UI wiring
-  (`apps/rooms/web/relay.ts`, `apps/rooms/web/serve.ts`,
-  `apps/rooms/web/ui/net.ts`); proof `apps/rooms/test/web_dm_tabs_test.ts`
-  (`zig build rooms-web-dm-tabs`).
-- Remaining work: native and cross-relay cold-dial (above), and the relay items
-  in [`docs/roadmap.md`](../../roadmap.md).
+  `bindings/ts/relay/ws_relay.ts`); the accept side `serveRendezvous` and the
+  shared WebSocket byte channel, runtime-neutral in the stack
+  (`bindings/ts/stack/rendezvous.ts`, `bindings/ts/stack/ws_channel.ts`); the
+  dial executor's `keyed-relay` intercept (`bindings/ts/stack/dial.ts`) over
+  the host's configured mapping (`Host.setRendezvousUrl`,
+  `bindings/ts/stack/host.ts`); the resident-less `keyed-relay` transport
+  symbol (`src/ocapn/model/transport.zig`, `src/driver/core/vocab.zig`); the
+  rooms relay endpoints and rooms UI wiring (`apps/rooms/web/relay.ts`,
+  `apps/rooms/web/serve.ts`, `apps/rooms/web/ui/net.ts`); proofs
+  `apps/rooms/test/web_dm_tabs_test.ts` (`zig build rooms-web-dm-tabs`) and
+  `apps/rooms/test/web_dm_native_dial_test.ts`
+  (`zig build rooms-web-dm-native`).
+- Remaining work: cross-relay cold-dial (above), a rendezvous dial for the
+  non-TypeScript bindings, and the relay items in
+  [`docs/roadmap.md`](../../roadmap.md).

@@ -108,6 +108,42 @@ pub struct PartnerIdentity {
 	/// from, which is the span the signature covers. Empty when the session
 	/// captured no record.
 	pub locator_record: Vec<u8>,
+	/// How the durable identity in `designator` was authenticated, if at all.
+	/// Session identity, durable identity, and this provenance are three
+	/// separate facts (ADR-0097): ask
+	/// [`durable_identity_authenticated`](PartnerIdentity::durable_identity_authenticated)
+	/// for a proved durable peer, never whether `designator` equals
+	/// `session_key`.
+	pub provenance: DurableProvenance,
+}
+
+/// How a partner's advertised durable identity was authenticated, the third
+/// fact [`PartnerIdentity`] reports beside session key and designator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurableProvenance {
+	/// The transport layer proved the partner's durable key: iroh's QUIC
+	/// handshake, or WebRTC's DTLS binding under capability-authorized
+	/// signaling.
+	AuthenticatedTransport,
+	/// The hello carried a `session-key-attestation` signed by the durable key
+	/// its designator names, and it verified (`keyed-tcp`, `keyed-relay`).
+	/// Static authorization: it proves the durable key authorized this session
+	/// key, not that the signer is live on this connection.
+	DurableKeyAttestation,
+	/// No durable identity was proved. An address transport designates a socket
+	/// address rather than a key, and a partner that advertised an address on a
+	/// key transport claimed no durable identity to authenticate.
+	Unauthenticated,
+}
+
+impl PartnerIdentity {
+	/// Whether the durable identity this partner advertised was
+	/// cryptographically authenticated, by either mechanism. This is the
+	/// predicate to ask when an operation requires a proved durable peer; it
+	/// stays correct once each connection draws a fresh session key.
+	pub fn durable_identity_authenticated(&self) -> bool {
+		self.provenance != DurableProvenance::Unauthenticated
+	}
 }
 
 impl Session {
@@ -357,6 +393,7 @@ impl Session {
 			designator_len: 0,
 			locator_record: core::ptr::null(),
 			locator_record_len: 0,
+			provenance: sys::DURABLE_PROVENANCE_UNAUTHENTICATED,
 		};
 		check_host(unsafe {
 			ffi::pancake_host_session_partner_identity(self.shared.ptr.get(), &mut out)
@@ -370,33 +407,21 @@ impl Session {
 				crate::owned_from_view(out.locator_record, out.locator_record_len),
 			)
 		};
+		let provenance = match out.provenance {
+			sys::DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT => {
+				DurableProvenance::AuthenticatedTransport
+			}
+			sys::DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION => {
+				DurableProvenance::DurableKeyAttestation
+			}
+			_ => DurableProvenance::Unauthenticated,
+		};
 		Ok(PartnerIdentity {
 			session_key,
 			designator: String::from_utf8_lossy(&designator).into_owned(),
 			locator_record,
+			provenance,
 		})
-	}
-
-	/// Whether this session's partner proved it owns the designator it
-	/// advertised, meaning that designator is exactly its verified session key
-	/// written as canonical hex.
-	///
-	/// This asks the host rather than making each binding re-derive the
-	/// comparison from [`partner_identity`](Session::partner_identity). It is
-	/// meaningful for a key-designator transport, which is `keyed-tcp`, `iroh`,
-	/// `webrtc`, or `keyed-relay`. An address transport such as `tcp` names a
-	/// socket address that the key does not determine, so the answer there is
-	/// false, and false is the correct answer rather than a failure.
-	///
-	/// It refuses exactly where
-	/// [`partner_identity`](Session::partner_identity) refuses.
-	pub fn partner_designator_is_key(&self) -> Result<bool> {
-		self.shared.guard_open()?;
-		let mut matches: u32 = 0;
-		check_host(unsafe {
-			ffi::pancake_host_session_partner_designator_is_key(self.shared.ptr.get(), &mut matches)
-		})?;
-		Ok(matches != 0)
 	}
 
 	/// Opt this session into distributed GC (ADR-0063), off by default. Once
@@ -569,6 +594,14 @@ impl Session {
 	/// `Into<Argument>`. A `Ref` this session spawned runs in process; a
 	/// partner's rides the wire, and a redeemed or fetched token routes to the
 	/// exporter connection that hosts it, transparently.
+	/// Listen on a promise capability this session holds (CapTP `op:listen`,
+	/// ADR-0095): the returned handle settles with the promise's resolution,
+	/// which may be any value, not only a capability. A re-gifted promise
+	/// routes to its exporter session transparently.
+	pub fn listen(&self, target: &Ref) -> RemotePromise {
+		crate::promise::listen_promise(&self.shared, target)
+	}
+
 	pub fn send<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> RemotePromise {
 		crate::promise::send_promise(&self.shared, target.as_send_target(), verb, args)
 	}

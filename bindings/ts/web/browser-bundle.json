@@ -1,6 +1,17 @@
 {
-	"//": "The deno config for bundling @pancake/web (and the @pancake/stack graph it drives) for a browser. Maps the same package specifiers the root deno.json does, plus the two non-browser FFI host imports (node:net, bun:ffi) to browser stubs, so the stack's node/bun adapters — bundled but never selected once the web adapter is injected — resolve without pulling a runtime the browser lacks. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
+	"//": "The deno config every browser bundle in this repository is built with. Maps the same package specifiers the root deno.json does, plus the non-browser FFI host imports (node:*, bun:ffi) to browser stubs, so the stack's node/bun adapters — bundled but never selected once the web adapter is injected — resolve without pulling a runtime the browser lacks. That stub table tracks which built-ins the stack's adapter cascade imports, so it has one owner and is not copied per surface; a browser app that needs more specifiers adds them here rather than forking it, which is why React (the rooms page's UI runtime, pinned to the version apps/rooms/web/ui/deno.json type-checks against) is mapped below and the JSX transform is configured here. A bundle whose entry contains no JSX is unaffected by either. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"jsxImportSource": "react",
+		"jsxImportSourceTypes": "npm:@types/react@19.2.2"
+	},
 	"imports": {
+		"react": "npm:react@19.2.0",
+		"@types/react": "npm:@types/react@19.2.2",
+		"@types/react-dom": "npm:@types/react-dom@19.2.1",
+		"react/jsx-runtime": "npm:react@19.2.0/jsx-runtime",
+		"react-dom": "npm:react-dom@19.2.0",
+		"react-dom/client": "npm:react-dom@19.2.0/client",
 		"@pancake/web": "./mod.ts",
 		"@pancake/stack": "../stack/mod.ts",
 		"@pancake/stack/ffi": "../stack/ffi.ts",

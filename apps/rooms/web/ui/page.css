@@ -647,7 +647,12 @@ button:focus-visible,
 	font-size: 17px;
 	font-weight: 800;
 	letter-spacing: -.01em;
-	line-height: 1;
+	/* The line box has to fit the glyphs, not the em: at `1` it is shorter than
+	   the text it holds, and the name truncates with `overflow: hidden` on the
+	   narrow layout, so the descender of a `g` was cut off. Nothing here needs a
+	   tight line box — the chip has a fixed height and centres its contents — so
+	   the font's own metrics decide it. */
+	line-height: normal;
 	color: var(--ink);
 	cursor: default;
 	white-space: nowrap;
@@ -1980,9 +1985,6 @@ button:focus-visible,
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	#roomMeta {
-		display: none;
-	}
 	/* Keep the provenance chip, but make it phone-safe. A hard max-width cap (not a
 	   flex-shrink, which a nowrap chip defeats) means it can never push the toolbar
 	   icons off the edge, and it truncates within that cap. The text is also
@@ -2089,4 +2091,60 @@ button:focus-visible,
 	.app.members-open #sheetScrim {
 		display: block;
 	}
+}
+
+/* The card an error boundary puts up in place of the part it was protecting.
+   It is deliberately plain: it appears when drawing has already gone wrong, so
+   it leans on the palette and nothing else. */
+.crash {
+	margin: 16px;
+	padding: 16px 18px;
+	border: 1px solid var(--rule);
+	border-radius: 12px;
+	background: var(--paper);
+	color: var(--ink);
+}
+.crash h2 {
+	margin: 0 0 6px;
+	font-size: 15px;
+}
+.crash p {
+	margin: 0 0 12px;
+	color: var(--ink-soft);
+	font-size: 14px;
+	line-height: 1.5;
+}
+.crash button {
+	font: inherit;
+	cursor: pointer;
+	padding: 7px 12px;
+	border-radius: 9px;
+	border: 1px solid var(--rule);
+	background: var(--paper-raised);
+	color: var(--ink);
+}
+.crash button:hover {
+	border-color: var(--accent);
+}
+
+/* What a reader sees when the page cannot draw itself: the script is off, or the
+   bundle did not load. The interface replaces this on mount, so it costs a
+   working page nothing, and it is styled from the same palette so the message
+   lands in whichever theme was stamped before the first paint. */
+.boot {
+	max-width: 34rem;
+	margin: 12vh auto;
+	padding: 0 24px;
+	color: var(--ink);
+	font-size: 15px;
+	line-height: 1.55;
+}
+.boot h1 {
+	margin: 0 0 10px;
+	font-size: 19px;
+	letter-spacing: -.01em;
+}
+.boot p {
+	margin: 0 0 10px;
+	color: var(--ink-soft);
 }

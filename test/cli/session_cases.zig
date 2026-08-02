@@ -39,7 +39,7 @@ test "writeResult appends to sink buffer" {
     try std.testing.expectEqualStrings("hello-captp\n", capture.items);
 }
 
-test "listen refuses on MCP front" {
+test "listen backgrounds on the MCP front: bind now, one listener, close stops it" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -48,12 +48,31 @@ test "listen refuses on MCP front" {
     var c = makeCtx(threaded.io(), gpa, &environ);
     defer c.deinit();
     c.front = .mcp;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    c.sink = .{ .buffer = &capture };
 
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer parsed.deinit();
-    const code = try cli.ocapn.cmdListen(&c, &parsed);
-    try std.testing.expectEqual(cli.exit_codes.usage, code);
-    try std.testing.expect(c.session == null);
+    try parsed.setString("bind", "127.0.0.1:0");
+    // The verb returns at once with the locator; the accept loop is the
+    // background thread's.
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
+    try std.testing.expect(c.background_listener != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "ocapn://") != null);
+
+    // One listener per context: a second listen refuses loud.
+    var second = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer second.deinit();
+    try second.setString("bind", "127.0.0.1:0");
+    try std.testing.expectEqual(cli.exit_codes.usage, try cli.ocapn.cmdListen(&c, &second));
+
+    // `close` stops the accept thread and clears the handle.
+    var close_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer close_parsed.deinit();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdClose(&c, &close_parsed));
+    try std.testing.expect(c.background_listener == null);
 }
 
 test "dial retains session for REPL and MCP fronts only" {

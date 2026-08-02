@@ -94,6 +94,9 @@ def main() -> int:
     asyncio.run(_allocator_context_round_trip())
     print("python zig-smoke OK: drove a published counter round-trip from a context-backed Host")
 
+    asyncio.run(_async_behavior_defers())
+    print("python zig-smoke OK: an async behavior deferred its answer onto a resolver vow and settled off-turn")
+
     asyncio.run(_capnp_codec_round_trip())
     print("python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip")
 
@@ -198,6 +201,47 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
     return port, close
 
 
+async def _async_behavior_defers() -> None:
+    """An async behavior (off-turn settlement): the worker returns a
+    coroutine, the binding defers the turn's answer onto a resolver vow, and
+    the settle re-enters as its own task after real awaited work, so the
+    host's turn loop never blocks on it. A raise crosses as the caller's
+    break carrying the behavior's own words."""
+    host = Host()
+
+    async def work(verb, args):
+        await asyncio.sleep(0.005)
+        if verb == "fail":
+            raise ValueError("worker gave up")
+        return "computed off-turn"
+
+    host.publish_giftable("worker", work)
+    server = await listen("127.0.0.1", 0, host)
+    try:
+        async def serve_one() -> None:
+            async for session in server:
+                await session.serve()
+                break
+
+        hosted = asyncio.ensure_future(serve_one())
+        client = await connect(tcp_locator("127.0.0.1", server.port))
+        client.serve()
+        worker = await client.fetch("worker")
+        reply = await client.send(worker, "work", [])
+        assert reply == "computed off-turn", f"async behavior reply, got {reply!r}"
+        try:
+            await client.send(worker, "fail", [])
+        except VowBroken as broke:
+            assert "worker gave up" in str(broke), f"async raise carries the reason, got {broke!s}"
+        else:
+            raise AssertionError("an async behavior's raise must break the caller")
+        await client.close()
+        await asyncio.wait_for(hosted, timeout=5)
+    finally:
+        server.close()
+    host.release()
+
+
 async def _allocator_context_round_trip() -> None:
     """The basic round-trip: publish a counter, fetch it, drive it with sends.
     The server Host lives in a caller-supplied allocation context, so every
@@ -250,6 +294,38 @@ async def _allocator_context_round_trip() -> None:
             assert grown == 15, f"counter.add(5) returns 15, got {grown!r}"
             read = await client.send(counter_ref, "get", [])
             assert read == 15, f"counter.get() returns 15, got {read!r}"
+
+            # Alias-only unpublish: discovery moves, the issued capability does
+            # not. A removed alias misses even on the session that fetched it,
+            # a second removal is a loud miss, and the ref still answers.
+            assert host.unpublish_giftable("counter") is True
+            assert host.unpublish_giftable("counter") is False
+            try:
+                await client.fetch("counter")
+            except VowBroken:
+                pass
+            else:
+                raise AssertionError("fetch of an unpublished alias must break")
+            still = await client.send(counter_ref, "get", [])
+            assert still == 15, f"issued ref survives unpublish, got {still!r}"
+
+            # Durable publication (ADR-0098): the minted swiss name fetches on
+            # the live session, removal makes a later fetch miss, and the
+            # capability issued before removal still answers.
+            swiss = host.publish_durable(counter)
+            assert swiss.startswith("pancake-durable-1-") and len(swiss) == 50, swiss
+            durable_ref = await client.fetch(swiss)
+            assert await client.send(durable_ref, "get", []) == 15
+            assert host.remove_durable(swiss) is True
+            assert host.remove_durable(swiss) is False
+            try:
+                await client.fetch(swiss)
+            except VowBroken:
+                pass
+            else:
+                raise AssertionError("fetch of a removed durable name must break")
+            kept = await client.send(durable_ref, "get", [])
+            assert kept == 15, f"issued ref survives remove_durable, got {kept!r}"
             await client.close()
             await asyncio.wait_for(hosted, timeout=5)
         finally:
@@ -566,6 +642,11 @@ async def _enliven_round_trips_then_caches() -> None:
         again = await session.enliven(sturdyref)
         greeting2 = await session.send(again, "hello", [])
         assert greeting2 == Symbol("alive"), f"cached enliven answers hello, got {greeting2!r}"
+        # Listen (CapTP ``op:listen``): a held capability's resolution comes
+        # back through the vow -- a listen on an already-settled capability
+        # answers at once.
+        settled = await session.listen(cap)
+        assert isinstance(settled, Ref), f"listen settles naming the capability, got {settled!r}"
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
@@ -1170,6 +1251,16 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         broker_to_bob = await connect(tcp_locator("127.0.0.1", bob.port), host=broker.host)
         broker_to_bob.serve()
         bob_dm = await broker_to_bob.fetch("dm")
+
+        # Replace the alias with a decoy before any introduction: the gift
+        # must retain the exact inbox the broker holds, not whatever the name
+        # resolves to at withdrawal (ADR-0096, on the binding path).
+        decoy_delivered: list = []
+        bob.host.publish_giftable(
+            "dm",
+            lambda verb, args: decoy_delivered.append(args[0]) if verb == "dm" else None,
+        )
+
         broker.host.publish_giftable(
             "introducer",
             lambda verb, args: bob_dm if verb == "introduce" else "no capability here",
@@ -1194,6 +1285,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         assert delivered == ["hello bob"], f"the DM reached Bob directly, got {delivered!r}"
         assert acked == ["bob got hello bob"], f"Bob called the reply inbox back, got {acked!r}"
         assert note is None, f"the forwarded answer settles from the inbox, got {note!r}"
+        assert decoy_delivered == [], f"the DM leaked to the alias's decoy, got {decoy_delivered!r}"
 
         # Deterministic re-redeem: the second introduction routes to the
         # exporter already dialed, so `via` is that same live session.

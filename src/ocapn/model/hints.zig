@@ -36,16 +36,15 @@ pub const Hints = struct {
         return .{ .wire_form = .boolean_false };
     }
 
-    /// The hints a keyed self-locator advertises for its `direct_addresses`:
-    /// the `#f` empty spelling (`emptyFalse`) when there are none, or a single
-    /// `hint_direct_addresses` entry carrying them. This is the one place that
-    /// empty-vs-entry decision lives, so every keyed hello signs identical
-    /// bytes — the blocking driver's `acceptVia` and the byte-fed `Host`, over
-    /// `keyed-tcp` or `iroh`. The empty case must stay `#f`, not `{}`: a
-    /// partner verifies the location signature over the exact spelling, and the
-    /// two do not verify against each other. The caller owns `entry_buf`; the
-    /// returned `Hints` borrows it for the hello's lifetime, so a keyed hello on
-    /// the connection-open path allocates nothing.
+    /// A single `hint_direct_addresses` entry, or the `#f` empty spelling
+    /// (`emptyFalse`) when there are none — the dial-locator builders' shape
+    /// (`driver.PollHost`'s redeem dial, the C URI helpers). Keyed *hellos*
+    /// compose their hints through `engine.keyedHelloHints` instead, which
+    /// adds the ADR-0097 credential beside the address entry; both keep the
+    /// empty case `#f`, not `{}`: a partner verifies the location signature
+    /// over the exact spelling, and the two do not verify against each other.
+    /// The caller owns `entry_buf`; the returned `Hints` borrows it, so the
+    /// connection-open path allocates nothing.
     pub fn forDirectAddresses(direct_addresses: []const u8, entry_buf: *[1]HintEntry) Hints {
         if (direct_addresses.len == 0) return emptyFalse();
         entry_buf[0] = .{ .name = transport.hint_direct_addresses, .value = .{ .string = direct_addresses } };

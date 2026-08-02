@@ -1,5 +1,6 @@
 //! Shared JSON / stdout / stderr helpers for CLI fronts.
 const std = @import("std");
+const builtin = @import("builtin");
 const log = @import("operability/log.zig");
 
 /// Write `s` as a JSON string.
@@ -57,15 +58,20 @@ pub fn characterLen(rest: []const u8) usize {
     return len;
 }
 
+/// The product-stdout twin of `log.test_capture`: in a test build the Zig
+/// test protocol owns the process stdout, so product output captures here.
+pub const test_stdout_capture = if (builtin.is_test) log.TestCapture(.product_stdout) else struct {};
+
 pub fn writeStdout(io: std.Io, bytes: []const u8) !void {
+    if (builtin.is_test) {
+        test_stdout_capture.append(bytes);
+        return;
+    }
     try std.Io.File.stdout().writeStreamingAll(io, bytes);
 }
 
 pub fn writeStderr(io: std.Io, bytes: []const u8) !void {
-    // CapTP lab TUI diverts stderr diagnostics into the transcript.
-    if (log.hasDivert()) {
-        log.writeMsg(io, bytes);
-        return;
-    }
-    try std.Io.File.stderr().writeStreamingAll(io, bytes);
+    // One destination authority for stderr diagnostics: the log seam owns
+    // the choice between the lab divert, the test capture, and stderr.
+    log.writeMsg(io, bytes);
 }

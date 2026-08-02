@@ -14,6 +14,7 @@ const actors = pancake.actors;
 /// Built-in demo actors (`greeter`, `echo`) live in `builtins.zig`; the public
 /// entry point stays on this flat `ocapn` surface.
 pub const publishBuiltin = @import("builtins.zig").publishBuiltin;
+pub const builtin_names = @import("builtins.zig").names;
 
 const SessionRef = union(enum) {
     borrow: *driver.Session,
@@ -90,11 +91,24 @@ pub fn sessionOpts() driver.SessionOptions {
 }
 
 /// Dial with explicit session options (tests pass a short handshake budget).
+/// `PANCAKE_RENDEZVOUS` (a `ws://host:port/path` relay URL) joins a
+/// keyed-relay resident to the dial set, so a `keyed-relay` locator cold-dials
+/// a registered peer through that relay — the deployment-configured mapping
+/// ADR-0088 keeps out of locator bytes.
 pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) !*driver.Session {
     ctx.dial_resident = .{ .io = ctx.io };
-    ctx.dial_netlayers = .{ctx.dial_resident.netlayer()};
+    ctx.dial_netlayers[0] = ctx.dial_resident.netlayer();
+    var netlayer_count: usize = 1;
+    if (ctx.environ.get("PANCAKE_RENDEZVOUS")) |url| {
+        ctx.rendezvous_resident = pancake.net.keyed_relay.Resident.init(ctx.io, url) catch {
+            ctx.logErr("PANCAKE_RENDEZVOUS is not a ws://host:port/path relay URL: {s}", .{url});
+            return error.InvalidRendezvousUrl;
+        };
+        ctx.dial_netlayers[1] = ctx.rendezvous_resident.netlayer();
+        netlayer_count = 2;
+    }
     const identity = try ctx.dialIdentity();
-    return driver.connectUriOwned(ctx.gpa, &ctx.dial_netlayers, uri, identity, opts) catch |err| {
+    return driver.connectUriOwned(ctx.gpa, ctx.dial_netlayers[0..netlayer_count], uri, identity, opts) catch |err| {
         ctx.logErr("dial failed: {s}", .{@errorName(err)});
         return err;
     };
@@ -104,40 +118,39 @@ fn dialUri(ctx: *Ctx, uri: []const u8) !*driver.Session {
     return dialUriWithOpts(ctx, uri, sessionOpts());
 }
 
-pub fn printSettled(ctx: *Ctx, settled: driver.Settled) !void {
+pub fn printSettled(ctx: *Ctx, settled: driver.Reply) !void {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(ctx.gpa);
     switch (ctx.json) {
         .json => switch (settled) {
-            .fulfilled => |arg| try appendArgJson(&out, ctx.gpa, arg),
+            .fulfilled => |value| try appendValueJson(&out, ctx.gpa, value),
             .broken => |reason| {
                 try out.appendSlice(ctx.gpa, "{\"ok\":false,\"broken\":");
                 try argv.writeJsonString(&out, ctx.gpa, reason);
                 try out.appendSlice(ctx.gpa, "}\n");
             },
-            .give => try out.appendSlice(ctx.gpa, "{\"ok\":true,\"give\":true}\n"),
         },
         .human => switch (settled) {
-            .fulfilled => |arg| try appendArgHuman(&out, ctx.gpa, arg),
+            .fulfilled => |value| try appendValueHuman(&out, ctx.gpa, value),
             .broken => |reason| try out.print(ctx.gpa, "broken: {s}\n", .{reason}),
-            .give => try out.appendSlice(ctx.gpa, "give\n"),
         },
     }
     try ctx.writeResult(out.items);
 }
 
-fn appendArgHuman(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arg: model.Argument) !void {
-    switch (arg) {
+fn appendValueHuman(out: *std.ArrayList(u8), gpa: std.mem.Allocator, value: driver.Value) !void {
+    switch (value) {
         .string => |s| try out.print(gpa, "{s}\n", .{s}),
         .integer => |n| try out.print(gpa, "{d}\n", .{n}),
         .boolean => |b| try out.print(gpa, "{s}\n", .{if (b) "true" else "false"}),
         .void => try out.appendSlice(gpa, "void\n"),
-        else => try out.print(gpa, "{s}\n", .{@tagName(arg)}),
+        .capability => |cap| try out.print(gpa, "cap {d}\n", .{cap.raw()}),
+        else => try out.print(gpa, "{s}\n", .{@tagName(value)}),
     }
 }
 
-fn appendArgJson(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arg: model.Argument) !void {
-    switch (arg) {
+fn appendValueJson(out: *std.ArrayList(u8), gpa: std.mem.Allocator, value: driver.Value) !void {
+    switch (value) {
         .string => |s| {
             try out.appendSlice(gpa, "{\"ok\":true,\"value\":");
             try argv.writeJsonString(out, gpa, s);
@@ -146,12 +159,13 @@ fn appendArgJson(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arg: model.Arg
         .integer => |n| try out.print(gpa, "{{\"ok\":true,\"value\":{d}}}\n", .{n}),
         .boolean => |b| try out.print(gpa, "{{\"ok\":true,\"value\":{s}}}\n", .{if (b) "true" else "false"}),
         .void => try out.appendSlice(gpa, "{\"ok\":true,\"value\":null}\n"),
-        else => try out.print(gpa, "{{\"ok\":true,\"value_kind\":\"{s}\"}}\n", .{@tagName(arg)}),
+        .capability => |cap| try out.print(gpa, "{{\"ok\":true,\"cap\":{d}}}\n", .{cap.raw()}),
+        else => try out.print(gpa, "{{\"ok\":true,\"value_kind\":\"{s}\"}}\n", .{@tagName(value)}),
     }
 }
 
-pub fn parseArgsList(gpa: std.mem.Allocator, raw: []const []const u8) ![]model.Argument {
-    var list: std.ArrayList(model.Argument) = .empty;
+pub fn parseArgsList(gpa: std.mem.Allocator, raw: []const []const u8) ![]driver.Value {
+    var list: std.ArrayList(driver.Value) = .empty;
     errdefer list.deinit(gpa);
     for (raw) |tok| {
         if (std.mem.eql(u8, tok, "true")) {
@@ -169,19 +183,21 @@ pub fn parseArgsList(gpa: std.mem.Allocator, raw: []const []const u8) ![]model.A
     return try list.toOwnedSlice(gpa);
 }
 
-/// `#N` → far import at wire position N (no I/O). Named targets need a bootstrap
-/// fetch first (`beginFetch` / `fetch`); this helper does not start one.
-pub fn parseImportTarget(name_or_import: []const u8) !?actors.Ref {
+/// `#N` → the raw opaque capability id a prior fetch or reply printed (no
+/// I/O). Named targets need a bootstrap fetch first (`beginFetch` / `fetch`);
+/// this helper does not start one.
+pub fn parseImportTarget(name_or_import: []const u8) !?u64 {
     if (name_or_import.len >= 2 and name_or_import[0] == '#') {
-        const n = std.fmt.parseInt(u64, name_or_import[1..], 10) catch return error.Usage;
-        return .{ .far = model.FarRef.object(n) };
+        return std.fmt.parseInt(u64, name_or_import[1..], 10) catch return error.Usage;
     }
     return null;
 }
 
-/// `#N` → far import at wire position N; otherwise bootstrap-fetch by published name.
-fn resolveTarget(session: *driver.Session, name_or_import: []const u8) !actors.Ref {
-    if (try parseImportTarget(name_or_import)) |far| return far;
+/// `#N` → re-scope the raw capability id to this session's host (a stale or
+/// foreign id fails closed at the call); otherwise bootstrap-fetch by
+/// published name.
+pub fn resolveTarget(session: *driver.Session, name_or_import: []const u8) !driver.Capability {
+    if (try parseImportTarget(name_or_import)) |raw| return session.host.core.capabilityFromRaw(raw);
     return session.fetch(name_or_import);
 }
 
@@ -207,10 +223,11 @@ fn resolveSession(ctx: *Ctx, pos: []const []const u8, min_after_uri: usize) !str
 }
 
 pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
-    // Accept loops starve MCP/REPL; registry marks listen mcp_never for tools/list.
+    // An accept loop would starve the MCP stdio (or REPL prompt) loop, so the
+    // non-argv fronts listen in the background: bind and answer now, accept
+    // and serve on the listener's own thread.
     if (ctx.front != .argv) {
-        ctx.logErr("listen is only available on the CLI argv front (blocking accept loop)", .{});
-        return exit_codes.usage;
+        return @import("listen_background.zig").start(ctx, parsed);
     }
     const bind = parsed.flagString("bind") orelse "127.0.0.1:0";
     const publish_name = parsed.flagString("publish");
@@ -377,14 +394,14 @@ pub fn cmdCall(ctx: *Ctx, parsed: *Parsed) !u8 {
     const session = ref.ptr();
     const target = resolveTarget(session, target_tok) catch |err| switch (err) {
         error.Usage => {
-            ctx.logErr("call target must be a published name or #<import>", .{});
+            ctx.logErr("call target must be a published name or #<cap>", .{});
             return exit_codes.usage;
         },
         else => return failCapTp(ctx, session, err, "fetch"),
     };
     var arena = std.heap.ArenaAllocator.init(ctx.gpa);
     defer arena.deinit();
-    const settled = session.call(target, .{ .verb = verb, .args = call_args }, arena.allocator()) catch |err| {
+    const settled = session.call(target, verb, call_args, arena.allocator()) catch |err| {
         return failCapTp(ctx, session, err, "call");
     };
     try printSettled(ctx, settled);
@@ -408,12 +425,12 @@ pub fn cmdTell(ctx: *Ctx, parsed: *Parsed) !u8 {
     const session = ref.ptr();
     const target = resolveTarget(session, pos[name_i]) catch |err| switch (err) {
         error.Usage => {
-            ctx.logErr("tell target must be a published name or #<import>", .{});
+            ctx.logErr("tell target must be a published name or #<cap>", .{});
             return exit_codes.usage;
         },
         else => return failCapTp(ctx, session, err, "fetch"),
     };
-    session.tell(target, .{ .verb = pos[name_i + 1], .args = call_args }) catch |err| {
+    session.tell(target, pos[name_i + 1], call_args) catch |err| {
         return failCapTp(ctx, session, err, "tell");
     };
     if (ctx.json == .json) try ctx.writeResult("{\"ok\":true}\n");
@@ -421,8 +438,10 @@ pub fn cmdTell(ctx: *Ctx, parsed: *Parsed) !u8 {
 }
 
 /// Fetch-success UX, shared by the blocking front here and the REPL's
-/// cooperative queue, so two renderers keep one spelling.
-pub const fetched_fmt = "fetched {s} → import {d}";
+/// cooperative queue, so two renderers keep one spelling. The number is the
+/// opaque capability id (never a wire position, ADR-0096); `#N` feeds it back
+/// to `call` / `tell`.
+pub const fetched_fmt = "fetched {s} → cap {d}";
 pub const fetch_next_fmt = "next: call {s} <verb> [args…]   or   call #{d} <verb> [args…]";
 
 pub fn cmdFetch(ctx: *Ctx, parsed: *Parsed) !u8 {
@@ -442,21 +461,17 @@ pub fn cmdFetch(ctx: *Ctx, parsed: *Parsed) !u8 {
     const target = session.fetch(name) catch |err| {
         return failCapTp(ctx, session, err, "fetch");
     };
-    // Bootstrap fetch always yields a far import (see Session.fetchReference).
-    const import_pos: u64 = switch (target) {
-        .far => |far| far.import_position.int(),
-        .local => return failCapTp(ctx, session, driver.Error.FetchNotACapability, "fetch"),
-    };
+    const cap_id = target.raw();
     if (ctx.json == .json) {
         var out: std.ArrayList(u8) = .empty;
         defer out.deinit(ctx.gpa);
         try out.appendSlice(ctx.gpa, "{\"ok\":true,\"name\":");
         try argv.writeJsonString(&out, ctx.gpa, name);
-        try out.print(ctx.gpa, ",\"import\":{d}}}\n", .{import_pos});
+        try out.print(ctx.gpa, ",\"cap\":{d}}}\n", .{cap_id});
         try ctx.writeResult(out.items);
     } else {
-        try printOut(ctx, fetched_fmt ++ "\n", .{ name, import_pos });
-        try printOut(ctx, fetch_next_fmt ++ "\n", .{ name, import_pos });
+        try printOut(ctx, fetched_fmt ++ "\n", .{ name, cap_id });
+        try printOut(ctx, fetch_next_fmt ++ "\n", .{ name, cap_id });
     }
     return exit_codes.ok;
 }
@@ -485,6 +500,7 @@ pub fn cmdPublish(ctx: *Ctx, parsed: *Parsed) !u8 {
 pub fn cmdClose(ctx: *Ctx, parsed: *Parsed) !u8 {
     _ = parsed;
     ctx.closeSession();
+    ctx.closeBackgroundListener();
     if (ctx.json == .json) try ctx.writeResult("{\"ok\":true}\n");
     return exit_codes.ok;
 }
@@ -515,6 +531,9 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
         if (ctx.last_locator) |loc| {
             try out.appendSlice(ctx.gpa, ",\"locator\":");
             try argv.writeJsonString(&out, ctx.gpa, loc);
+        }
+        if (ctx.background_listener) |listener| {
+            try out.print(ctx.gpa, ",\"listening\":true,\"accepted\":{d}", .{listener.accepted.load(.acquire)});
         }
         if (abort) |info| {
             try out.appendSlice(ctx.gpa, ",\"abort_kind\":");

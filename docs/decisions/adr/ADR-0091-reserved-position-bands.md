@@ -1,8 +1,12 @@
 # ADR-0091: Reserved Position Bands
 
-**Status:** Proposed. The design below changed materially after a spike; the
-cost is real and the timing is open.
-**Date:** 2026-07-29
+**Status:** Accepted, implemented. Both sums ship in `model/position.zig`:
+`ImportName` over `RedeemedToken`, and `AnswerName` over `VirtualAnswer`, each
+with `classify` as the one seam. The refusal seams in `session/validate.zig`
+and `session/v1_0.zig` switch exhaustively, the virtual-answer mint returns
+the typed arm and crosses back through the named `answerPosition` seat, and
+`test/model/model_test.zig` pins both band boundaries at classify.
+**Date:** 2026-07-29 (accepted 2026-08-02)
 **Decision:** An import position is one of two things, and it should say so.
 Either the partner named it on the wire, or this node minted it above
 `REDEEMED_TOKEN_BASE` as a handoff token. That is a sum, not two types living
@@ -180,10 +184,17 @@ reason `model/position.zig` already gives.
   re-tag (`engine/pipeline.zig` uses it four times to read a near export
   position as an answer or import position). `reinterpret` is the hard case:
   it must keep working for the genuine re-tags while not becoming the hole
-  through which a token re-enters wire space. Naming the two directions
-  differently, or restricting `reinterpret` to the three wire spaces and
-  giving the bands their own conversion, is the design question implementation
-  should settle first.
+  through which a token re-enters wire space. Implementation settled it the
+  second way: `reinterpret` stays on the three wire-space types, and each band
+  arm carries its own named conversion (`RedeemedToken.wirePosition`,
+  `VirtualAnswer.answerPosition`), so the sites where a band value crosses
+  back into wire space are greppable one by one.
+- The mint counters and routing-table keys stay raw `u64` inside their owning
+  modules (`Node.next_token`, the `redeemed`/`foreign_imports` maps,
+  `Session.next_virtual_inbound_answer`). The sum's job is the consumer seam,
+  where an integer of unknown provenance becomes a name; the mint *is* the
+  provenance, and typing its private counter would re-spell the same fact with
+  no reader protected.
 - The refusals in `session/validate.zig` stay, with their tests. A type that
   makes the mistake unrepresentable in pancake's own code does not make it
   unrepresentable in a partner's bytes.

@@ -17,6 +17,7 @@ import {
 	connect,
 	Context,
 	type ContextAllocator,
+	durableIdentityAuthenticated,
 	ensureRuntimeReady,
 	FetchFailed,
 	Host,
@@ -41,7 +42,7 @@ const runtime = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
 	? "deno"
 	: "node";
 
-function assert(cond: boolean, msg: string): void {
+function assert(cond: boolean, msg: string): asserts cond {
 	if (!cond) {
 		console.error(`${runtime} zig-smoke FAILED: ${msg}`);
 		process.exit(1);
@@ -176,6 +177,51 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	captpHost.release(); // before the context that owns its allocations
 	assert(allocs > 0, `custom allocator served the host's allocations, got ${allocs}`);
 	ok("drove a published counter round-trip from a context-backed host");
+}
+
+// An async behavior (off-turn settlement): the worker returns a promise, the
+// binding defers the turn's answer onto a resolver vow, and the settle
+// re-enters from the microtask queue after real awaited work, so the host's
+// turn loop never blocks on it. A rejection crosses as the caller's break
+// carrying the behavior's own words.
+{
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+
+	async function host(): Promise<void> {
+		for await (const session of server) {
+			session.publish("worker", async (verb) => {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				if (verb === "fail") throw new Error("worker gave up");
+				return "computed off-turn";
+			});
+			session.serve().catch(() => {});
+			break;
+		}
+	}
+	const hosted = host();
+
+	async function client(): Promise<void> {
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const worker = await session.fetch("worker");
+		const reply = await session.send(worker, "work", []);
+		assert(reply === "computed off-turn", `async behavior reply, got ${String(reply)}`);
+		let broke = "";
+		try {
+			await session.send(worker, "fail", []);
+		} catch (err) {
+			broke = err instanceof Error ? err.message : String(err);
+		}
+		assert(
+			broke.includes("worker gave up"),
+			`async rejection carries the reason, got "${broke}"`,
+		);
+		session.close();
+	}
+
+	await Promise.all([client(), hosted]);
+	ok("an async behavior deferred its answer onto a resolver vow and settled off-turn");
 }
 
 // The codec selector end-to-end: both nodes minted with the Cap'n Proto wire
@@ -414,6 +460,71 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	ok(
 		"a sturdyref enlivens to a live capability, and a repeat enliven hits the cache",
 	);
+}
+
+// Select-or-dial enliven (ADR-0098 step 4): the *host* enlivens a complete
+// sturdyref with no session named. A peer it already dialed is selected, so
+// this arm settles over that live session — the dial arm is the same verb
+// with an unreached peer, driven by the host's own DIAL action.
+{
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+
+	async function host(): Promise<void> {
+		for await (const session of server) {
+			session.publish("beacon", () => new Sym("lit"));
+			session.serve().catch(() => {});
+			break;
+		}
+	}
+	const hosted = host();
+
+	async function client(): Promise<void> {
+		const locator = tcpLocator("127.0.0.1", port);
+		const shared = new Host();
+		const session = await connect(locator, undefined, shared);
+		session.serve().catch(() => {});
+		const cap = await shared.enliven(`${locator}/s/beacon`);
+		const greeting = await session.send(cap, "hello", []);
+		assert(
+			greeting instanceof Sym && (greeting as Sym).value === "lit",
+			"the select-or-dial enlivened cap answers",
+		);
+		session.close();
+	}
+
+	await Promise.all([client(), hosted]);
+	ok("a host selects a live session to enliven a sturdyref over");
+}
+
+// Listen (CapTP op:listen, ADR-0095): a held capability is listened on, and
+// the vow settles with its resolution — any value, not only a capability. A
+// listen on an already-settled capability answers at once, proving the round
+// trip rather than a pending promise.
+{
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+
+	async function host(): Promise<void> {
+		for await (const session of server) {
+			session.publish("beacon", () => new Sym("lit"));
+			session.serve().catch(() => {});
+			break;
+		}
+	}
+	const hosted = host();
+
+	async function client(): Promise<void> {
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const beacon = await session.fetch("beacon");
+		const settled = await session.listen(beacon);
+		assert(settled instanceof Ref, "the listen settles naming the capability");
+		session.close();
+	}
+
+	await Promise.all([client(), hosted]);
+	ok("a listen on a held capability settles with its resolution");
 }
 
 // Distributed GC (ADR-0063), opt-in: a client that enables GC and fetches a
@@ -1230,12 +1341,17 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				seen.sessionKey.length === 32,
 				`partner identity: expected a 32-byte key, got ${seen.sessionKey.length}`,
 			);
-			// `tcp` designates a socket address, which the signature covers but
-			// the key does not determine, so the key question has no claim to
-			// make here.
+			// `tcp` designates a socket address, so no durable identity was
+			// proved: the three facts stay distinct (ADR-0097), and the
+			// provenance says so rather than the designator being compared to
+			// the session key.
 			assert(
-				!session.partnerDesignatorIsKey(),
-				"partner identity: a tcp designator is an address, not a key",
+				seen.provenance === "unauthenticated",
+				`partner identity: a tcp session proves no durable identity, got ${seen.provenance}`,
+			);
+			assert(
+				!durableIdentityAuthenticated(seen),
+				"partner identity: a tcp session has no authenticated durable peer",
 			);
 			// The rooms-shaped check, both ways. The claim a caller could make
 			// about itself is only worth acting on when it matches what the

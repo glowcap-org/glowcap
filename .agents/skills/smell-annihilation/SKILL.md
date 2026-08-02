@@ -119,6 +119,12 @@ above. A "cleanup" that adds a steady-state heap hit or an O(n) re-walk on
 
 ## Smell classes to hunt
 
+Most rows below are the "DRY, orthogonal, and easier to change" value in
+[project-values](../../rules/project-values.md) failing in one concrete shape.
+A duplicated spine breaks one authority per fact, a change that drags an
+unrelated concern breaks orthogonality, and a boundary held by convention is
+the shape harder to change. Name which principle a finding breaks.
+
 - Sans-io / pure logic trapped inside an I/O or adapter type (extract it where
   the build bans I/O).
 - The same control-flow spine written N times across sibling types (unify onto

@@ -84,7 +84,9 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 		.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
 		.await?;
 	assert_echoed(&reply_again, b"pancake-ping-again")?;
-	println!("rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved");
+	println!(
+		"rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved"
+	);
 
 	println!(
 		"rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins"

@@ -11,6 +11,7 @@ const builtin = @import("builtin");
 
 const foundation = @import("foundation");
 const model = @import("model");
+const engine = @import("engine");
 const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
@@ -138,8 +139,20 @@ fn hostNewIn(
 ) i32 {
     const slot = out_host orelse return PANCAKE_ERR_NULL_POINTER;
     const seed_nn = seed_ptr orelse return PANCAKE_ERR_NULL_POINTER;
-    if (seed_len != crypto.SEED_BYTES) {
-        shared.setLastError("host: seed must be {d} bytes", .{crypto.SEED_BYTES});
+    // One buffer, two independent inputs (ADR-0097). The first 32 bytes are
+    // the host's durable identity and must stay stable across restarts — a
+    // keyed locator's designator is derived from them. The optional next 32
+    // are the session-key root, and they must be *fresh per process*: they are
+    // what makes each connection sign with its own key, and what stops a
+    // restarted host recreating a prior session's handoff names. Supplying
+    // only the durable half is still accepted, and then every session signs
+    // with the durable key, which is the weaker posture this ADR removes.
+    const session_root_len = crypto.SEED_BYTES * 2;
+    if (seed_len != crypto.SEED_BYTES and seed_len != session_root_len) {
+        shared.setLastError(
+            "host: seed must be {d} bytes, or {d} to supply a session-key root after the durable identity",
+            .{ crypto.SEED_BYTES, session_root_len },
+        );
         return PANCAKE_ERR_INVALID_ARGUMENT;
     }
     const codec_id = shared.codecFromC(codec) orelse {
@@ -153,6 +166,9 @@ fn hostNewIn(
     opts.codec = codec_id;
     opts.local_turn_budget = if (local_turn_budget == 0) null else local_turn_budget;
     opts.capability_id_issuer = .{ .next = issueCapabilityId };
+    if (seed_len == session_root_len) {
+        opts.session_seeds = .{ .rooted = seed_nn[crypto.SEED_BYTES..session_root_len].* };
+    }
     inst.* = .{
         .core = Host.init(alloc, seed_nn[0..crypto.SEED_BYTES].*, opts),
         .allocator = alloc,
@@ -425,7 +441,88 @@ pub export fn pancake_host_plan_dial(
             setView(&.{}, &slot.addresses, &slot.addresses_len);
             slot.reach_kind = c.PANCAKE_DIAL_REACH_DIRECT;
         },
+        .rendezvous => {
+            slot.shape = c.PANCAKE_DIAL_SHAPE_RENDEZVOUS;
+            setView(&.{}, &slot.host, &slot.host_len);
+            slot.port = 0;
+            setView(&.{}, &slot.addresses, &slot.addresses_len);
+            slot.reach_kind = c.PANCAKE_DIAL_REACH_DIRECT;
+        },
     }
+    return PANCAKE_OK;
+}
+
+/// Select-or-dial enliven (ADR-0098): enliven the complete sturdyref URI over
+/// a live session this host already dialed to its peer, or stage a dial and
+/// finish when the embedder reports it. The host vow id lands in *out_vow and
+/// its outcome arrives as that vow's SETTLE or FAIL action, whether the
+/// enliven rode a selected session or waited for a dial. A staged dial
+/// surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL: borrow it with
+/// pancake_host_pending_dial and report it with pancake_host_dialed /
+/// pancake_host_dial_failed exactly as a handoff redeem's dial. Refused
+/// inside a callback.
+/// Mint a resolver pair (ADR-0102): *out_vow_id is the read side, whose whole
+/// surface is pancake_host_turn_forward_vow; *out_resolver_id is the settle
+/// authority for pancake_host_resolver_fulfill / _break. Legal inside a
+/// behavior callback — a behavior mints, forwards its answer, hands the
+/// resolver id to whatever completes the work, and returns.
+pub export fn pancake_host_spawn_resolver(
+    host: ?*PancakeHost,
+    out_vow_id: ?*u64,
+    out_resolver_id: ?*u64,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const vow_slot = out_vow_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const resolver_slot = out_resolver_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const pair = inst.core.spawnResolver() catch |err| return errToCode(err);
+    vow_slot.* = pair.vow_id;
+    resolver_slot.* = pair.resolver_id;
+    return PANCAKE_OK;
+}
+
+/// Settle a resolver vow fulfilled with one capability-free value (a value
+/// naming a capability refuses whole; an answer that carries authority uses
+/// the turn's forward-to-send instead). Top-level: refused inside a callback;
+/// the settle runs the deferred answers and pumps the sessions they dirtied.
+/// One attempt per resolver; a second settle or an unknown id refuses.
+pub export fn pancake_host_resolver_fulfill(
+    host: ?*PancakeHost,
+    resolver_id: u64,
+    value: ?*const shared.PancakeArgument,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const c_value = value orelse return PANCAKE_ERR_NULL_POINTER;
+    const converted = common.plainArgumentFromC(inst, c_value.*) catch |err| return errToCode(err);
+    inst.core.resolverFulfill(resolver_id, converted) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Settle a resolver vow broken with a diagnostic borrowed for the call. The
+/// same top-level, one-attempt contract as pancake_host_resolver_fulfill.
+pub export fn pancake_host_resolver_break(
+    host: ?*PancakeHost,
+    resolver_id: u64,
+    message: ?[*]const u8,
+    message_len: usize,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const reason = shared.sliceFromC(message, message_len) catch |err| return shared.marshalErrorToCode(err);
+    inst.core.resolverBreak(resolver_id, reason) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_host_enliven(
+    host: ?*PancakeHost,
+    sturdyref_uri: ?[*]const u8,
+    sturdyref_uri_len: usize,
+    out_vow: ?*u64,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
+    const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err| return shared.marshalErrorToCode(err);
+    const sturdyref = model.uri.parseSturdyref(inst.allocator, uri) catch |err| return errToCode(err);
+    defer model.uri.freeSturdyref(inst.allocator, sturdyref);
+    slot.* = inst.core.enlivenSelectOrDial(sturdyref) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -624,6 +721,84 @@ pub export fn pancake_host_publish(
 
     const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
     _ = inst.core.publishHostedGiftable(name_bytes, hosted) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Publish one hosted object under a freshly minted durable swiss name
+/// (ADR-0098): the reserved-prefix namespace, unpredictable, never
+/// reassigned, removable only through `pancake_host_remove_durable`, and
+/// structurally disjoint from every mutable alias. `entropy` supplies
+/// exactly PANCAKE_HOST_DURABLE_ENTROPY_LEN caller-drawn random bytes — the
+/// embedder owns the entropy boundary, as it does for gift ids. The minted
+/// swiss (the name to place in a sturdyref beside this host's own locator)
+/// is written into `out_swiss`; `swiss_cap` must be at least
+/// PANCAKE_HOST_DURABLE_SWISS_LEN or the call refuses BUFFER_TOO_SMALL and
+/// publishes nothing. Returns the written length. `ctx`/`free` follow
+/// `pancake_host_publish`'s ownership exactly.
+pub export fn pancake_host_publish_durable(
+    host: ?*PancakeHost,
+    entropy: ?[*]const u8,
+    entropy_len: usize,
+    behavior: ?c.PancakeHostBehavior,
+    ctx: ?*anyopaque,
+    free: ?c.PancakeHostCtxFree,
+    out_swiss: ?[*]u8,
+    swiss_cap: usize,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const b = behavior orelse return PANCAKE_ERR_NULL_POINTER;
+    const out = out_swiss orelse return PANCAKE_ERR_NULL_POINTER;
+    const entropy_bytes = shared.sliceFromC(entropy, entropy_len) catch |err| return shared.marshalErrorToCode(err);
+    if (entropy_bytes.len != engine.durable_swiss_entropy_len) {
+        shared.setLastError("host: durable entropy must be exactly {d} bytes", .{engine.durable_swiss_entropy_len});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
+    if (swiss_cap < engine.durable_swiss_len) {
+        shared.setLastError("host: durable swiss buffer needs {d} bytes", .{engine.durable_swiss_len});
+        return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
+    }
+    if (refuseLatched(inst)) |code| return code;
+    const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
+    var entropy_fixed: [engine.durable_swiss_entropy_len]u8 = undefined;
+    @memcpy(&entropy_fixed, entropy_bytes);
+    const minted = inst.core.publishHostedDurable(entropy_fixed, hosted) catch |err| return errToCode(err);
+    @memcpy(out[0..engine.durable_swiss_len], minted.slice());
+    return @intCast(engine.durable_swiss_len);
+}
+
+/// Remove a minted durable publication (ADR-0098): the old sturdyref misses
+/// from now on, while capabilities already issued and deposited gifts keep
+/// the exact actor. A swiss outside the reserved durable namespace returns
+/// PANCAKE_ERR_INVALID_ARGUMENT (mutable aliases leave through
+/// `pancake_host_unpublish`); an unknown durable name returns
+/// PANCAKE_ERR_NOT_FOUND.
+pub export fn pancake_host_remove_durable(
+    host: ?*PancakeHost,
+    swiss: ?[*]const u8,
+    swiss_len: usize,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const swiss_bytes = shared.sliceFromC(swiss, swiss_len) catch |err| return shared.marshalErrorToCode(err);
+    if (refuseLatched(inst)) |code| return code;
+    inst.core.removeDurable(swiss_bytes) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Remove the host-wide alias `name`. Discovery-only, alias-only (ADR-0096): a
+/// later fetch of the name misses on every session, while capabilities already
+/// issued, live Port projections, and deposited gifts keep naming the exact
+/// actor, which stays in the Host's Vat until `pancake_host_release`. An
+/// absent alias returns PANCAKE_ERR_NOT_FOUND, so a typo is loud instead of an
+/// idempotent no-op.
+pub export fn pancake_host_unpublish(
+    host: ?*PancakeHost,
+    name: ?[*]const u8,
+    name_len: usize,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
+    if (refuseLatched(inst)) |code| return code;
+    inst.core.unpublish(name_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 

@@ -48,7 +48,7 @@ fn apply(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
 ) !?model.Reference {
-    return registry.applyWithdraw(registry, allocator, receive);
+    return registry.applyWithdraw(registry, allocator, null, receive);
 }
 
 fn makeReceive(
@@ -88,9 +88,9 @@ const default_limits: session.SessionLimits = .{};
 test "registry deposits a gift and accepts a matching withdrawal" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
 
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
     try std.testing.expect(registry.giftLive("gift-1"));
 
     const receive = makeReceive("gift-1", "recipient-key", &session_a, 1);
@@ -107,6 +107,7 @@ test "the generic inbound path moves no gift-withdrawal authority" {
     try exporter.giftRegistry().deposit(
         allocator,
         exporter.session_state.limits,
+        null,
         "gift-1",
         "recipient-key",
     );
@@ -123,7 +124,7 @@ test "the generic inbound path moves no gift-withdrawal authority" {
 test "registry rejects withdrawal of an unknown gift" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
 
     try std.testing.expectError(
         session.Error.InvalidGift,
@@ -134,8 +135,8 @@ test "registry rejects withdrawal of an unknown gift" {
 test "registry rejects withdrawal with a mismatched recipient key" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    defer registry.deinit(allocator, null);
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
 
     try std.testing.expectError(
         session.Error.InvalidGift,
@@ -147,9 +148,9 @@ test "registry rejects withdrawal with a mismatched recipient key" {
 test "registry rejects a replayed or out-of-order handoff count" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
-    try registry.deposit(allocator, default_limits, "gift-2", "recipient-key");
+    defer registry.deinit(allocator, null);
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
+    try registry.deposit(allocator, default_limits, null, "gift-2", "recipient-key");
 
     const first = makeReceive("gift-1", "recipient-key", &session_a, 2);
     try validate(&registry, first);
@@ -165,9 +166,9 @@ test "registry rejects a replayed or out-of-order handoff count" {
 test "a withdrawn gift cannot be withdrawn twice" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
 
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
     const first = makeReceive("gift-1", "recipient-key", &session_a, 1);
     try validate(&registry, first);
     _ = try apply(&registry, allocator, first);
@@ -184,26 +185,26 @@ test "a withdrawn gift cannot be withdrawn twice" {
 test "a re-deposit of the same gift id replaces the prior row and frees it" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
 
     // Both deposited capabilities carry heap (a broken ref owns its message), so
     // the testing allocator proves the first is freed on overwrite, a leak or a
     // double free fails this test.
     const first = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "first") } };
-    try registry.depositOwned(allocator, default_limits, "gift-1", first);
+    try registry.depositOwned(allocator, default_limits, null, "gift-1", first);
 
     // A second deposit on the same live session replaces that session's row.
     const second = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "second") } };
-    try registry.depositOwned(allocator, default_limits, "gift-1", second);
+    try registry.depositOwned(allocator, default_limits, null, "gift-1", second);
     try std.testing.expectEqualStrings("second", registry.giftedCap("gift-1").?.broken.message);
 }
 
 test "a re-deposit after withdrawal re-arms the gift" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
 
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
     const first = makeReceive("gift-1", "recipient-key", &session_a, 1);
     try validate(&registry, first);
     _ = try apply(&registry, allocator, first);
@@ -213,7 +214,7 @@ test "a re-deposit after withdrawal re-arms the gift" {
     // blocked by the monotonic handoff count, not by refusing the deposit: the
     // first certificate cannot be presented again, but a fresh higher-count
     // receive withdraws the re-armed gift.
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
     try std.testing.expect(registry.giftLive("gift-1"));
     try std.testing.expectError(
         session.Error.HandoffReplay,
@@ -228,13 +229,13 @@ test "a re-deposit after withdrawal re-arms the gift" {
 test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
     const limits: session.SessionLimits = .{ .max_deposited_gifts = 1 };
 
-    try registry.deposit(allocator, limits, "gift-a", "recipient");
+    try registry.deposit(allocator, limits, null, "gift-a", "recipient");
     try std.testing.expectError(
         session.Error.DepositedGiftCapExceeded,
-        registry.deposit(allocator, limits, "gift-b", "recipient"),
+        registry.deposit(allocator, limits, null, "gift-b", "recipient"),
     );
     try std.testing.expect(registry.giftLive("gift-a"));
     try std.testing.expect(!registry.giftLive("gift-b"));
@@ -243,7 +244,7 @@ test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
 test "consumed gifts do not count toward max_deposited_gifts" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
     // A registry that has already served max_deposited_gifts *completed*
     // handoffs must keep accepting new deposits: a spent gift no longer counts.
     const limits: session.SessionLimits = .{ .max_deposited_gifts = 1 };
@@ -254,7 +255,7 @@ test "consumed gifts do not count toward max_deposited_gifts" {
         const id = try std.fmt.bufPrint(&buf, "gift-{d}", .{i});
         // Only one gift is ever live at a time, so a cap of 1 admits every
         // deposit once its predecessor has been withdrawn.
-        try registry.deposit(allocator, limits, id, "recipient");
+        try registry.deposit(allocator, limits, null, id, "recipient");
         const receive = makeReceive(id, "recipient", &session_a, i + 1);
         try validate(&registry, receive);
         _ = try apply(&registry, allocator, receive);
@@ -264,30 +265,30 @@ test "consumed gifts do not count toward max_deposited_gifts" {
 test "re-arming a consumed gift still respects max_deposited_gifts" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
     // The live-gift cap must hold across re-arm: consuming a gift and re-depositing
     // its id is a fresh row through the cap check, not a bypass that inflates the
     // live count past the bound.
     const limits: session.SessionLimits = .{ .max_deposited_gifts = 2 };
 
-    try registry.deposit(allocator, limits, "gift-a", "recipient");
-    try registry.deposit(allocator, limits, "gift-b", "recipient");
+    try registry.deposit(allocator, limits, null, "gift-a", "recipient");
+    try registry.deposit(allocator, limits, null, "gift-b", "recipient");
     const withdraw_a = makeReceive("gift-a", "recipient", &session_a, 1);
     try validate(&registry, withdraw_a);
     _ = try apply(&registry, allocator, withdraw_a); // a consumed, one slot free
-    try registry.deposit(allocator, limits, "gift-c", "recipient"); // fills the free slot
+    try registry.deposit(allocator, limits, null, "gift-c", "recipient"); // fills the free slot
     // Re-depositing the consumed gift-a would push live gifts to three; the cap
     // refuses it just as it refuses any third live deposit.
     try std.testing.expectError(
         session.Error.DepositedGiftCapExceeded,
-        registry.deposit(allocator, limits, "gift-a", "recipient"),
+        registry.deposit(allocator, limits, null, "gift-a", "recipient"),
     );
 }
 
 test "each session registry mints one monotonic emitted handoff count" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
+    defer registry.deinit(allocator, null);
 
     // A fresh receiving session starts at 0 and rises by one per withdrawal,
     // the recipient-side mirror of the accepted-count replay guard, so the count
@@ -301,8 +302,8 @@ test "each session registry mints one monotonic emitted handoff count" {
 test "a receive naming a session other than the derived one is refused" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    defer registry.deinit(allocator, null);
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
 
     // `expected_receiver` names `session_a`; this receive names another session.
     // An exporter that knows its own key holds the receive to the pair it
@@ -318,8 +319,8 @@ test "a receive naming a session other than the derived one is refused" {
 test "an unkeyed exporter still keys the counter by the derived side" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    defer registry.deinit(allocator, null);
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
 
     // With no session key of its own, the exporter cannot say which session the
     // receive belongs to, so it does not check that name. The side it derives
@@ -328,9 +329,9 @@ test "an unkeyed exporter still keys the counter by the derived side" {
     const anywhere = name32("any-session-at-all");
     const first = makeReceive("gift-1", "recipient-key", &anywhere, 7);
     try registry.validateWithdraw(first, unkeyed);
-    _ = try registry.applyWithdraw(&registry, allocator, first);
+    _ = try registry.applyWithdraw(&registry, allocator, null, first);
 
-    try registry.deposit(allocator, default_limits, "gift-2", "recipient-key");
+    try registry.deposit(allocator, default_limits, null, "gift-2", "recipient-key");
     try std.testing.expectError(
         session.Error.HandoffReplay,
         registry.validateWithdraw(makeReceive("gift-2", "recipient-key", &anywhere, 7), unkeyed),
@@ -340,8 +341,8 @@ test "an unkeyed exporter still keys the counter by the derived side" {
 test "a receive naming the wrong side is refused" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator);
-    try registry.deposit(allocator, default_limits, "gift-1", "recipient-key");
+    defer registry.deinit(allocator, null);
+    try registry.deposit(allocator, default_limits, null, "gift-1", "recipient-key");
 
     const other_side: engine.handoff_names.ExpectedReceiver = .{
         .session = session_a,
@@ -455,14 +456,14 @@ test "two gifters reusing one gift id keep separate rows" {
     // session registries make reuse structural rather than adding another
     // gifter dimension to every row.
     var alice_registry: GiftRegistry = .{};
-    defer alice_registry.deinit(allocator);
+    defer alice_registry.deinit(allocator, null);
     var bob_registry: GiftRegistry = .{};
-    defer bob_registry.deinit(allocator);
+    defer bob_registry.deinit(allocator, null);
 
     const from_alice = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "alice's") } };
-    try alice_registry.depositOwned(allocator, default_limits, "my-gift", from_alice);
+    try alice_registry.depositOwned(allocator, default_limits, null, "my-gift", from_alice);
     const from_bob = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "bob's") } };
-    try bob_registry.depositOwned(allocator, default_limits, "my-gift", from_bob);
+    try bob_registry.depositOwned(allocator, default_limits, null, "my-gift", from_bob);
 
     try std.testing.expectEqualStrings("alice's", alice_registry.giftedCap("my-gift").?.broken.message);
     try std.testing.expectEqualStrings("bob's", bob_registry.giftedCap("my-gift").?.broken.message);

@@ -24,12 +24,12 @@ import ctypes
 import secrets
 import threading
 from collections import deque
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from . import _constants as _abi
 from ._action import _park_actions, _run_action
-from ._codec import _codec_id, _ref_to_c
-from ._errors import PancakeError, _check_host
+from ._codec import _arg_to_c, _codec_id, _ref_to_c
+from ._errors import PancakeError, _check_host, _host_last_error
 
 if TYPE_CHECKING:
     from ._context import Context
@@ -120,15 +120,21 @@ class Host:
         self.seed = seed if seed is not None else secrets.token_bytes(32)
         self.codec = codec
         out = ctypes.c_void_p()
-        sbuf, sptr = _byte_buf(self.seed)
+        # The durable identity followed by a session-key root drawn here, at
+        # this binding's entropy boundary, because the library draws none
+        # (ADR-0097). The root is fresh per process, so every CapTP session
+        # signs with its own key and a restart cannot recreate a prior
+        # session's handoff names; the durable half stays exactly ``seed``,
+        # since a keyed locator's designator derives from it.
+        sbuf, sptr = _byte_buf(self.seed + secrets.token_bytes(32))
         if context is not None:
             _check_host(_host.pancake_host_new_in(
-                context._raw, sptr, 32,
+                context._raw, sptr, 64,
                 _HOST_FRAME_CAP, 1, _codec_id(codec), local_turn_budget, ctypes.byref(out),
             ))
         else:
             _check_host(_host.pancake_host_new(
-                sptr, 32,
+                sptr, 64,
                 _HOST_FRAME_CAP, 1, _codec_id(codec), local_turn_budget, ctypes.byref(out),
             ))
         self._raw: ctypes.c_void_p | None = out
@@ -176,6 +182,7 @@ class Host:
         # lowers it. A hinted give always dials Direct and ignores it. Stored
         # as the numeric value so the core stays free of the optional iroh
         # module.
+        self._rendezvous_url = None
         self._redeem_reachability = _abi.IROH_REACH_REDEEM_DEFAULT
 
     @property
@@ -210,6 +217,60 @@ class Host:
             loop.call_soon_threadsafe(run)
         except RuntimeError:
             pass
+
+    def _defer_turn_to_awaitable(self, turn: int, pending: "Awaitable[object]") -> bool:
+        """Binding-internal (the trampoline's async-behavior arm): defer
+        ``turn``'s answer onto a fresh resolver vow and settle it when
+        ``pending`` does. The settle runs as its own task on the running
+        loop — the top-level re-entry the host requires — and carries plain
+        data only: a value the settle refuses (a capability, per the off-turn
+        contract) breaks the answer with the refusal's reason instead of
+        stranding it. False when the deferral itself refused."""
+        vow_out = ctypes.c_uint64(0)
+        resolver_out = ctypes.c_uint64(0)
+        if _host.pancake_host_spawn_resolver(
+            self._raw, ctypes.byref(vow_out), ctypes.byref(resolver_out)
+        ) != _abi.OK:
+            return False
+        if _host.pancake_host_turn_forward_vow(turn, vow_out.value) != _abi.OK:
+            return False
+        resolver = resolver_out.value
+
+        async def settle() -> None:
+            try:
+                value = await pending
+            except Exception as error:  # noqa: BLE001 — a raise breaks the answer
+                self._break_resolver(resolver, str(error) or type(error).__name__)
+                return
+            self._settle_resolver(resolver, value)
+
+        try:
+            task = asyncio.get_running_loop().create_task(settle())
+        except RuntimeError:
+            self._break_resolver(resolver, "async behavior outside a running loop")
+            return True
+        self._kick_tasks.add(task)
+        task.add_done_callback(self._kick_tasks.discard)
+        return True
+
+    def _settle_resolver(self, resolver: int, value: Any) -> None:
+        if not self._raw:
+            return  # a released host freed its resolver rows
+        keep: list = []
+        c_arg = _arg_to_c(value, keep)
+        if _host.pancake_host_resolver_fulfill(self._raw, resolver, ctypes.byref(c_arg)) != _abi.OK:
+            self._break_resolver(resolver, _host_last_error() or "deferred settle refused")
+            return
+        self.schedule_kick()
+
+    def _break_resolver(self, resolver: int, message: str) -> None:
+        if not self._raw:
+            return
+        data = message.encode()
+        _buf, ptr = _byte_buf(data)
+        # Best-effort: a resolver already consumed has nothing left to break.
+        _host.pancake_host_resolver_break(self._raw, resolver, ptr, len(data))
+        self.schedule_kick()
 
     def release(self) -> None:
         """Release the host and everything it owns — every still-open
@@ -257,7 +318,44 @@ class Host:
 
     @redeem_reachability.setter
     def redeem_reachability(self, reachability) -> None:
+        self._rendezvous_url = None
         self._redeem_reachability = int(reachability)
+
+    @property
+    def rendezvous_url(self):
+        """How this host reaches a ``keyed-relay`` peer: a callable mapping the
+        peer's key designator to the WebSocket URL of the relay rendezvous leg
+        that bridges onto its held inbound socket, e.g.
+        ``lambda id: f"wss://example/relay?rendezvous={id}"`` (ADR-0088). The
+        keyed-relay sibling of :attr:`redeem_reachability`: deployment
+        configuration for reaching an exporter that opens no listener. ``None``
+        until assigned, and a ``keyed-relay`` dial refuses without it."""
+        return self._rendezvous_url
+
+    @rendezvous_url.setter
+    def rendezvous_url(self, url) -> None:
+        self._rendezvous_url = url
+
+    async def enliven(self, sturdyref: str) -> "Ref":
+        """Enliven a complete sturdyref without naming a session (ADR-0098):
+        the host enlivens it over a live session it already dialed to that
+        peer, or dials one itself through this host's own DIAL action and
+        finishes when the dial reports. :meth:`Session.enliven` is the
+        narrower verb -- it never dials, and refuses a sturdyref for another
+        peer."""
+        from ._promise import _classify_live_ref
+
+        swiss = sturdyref.encode()
+        buf, ptr = _byte_buf(swiss)
+        out = ctypes.c_uint64()
+        _check_host(_host.pancake_host_enliven(self.raw, ptr, len(swiss), ctypes.byref(out)))
+        vow = out.value
+        # The vow may be parked on a dial with no session of its own, which is
+        # exactly the ``None`` session row the vow table already admits.
+        self.vow_minted(vow, None)
+        settled = self.await_vow(vow)
+        await self.kick_actions()
+        return _classify_live_ref(await settled, sturdyref)
 
     def set_self_designator(self, designator: str) -> None:
         """Record the designator this host's dials sign as their own dialable
@@ -313,7 +411,74 @@ class Host:
             # deposited gifts can still call the old actor.
             self._displaced_giftables.append(prior)
         self._giftables[name] = ctx
+
+    def unpublish_giftable(self, name: str) -> bool:
+        """Remove the Host-wide alias ``name`` (alias-only).
+
+        A later fetch misses on every session, while issued refs and deposited
+        gifts keep the exact actor, whose behavior stays hosted for the Host's
+        life. Returns ``False`` when no such alias exists."""
+        data = name.encode()
+        buf, ptr = _byte_buf(data)
+        rc = _host.pancake_host_unpublish(self._raw, ptr, len(data))
+        if rc == _abi.ERR_NOT_FOUND:
+            return False
+        _check_host(rc)
+        # The alias is gone but the actor is not: its trampoline row moves to
+        # the displaced list, exactly as a replacement displaces one.
+        prior = self._giftables.pop(name, None)
+        if prior is not None:
+            self._displaced_giftables.append(prior)
         self.schedule_kick()
+        return True
+
+    def publish_durable(self, behavior: Behavior) -> str:
+        """Publish ``behavior`` under a freshly minted durable swiss name and
+        return that name — the swiss to place in a sturdyref beside this
+        host's own locator (ADR-0098).
+
+        The name is unpredictable, never reassigned, structurally disjoint
+        from every mutable alias, and removable only through
+        :meth:`remove_durable`. Entropy is drawn here, from the OS RNG."""
+        ctx = _register_behavior(_BehaviorEntry(run=behavior, resolve_local=None))
+        entropy = secrets.token_bytes(16)
+        ebuf, eptr = _byte_buf(entropy)
+        out = (ctypes.c_ubyte * 64)()
+        try:
+            written = _host.pancake_host_publish_durable(
+                self._raw, eptr, len(entropy),
+                _TRAMPOLINE, ctypes.c_void_p(ctx), None,
+                out, 64,
+            )
+            if written <= 0:
+                _check_host(written)
+        except BaseException:
+            # free = NULL: the C tier never owns the row, so a refused publish
+            # must drop it here or the registry pins the behavior forever.
+            _unregister_behavior(ctx)
+            raise
+        name = bytes(out[:written]).decode("ascii")
+        self._giftables[name] = ctx
+        self.schedule_kick()
+        return name
+
+    def remove_durable(self, swiss: str) -> bool:
+        """Remove a minted durable publication (ADR-0098).
+
+        The old sturdyref misses from now on, while issued refs and deposited
+        gifts keep the exact actor. Returns ``False`` when no such durable
+        name exists."""
+        data = swiss.encode()
+        buf, ptr = _byte_buf(data)
+        rc = _host.pancake_host_remove_durable(self._raw, ptr, len(data))
+        if rc == _abi.ERR_NOT_FOUND:
+            return False
+        _check_host(rc)
+        prior = self._giftables.pop(swiss, None)
+        if prior is not None:
+            self._displaced_giftables.append(prior)
+        self.schedule_kick()
+        return True
 
     # ── Session registry ────────────────────────────────────────────────────
 

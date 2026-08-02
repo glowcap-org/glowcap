@@ -69,15 +69,41 @@ pub fn forwardTurn(self: *Vat, turn: *Turn, target: Ref, msg: Message) anyerror!
         return .{ .void = {} };
     };
     const vow = try turn.port.?.sendFromIngress(self, turn.ingress, target, msg);
+    try parkAnswerOnVow(self, turn.port.?, answer, vow);
+    turn.forwarded = true;
+    return .{ .void = {} };
+}
+
+/// Park a served answer on `vow` so the answer settles when the vow does —
+/// the one owner of the forward-context choreography, shared by
+/// `forwardTurn` (which mints the vow by sending) and `forwardTurnVow`
+/// (which is handed one, typically a resolver vow, ADR-0102).
+fn parkAnswerOnVow(self: *Vat, port: *Port, answer: model.AnswerPosition, vow: vat_mod.Vow) anyerror!void {
     const fc = try self.allocator.create(ForwardContext);
-    fc.* = .{ .vat = self, .port = turn.port.?, .answer = answer };
-    // A fresh vow can only collide on OOM, never `AlreadyListening`.
-    turn.port.?.on(self, vow, .{ .ctx = fc, .func = forwardListener }) catch |e| {
+    fc.* = .{ .vat = self, .port = port, .answer = answer };
+    // A fresh send's vow can only collide on OOM; a caller-supplied vow may
+    // already hold a listener, and that refusal propagates loud.
+    port.on(self, vow, .{ .ctx = fc, .func = forwardListener }) catch |e| {
         self.allocator.destroy(fc);
         return e;
     };
+}
+
+/// `Turn.forwardVow`'s spine (ADR-0102): defer the turn's answer onto a vow
+/// the behavior already holds instead of one minted by a send. Legal only on
+/// a served turn — a `.local` frame's caller consumes the return value
+/// directly, so a deferred answer has nowhere to land (`NotLocal`). A
+/// no-answer wire `tell` has nothing to defer: the turn is marked forwarded
+/// and the vow's eventual settlement fires no answer.
+pub fn forwardTurnVow(self: *Vat, turn: *Turn, vow: vat_mod.Vow) anyerror!void {
+    const maybe_answer = switch (turn.origin) {
+        .local => return vat_mod.Error.NotLocal,
+        .served => |maybe_answer| maybe_answer,
+    };
+    if (maybe_answer) |answer| {
+        try parkAnswerOnVow(self, turn.port.?, answer, vow);
+    }
     turn.forwarded = true;
-    return .{ .void = {} };
 }
 
 /// Dispatch one inbound peer event: a deliver to a published actor runs its
@@ -346,7 +372,7 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
 /// wire, or after an explicit `peer.exportObject` grant (ADR-0074). Only a
 /// local actor can be bound — a far ref already lives elsewhere — so a far
 /// ref returns `NotLocal`.
-pub fn bindExport(port: *Port, actor: Ref, position: u64) !void {
+pub fn bindExport(port: *Port, vat: *Vat, actor: Ref, position: u64) !void {
     const local_id = switch (actor) {
         .local => |a| a,
         .far => return Error.NotLocal,
@@ -364,8 +390,13 @@ pub fn bindExport(port: *Port, actor: Ref, position: u64) !void {
     errdefer std.debug.assert(port.exports.remove(position));
     try peer.reserveExport(position);
     gop.value_ptr.* = local_id;
-    if (!port.reverse_exports.contains(local_id))
+    if (!port.reverse_exports.contains(local_id)) {
         port.reverse_exports.putAssumeCapacity(local_id, position);
+        // The actor's first binding on this Port is a rooting relationship
+        // (ADR-0101), released by rollback of the last binding or Port
+        // teardown.
+        vat.retainActor(local_id);
+    }
 }
 
 /// The local `Ref` bound to wire export `position`, or null when no actor is

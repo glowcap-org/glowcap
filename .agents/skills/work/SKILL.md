@@ -68,9 +68,9 @@ per [serena-mcp rule](../../rules/serena-mcp.md).
   Zig-native control, protocol vocabulary, and tests.
 - Match surrounding code. Minimal correct diff beats a wide cosmetic sweep.
 
-### Three questions before "done"
+### Four questions before "done"
 
-A review of finished-looking work finds the same three classes every time, and
+A review of finished-looking work finds the same few classes every time, and
 each is a question that was never asked rather than a skill that was missing.
 Ask them while the work is open, not after a reviewer finds them.
 
@@ -98,6 +98,14 @@ comments naming an owner or a tier. A claim that outlives the code it
 described is worse than no claim, and the agent rules are the worst place for
 one because the next session acts on them without checking.
 
+**What did this diff repeat, and what did it drag?** Scan the finished diff
+against the "DRY, orthogonal, and easier to change" value in
+[project-values](../../rules/project-values.md). Logic, tables, or claims the
+diff spelled twice collapse at the layer that owns them. A change that had to
+touch an unrelated concern is a coupling to name or fix, not a chore to
+finish. Where two spellings could carry one fact, prefer the shared seam, the
+generated mirror, or the build check over the parallel copy.
+
 ## 4. Verify
 
 ```sh
@@ -113,5 +121,9 @@ Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
 - Fix doc drift in files you touched; leave prose more readable than you found
   it.
 - Do not leave "someone should fix X later" without recording X as a present
-  boundary in vision, `docs/boundaries.md`, or an ADR.
-- Scaffolding changes: update `tools/check/meta_check.zig` in the same change.
+  boundary in vision, `docs/boundaries.md`, or an ADR. `zig build meta-check`
+  refuses unowned deferral markers in first-party source for the same reason.
+- Scaffolding changes answer to
+  [agent-scaffolding](../../rules/agent-scaffolding.md): the lesson lands at the
+  strongest layer that can hold it, and the gate moves in the same change. The
+  [ratchet skill](../ratchet/SKILL.md) is the landing procedure.

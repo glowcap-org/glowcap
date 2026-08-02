@@ -18,6 +18,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 insert_bindings_path()
 
 from pancake import (  # noqa: E402
+    DurableProvenance,
     PancakeError,
     connect,
     keyed_tcp_locator,
@@ -49,16 +50,26 @@ async def serve_once(server) -> None:
 async def call_greeter(uri: str, expected: str) -> None:
     conn = await connect(uri)
     try:
-        # On this transport the designator *is* the key, so the identity the
-        # handshake proved has to be the one that was dialed, and its key has to
-        # spell it.
+        # On this transport the designator is the peer's *durable* identity, so
+        # the identity the handshake proved has to be the one that was dialed.
         proved = conn.partner_identity()
         if proved.designator != expected:
             fail("keyed-tcp-restart", f"partner signed {proved.designator}, not the dialed {expected}")
-        if proved.session_key.hex() != expected:
-            fail("keyed-tcp-restart", f"partner key {proved.session_key.hex()} does not spell {expected}")
-        if not conn.partner_designator_is_key():
-            fail("keyed-tcp-restart", "a keyed-tcp partner's designator is its session key")
+        # And its session key is deliberately NOT that identity: every
+        # connection signs with its own key (ADR-0097), so a session key is not
+        # a name and comparing the two would prove nothing.
+        if proved.session_key.hex() == expected:
+            fail("keyed-tcp-restart", "session key still spells the durable designator; sessions are not keyed per connection")
+        # What proved the durable identity is the hello's
+        # session-key-attestation credential, which is what a caller needing a
+        # proved peer reads.
+        if proved.provenance is not DurableProvenance.DURABLE_KEY_ATTESTATION:
+            fail(
+                "keyed-tcp-restart",
+                f"keyed-tcp durable provenance is {proved.provenance}, not the attestation credential",
+            )
+        if not proved.durable_identity_authenticated():
+            fail("keyed-tcp-restart", "a keyed-tcp partner's durable identity is authenticated")
         greeter_ref = await conn.fetch("greeter")
         reply = await conn.send(greeter_ref, "greet", [])
         if reply != GREETING:

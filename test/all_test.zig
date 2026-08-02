@@ -24,6 +24,7 @@ comptime {
     _ = @import("model/view_test.zig");
     _ = @import("model/uri_test.zig");
     _ = @import("actors/vat_test.zig");
+    _ = @import("actors/actor_roots_test.zig");
     _ = @import("actors/vat_alloc_budget_test.zig");
     _ = @import("actors/vat_footprint_budget_test.zig");
     _ = @import("actors/ocap_test.zig");
@@ -39,6 +40,9 @@ comptime {
     _ = @import("net/tcp_parse_test.zig");
     _ = @import("net/tcp_test.zig");
     _ = @import("net/tcp_keepalive_test.zig");
+    _ = @import("actors/resolver_vow_test.zig");
+    _ = @import("driver/off_turn_settle_test.zig");
+    _ = @import("net/keyed_relay_test.zig");
     _ = @import("net/keyed_tcp_test.zig");
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("net/completion_loop_test.zig");
@@ -65,6 +69,7 @@ comptime {
     _ = @import("engine/gc_churn_test.zig");
     _ = @import("engine/completion_seam_test.zig");
     _ = @import("engine/negotiation_test.zig");
+    _ = @import("engine/attestation_contract_test.zig");
     _ = @import("engine/abort_projection_test.zig");
     _ = @import("engine/error_taxonomy_test.zig");
     _ = @import("engine/pipeline_test.zig");
@@ -82,6 +87,8 @@ comptime {
     _ = @import("driver/relayed_promise_test.zig");
     _ = @import("driver/core_host_test.zig");
     _ = @import("driver/capability_registry_test.zig");
+    _ = @import("driver/actor_reclaim_test.zig");
+    _ = @import("driver/durable_publication_test.zig");
     _ = @import("driver/dial_plan_test.zig");
     _ = @import("driver/resilient_client_test.zig");
     _ = @import("driver/host_limits_test.zig");

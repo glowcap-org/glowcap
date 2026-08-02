@@ -5,7 +5,22 @@
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
     "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",
     "@pancake/relay": "./bindings/ts/relay/mod.ts",
-    "playwright": "npm:playwright@1.61.1"
+    "playwright": "npm:playwright@1.61.1",
+    "react": "npm:react@19.2.0",
+    "react/jsx-runtime": "npm:react@19.2.0/jsx-runtime",
+    "react-dom": "npm:react-dom@19.2.0",
+    "react-dom/client": "npm:react-dom@19.2.0/client",
+    "@types/react": "npm:@types/react@19.2.2",
+    "@types/react-dom": "npm:@types/react-dom@19.2.1"
+  },
+  // The rooms browser page is the one TypeScript here that is JSX, and Deno reads
+  // compilerOptions only from the root config of a scope, so its transform is
+  // declared here rather than beside it in apps/rooms/web/ui/deno.json. It applies
+  // to .tsx files alone, and this is the only directory that has any.
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "jsxImportSourceTypes": "npm:@types/react@19.2.2"
   },
   "fmt": {
     "useTabs": true,
@@ -13,11 +28,12 @@
     "lineWidth": 100,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["**/*.ts"],
-    // yml/yaml/md are excluded so an explicit-path run (`deno fmt <dir>`) cannot
-    // reach them: a path argument overrides `include`, and this formatter would
-    // reindent YAML to four spaces against .editorconfig and re-wrap Markdown to
-    // lineWidth. Their formatting is owned by .editorconfig and by hand.
-    "exclude": ["bindings/ts", "zig-out", ".zig-cache", "**/target", "**/node_modules", "**/upstream", ".local", "**/*.yml", "**/*.yaml", "**/*.md"]
+    "include": ["**/*.ts", "**/*.tsx"],
+    // yml/yaml/md/json are excluded so an explicit-path run (`deno fmt <dir>`)
+    // cannot reach them: a path argument overrides `include`, and this formatter
+    // would reindent YAML to four spaces, re-wrap Markdown to lineWidth, and
+    // re-tab JSON, all against .editorconfig. Their formatting is owned by
+    // .editorconfig and by hand.
+    "exclude": ["bindings/ts", "zig-out", ".zig-cache", "**/target", "**/node_modules", "**/upstream", ".local", "**/*.yml", "**/*.yaml", "**/*.md", "**/*.json"]
   }
 }

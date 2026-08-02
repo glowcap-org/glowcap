@@ -1,14 +1,17 @@
-//! Eventual-send target refusal: the owning `driver.Session` reference-keyed
-//! verbs (`callReference` / `sendReference`) admit only an _object_
-//! near/far reference. A promise-kind near/far (an unresolved import/export
-//! promise) must be refused with `Error.UncallableTarget`, not silently
-//! coerced into an object turn: pipelining rides the answer vow
-//! (`sendToAnswer`), never a promise-kind target.
+//! Eventual-send target refusal on the owning `driver.Session`: `call` /
+//! `send` / `tell` admit only an _object_ capability. A promise-kind
+//! capability (an unresolved import promise) must be refused with
+//! `Error.UncallableTarget`, not silently coerced into an object turn:
+//! pipelining rides the answer vow (`sendToAnswer`), never a promise-kind
+//! target. The shapes that are not capabilities at all — a promise-kind local
+//! export, a bare answer-promise — cannot even be lifted into the opaque
+//! surface: the Host refuses them at the lift, so the facade has nothing to
+//! gate.
 //!
 //! Driven over TCP loopback — the owning tier multiplexes its blocking waits
-//! with poll, so it binds fd-backed transports only (ADR-0090). The positive control is a genuine
-//! far object that still calls and settles. That shows the gate refuses on _kind_, not
-//! by over-rejecting every reference.
+//! with poll, so it binds fd-backed transports only (ADR-0090). The positive
+//! control is a genuine far object that still calls and settles. That shows
+//! the gate refuses on _kind_, not by over-rejecting every capability.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -34,7 +37,7 @@ const dial_opts: driver.SessionOptions = .{
 };
 
 /// The published actor the positive control calls.
-const Greeter = support_actors.StaticReplyActor("greet", "hello over loopback");
+const Greeter = support_actors.StaticReplyValueActor("greet", "hello over loopback");
 
 /// Accept one partner over the bound listener, publish the greeter, and serve
 /// until the client leaves. Mirrors the owning `Server` accept the bindings ride.
@@ -45,7 +48,7 @@ fn hostOnce(server: *driver.Server) anyerror!void {
     try conn.serve();
 }
 
-test "session reference targets: promise-kind near/far is refused, an object still calls" {
+test "session capability targets: promise-kind is refused, an object still calls" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -90,27 +93,43 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress
     defer arena.deinit();
 
     // Positive control: a genuine far object fetched from the partner calls
-    // and settles. The gate refuses on kind, not by rejecting every reference.
-    const greeter = try client.fetchReference("greeter");
-    try std.testing.expect(greeter == .far and greeter.far.kind == .object);
-    const settled = try client.callReference(greeter, "greet", &.{}, arena.allocator());
+    // and settles. The gate refuses on kind, not by rejecting every capability.
+    const greeter = try client.fetch("greeter");
+    const settled = try client.call(greeter, "greet", &.{}, arena.allocator());
     try std.testing.expect(settled == .fulfilled and settled.fulfilled == .string);
     try std.testing.expectEqualStrings("hello over loopback", settled.fulfilled.string);
 
-    // The promise-kind twin of that same far reference: an unresolved import
-    // promise. Both reference-keyed verbs must refuse it, never coerce it into
-    // an object turn.
-    const far_promise = model.Reference{ .far = .{ .import_position = greeter.far.import_position, .kind = .promise } };
-    try std.testing.expectError(error.UncallableTarget, client.callReference(far_promise, "greet", &.{}, arena.allocator()));
-    try std.testing.expectError(error.UncallableTarget, client.sendReference(far_promise, "greet", &.{}));
+    // The promise-kind twin of the object import cannot even become a
+    // capability: the import row's identity already names the object kind,
+    // and the lift refuses the mismatch outright.
+    const import_position = blk: {
+        const wire = try client.host.core.lowerCapability(client.hs, greeter);
+        break :blk wire.far.import_position;
+    };
+    try std.testing.expectError(error.EnrolledKindConflict, client.host.core.liftCapability(
+        client.hs,
+        .{ .far = .{ .import_position = import_position, .kind = .promise } },
+    ));
 
-    // A promise-kind near reference (an unresolved local export promise) is
-    // refused the same way, before the export table is ever consulted.
+    // A genuine promise-kind capability (a fresh promise import, lifted
+    // through the core escape — the opaque surface itself never mints one
+    // from a send): every eventual-send verb must refuse it, never coerce it
+    // into an object turn.
+    const fresh_promise_position: u64 = 40;
+    try client.peer().importObject(fresh_promise_position);
+    const far_promise = try client.host.core.liftCapability(
+        client.hs,
+        .{ .far = .{ .import_position = model.ImportPosition.from(fresh_promise_position), .kind = .promise } },
+    );
+    try std.testing.expectError(error.UncallableTarget, client.call(far_promise, "greet", &.{}, arena.allocator()));
+    try std.testing.expectError(error.UncallableTarget, client.send(far_promise, "greet", &.{}));
+    try std.testing.expectError(error.UncallableTarget, client.tell(far_promise, "greet", &.{}));
+
+    // The shapes that are not capabilities cannot even enter the opaque
+    // surface: a promise-kind local export and a bare answer-promise are
+    // refused at the lift itself.
     const near_promise = model.Reference{ .near = .{ .export_position = model.ExportPosition.from(1), .kind = .promise } };
-    try std.testing.expectError(error.UncallableTarget, client.callReference(near_promise, "greet", &.{}, arena.allocator()));
-    try std.testing.expectError(error.UncallableTarget, client.sendReference(near_promise, "greet", &.{}));
-
-    // A bare answer-promise, a sturdy, and a broken reference are not targets.
+    try std.testing.expectError(error.UncallableTarget, client.host.core.liftCapability(client.hs, near_promise));
     const bare_promise = model.Reference{ .promise = .{ .answer_position = model.AnswerPosition.from(1) } };
-    try std.testing.expectError(error.UncallableTarget, client.sendReference(bare_promise, "greet", &.{}));
+    try std.testing.expectError(error.UncallableTarget, client.host.core.liftCapability(client.hs, bare_promise));
 }

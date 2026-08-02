@@ -1,9 +1,9 @@
 #lang racket/base
 ;; Internal: far-vow handle + pipelined projection (ADR-0007 / ADR-0050 /
 ;; ADR-0052). Also the shared await/fetch classify path (`await-vow` /
-;; `blocking-fetch`), and the far-send/tell mint (`session-far-send`). Session
-;; owns CapTP verb wrappers and `session-await`; this module owns the
-;; `session-vow` type, the host vow table register/settle/listen path,
+;; `blocking-fetch`), the far-send/tell mint (`session-far-send`), and the
+;; listen mint (`listen-far`). Session owns CapTP verb wrappers and
+;; `session-await`; this module owns the `session-vow` type, the host vow table register/settle/listen path,
 ;; `session-index`/`session-untag`/`session-get`, far-send mint, and the
 ;; post-mint wait/classify.
 
@@ -25,6 +25,7 @@
  ["pump.rkt" (pump-until)])
 
 (provide (struct-out session-vow)
+         listen-far
          register-vow!
          settle-vow!
          session-vow-listen!
@@ -182,6 +183,20 @@
 ;; An empty verb symbol is a methodless positional deliver (verb length zero on
 ;; the wire). `answer?` #t returns the minted `session-vow`; #f is tell
 ;; (Goblins `<-np`). Promise-pipelined targets ride `vow_send`.
+;; `session-listen`'s wire half: mint the listen vow over a held far promise
+;; (CapTP op:listen) and hand back the vow. The vow is plain — a listen may
+;; settle to any value, not only a capability.
+(define (listen-far c target)
+  (define m (session-host c))
+  (call-with-host m
+    (lambda ()
+      (define-values (rc id)
+        (pancake_host_session_listen (session-ptr c) (ref->c target)))
+      (check/host rc)
+      (define v (session-vow c id 'pending '()))
+      (register-vow! m v)
+      v)))
+
 (define (session-far-send c target verb args answer?)
   (guard-open 'session-send c)
   (define m (session-host c))

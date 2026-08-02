@@ -7,9 +7,14 @@
 //! sees the partner's signed designator equal the key and a call round-trip.
 //! Second, the load-bearing negative: a listener holding a *different* key at
 //! the same kind of address, dialed under the original designator, is refused
-//! at the handshake with `PartnerKeyMismatch`. The pin is what makes the
-//! designator trustworthy, so without this arm the whole feature is
-//! decorative. Third, the restart: the same seed rebound on a fresh port is
+//! at the handshake. A keyed listener signs the designator its own key
+//! spells, so a squatter advertises its own identity rather than the dialed
+//! one and the claim check refuses it before the session opens
+//! (`PartnerDesignatorMismatch`). Claiming the dialed identity instead would
+//! not help: the hello's `session-key-attestation` is signed by the durable
+//! key that designator names, which a squatter does not hold, so that path
+//! refuses too (ADR-0097). Possession is what makes the designator
+//! trustworthy, and without this arm the whole feature is decorative. Third, the restart: the same seed rebound on a fresh port is
 //! reached through the recorded designator with only the hint updated, and the
 //! recorded and fresh locators are equal under `model.peerLocatorsEqual`. The
 //! designator is the identity, not the address, and the port change is what
@@ -161,7 +166,7 @@ test "keyed-tcp loopback: the dialed key designator is the partner's signed iden
     try std.testing.expectEqualStrings(designator[0..], listener.localDesignator(&designator_buf));
 }
 
-test "keyed-tcp negative: a listener holding a different key under the dialed designator is refused with PartnerKeyMismatch" {
+test "keyed-tcp negative: a listener holding a different key under the dialed designator cannot attest and is refused" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -200,15 +205,16 @@ test "keyed-tcp negative: a listener holding a different key under the dialed de
 
     var dial_resident = net.tcp_keyed.Resident{ .io = io, .public_key = honest.publicKey() };
     const netlayers = [_]net.netlayer.Netlayer{dial_resident.netlayer()};
-    // The engine refuses with `PartnerKeyMismatch`; the connection pump folds
-    // every protocol refusal into its `ProtocolAbort` family and keeps the
-    // typed member readable on the peer (`AbortInfo`).
+    // The squatter's hello advertises the identity its own key spells, not
+    // the one this dial named, so the claim check refuses it. The connection
+    // pump folds every protocol refusal into its `ProtocolAbort` family and
+    // keeps the typed member readable on the peer (`AbortInfo`).
     try std.testing.expectError(
         error.ProtocolAbort,
         driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .ms = 10_000 }),
     );
     const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
-    try std.testing.expectEqualStrings("PartnerKeyMismatch", abort.error_name);
+    try std.testing.expectEqualStrings("PartnerDesignatorMismatch", abort.error_name);
     try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, abort.kind.?);
     try std.testing.expect(!peer.sessionIsOpen());
 

@@ -21,6 +21,10 @@ export const TRANSPORT_IROH = "iroh";
  * dialable address (ADR-0088 cold-dial): a browser holds an inbound socket at a
  * relay under this key and a dialer is bridged onto it. */
 export const TRANSPORT_KEYED_RELAY = "keyed-relay";
+/** A peer named by key alone, reached over a WebRTC DataChannel opened through
+ * a signaling exchange (ADR-0089): the dialing host's configured
+ * `SignalingAuthority` carries the offer, answer, and candidates. */
+export const TRANSPORT_WEBRTC = "webrtc";
 
 //
 // The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN

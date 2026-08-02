@@ -392,6 +392,17 @@ here.
   best-effort by contract: apply has already committed when the patch runs, so
   an OOM leaves the field null and `gc` falls back to its own walk rather than
   misreporting a successful receive as a failure.
+- **Owning-facade lower/lift boundary (`driver.Session`, ADR-0096).** Every
+  owning-tier verb lowers its `Value` args through a per-verb scratch arena
+  (spine containers only; leaf bytes stay borrowed) before the actor layer's
+  own ingress clone, and every `Reply`-returning wait lifts the captured
+  settlement into the caller's arena: spines allocated there, leaves aliasing
+  the capture, capability rows retained through `liftCapabilityTracked` under
+  rollback receipts. This is the application tier, not the wire path — the
+  engine's budgets are untouched, and the settle capture below remains the one
+  payload copy; the lift aliases it rather than re-cloning, which is why
+  `Reply` is arena-only and carries no `deinit`. The `Hosting` bridge pays the
+  same two walks per delivered turn, in the turn arena.
 - **Settled-outcome materialization: one `model.cloneArgument` (or one
   broken-reason dupe) per blocking driver wait — `driver.BlockingSession.call` /
   `fetchSettled` and `driver.Session.call` / `settleVow` — into
@@ -423,7 +434,8 @@ here.
   wait's caller arena), or with the undrained queue at teardown. The one-loop
   rule drains after every top-level call, so steady state is one feed's settles,
   and the fire cannot strand: every vow mint and fallible enqueue reserves one
-  queue slot per live vow, so the fire's infallible append never fails. Bounded
+  queue slot per live vow and per parked enliven, so the fire's infallible
+  append never fails. Bounded
   by the application's own unsettled sends. Session mint also reserves one
   flush and one close notification slot per live shell. Those irreversible
   notifications use intrusive pending bits and infallible pushes, never a
@@ -433,6 +445,17 @@ here.
   losing the Node action. The action FIFO retains its historical reservation
   peak until Host teardown because a drain must not revoke capacity promised to
   a future vow fire or session notification.
+- **Off-turn settle mailbox: fixed slots at init, one boundary clone per post
+  (`driver.SettleMailbox`, ADR-0102).** The slot array (each slot one fixed
+  `slot_payload_bytes` store) is allocated once at init, so a worker thread's
+  `post` allocates nothing: the plain-data resolution clones into the slot's
+  fixed-buffer arena under the spin lock, refusing `ValueTooLarge` past the
+  store and `MailboxFull` past the ring — backpressure, never growth. That
+  clone is the cross-thread boundary copy: the worker's value dies with its
+  frame while the owning thread applies later. The wake socketpair carries
+  nudge bytes only. Deleting the clone means the owning thread reading
+  worker-owned storage after the worker moved on, which is a lifetime bug,
+  not a saving.
 - **Crypto fixed-width materialization: `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`.** `std.crypto` Ed25519 operates on fixed-size
   arrays (`[32]u8` / `[64]u8`) while the wire exposes `[]const u8`.
@@ -540,12 +563,20 @@ here.
   group; gifter close is proportional to that gifter's live groups. The FIFO
   backings retain the Host's historical peak live-session capacity until Host
   teardown.
-- **Replaced publications retain their actors in the Host Vat.** The Host's
-  keyed alias row changes in place, so replacement allocates no graveyard row
-  and inbound fetch remains O(1). Existing Port projections and deposited
-  gifts still name the displaced actor directly. Actor reclamation therefore
-  waits for Host teardown today; the missing alias-removal verb changes
-  discovery only and does not by itself become an actor-deletion API.
+- **Actor roots and reclamation (ADR-0101).** Each Vat actor row carries one
+  `u32` root count; the alias row, the Host capability slot, each Port's
+  export binding, and each exact gift row hold one root apiece, transferred
+  and released at the seam that owns the relationship, and the owning spawn
+  verbs transfer the spawn root into the capability slot with no eager export
+  binding (wire positions mint at first marshal, and a same-side send routes
+  to the Vat actor directly, minting nothing). Root zero retires the row —
+  deferred past any running frame — and parks the box on the ADR-0060 retired
+  list, freed at the outermost-turn boundary; on reservation failure the row
+  stays, a bounded leak, never a dangling box. Queued turns hold no root and
+  take the typed `NoSuchActor` refusal. Replacement and `unpublish` change
+  discovery only (the registry is the one discovery authority; a fetch leaves
+  no per-session alias copy) and release just the alias root, so a displaced
+  actor lives exactly as long as its other relationships.
 - **Listener fan-out: POD fire carriers over the stored resolution or a live
   object export; zero payload copies.** When a promise with N listeners
   resolves, each fire is queued as one POD carrier (`engine.Outbound.listener_fire`,
@@ -616,7 +647,7 @@ here.
   otherwise set the size of _every_ `Argument`, so an ordinary integer arg in a
   deliver list would pay for the handoff arm it never uses. Boxed, `Argument`
   holds at 40 bytes and `Resolution` at 48, and those are a gate rather than a
-  measurement: `test/model/model_test.zig` asserts the ceilings at comptime, so
+  measurement: `src/ocapn/model/mod.zig` asserts the ceilings at comptime, so
   un-boxing fails the build. `bench/frame_view_bench.zig` prints the same
   numbers as `model_layout` but proves nothing on its own. The cost is
   one `create(Handoff)` only when a handoff actually appears as an argument,
@@ -848,7 +879,7 @@ here.
 
 The 500k-connection destination is a budget gated by the build (ADR-0045), so a
 field added to session state is a withdrawal from it, not free. `engine.Peer`
-carries a `comptime` ceiling on `@sizeOf(Peer)` (`peer_session_struct_budget_bytes`, 1064), and
+carries a `comptime` ceiling on `@sizeOf(Peer)` (`peer_session_struct_budget_bytes`, 1104), and
 `test/engine/footprint_budget_test.zig` holds a warmed session's core state at
 or under 2 KiB per session. If your change trips either gate, the fix is to
 weigh the bytes and raise the budget deliberately — in the constant and in
@@ -900,10 +931,11 @@ allocation: `driver_core.mintShell` wraps each `Peer` in one `HostSession` shell
 which embeds a `Served` Port while the Host owns one shared Vat and the `Peer`
 lives behind a pointer. A `comptime` assertion in `src/driver/core/host.zig`
 holds `@sizeOf(HostSession)` at or under `host_session_struct_budget_bytes`.
-The Host session ceiling is 464 bytes: Debug reaches it, native ReleaseFast is
-432 bytes, and narrower targets may be smaller. The ceiling fell from 768 when
-the Vat moved to Host scope, banking 304
-bytes per connection; the 448-byte Vat is charged once per Host. A field added
+The Host session ceiling is 496 bytes; narrower targets may be smaller. It
+fell from 768 when the Vat moved to Host scope, banking 304 bytes per
+connection (the 448-byte Vat is charged once per Host), then rose by 32 for
+ADR-0097's per-session signing seed — key material that is per-session state
+by definition. A field added
 to the shell or `Served` therefore fails the build instead of silently growing
 every connection at 500k. The number moves in the constant and in
 `docs/ladder.md` step 2 together, like the `Peer` and `Conn` ceilings beside it.

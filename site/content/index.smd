@@ -31,11 +31,8 @@ const session = try pancake.driver.connect(
     .ephemeral,
     .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
 );
-const greeter = try session.fetch("greeter"); // a capability, by name
-const settled = try session.call(greeter, .{
-    .verb = "greet",
-    .args = &.{.{ .string = "world" }},
-}, arena.allocator());
+const greeter = try session.fetch("greeter"); // an opaque capability, by name
+const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 ```
 
 That is the conversation: dial, fetch a capability by name, call it. The

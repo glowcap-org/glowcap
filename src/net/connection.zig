@@ -273,17 +273,25 @@ pub fn waitAnyReadable(
     conns: []const *Connection,
     pollfds: []std.posix.pollfd,
     timeout_ms: i32,
+    extra_fd: ?std.posix.fd_t,
 ) error{ConnectionLost}!?usize {
-    std.debug.assert(pollfds.len >= conns.len);
+    const rows = conns.len + @intFromBool(extra_fd != null);
+    std.debug.assert(pollfds.len >= rows);
     for (conns, 0..) |conn, i| {
         if (conn.hasBufferedRaw()) return i;
         const handle = conn.socketHandle() orelse unreachable;
         pollfds[i] = .{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 };
     }
-    if (conns.len == 0) return null;
-    const ready = std.posix.poll(pollfds[0..conns.len], timeout_ms) catch return error.ConnectionLost;
+    // The caller's out-of-band wake (a settle mailbox, ADR-0102) polls as one
+    // more row and reports as index `conns.len` — the one index no
+    // connection occupies.
+    if (extra_fd) |fd| {
+        pollfds[conns.len] = .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 };
+    }
+    if (rows == 0) return null;
+    const ready = std.posix.poll(pollfds[0..rows], timeout_ms) catch return error.ConnectionLost;
     if (ready == 0) return null;
-    for (pollfds[0..conns.len], 0..) |fd, i| {
+    for (pollfds[0..rows], 0..) |fd, i| {
         if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
     }
     return null;

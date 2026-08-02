@@ -228,7 +228,7 @@ const Unimplemented = struct {
 fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
     const peer = (turn.port orelse return error.NotConnected).peer;
     const export_position = try peer.session_state.allocateExport();
-    try (turn.port orelse return error.NotConnected).bindExport(ref, export_position.int());
+    try (turn.port orelse return error.NotConnected).bindExport(turn.vat, ref, export_position.int());
     return export_position.int();
 }
 

@@ -118,6 +118,14 @@ pub const Backend = struct {
 
     /// Reclaim a recv completion's scratch buffer. The loop calls this exactly
     /// once per completion that carried `recv_bytes`.
+    /// Sockets carry no lower-layer peer identity: the total Backend
+    /// contract's `remotePartnerKey` member (ADR-0097) always answers null.
+    pub fn remotePartnerKey(self: *Backend, fd: Fd) ?[32]u8 {
+        _ = self;
+        _ = fd;
+        return null;
+    }
+
     pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
         self.scratch_pool.release(@intCast(comp.recv_token));
     }

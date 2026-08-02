@@ -34,14 +34,15 @@ const frame_cap: usize = 1 << 16;
 const Task = struct {
     done: bool = false,
 
-    pub fn handle(self: *Task, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (std.mem.eql(u8, msg.verb, "assign")) return .{ .bytes = "assigned" };
-        if (std.mem.eql(u8, msg.verb, "complete")) {
+    pub fn handle(self: *Task, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        _ = args;
+        if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
+        if (std.mem.eql(u8, verb, "complete")) {
             self.done = true;
             return .{ .bytes = "done" };
         }
-        if (std.mem.eql(u8, msg.verb, "status")) {
+        if (std.mem.eql(u8, verb, "status")) {
             return .{ .bytes = if (self.done) "done" else "open" };
         }
         return error.NoSuchMethod;
@@ -52,11 +53,11 @@ const Task = struct {
 /// the capability, so the client invokes the returned task several times over
 /// the wire, the capability-passing the bench measures.
 const Board = struct {
-    pub fn handle(self: *Board, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Board, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "create")) return error.NoSuchMethod;
-        const cap = try driver.spawnAt(turn, Task, .{});
-        return cap.arg();
+        _ = args;
+        if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
+        return .{ .capability = try ht.spawn(Task, .{}) };
     }
 };
 

@@ -64,6 +64,7 @@ const resident_vtable: Netlayer.VTable = .{
     // The designator is the listener's Ed25519 key, so a driver dial pins the
     // partner's session identity to it (`net.netlayer.DesignatorScheme`).
     .designator_scheme = .key,
+    .authentication = .durable_key_attestation,
     .dial = residentDial,
     .listen = residentListen,
     .io = residentIo,
@@ -118,6 +119,7 @@ const ListenerBox = struct {
 const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = .key,
+    .authentication = .durable_key_attestation,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,

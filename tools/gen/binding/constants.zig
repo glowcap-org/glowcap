@@ -138,12 +138,18 @@ const constants = [_]Const{
     con("DIAL_SHAPE_HOST_PORT", cd.PANCAKE_DIAL_SHAPE_HOST_PORT, .uint, null),
     con("DIAL_SHAPE_PEER_ID", cd.PANCAKE_DIAL_SHAPE_PEER_ID, .uint, null),
     con("DIAL_SHAPE_SIGNALING", cd.PANCAKE_DIAL_SHAPE_SIGNALING, .uint, null),
+    con("DIAL_SHAPE_RENDEZVOUS", cd.PANCAKE_DIAL_SHAPE_RENDEZVOUS, .uint, null),
     con("DIAL_REACH_DIRECT", cd.PANCAKE_DIAL_REACH_DIRECT, .uint, null),
     con("DIAL_REACH_CONFIGURED", cd.PANCAKE_DIAL_REACH_CONFIGURED, .uint, null),
     con("DIAL_REACH_EXPLICIT", cd.PANCAKE_DIAL_REACH_EXPLICIT, .uint, null),
     con("DIAL_POSTURE_REDEEM", cd.PANCAKE_DIAL_POSTURE_REDEEM, .uint, null),
     con("DIAL_POSTURE_EXPLICIT", cd.PANCAKE_DIAL_POSTURE_EXPLICIT, .uint, null),
     con("DIAL_POSTURE_EXPLICIT_NONE", cd.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE, .uint, null),
+    // PancakePartnerIdentity.provenance: how the partner's advertised durable
+    // identity was authenticated (ADR-0097).
+    con("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", cd.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, .uint, null),
+    con("DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION", cd.PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION, .uint, null),
+    con("DURABLE_PROVENANCE_UNAUTHENTICATED", cd.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED, .uint, null),
     // Default host connection frame cap and the local Forward hop bound
     // (usize, libpancake_host).
     con("DEFAULT_FRAME_CAP", cd.PANCAKE_DEFAULT_FRAME_CAP, .usize, null),

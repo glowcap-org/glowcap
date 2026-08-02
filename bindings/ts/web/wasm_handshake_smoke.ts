@@ -162,12 +162,18 @@ function writeStr(s: string): { ptr: number; len: number } {
 const free = (ptr: number, len: number) => ex.pancake_wasm_free(ptr, len);
 
 function hostNew(seed: Uint8Array): number {
-	const seedPtr = writeBytes(seed);
+	// Durable identity followed by a session-key root, so every session this
+	// host opens signs with its own key (ADR-0097). The wasm module draws no
+	// entropy; the page supplies it, exactly as the native bindings do.
+	const seedWithRoot = new Uint8Array(64);
+	seedWithRoot.set(seed.subarray(0, 32), 0);
+	crypto.getRandomValues(seedWithRoot.subarray(32));
+	const seedPtr = writeBytes(seedWithRoot);
 	const outPtr = ex.pancake_wasm_alloc(4);
 	try {
 		const rc = ex.pancake_host_new(
 			seedPtr,
-			seed.length,
+			seedWithRoot.length,
 			DEFAULT_FRAME_CAP,
 			1, // verify_partner: the secure default
 			CODEC_SYRUP,
@@ -177,7 +183,7 @@ function hostNew(seed: Uint8Array): number {
 		if (rc !== OK) throw new Error(`pancake_host_new failed: rc=${rc}`);
 		return readU32(outPtr);
 	} finally {
-		free(seedPtr, seed.length);
+		free(seedPtr, seedWithRoot.length);
 		free(outPtr, 4);
 	}
 }

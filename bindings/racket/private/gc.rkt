@@ -72,6 +72,11 @@
 (define (session-with-gc! c)
   (hash-set! gc-enabled-connections c #t)
   (hash-ref! gc-states (session-host c) (lambda () (gc-state (make-async-channel) (box #f))))
+  ;; Force the lazy `with-host-drain` stub now, on this user thread: the GC
+  ;; worker is spawned from the FFI finalizer thread, where module paths do
+  ;; not resolve (parameterization capture does not carry the expander's
+  ;; resolver there), so a stub first forced on the worker dies unresolved.
+  (with-host-drain (session-host c) (lambda () no-drain-effects))
   c)
 
 ;; Register a fetched capability for GC when GC is on. The finalizer captures
@@ -136,7 +141,11 @@
             [(unbox (host-released? m)) no-drain-effects]
             [else
              (for ([id (in-list drained)])
-               (with-handlers ([converts-to-broken? void])
+               ;; Swallow every refusal, not only the broken-convertible ones:
+               ;; a release is best-effort by contract, and an escaping host
+               ;; error here would surface inside whichever unrelated verb
+               ;; head happened to run this drain.
+               (with-handlers ([(lambda (_) #t) void])
                  (check/host (pancake_host_ref_release (host-ptr m) (make-PancakeReference id) 1))))
              (drain-host-actions! m)]))))))
 

@@ -139,12 +139,17 @@ fn callByIdOnly(
     try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{.{ .string = "world" }}, greeting);
 }
 
-/// Assert the key-unification knot on an open session: the partner's OCapN
-/// session pubkey, the partner's signed locator designator, and the iroh node id
-/// the transport authenticated are all the *same* Ed25519 key. `node_id_hex` is
-/// that key as the 64 lowercase hex digits `Resident.nodeId` produces; the
-/// session pubkey is its 32 raw bytes. Equality on both means one key is the
-/// transport identity, the locator designator, and the session signing key.
+/// Assert the identity knot on an open session, as ADR-0097 leaves it: the
+/// partner's signed locator designator is the iroh node id the transport
+/// authenticated, and the partner's OCapN session pubkey is deliberately
+/// *not* that key.
+///
+/// This used to assert all three were one value, which is what key unification
+/// meant while a host signed every session with its durable key. Each
+/// connection now draws its own signing key, so the durable identity and the
+/// session identity are different facts about the same peer: `node_id_hex`
+/// names who the partner is, and the session key names only this connection.
+/// Asserting the difference is what would catch a regression back to one key.
 fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !void {
     const designator = cv.served.port.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
     if (!std.mem.eql(u8, designator, node_id_hex)) return error.PartnerDesignatorMismatch;
@@ -153,7 +158,7 @@ fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !
     var key_arr: [32]u8 = undefined;
     @memcpy(&key_arr, key[0..32]);
     const key_hex = std.fmt.bytesToHex(key_arr, .lower);
-    if (!std.mem.eql(u8, &key_hex, node_id_hex)) return error.PartnerKeyMismatch;
+    if (std.mem.eql(u8, &key_hex, node_id_hex)) return error.SessionKeyIsNotPerConnection;
 }
 
 /// Server half of the key-unification proof: accept over iroh signing the

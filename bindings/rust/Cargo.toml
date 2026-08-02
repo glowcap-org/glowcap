@@ -50,9 +50,16 @@ iroh = ["async"]
 # `pub mod webrtc`, the raw endpoint-readiness and peer try-I/O family. Signaling
 # submissions are synchronous control operations; no call parks the runtime.
 webrtc = []
+# Opt-in keyed-relay rendezvous dial (ADR-0088): a WebSocket client over
+# tokio-tungstenite, so `connect(locator)` opens the relay rendezvous leg the
+# host's `set_rendezvous_url` mapping names. Implies `async` (the driver it
+# rides); the default build stays dependency-clean.
+rendezvous = ["async", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }
+tokio-tungstenite = { version = "0.24", optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
 getrandom = { version = "0.4", optional = true }
 
 # build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).
@@ -121,6 +128,13 @@ required-features = ["iroh"]
 [[example]]
 name = "iroh_redeem_posture"
 required-features = ["iroh"]
+
+# Keyed-relay rendezvous cold-dial proof (ADR-0088): dials a registered
+# non-listening peer through the reference relay's rendezvous bridge. Run via
+# `zig build rust-keyed-relay-rendezvous` (the harness supplies relay + peer).
+[[example]]
+name = "keyed_relay_rendezvous"
+required-features = ["rendezvous"]
 
 # Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-seed
 # fresh-port restart. Run via `zig build rust-keyed-tcp-restart`.

@@ -101,6 +101,11 @@ pub const REDEEMED_TOKEN_BASE = position.REDEEMED_TOKEN_BASE;
 pub const RedeemedToken = position.RedeemedToken;
 pub const ImportName = position.ImportName;
 pub const AnswerPosition = position.AnswerPosition;
+/// An answer the session synthesized for a V1.0 resolver-only call (ADR-0010),
+/// and the union that says which of the two kinds an answer id is (ADR-0091).
+pub const VIRTUAL_INBOUND_ANSWER_BASE = position.VIRTUAL_INBOUND_ANSWER_BASE;
+pub const VirtualAnswer = position.VirtualAnswer;
+pub const AnswerName = position.AnswerName;
 
 const hint_types = @import("hints.zig");
 pub const HintValue = hint_types.HintValue;
@@ -339,6 +344,17 @@ pub const Resolution = union(enum) {
     fulfill: Argument,
     @"break": BreakReason,
 };
+
+comptime {
+    // The handoff arm of `Argument`/`Resolution` is boxed (`*Handoff`) so the
+    // common arm sets the struct size; un-boxing it would balloon every
+    // element of a deliver's args. These ceilings make that a build failure,
+    // not a measurement. The borrowed view twins carry their own bounds in
+    // `test/model/model_test.zig`.
+    std.debug.assert(@sizeOf(Argument) <= 40);
+    std.debug.assert(@sizeOf(Resolution) <= 48);
+    std.debug.assert(@sizeOf(Reference) <= 32);
+}
 
 pub const BreakReason = struct {
     message: []const u8,

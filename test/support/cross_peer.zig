@@ -63,6 +63,7 @@ pub fn deliverGive(
     try exporter.giftRegistry().deposit(
         exporter.allocator,
         exporter.limits(),
+        null,
         give.gift_id,
         give.recipient_key,
     );
@@ -123,7 +124,7 @@ pub fn withdrawGift(
     const registry = exporter.giftRegistry();
     const expected = try expectedReceiver(exporter);
     try registry.validateWithdraw(receive, expected);
-    _ = try registry.applyWithdraw(registry, exporter.allocator, receive);
+    _ = try registry.applyWithdraw(registry, exporter.allocator, null, receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpOne(recipient, exporter);

@@ -199,6 +199,13 @@ pub const Registry = struct {
     }
 
     /// The still-live target behind `ref`, or null for a stale/foreign id.
+    /// Whether a canonical row for `target` already exists — the creation
+    /// probe `Host` uses to pair an actor root with a fresh local slot
+    /// (ADR-0101).
+    pub fn hasTarget(self: *const Registry, target: Target) bool {
+        return self.by_target.contains(target.key());
+    }
+
     pub fn resolve(self: *const Registry, ref: Ref) ?Target {
         const slot_index = self.slotFor(ref) orelse return null;
         const slot = &self.slots.items[slot_index];

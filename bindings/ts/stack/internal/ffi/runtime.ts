@@ -134,12 +134,6 @@ export interface NetListener {
 export interface RuntimeNet {
 	connect(host: string, port: number): Promise<NetConn>;
 	listen(host: string, port: number): Promise<NetListener>;
-	/** Open the byte channel to a `keyed-relay` peer by its key `designator` — a
-	 * peer that opens no socket and holds an inbound socket at a relay under that
-	 * key (ADR-0088 cold-dial rendezvous). Only a rendezvous-capable adapter (the
-	 * browser) provides it; absent on a socket runtime, where `keyed-relay` fails
-	 * loud. `localAddr` is never read on a dial, so the channel need not have one. */
-	connectRendezvous?(designator: string): Promise<NetConn>;
 }
 
 /** The adapter a runtime provides: its FFI seam and its socket seam, plus an
@@ -275,15 +269,6 @@ export const ffi: RuntimeFfi = {
 export const net: RuntimeNet = {
 	connect: (host, port) => active().net.connect(host, port),
 	listen: (host, port) => active().net.listen(host, port),
-	connectRendezvous: (designator) => {
-		const rendezvous = active().net.connectRendezvous;
-		if (rendezvous === undefined) {
-			throw new Error(
-				"keyed-relay is a browser rendezvous transport; the active runtime has no rendezvous adapter",
-			);
-		}
-		return rendezvous(designator);
-	},
 };
 
 /** A lazily-opened archive: the library is `dlopen`ed on first symbol access,

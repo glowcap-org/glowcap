@@ -7,7 +7,7 @@ decision: "The Vat gains opt-in, local-only time-travel. Actor state moves behin
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0096]
+amended_by: [ADR-0096, ADR-0101]
 ---
 
 # ADR-0060 Vat local time-travel

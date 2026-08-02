@@ -22,6 +22,7 @@ package.
 from __future__ import annotations
 
 import asyncio
+import enum
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
@@ -38,7 +39,7 @@ from ._errors import (
 from ._ffi_host import _AcceptPlan, _PartnerIdentity, _host
 from ._ffi_ocapn import _byte_buf, _Reference
 from ._host import Host
-from ._promise import RemotePromise, _fetch_like
+from ._promise import RemotePromise, _fetch_like, _listen_far
 from ._gc import release_ref
 from ._trampoline import (
     Caretaker,
@@ -49,7 +50,6 @@ from ._trampoline import (
     _inside_turn,
     _spawn_hosted,
     _publish_hosted,
-    _unregister_behavior,
 )
 from ._value import Behavior, Ref, Argument, _ref_from_id
 
@@ -73,6 +73,35 @@ class RedeemedReply(NamedTuple):
     via: Optional["Session"]
 
 
+class DurableProvenance(enum.Enum):
+    """How a partner's advertised durable identity was authenticated, the third
+    fact :class:`PartnerIdentity` reports beside session key and designator
+    (ADR-0097).
+
+    ``AUTHENTICATED_TRANSPORT`` means the transport layer proved the partner's
+    durable key: iroh's QUIC handshake, or WebRTC's DTLS binding under
+    capability-authorized signaling. ``DURABLE_KEY_ATTESTATION`` means the
+    hello carried a ``session-key-attestation`` signed by the durable key its
+    designator names and it verified (``keyed-tcp``, ``keyed-relay``), which is
+    static authorization rather than proof the signer is live on this
+    connection. ``UNAUTHENTICATED`` means no durable identity was proved: an
+    address transport designates a socket address rather than a key, and a
+    partner that advertised an address on a key transport claimed no durable
+    identity.
+    """
+
+    AUTHENTICATED_TRANSPORT = _abi.DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT
+    DURABLE_KEY_ATTESTATION = _abi.DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION
+    UNAUTHENTICATED = _abi.DURABLE_PROVENANCE_UNAUTHENTICATED
+
+
+def _provenance_from_abi(raw: int) -> DurableProvenance:
+    try:
+        return DurableProvenance(raw)
+    except ValueError:
+        return DurableProvenance.UNAUTHENTICATED
+
+
 @dataclass(frozen=True)
 class PartnerIdentity:
     """The identity :meth:`Session.partner_identity` proves about the peer on
@@ -91,6 +120,17 @@ class PartnerIdentity:
     session_key: bytes
     designator: str
     locator_record: bytes
+    provenance: "DurableProvenance"
+
+    def durable_identity_authenticated(self) -> bool:
+        """Whether the durable identity this partner advertised was
+        cryptographically authenticated, by either mechanism.
+
+        This is the predicate to ask when an operation requires a proved
+        durable peer. It stays correct once each connection draws a fresh
+        session key, which a designator-equals-session-key comparison does not.
+        """
+        return self.provenance is not DurableProvenance.UNAUTHENTICATED
 
 
 class Session:
@@ -543,6 +583,18 @@ class Session:
         except Exception as err:  # noqa: BLE001 - reported through the handle
             return RemotePromise.failed(err)
 
+    def listen(self, target: Ref) -> RemotePromise:
+        """Listen on a promise capability this session holds (CapTP
+        ``op:listen``): the returned handle settles with the promise's
+        resolution, which may be any value, not only a capability. A re-gifted
+        promise routes to its exporter session transparently."""
+        try:
+            self.guard_open()
+            self._host.gc.drain_gc()
+            return _listen_far(self, target)
+        except Exception as err:  # noqa: BLE001 - reported through the handle
+            return RemotePromise.failed(err)
+
     async def send_redeeming(
         self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None,
     ) -> RedeemedReply:
@@ -641,28 +693,8 @@ class Session:
             session_key=owned(info.session_key, info.session_key_len),
             designator=owned(info.designator, info.designator_len).decode(errors="replace"),
             locator_record=owned(info.locator_record, info.locator_record_len),
+            provenance=_provenance_from_abi(info.provenance),
         )
-
-    def partner_designator_is_key(self) -> bool:
-        """Whether the partner proved it owns the designator it advertised,
-        meaning that designator is exactly its verified session key written in
-        canonical hex.
-
-        The library answers this so no binding has to re-derive the comparison.
-        It is meaningful only for a transport whose designator is a key, which
-        is ``keyed-tcp``, ``iroh``, ``webrtc``, and ``keyed-relay``. An address
-        transport such as ``tcp`` names a socket address the key does not
-        determine, so the answer there is ``False``, and ``False`` is the
-        correct answer rather than a failure.
-
-        Raises on the same two conditions :meth:`partner_identity` does.
-        """
-        self.guard_open()
-        matches = ctypes.c_uint32(0)
-        _check_host(_host.pancake_host_session_partner_designator_is_key(
-            self._ptr, ctypes.byref(matches),
-        ))
-        return matches.value != 0
 
     # ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 

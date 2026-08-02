@@ -89,6 +89,46 @@ export const INTRODUCE = "introduce";
  * Nicks match case-insensitively, so key your own inbox table the same way. */
 export const OFFER_INBOX = "offerInbox";
 
+/** WebRTC signaling, carried by the directory (ADR-0089).
+ *
+ * A member reachable at a `webrtc` locator has no socket to dial: the channel
+ * to it opens through an offer, answer, and candidate exchange, and the
+ * directory both parties already reach is what carries that exchange. The
+ * directory routes opaque strings between the two and parses none of them,
+ * the same byte-transparency a room holds for chat lines.
+ *
+ * `offerSignaling(inbox)` files the calling member's one signaling inbox,
+ * replacing any prior one; an unregistered caller is refused. The directory
+ * routes an incoming offer or candidate for that member's `webrtc` designator
+ * to this inbox as `offer(id, sdp)` / `candidate(id, ice)`, where `id` names
+ * the exchange.
+ *
+ * `signalOffer(toDesignator, sdp, reply)` starts one exchange: the directory
+ * mints an exchange id, remembers `reply` (a capability the caller hosts on
+ * this same directory session), and forwards the offer. Every message back to
+ * the caller rides `reply`: `answer(sdp)` once, then `candidate(ice)` as the
+ * far peer trickles. Behaviors are synchronous, so nothing here returns a
+ * value; the whole exchange is eventual sends.
+ *
+ * `signalAnswer(id, sdp)` is the answering member's reply, accepted only from
+ * the connection whose registration owns the exchange's target.
+ *
+ * `signalCandidate(key, ice)` trickles one ICE candidate either way. The
+ * offering side passes the target's designator as `key` (it holds no exchange
+ * id); the answering side passes the exchange id. The directory resolves which
+ * side is calling from the session the call arrived on. */
+export const OFFER_SIGNALING = "offerSignaling";
+export const SIGNAL_OFFER = "signalOffer";
+export const SIGNAL_ANSWER = "signalAnswer";
+export const SIGNAL_CANDIDATE = "signalCandidate";
+
+/** The verbs a signaling inbox and a signaling reply capability answer:
+ * `offer(id, sdp)` and `candidate(id, ice)` on the member's filed inbox;
+ * `answer(sdp)` and `candidate(ice)` on the offerer's `reply`. */
+export const SIG_OFFER = "offer";
+export const SIG_ANSWER = "answer";
+export const SIG_CANDIDATE = "candidate";
+
 /** The verb a member's exported inbox answers: `dm(text, reply?)`
  *
  * There is no sender argument; the inbox is the sender (see `offerInbox`). The

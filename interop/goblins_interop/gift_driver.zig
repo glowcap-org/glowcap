@@ -13,6 +13,24 @@
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
 //! `zig build goblins-gift`, not in the in-tree check.
+//!
+//! With `--hinted-exporter` (the sibling step `zig build goblins-gift-hints`,
+//! ADR-0097 migration step 1) Bob's advertised location carries a 64-byte
+//! `session-key-attestation` entry in a hints mapping — the provisional
+//! durable-key credential's wire shape, in the position it would really
+//! occupy: the exporter's hello. The pancake gifter embeds that hinted
+//! location verbatim in its signed give; Carol decodes the mapping-shaped
+//! hints through the upstream unmarshaller, dials the hinted node, and
+//! re-encodes the give inside her signed `desc:handoff-receive`; Bob then
+//! verifies the gifter's give signature over his own re-encoding. A green run
+//! therefore proves the credential-bearing locator survives live Goblins
+//! decode, session-table lookup, and byte-exact re-canonicalization at both
+//! Goblins peers. The driver additionally requires Carol's netlayer trace to
+//! report the hint (`HINT SEEN:`), so the run cannot pass vacuously with an
+//! unhinted locator. (The give's locator must equal the exporter's
+//! hello-declared location hints-and-all: Goblins keys its withdrawal
+//! session lookup by the full node value, so a hint the hello did not carry
+//! breaks redemption — the pinned finding beside the hints-type one.)
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -45,6 +63,19 @@ fn pokeListener(io: std.Io, port: u16) void {
     const address = std.Io.net.IpAddress.parse(host_addr, port) catch return;
     var stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch return;
     stream.close(io);
+}
+
+/// The provisional credential's hint name (ADR-0097). The value in this
+/// driver is opaque route metadata nobody verifies — what the run proves is
+/// that a 64-byte bytes-valued entry under this name survives Goblins decode
+/// and re-encode — so the bytes are a real Ed25519 signature freshly derived
+/// from a fixed seed rather than a copy of the committed vector.
+const attestation_hint_name = "session-key-attestation";
+
+fn attestationHintBytes() [crypto.SIGNATURE_BYTES]u8 {
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x0d} ** crypto.SEED_BYTES);
+    const sig = crypto.sign(&secret, "pancake goblins-gift-hints live credential stand-in");
+    return sig.bytes;
 }
 
 const GifterState = struct {
@@ -99,18 +130,22 @@ fn gifterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) any
     try bridge.drainActions();
 }
 
-fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
+fn readCarolOk(io: std.Io, child: *std.process.Child, expect_hint: bool) !void {
     const out = child.stdout orelse return error.NoChildStdout;
     var rbuf: [8192]u8 = undefined;
     var reader = out.readerStreaming(io, &rbuf);
     const deadline = harness.deadlineAfter(io, deadline_ms);
     var saw_ok = false;
+    var saw_hint = false;
     while (!harness.expired(io, deadline)) {
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => break,
             else => return err,
         };
         std.debug.print("goblins-gift: {s}", .{line});
+        if (std.mem.indexOf(u8, line, "HINT SEEN: " ++ attestation_hint_name) != null) {
+            saw_hint = true;
+        }
         if (std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null) {
             saw_ok = true;
             break;
@@ -120,6 +155,9 @@ fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
         }
     }
     if (!saw_ok) return error.GiftFailed;
+    // A hinted run that redeems without the trace marker means the hinted
+    // locator never reached Carol's dial — vacuous, so it fails.
+    if (expect_hint and !saw_hint) return error.HintNotObserved;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -129,13 +167,26 @@ pub fn main(init: std.process.Init) !void {
     const bob_port = try harness.parsePortFlag(init.minimal.args, "goblins-gift", default_bob_port, .{
         .max = 65534,
         .note = " (carol binds port+1)",
+        .tolerated = &.{"--hinted-exporter"},
     });
+    const hinted_exporter = harness.hasFlag(init.minimal.args, "--hinted-exporter");
     var bob_port_buf: [8]u8 = undefined;
     const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{bob_port});
     var carol_port_buf: [8]u8 = undefined;
     const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{bob_port + 1});
 
-    const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-gift", "greeter", &.{ exporter_script, host_addr, bob_port_str });
+    const hint_sig = attestationHintBytes();
+    var hint_hex_buf: [crypto.SIGNATURE_BYTES * 2]u8 = undefined;
+    const bob_argv_hinted = [_][]const u8{
+        exporter_script,
+        host_addr,
+        bob_port_str,
+        attestation_hint_name,
+        std.fmt.bufPrint(&hint_hex_buf, "{x}", .{hint_sig[0..]}) catch unreachable,
+    };
+    const bob_argv: []const []const u8 = if (hinted_exporter) bob_argv_hinted[0..] else bob_argv_hinted[0..3];
+
+    const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-gift", "greeter", bob_argv);
     var bob = hosted.child;
     var bob_reaped = false;
     defer if (!bob_reaped) bob.kill(io);
@@ -144,17 +195,24 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(published);
     std.debug.print("goblins-gift: goblins-bob exporting greeter swiss={s} on {s}:{s}\n", .{ greeter_swiss, host_addr, bob_port_str });
 
-    gifterStep(io, allocator, init.environ_map, bob_port, carol_port_str) catch |err| {
+    gifterStep(io, allocator, init.environ_map, bob_port, carol_port_str, hinted_exporter) catch |err| {
         goblins_child.dumpChildStderr(io, "goblins-gift", &bob);
         return err;
     };
 
     bob.kill(io);
     bob_reaped = true;
-    std.debug.print(
-        "goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n",
-        .{},
-    );
+    if (hinted_exporter) {
+        std.debug.print(
+            "goblins-gift-hints OK: live Goblins decoded, re-encoded, and verified a give whose exporter locator carries the {s} hint dict\n",
+            .{attestation_hint_name},
+        );
+    } else {
+        std.debug.print(
+            "goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n",
+            .{},
+        );
+    }
 }
 
 fn gifterStep(
@@ -163,6 +221,7 @@ fn gifterStep(
     environ_map: *std.process.Environ.Map,
     bob_port: u16,
     carol_port_str: []const u8,
+    hinted_exporter: bool,
 ) !void {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
@@ -223,14 +282,16 @@ fn gifterStep(
     const gifter_designator = try std.fmt.bufPrint(&gifter_designator_buf, "{s}:{d}", .{ host_addr, gifter_port });
     std.debug.print("goblins-gift: pancake publishing introducer swiss={s} on {s}\n", .{ introducer_swiss, gifter_designator });
 
+    const carol_argv_hinted = [_][]const u8{
+        goblins_child.racket_path,
+        recipient_script,
+        gifter_designator,
+        introducer_swiss,
+        carol_port_str,
+        attestation_hint_name,
+    };
     var carol = try std.process.spawn(io, .{
-        .argv = &.{
-            goblins_child.racket_path,
-            recipient_script,
-            gifter_designator,
-            introducer_swiss,
-            carol_port_str,
-        },
+        .argv = if (hinted_exporter) carol_argv_hinted[0..] else carol_argv_hinted[0..5],
         .environ_map = environ_map,
         .stdout = .pipe,
         .stderr = .pipe,
@@ -238,7 +299,7 @@ fn gifterStep(
     var carol_reaped = false;
     defer if (!carol_reaped) carol.kill(io);
 
-    readCarolOk(io, &carol) catch |err| {
+    readCarolOk(io, &carol, hinted_exporter) catch |err| {
         goblins_child.dumpChildStderr(io, "goblins-gift", &carol);
         return err;
     };

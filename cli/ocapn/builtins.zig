@@ -6,8 +6,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.ocapn.model;
-const actors = pancake.actors;
+const driver = pancake.driver;
 
 /// One row per demo verb: dispatch below and REPL Tab completion share this
 /// table, so a new verb lands in both in the same change. Say-verbs carry
@@ -27,17 +26,17 @@ pub const demo_verbs = [_]DemoVerb{
 };
 
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        if (msg.args.len != 1 or msg.args[0] != .string) return error.BadInvocation;
-        const who = msg.args[0].string;
-        if (std.mem.eql(u8, msg.verb, "greet")) {
-            return .{ .string = try std.fmt.allocPrint(turn.arena, "Hello, {s}", .{who}) };
+        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
+        const who = args[0].string;
+        if (std.mem.eql(u8, verb, "greet")) {
+            return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{who}) };
         }
         for (demo_verbs) |v| {
             const figure = v.figure orelse continue;
-            if (std.mem.eql(u8, msg.verb, v.name)) {
-                return .{ .string = try formatSay(turn.arena, who, figure) };
+            if (std.mem.eql(u8, verb, v.name)) {
+                return .{ .string = try formatSay(ht.turn.arena, who, figure) };
             }
         }
         return error.NoSuchMethod;
@@ -93,12 +92,12 @@ fn formatSay(arena: std.mem.Allocator, msg: []const u8, figure: []const u8) ![]c
 }
 
 const Echo = struct {
-    pub fn handle(self: *Echo, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Echo, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "echo")) return error.NoSuchMethod;
-        if (msg.args.len != 1) return error.BadInvocation;
-        return msg.args[0];
+        _ = ht;
+        if (!std.mem.eql(u8, verb, "echo")) return error.NoSuchMethod;
+        if (args.len != 1) return error.BadInvocation;
+        return args[0];
     }
 };
 

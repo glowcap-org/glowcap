@@ -1,6 +1,6 @@
 ---
 id: ADR-0098
-status: proposed
+status: accepted
 date: 2026-07-31
 tags: [host, identity, publication, sturdyref]
 decision: "Host-facing enlivenment retains the complete sturdyref and refuses a mismatched or unverified selected peer before wire traffic unless a low-level caller explicitly opts into assertion-only TCP semantics. Hints remain routing advice. Mutable aliases structurally cannot enter the reserved, versioned namespace used by randomly minted durable swiss names."
@@ -14,9 +14,10 @@ amended_by: []
 
 ## Status
 
-This is a proposed publication-namespace companion to ADR-0096. Enlivenment
-migration steps 1–2 ship; the durable/mutable namespace split and Host-level
-select-or-dial convenience in steps 3–4 remain.
+Accepted. This is the publication-namespace companion to ADR-0096. Enlivenment
+migration steps 1–2, the durable/mutable namespace split, and the native
+Host-level select-or-dial enliven all ship; the evidence standing below cites
+the checks that hold each clause.
 
 ## Context
 
@@ -152,7 +153,7 @@ still available, rather than coupling two ABI changes into one landing.
 
 ## Migration standing
 
-Steps 1–2 ship as of 2026-07-31. `HostSession` retains the actual connection
+All four steps ship. `HostSession` retains the actual connection
 transport, and `Host.enliven` accepts a complete `model.SturdyRef`. It compares
 transport and designator before cache lookup or bootstrap fetch. Key-designator
 sessions require the handshake proof; a dialed address session reports
@@ -179,12 +180,33 @@ proofs live in the
 [Racket smoke](../../../bindings/racket/zig-smoke.rkt), and
 [TypeScript Wasm handshake smoke](../../../bindings/ts/web/wasm_handshake_smoke.ts).
 
+Steps 3–4 ship the namespace split and the select-or-dial front door. The
+session core reserves the versioned durable prefix (`pancake-durable-1-` plus
+32 random hex digits) and refuses a mutable bind under it with a typed
+`ReservedDurableNamespace`; `driver_core.Host.publishDurable` mints in that
+namespace from caller-supplied entropy, checks the active table, and
+`removeDurable` reclaims the row. `driver.Server.publishDurable` draws the
+entropy at the adapter boundary and returns the complete sturdyref URI, and
+`driver.PollHost.enliven` selects a live matching session or dials the
+sturdyref peer before fetching. The C ABI carries the same verbs as
+`pancake_host_publish_durable` / `pancake_host_remove_durable`, wrapped by all
+four bindings; a C embedder composes select-or-dial from its own dial actions.
+The namespace refusal, mint, removal, restart miss, and issued-authority
+survival are held by
+[`test/driver/durable_publication_test.zig`](../../../test/driver/durable_publication_test.zig)
+and the durable-namespace scenario in
+[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig);
+the [Python smoke](../../../bindings/python/zig_smoke.py) and
+[Racket smoke](../../../bindings/racket/zig-smoke.rkt) run the minted-name
+fetch, removal miss, and surviving-ref scenes over the C ABI.
+
 Retaining the transport adds no separate identity allocation: a dialed session
 stores transport and selected designator in the one block it already required;
 an accepted session owns one transport block. After the shared Vat moved out of
-the per-connection shell, the `HostSession` shell is 464 bytes at its lowered
-ceiling in Debug and 432 bytes in native ReleaseFast. The 448-byte Vat and its
-4,152-byte fixed queue chunk are now charged once per Host.
+the per-connection shell, the `HostSession` shell is 496 bytes at its ceiling:
+464 when this decision landed, plus 32 for ADR-0097's per-session signing
+seed. The 448-byte Vat and its 4,152-byte fixed queue chunk are now charged
+once per Host.
 
 ## Scope (what this does not decide)
 

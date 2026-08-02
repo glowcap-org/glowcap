@@ -42,6 +42,9 @@ const dial_opts: driver.SessionOptions = .{
 
 /// The published actor: answers `greet(name)` with a static greeting.
 const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
+/// The same greeter as an owning-tier (Value-shaped) behavior, for the tests
+/// publishing through `driver.Session` instead of the borrowing tier.
+const HostedGreeter = support_actors.StaticReplyValueActor("greet", "hello from the hosting vat");
 
 /// The taskboard shapes the pipelining test drives: a board whose `create`
 /// mints a fresh task capability, and a task that answers `assign`/`complete`/
@@ -49,24 +52,25 @@ const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting
 /// questioner-side pipelining path end to end.
 const Task = struct {
     done: bool = false,
-    pub fn handle(self: *Task, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (std.mem.eql(u8, msg.verb, "assign")) return .{ .bytes = "assigned" };
-        if (std.mem.eql(u8, msg.verb, "complete")) {
+    pub fn handle(self: *Task, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = ht;
+        _ = args;
+        if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
+        if (std.mem.eql(u8, verb, "complete")) {
             self.done = true;
             return .{ .bytes = "done" };
         }
-        if (std.mem.eql(u8, msg.verb, "status")) return .{ .bytes = if (self.done) "done" else "open" };
+        if (std.mem.eql(u8, verb, "status")) return .{ .bytes = if (self.done) "done" else "open" };
         return error.NoSuchMethod;
     }
 };
 
 const Board = struct {
-    pub fn handle(self: *Board, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Board, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "create")) return error.NoSuchMethod;
-        const cap = try driver.spawnAt(turn, Task, .{});
-        return cap.arg();
+        _ = args;
+        if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
+        return .{ .capability = try ht.spawn(Task, .{}) };
     }
 };
 
@@ -97,10 +101,10 @@ fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     defer arena_state.deinit();
 
     const root = try conn.fetch("root");
-    const created = try conn.send(root, .{ .verb = "create", .args = &.{.{ .bytes = "benchmark" }} });
-    _ = try conn.sendToAnswer(created, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} });
-    _ = try conn.sendToAnswer(created, .{ .verb = "complete" });
-    const status = try conn.sendToAnswer(created, .{ .verb = "status" });
+    const created = try conn.send(root, "create", &.{.{ .bytes = "benchmark" }});
+    _ = try conn.sendToAnswer(created, "assign", &.{.{ .bytes = "alice" }});
+    _ = try conn.sendToAnswer(created, "complete", &.{});
+    const status = try conn.sendToAnswer(created, "status", &.{});
 
     const settled = try conn.settleVow(status, arena_state.allocator());
     switch (settled) {
@@ -108,7 +112,7 @@ fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
             try std.testing.expect(arg == .bytes);
             try std.testing.expectEqualStrings("done", arg.bytes);
         },
-        .broken, .give => return error.PipelinedStatusBroke,
+        .broken => return error.PipelinedStatusBroke,
     }
 }
 
@@ -225,13 +229,13 @@ fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
     defer arena_state.deinit();
 
     const greeter = try conn.fetch("greeter");
-    const settled = try conn.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} }, arena_state.allocator());
+    const settled = try conn.call(greeter, "greet", &.{.{ .string = "pancake" }}, arena_state.allocator());
     switch (settled) {
         .fulfilled => |arg| {
             try std.testing.expect(arg == .string);
             try std.testing.expectEqualStrings("hello from the hosting vat", arg.string);
         },
-        .broken, .give => return error.CallBroke,
+        .broken => return error.CallBroke,
     }
 }
 
@@ -241,7 +245,7 @@ fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
 fn serveOnce(server: *driver.Server) anyerror!void {
     var conn = try server.accept();
     defer conn.deinit();
-    _ = try conn.publish("greeter", Greeter, .{});
+    _ = try conn.publish("greeter", HostedGreeter, .{});
     try conn.serve();
 }
 
@@ -388,34 +392,35 @@ test "driver loopback: a fetch of an unpublished name surfaces Error.FetchBroken
 /// The locally spawned actor for the local-call test: replies from its own
 /// state, so settling it needs no partner traffic at all.
 const LocalPing = struct {
-    pub fn handle(self: *LocalPing, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *LocalPing, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "ping")) return error.NoSuchMethod;
+        _ = ht;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
         return .{ .string = "pong from this side" };
     }
 };
 
-/// `call` on a locally spawned capability's ref: the promise settles in the
+/// `call` on a locally spawned capability: the promise settles in the
 /// flush's local drive, so the call returns without the partner sending
 /// anything after the handshake (the host publishes but is never fetched).
-/// Settling into the plain testing allocator and freeing with `Settled.deinit`
-/// also proves the result frees exactly what `call` materialized.
 fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
     var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
     defer conn.deinit();
 
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+
     const cap = try conn.spawn(LocalPing, .{});
-    const settled = try conn.call(cap.ref, .{ .verb = "ping" }, allocator);
-    defer settled.deinit(allocator);
+    const settled = try conn.call(cap, "ping", &.{}, arena_state.allocator());
     switch (settled) {
         .fulfilled => |arg| {
             try std.testing.expect(arg == .string);
             try std.testing.expectEqualStrings("pong from this side", arg.string);
         },
-        .broken, .give => return error.CallBroke,
+        .broken => return error.CallBroke,
     }
 }
 
@@ -592,21 +597,21 @@ test "byte-fed Served serves an eventual-send with no socket (ADR-0072)" {
     defer pair.deinit();
 
     // Both sides are byte-fed: no `net.Connection`, the test owns the loop.
-    var server = driver.Served.over(allocator, &pair.p2);
-    defer server.deinit();
     var server_vat = actors.Vat.init(allocator);
     defer server_vat.deinit();
+    var server = driver.Served.over(allocator, &pair.p2);
+    defer server.deinit(&server_vat);
     const adder = try server_vat.spawn(Adder, .{ .n = 10 });
-    try server.port.bindExport(adder, 7);
+    try server.port.bindExport(&server_vat, adder, 7);
     // Hand-wired pairing: the client addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
     try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
-    var client = driver.Served.over(allocator, &pair.p1);
-    defer client.deinit();
     var client_vat = actors.Vat.init(allocator);
     defer client_vat.deinit();
+    var client = driver.Served.over(allocator, &pair.p1);
+    defer client.deinit(&client_vat);
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
     const promise = try client.port.send(&client_vat, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
@@ -637,13 +642,13 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
     try p_client.sendKeyedStartSession(.v1_0, loc_c, crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES));
 
     var server = driver.Served.over(allocator, &p_server);
-    defer server.deinit();
     var server_vat = actors.Vat.init(allocator);
     defer server_vat.deinit();
-    var client = driver.Served.over(allocator, &p_client);
-    defer client.deinit();
+    defer server.deinit(&server_vat);
     var client_vat = actors.Vat.init(allocator);
     defer client_vat.deinit();
+    var client = driver.Served.over(allocator, &p_client);
+    defer client.deinit(&client_vat);
 
     // Shuttle the handshake frames between the two byte-fed vats until both
     // sessions open — the full connection lifecycle, driven by the caller.
@@ -657,7 +662,7 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
 
     // Serve real work over the byte-fed, self-opened session.
     const adder = try server_vat.spawn(Adder, .{ .n = 100 });
-    try server.port.bindExport(adder, 9);
+    try server.port.bindExport(&server_vat, adder, 9);
     try p_server.exportObject(9);
     try p_client.importObject(9);
     const remote: actors.Ref = .{ .far = model.FarRef.object(9) };
@@ -673,13 +678,17 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
 /// marshals exactly one into its reply. The other's export position leaks only
 /// as an integer, which is data, not authority.
 const TwoSpawner = struct {
-    pub fn handle(self: *TwoSpawner, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *TwoSpawner, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
-        const granted = try driver.spawnAt(turn, Greeter, .{});
-        const reserved = try driver.spawnAt(turn, Greeter, .{});
-        const items = try turn.arena.alloc(model.Argument, 2);
-        items[0] = granted.arg();
+        _ = args;
+        if (!std.mem.eql(u8, verb, "make")) return error.NoSuchMethod;
+        const granted = try ht.spawn(HostedGreeter, .{});
+        // The reserved one is deliberately minted at the wire tier: the test
+        // needs its export position as bare data, which the opaque surface —
+        // correctly — cannot say.
+        const reserved = try driver.spawnAt(ht.turn, Greeter, .{});
+        const items = try ht.turn.arena.alloc(driver.Value, 2);
+        items[0] = .{ .capability = granted };
         items[1] = .{ .integer = @intCast(reserved.position) };
         return .{ .list = items };
     }
@@ -708,30 +717,27 @@ fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloc
     const arena = arena_state.allocator();
 
     const factory = try conn.fetch("factory");
-    const made = try conn.call(factory, .{ .verb = "make" }, arena);
+    const made = try conn.call(factory, "make", &.{}, arena);
     try std.testing.expect(made == .fulfilled);
     const items = made.fulfilled.list;
     try std.testing.expectEqual(@as(usize, 2), items.len);
-    const granted = items[0].reference;
-    try std.testing.expect(granted == .far);
+    try std.testing.expect(items[0] == .capability);
+    const granted = items[0].capability;
     const reserved_position: u64 = @intCast(items[1].integer);
 
     // The capability that rode the reply is addressable: its marshal was the
     // grant, and the actor's turn runs.
-    const greeted = try conn.call(.{ .far = granted.far }, .{ .verb = "greet" }, arena);
+    const greeted = try conn.call(granted, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled);
 
     // The reserved position — learned out-of-band, as a number — is not a
-    // capability. The host refuses the deliver like a nonexistent export and
-    // tears the session down, so the probe's vow breaks instead of reaching
-    // the actor. (`importObject` is only this side's own bookkeeping; it moves
-    // no authority on the host.)
+    // capability. Forging one takes two deliberate wire-tier escapes
+    // (`peer().importObject` bookkeeping plus a raw core lift); the host still
+    // refuses the deliver like a nonexistent export and tears the session
+    // down, so the probe's vow breaks instead of reaching the actor.
     try conn.peer().importObject(reserved_position);
-    const probed = conn.call(
-        .{ .far = model.FarRef.object(reserved_position) },
-        .{ .verb = "greet" },
-        arena,
-    ) catch |err| switch (err) {
+    const forged = try conn.host.core.liftCapability(conn.hs, .{ .far = model.FarRef.object(reserved_position) });
+    const probed = conn.call(forged, "greet", &.{}, arena) catch |err| switch (err) {
         // The teardown can also race the settle wait; a closed connection is
         // the same refusal observed one step later.
         error.ConnectionClosed => return,
@@ -1053,7 +1059,7 @@ test "owning accept: a connect-then-silent dialer times out and the unwind stays
 fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io) anyerror!void {
     var conn = try server.accept();
     defer conn.deinit();
-    _ = try conn.publish("root", Greeter, .{});
+    _ = try conn.publish("root", HostedGreeter, .{});
     // Hold the connection open without pumping CapTP until the client's
     // settle budget fires and it drops the socket; then exit.
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2000), .real) catch {};
@@ -1095,16 +1101,16 @@ test "byte-fed compose: beginSendNamed chains fetch then send, and the fetch bre
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
 
-    var server = driver.Served.over(allocator, &pair.p2);
-    defer server.deinit();
     var server_vat = actors.Vat.init(allocator);
     defer server_vat.deinit();
+    var server = driver.Served.over(allocator, &pair.p2);
+    defer server.deinit(&server_vat);
     _ = try server.publish(&server_vat, "greeter", Greeter, .{});
 
-    var client = driver.Served.over(allocator, &pair.p1);
-    defer client.deinit();
     var client_vat = actors.Vat.init(allocator);
     defer client_vat.deinit();
+    var client = driver.Served.over(allocator, &pair.p1);
+    defer client.deinit(&client_vat);
 
     // Happy path: one begin, then pump — no shadow continuation in the caller.
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -1149,16 +1155,16 @@ test "byte-fed compose: beginTellNamed fires void after the tell, and a cancel b
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
 
-    var server = driver.Served.over(allocator, &pair.p2);
-    defer server.deinit();
     var server_vat = actors.Vat.init(allocator);
     defer server_vat.deinit();
+    var server = driver.Served.over(allocator, &pair.p2);
+    defer server.deinit(&server_vat);
     _ = try server.publish(&server_vat, "greeter", Greeter, .{});
 
-    var client = driver.Served.over(allocator, &pair.p1);
-    defer client.deinit();
     var client_vat = actors.Vat.init(allocator);
     defer client_vat.deinit();
+    var client = driver.Served.over(allocator, &pair.p1);
+    defer client.deinit(&client_vat);
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();

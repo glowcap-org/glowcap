@@ -23,14 +23,16 @@
                      pancake_host_session_spawn*
                      pancake_host_session_fetch*
                      pancake_host_session_enliven*
+                     pancake_host_enliven*
+                     pancake_host_spawn_resolver*
+                     pancake_host_session_listen*
                      pancake_host_session_send*
                      pancake_host_vow_send*
                      pancake_host_vow_index*
                      pancake_host_vow_untag*
                      pancake_host_vow_get*
                      pancake_host_turn_spawn*
-                     pancake_host_session_published_ref*
-                     pancake_host_session_partner_designator_is_key*))
+                     pancake_host_session_published_ref*))
 
 (define driver-lib (open-pancake-archive "pancake_host"))
 
@@ -90,6 +92,10 @@
   (wrap-out1 pancake_host_session_spawn* _PancakeReference (make-PancakeReference 0)))
 (define-driver pancake_host_publish
   (_fun _pointer _pointer _size _PancakeHostBehavior _pointer _pointer -> _int32))
+(define-driver pancake_host_unpublish (_fun _pointer _pointer _size -> _int32))
+(define-driver pancake_host_publish_durable
+  (_fun _pointer _pointer _size _PancakeHostBehavior _pointer _pointer _pointer _size -> _int32))
+(define-driver pancake_host_remove_durable (_fun _pointer _pointer _size -> _int32))
 (define-driver pancake_host_session_fetch*
   (_fun _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_host_session_fetch)
@@ -98,6 +104,24 @@
   (_fun _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_host_session_enliven)
 (define pancake_host_session_enliven (wrap-out1 pancake_host_session_enliven* _uint64 0))
+(define-driver pancake_host_enliven*
+  (_fun _pointer _pointer _size _pointer -> _int32)
+  #:c-id pancake_host_enliven)
+(define pancake_host_enliven (wrap-out1 pancake_host_enliven* _uint64 0))
+(define-driver pancake_host_spawn_resolver*
+  (_fun _pointer _pointer _pointer -> _int32)
+  #:c-id pancake_host_spawn_resolver)
+(define (pancake_host_spawn_resolver host)
+  (call/outs (list (cons _uint64 0) (cons _uint64 0))
+             (lambda (out0 out1)
+               (pancake_host_spawn_resolver* host out0 out1))))
+(define-driver pancake_host_resolver_fulfill
+  (_fun _pointer _uint64 _PancakeArgument-pointer -> _int32))
+(define-driver pancake_host_resolver_break (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-driver pancake_host_session_listen*
+  (_fun _pointer _PancakeReference-pointer _pointer -> _int32)
+  #:c-id pancake_host_session_listen)
+(define pancake_host_session_listen (wrap-out1 pancake_host_session_listen* _uint64 0))
 (define-driver pancake_host_session_send*
   (_fun _pointer _PancakeReference-pointer _pointer _size _pointer _size _pointer -> _int32)
   #:c-id pancake_host_session_send)
@@ -122,6 +146,7 @@
 (define pancake_host_vow_get (wrap-out1 pancake_host_vow_get* _uint64 0))
 (define-driver pancake_host_turn_forward
   (_fun _pointer _PancakeReference-pointer _pointer _size _pointer _size _PancakeArgument-pointer -> _int32))
+(define-driver pancake_host_turn_forward_vow (_fun _pointer _uint64 -> _int32))
 (define-driver pancake_host_turn_spawn*
   (_fun _pointer _PancakeHostBehavior _pointer _pointer _PancakeReference-pointer -> _int32)
   #:c-id pancake_host_turn_spawn)
@@ -142,9 +167,4 @@
   (_fun _pointer _PancakeLastAbort-pointer -> _int32))
 (define-driver pancake_host_session_partner_identity
   (_fun _pointer _PancakePartnerIdentity-pointer -> _int32))
-(define-driver pancake_host_session_partner_designator_is_key*
-  (_fun _pointer _pointer -> _int32)
-  #:c-id pancake_host_session_partner_designator_is_key)
-(define pancake_host_session_partner_designator_is_key
-  (wrap-out1 pancake_host_session_partner_designator_is_key* _uint32 0))
 (define-driver pancake_host_last_error (_fun _pointer _size -> _size))

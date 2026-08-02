@@ -54,6 +54,13 @@ only on the connection where it was exported.
 `connect` loads `pancake.iroh` only when it sees an iroh locator. A TCP-only
 program never loads that library.
 
+A `keyed-relay` locator names a peer that opens no socket and holds inbound
+connections at a relay under its key. Assign `Host.rendezvous_url` (the
+mapping from designator to the relay's rendezvous WebSocket URL) and `connect`
+opens the bridge. The WebSocket client is the one optional dependency, kept
+out of the core: install `pancake[rendezvous]`, or run with
+`uv run --with websockets`.
+
 The lower-level transports are also available directly:
 
 ```python

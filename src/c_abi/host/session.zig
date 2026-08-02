@@ -243,8 +243,17 @@ pub export fn pancake_host_session_spawn(
     const inst = instOf(session.host);
     if (refuseLatched(inst)) |code| return code;
     reserveHostedCapability(inst, session, ctx, free) catch |err| return errToCode(err);
-    const position = publishHosted(session, inst.allocator, null, b, ctx, free) catch |err| return errToCode(err);
-    slot.* = common.hostRefToC(inst, session, .{ .near = model.NearRef.object(position) }) catch unreachable;
+    // No eager export binding: the capability slot adopts the spawn root
+    // (ADR-0101) and wire positions mint lazily at first marshal
+    // (ADR-0074's grant-on-marshal), so releasing the last handle of a
+    // never-passed spawn reclaims the actor.
+    const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
+    const ref = session.host.vat.spawnHosted(hosted) catch |err| return errToCode(err);
+    const lifted = inst.core.liftLocalActor(ref) catch |err| {
+        inst.core.vat.discardFreshActor(ref);
+        return errToCode(err);
+    };
+    slot.* = .{ .id = lifted.raw() };
     return PANCAKE_OK;
 }
 
@@ -289,6 +298,28 @@ pub export fn pancake_host_session_enliven(
     const sturdyref = model.uri.parseSturdyref(inst.allocator, uri) catch |err| return errToCode(err);
     defer model.uri.freeSturdyref(inst.allocator, sturdyref);
     slot.* = inst.core.enliven(session, sturdyref) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Listen on a promise capability this session holds (CapTP `op:listen`,
+/// ADR-0095) and mint a host vow that settles with the promise's resolution;
+/// the outcome arrives as that vow's SETTLE or FAIL action. The target must
+/// be a far promise; a non-promise far is refused
+/// `PANCAKE_ERR_INVALID_ARGUMENT`. A re-gifted promise routes to its exporter
+/// session transparently, and a give in the settlement auto-redeems exactly
+/// as a fetch's would. The vow is plain — a listen makes no claim the result
+/// is a capability. Legal inside a callback.
+pub export fn pancake_host_session_listen(
+    raw: ?*PancakeHostSession,
+    target: ?*const shared.PancakeReference,
+    out_vow: ?*u64,
+) i32 {
+    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
+    const inst = instOf(session.host);
+    const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
+    slot.* = inst.core.listenTo(session, reference) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -499,30 +530,14 @@ pub export fn pancake_host_session_partner_identity(
         .designator_len = 0,
         .locator_record = null,
         .locator_record_len = 0,
+        .provenance = switch (identity.provenance) {
+            .authenticated_transport => c.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
+            .durable_key_attestation => c.PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION,
+            .unauthenticated => c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
+        },
     };
     setView(identity.designator, &slot.designator, &slot.designator_len);
     setView(identity.locator_record, &slot.locator_record, &slot.locator_record_len);
-    return PANCAKE_OK;
-}
-
-/// Nonzero when this session's partner proved it owns the designator it
-/// advertised, meaning the designator is exactly its verified session key.
-///
-/// This is the wrapped form of `driver_core.PartnerIdentity.designatorIsSessionKey`,
-/// here so no binding re-derives the canonical-hex comparison. It answers only
-/// for a key-designator transport (`keyed-tcp`, `iroh`, `webrtc`,
-/// `keyed-relay`); an address transport such as `tcp` names a socket address the
-/// key does not determine, so the answer is zero there and zero is correct
-/// rather than a failure. Returns the same refusals as
-/// `pancake_host_session_partner_identity`, with `*out_matches` untouched.
-pub export fn pancake_host_session_partner_designator_is_key(
-    raw: ?*PancakeHostSession,
-    out_matches: ?*u32,
-) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_matches orelse return PANCAKE_ERR_NULL_POINTER;
-    const identity = session.host.partnerIdentity(session) catch |err| return errToCode(err);
-    slot.* = if (identity.designatorIsSessionKey()) 1 else 0;
     return PANCAKE_OK;
 }
 

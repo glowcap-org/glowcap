@@ -27,15 +27,16 @@ const host_addr = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
 const Watcher = struct {
-    pub fn handle(self: *Watcher, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Watcher, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "update")) return error.NoSuchMethod;
+        _ = ht;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "update")) return error.NoSuchMethod;
         return .{ .void = {} };
     }
 };
 
-fn printTask(item: model.Argument) void {
+fn printTask(item: driver.Value) void {
     switch (item) {
         .list => |fields| {
             if (fields.len >= 3) {
@@ -61,7 +62,7 @@ fn printTask(item: model.Argument) void {
 
 /// True when the board's `list` reply contains `id` marked done, the
 /// confirmation the round trip asserts on.
-fn taskIsDone(items: []const model.Argument, id: i64) bool {
+fn taskIsDone(items: []const driver.Value, id: i64) bool {
     for (items) |item| {
         switch (item) {
             .list => |fields| {
@@ -115,22 +116,21 @@ pub fn main(init: std.process.Init) !void {
     const board = try session.fetch("board");
     const watcher = try session.spawn(Watcher, .{});
 
-    try session.tell(board, .{ .verb = "watch", .args = &.{watcher.arg()} });
+    try session.tell(board, "watch", &.{.{ .capability = watcher }});
 
     var text_buf: [256]u8 = undefined;
     const full_text = std.fmt.bufPrint(&text_buf, "[{s}] {s}", .{ nick, task_text }) catch task_text;
 
-    const added_id = switch (try session.call(board, .{ .verb = "add", .args = &.{.{ .string = full_text }} }, arena)) {
+    const added_id = switch (try session.call(board, "add", &.{.{ .string = full_text }}, arena)) {
         .fulfilled => |arg| switch (arg) {
             .integer => |id| id,
             else => die(nick, "add did not return a task id"),
         },
         .broken => |reason| die(nick, reason),
-        .give => die(nick, "add resolved to an introduction"),
     };
     std.debug.print("[{s}] added task #{d}\n", .{ nick, added_id });
 
-    switch (try session.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
+    switch (try session.call(board, "list", &.{}, arena)) {
         .fulfilled => |arg| switch (arg) {
             .list => |items| {
                 std.debug.print("[{s}] {d} task(s) on the board\n", .{ nick, items.len });
@@ -139,22 +139,19 @@ pub fn main(init: std.process.Init) !void {
             else => die(nick, "list did not return a list"),
         },
         .broken => |reason| die(nick, reason),
-        .give => return error.UnexpectedIntroduction,
     }
 
-    switch (try session.call(board, .{ .verb = "done", .args = &.{.{ .integer = added_id }} }, arena)) {
+    switch (try session.call(board, "done", &.{.{ .integer = added_id }}, arena)) {
         .fulfilled => std.debug.print("[{s}] completed task #{d}\n", .{ nick, added_id }),
         .broken => |reason| die(nick, reason),
-        .give => return error.UnexpectedIntroduction,
     }
 
-    const confirmed = switch (try session.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
+    const confirmed = switch (try session.call(board, "list", &.{}, arena)) {
         .fulfilled => |arg| switch (arg) {
             .list => |items| taskIsDone(items, added_id),
             else => die(nick, "list did not return a list"),
         },
         .broken => |reason| die(nick, reason),
-        .give => return error.UnexpectedIntroduction,
     };
 
     if (confirmed) {

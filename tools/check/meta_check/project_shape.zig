@@ -1441,128 +1441,128 @@ pub fn checkPathIoCopies(
     }
 }
 
-/// The per-connection slot overhead is one number, stated in three places.
-///
-/// `conn_slot_overhead_bytes` is the constant a `comptime` equality holds the
-/// real `Conn` to. `docs/ladder.md` step 2 and `bench/peer_scaling_bench.zig`
-/// both quote it, because both are where someone goes to find out what a
-/// connection costs. The constant moved once and the two quotes did not, so for
-/// a while all three disagreed and nothing noticed — the prose said 112 while
-/// the build asserted 128. The number is derived from the source of truth here
-/// rather than written down a fourth time.
-pub fn checkConnOverheadQuotes(
+/// One doc quote of a budget number, anchored to the exact phrase that makes
+/// the claim. Anchoring matters: a bare search for the number anywhere in the
+/// file is satisfied by any incidental mention of the same number, so a quote
+/// could read 112 while an unrelated line said 128 and a naive check would
+/// pass — which is precisely the drift this exists to catch.
+const BudgetQuote = struct {
+    path: []const u8,
+    /// The phrase that makes the claim; the number must follow it directly.
+    anchor: []const u8,
+    /// Text required immediately after the number (`" bytes"`, `")"`, "`").
+    suffix: []const u8 = " bytes",
+};
+
+/// One footprint budget: a source declaration whose decimal literal is the
+/// authority, and every prose surface that quotes the number.
+const BudgetFact = struct {
+    /// Names the number in violation messages.
+    label: []const u8,
+    source_path: []const u8,
+    decl: []const u8,
+    quotes: []const BudgetQuote,
+};
+
+const budget_facts = [_]BudgetFact{
+    .{
+        .label = "per-connection slot overhead",
+        .source_path = "src/net/completion/loop.zig",
+        .decl = "const conn_slot_overhead_bytes: usize = ",
+        .quotes = &.{
+            .{ .path = "docs/ladder.md", .anchor = "| Completion-loop slot beyond its embedded peer | exactly " },
+            .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
+            .{ .path = ".agents/rules/memory.md", .anchor = "`conn_slot_overhead_bytes` (", .suffix = ")" },
+        },
+    },
+    .{
+        .label = "Host-session budget",
+        .source_path = "src/driver/core/host.zig",
+        .decl = "pub const host_session_struct_budget_bytes = ",
+        .quotes = &.{
+            .{ .path = "docs/ladder.md", .anchor = "| Host session shell | at most " },
+            .{ .path = ".agents/rules/memory.md", .anchor = "The Host session ceiling is " },
+            .{ .path = "docs/decisions/adr/ADR-0096-host-scoped-capability-identity.md", .anchor = "`HostSession` ceiling is " },
+            .{ .path = "docs/decisions/adr/ADR-0098-sturdyref-peer-authority.md", .anchor = "the `HostSession` shell is " },
+            .{ .path = "docs/decisions/adr/ADR-0099-shared-vat-scheduling.md", .anchor = "per-session `HostSession` ceiling is " },
+        },
+    },
+    .{
+        .label = "peer session struct budget",
+        .source_path = "src/ocapn/engine/mod.zig",
+        .decl = "pub const peer_session_struct_budget_bytes = ",
+        .quotes = &.{
+            .{ .path = ".agents/rules/memory.md", .anchor = "(`peer_session_struct_budget_bytes`, ", .suffix = ")" },
+            .{ .path = "docs/ladder.md", .anchor = "| `engine.Peer` inline state | at most ", .suffix = " bytes |" },
+        },
+    },
+    .{
+        .label = "steady queue retention",
+        .source_path = "src/ocapn/engine/mod.zig",
+        .decl = "const steady_queue_bytes = ",
+        .quotes = &.{
+            .{ .path = ".agents/rules/memory.md", .anchor = "`steady_queue_bytes = ", .suffix = "`" },
+        },
+    },
+    .{
+        .label = "recv-scratch retention",
+        .source_path = "src/ocapn/session/mod.zig",
+        .decl = "const steady_recv_scratch_bytes: usize = ",
+        .quotes = &.{
+            .{ .path = ".agents/rules/memory.md", .anchor = "`steady_recv_scratch_bytes = ", .suffix = "`" },
+        },
+    },
+};
+
+/// Each footprint budget is one number with one authoritative declaration,
+/// quoted by the docs a reader actually opens (`docs/ladder.md` step 2, the
+/// memory rule, the deciding ADRs). A constant moved once while its quotes did
+/// not, so the prose said 112 while the build asserted 128 and nothing
+/// noticed. Every quote in `budget_facts` is therefore derived from the source
+/// declaration rather than written down again.
+pub fn checkFootprintBudgetQuotes(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const loop_path = "src/net/completion/loop.zig";
-    const decl = "const conn_slot_overhead_bytes: usize = ";
-
-    const loop_src = root.readFileAlloc(io, loop_path, gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read it to derive the slot-overhead number ({s})", .{ loop_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(loop_src);
-
-    const at = std.mem.indexOf(u8, loop_src, decl) orelse {
-        try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing derives the slot-overhead number the docs quote", .{ loop_path, decl });
-        return;
-    };
-    const rest = loop_src[at + decl.len ..];
-    var digits: usize = 0;
-    while (digits < rest.len and std.ascii.isDigit(rest[digits])) digits += 1;
-    if (digits == 0) {
-        try appendViolation(gpa, violations, "{s}: `{s}` is not followed by a decimal literal", .{ loop_path, decl });
-        return;
-    }
-    const number = rest[0..digits];
-
-    // Every surface that states the number, with the phrase that makes the
-    // claim. Anchoring matters: a bare search for "<n> bytes" anywhere in the
-    // file is satisfied by any incidental mention of the same number, so the
-    // quote could read 112 while an unrelated line said 128 and this would
-    // pass — which is precisely the drift it exists to catch.
-    const Quote = struct { path: []const u8, anchor: []const u8 };
-    const quoting = [_]Quote{
-        .{ .path = "docs/ladder.md", .anchor = "| Completion-loop slot beyond its embedded peer | exactly " },
-        .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
-    };
-    for (quoting) |quote| {
-        const path = quote.path;
-        const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot read it to check the slot-overhead number ({s})", .{ path, @errorName(err) });
+    for (budget_facts) |fact| {
+        const source = root.readFileAlloc(io, fact.source_path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot read it to derive the {s} ({s})", .{ fact.source_path, fact.label, @errorName(err) });
             continue;
         };
-        defer gpa.free(contents);
-        const claim = std.mem.indexOf(u8, contents, quote.anchor) orelse {
-            try appendViolation(gpa, violations, "{s}: has no `{s}…` phrase stating the per-connection slot overhead, so nothing here is anchored to {s}", .{ path, quote.anchor, loop_path });
+        defer gpa.free(source);
+
+        const at = std.mem.indexOf(u8, source, fact.decl) orelse {
+            try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing derives the {s} the docs quote", .{ fact.source_path, fact.decl, fact.label });
             continue;
         };
-        const stated = contents[claim + quote.anchor.len ..];
-        const needle = try std.fmt.allocPrint(gpa, "{s} bytes", .{number});
-        defer gpa.free(needle);
-        if (!std.mem.startsWith(u8, stated, needle)) {
-            const shown = stated[0..@min(stated.len, 20)];
-            try appendViolation(gpa, violations, "{s}: states the per-connection slot overhead as `{s}…`, but {s} asserts `{s} bytes`", .{ path, shown, loop_path, number });
+        const rest = source[at + fact.decl.len ..];
+        var digits: usize = 0;
+        while (digits < rest.len and std.ascii.isDigit(rest[digits])) digits += 1;
+        if (digits == 0) {
+            try appendViolation(gpa, violations, "{s}: `{s}` is not followed by a decimal literal", .{ fact.source_path, fact.decl });
+            continue;
         }
-    }
-}
+        const number = rest[0..digits];
 
-/// The shared-Vat migration removed the Vat from every `HostSession` and
-/// lowered its exact ceiling. Keep the banked per-connection saving synchronized
-/// across the source gate and every living/decision document that quotes it.
-pub fn checkHostSessionBudgetQuotes(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const source_path = "src/driver/core/host.zig";
-    const decl = "pub const host_session_struct_budget_bytes = ";
-    const source = root.readFileAlloc(io, source_path, gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: cannot read it to derive the Host-session budget ({s})", .{ source_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(source);
-
-    const at = std.mem.indexOf(u8, source, decl) orelse {
-        try appendViolation(gpa, violations, "{s}: `{s}…` is gone, so nothing derives the Host-session budget the docs quote", .{ source_path, decl });
-        return;
-    };
-    const rest = source[at + decl.len ..];
-    var digits: usize = 0;
-    while (digits < rest.len and std.ascii.isDigit(rest[digits])) digits += 1;
-    if (digits == 0) {
-        try appendViolation(gpa, violations, "{s}: `{s}` is not followed by a decimal literal", .{ source_path, decl });
-        return;
-    }
-    const number = rest[0..digits];
-
-    const Quote = struct { path: []const u8, anchor: []const u8 };
-    const quoting = [_]Quote{
-        .{ .path = "docs/ladder.md", .anchor = "| Host session shell | at most " },
-        .{ .path = ".agents/rules/memory.md", .anchor = "The Host session ceiling is " },
-        .{ .path = "docs/decisions/adr/ADR-0096-host-scoped-capability-identity.md", .anchor = "`HostSession` ceiling is " },
-        .{ .path = "docs/decisions/adr/ADR-0098-sturdyref-peer-authority.md", .anchor = "the `HostSession` shell is " },
-        .{ .path = "docs/decisions/adr/ADR-0099-shared-vat-scheduling.md", .anchor = "per-session `HostSession` ceiling is " },
-    };
-    const needle = try std.fmt.allocPrint(gpa, "{s} bytes", .{number});
-    defer gpa.free(needle);
-    for (quoting) |quote| {
-        const contents = root.readFileAlloc(io, quote.path, gpa, .limited(4 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: cannot read it to check the Host-session budget ({s})", .{ quote.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(contents);
-        const claim = std.mem.indexOf(u8, contents, quote.anchor) orelse {
-            try appendViolation(gpa, violations, "{s}: has no `{s}…` Host-session budget claim anchored to {s}", .{ quote.path, quote.anchor, source_path });
-            continue;
-        };
-        const stated = contents[claim + quote.anchor.len ..];
-        if (!std.mem.startsWith(u8, stated, needle)) {
-            const shown = stated[0..@min(stated.len, 20)];
-            try appendViolation(gpa, violations, "{s}: states the Host-session budget as `{s}…`, but {s} asserts `{s}`", .{ quote.path, shown, source_path, needle });
+        for (fact.quotes) |quote| {
+            const contents = root.readFileAlloc(io, quote.path, gpa, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: cannot read it to check the {s} ({s})", .{ quote.path, fact.label, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(contents);
+            const claim = std.mem.indexOf(u8, contents, quote.anchor) orelse {
+                try appendViolation(gpa, violations, "{s}: has no `{s}…` phrase stating the {s}, so nothing here is anchored to {s}", .{ quote.path, quote.anchor, fact.label, fact.source_path });
+                continue;
+            };
+            const stated = contents[claim + quote.anchor.len ..];
+            const needle = try std.fmt.allocPrint(gpa, "{s}{s}", .{ number, quote.suffix });
+            defer gpa.free(needle);
+            if (!std.mem.startsWith(u8, stated, needle)) {
+                const shown = stated[0..@min(stated.len, 20)];
+                try appendViolation(gpa, violations, "{s}: states the {s} as `{s}…`, but {s} asserts `{s}`", .{ quote.path, fact.label, shown, fact.source_path, needle });
+            }
         }
     }
 }

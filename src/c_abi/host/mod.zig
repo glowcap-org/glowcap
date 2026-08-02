@@ -245,6 +245,11 @@ pub const PANCAKE_DIAL_SHAPE_PEER_ID: u32 = 1;
 /// handshake. The signaling reference arrives through the handoff mechanism
 /// (ADR-0089 phase 5).
 pub const PANCAKE_DIAL_SHAPE_SIGNALING: u32 = 2;
+/// PancakeDialPlan.shape: rendezvous-bridged open (keyed-relay). No dialable
+/// address; the peer holds an inbound socket at a relay under its key
+/// designator, and the dialer opens the relay rendezvous leg its host is
+/// configured for (ADR-0088).
+pub const PANCAKE_DIAL_SHAPE_RENDEZVOUS: u32 = 3;
 
 /// PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture.
 pub const PANCAKE_DIAL_REACH_DIRECT: u32 = 0;
@@ -316,7 +321,28 @@ pub const PancakePartnerIdentity = extern struct {
     designator_len: usize,
     locator_record: ?[*]const u8,
     locator_record_len: usize,
+    /// How the durable identity in `designator` was authenticated, one of the
+    /// `PANCAKE_DURABLE_PROVENANCE_*` values. Session identity, durable
+    /// identity, and this provenance are three separate facts (ADR-0097): a
+    /// caller that requires a proved durable peer reads this, never a
+    /// comparison of `designator` against `session_key`, which is a
+    /// coincidence of today's key reuse and stops holding when each connection
+    /// draws a fresh session key.
+    provenance: u32,
 };
+
+/// The transport layer proved the partner's durable key: iroh's QUIC
+/// handshake, or WebRTC's DTLS binding under capability-authorized signaling.
+pub const PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT: u32 = 0;
+/// The hello carried a `session-key-attestation` signed by the durable key its
+/// designator names, and it verified (`keyed-tcp`, `keyed-relay`). Static
+/// authorization: it proves the durable key authorized this session key, not
+/// that the signer is live on this connection.
+pub const PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION: u32 = 1;
+/// No durable identity was proved. An address transport designates a socket
+/// address rather than a key, and a partner that advertised an address on a
+/// key transport claimed no durable identity to authenticate.
+pub const PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED: u32 = 2;
 
 /// What an accepted session signs as its own locator: the designator a
 /// partner names it by, and the direct-addresses hint. Views borrow the caller's
@@ -352,6 +378,9 @@ pub const pancake_host_dialed = host.pancake_host_dialed;
 pub const pancake_host_dial_failed = host.pancake_host_dial_failed;
 pub const pancake_host_provide_gift_id = host.pancake_host_provide_gift_id;
 pub const pancake_host_publish = host.pancake_host_publish;
+pub const pancake_host_unpublish = host.pancake_host_unpublish;
+pub const pancake_host_publish_durable = host.pancake_host_publish_durable;
+pub const pancake_host_remove_durable = host.pancake_host_remove_durable;
 pub const pancake_host_ref_release = host.pancake_host_ref_release;
 pub const pancake_host_last_error = host.pancake_host_last_error;
 pub const pancake_host_clear_last_error = host.pancake_host_clear_last_error;
@@ -367,6 +396,11 @@ pub const pancake_host_session_publish = session.pancake_host_session_publish;
 pub const pancake_host_session_spawn = session.pancake_host_session_spawn;
 pub const pancake_host_session_fetch = session.pancake_host_session_fetch;
 pub const pancake_host_session_enliven = session.pancake_host_session_enliven;
+pub const pancake_host_enliven = host.pancake_host_enliven;
+pub const pancake_host_spawn_resolver = host.pancake_host_spawn_resolver;
+pub const pancake_host_resolver_fulfill = host.pancake_host_resolver_fulfill;
+pub const pancake_host_resolver_break = host.pancake_host_resolver_break;
+pub const pancake_host_session_listen = session.pancake_host_session_listen;
 pub const pancake_host_session_send = session.pancake_host_session_send;
 pub const pancake_host_session_tell = session.pancake_host_session_tell;
 pub const pancake_host_vow_send = session.pancake_host_vow_send;
@@ -379,9 +413,9 @@ pub const pancake_host_session_set_exporter_location = session.pancake_host_sess
 pub const pancake_host_session_last_abort = session.pancake_host_session_last_abort;
 pub const pancake_host_session_partner_abort = session.pancake_host_session_partner_abort;
 pub const pancake_host_session_partner_identity = session.pancake_host_session_partner_identity;
-pub const pancake_host_session_partner_designator_is_key = session.pancake_host_session_partner_designator_is_key;
 
 pub const pancake_host_turn_forward = turn.pancake_host_turn_forward;
+pub const pancake_host_turn_forward_vow = turn.pancake_host_turn_forward_vow;
 pub const pancake_host_turn_send = turn.pancake_host_turn_send;
 pub const pancake_host_turn_tell = turn.pancake_host_turn_tell;
 pub const pancake_host_turn_spawn = turn.pancake_host_turn_spawn;

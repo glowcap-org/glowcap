@@ -147,6 +147,9 @@ class _PartnerIdentity(ctypes.Structure):
         ("designator_len", ctypes.c_size_t),
         ("locator_record", ctypes.c_void_p),
         ("locator_record_len", ctypes.c_size_t),
+        # How the durable identity in `designator` was authenticated, one of
+        # the DURABLE_PROVENANCE_* constants (ADR-0097).
+        ("provenance", ctypes.c_uint32),
     ]
 
 

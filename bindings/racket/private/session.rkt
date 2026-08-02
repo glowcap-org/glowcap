@@ -34,6 +34,7 @@
          racket/string
          racket/async-channel
          "constants.rkt"
+         "codec.rkt"
          "ffi-ocapn.rkt"
          "ffi-host.rkt"
          "errors.rkt"
@@ -401,7 +402,7 @@
   (guard-open 'session-partner-identity c)
   (call-with-host (session-host c)
     (lambda ()
-      (define out (make-PancakePartnerIdentity #f 0 #f 0 #f 0))
+      (define out (make-PancakePartnerIdentity #f 0 #f 0 #f 0 0))
       (check/host (pancake_host_session_partner_identity (session-ptr c) out))
       (partner-identity
        (bytes<-c (PancakePartnerIdentity-session-key out)
@@ -411,25 +412,15 @@
                   (PancakePartnerIdentity-designator-len out))
         #\uFFFD)
        (bytes<-c (PancakePartnerIdentity-locator-record out)
-                 (PancakePartnerIdentity-locator-record-len out))))))
+                 (PancakePartnerIdentity-locator-record-len out))
+       (provenance<-abi (PancakePartnerIdentity-provenance out))))))
 
-;; True when the partner proved it owns the designator it advertised, meaning
-;; that designator is exactly its verified session key written as canonical hex.
-;; The library answers this so no binding re-derives the comparison.
-;;
-;; The question only has content on a transport whose designator is a key
-;; (`keyed-tcp`, `iroh`, `webrtc`, `keyed-relay`). An address transport such as
-;; `tcp` names a socket address that the key does not determine, so the answer
-;; there is #f, and #f is the right answer rather than a failure. This raises on
-;; exactly what `session-partner-identity` raises on.
-(define (session-partner-designator-is-key? c)
-  (guard-open 'session-partner-designator-is-key? c)
-  (call-with-host (session-host c)
-    (lambda ()
-      (define-values (rc matches)
-        (pancake_host_session_partner_designator_is_key (session-ptr c)))
-      (check/host rc)
-      (not (zero? matches)))))
+;; The ADR-0097 provenance symbol for one reflected ABI value.
+(define (provenance<-abi raw)
+  (cond
+    [(= raw DURABLE-PROVENANCE-AUTHENTICATED-TRANSPORT) 'authenticated-transport]
+    [(= raw DURABLE-PROVENANCE-DURABLE-KEY-ATTESTATION) 'durable-key-attestation]
+    [else 'unauthenticated]))
 
 ;; Flush whatever is already queued on the host's outbound to the wire. A `<-`
 ;; far-send only enqueues; the bytes leave when something drains. The blocking
@@ -542,6 +533,15 @@
 ;; as the Python and Rust `send`s fail. Single-threaded: it pumps events
 ;; itself, matching the rest of the Racket binding. The local arm is
 ;; `session-send-local` in `trampoline.rkt`.
+;; Listen on a promise capability this session holds (CapTP op:listen): the
+;; returned vow settles with the promise's resolution, which may be any value,
+;; not only a capability. A re-gifted promise routes to its exporter session
+;; transparently.
+(define (session-listen c target)
+  (guard-open 'session-listen c)
+  (drain-gc! c)
+  (listen-far c target))
+
 (define (session-send c target verb . args)
   (guard-open 'session-send c)
   (drain-gc! c) ; flush any imports reclaimed since the last session op
@@ -673,3 +673,105 @@
                 (lambda () (and (session-closed? c) 'closed))
                 'session-serve)
     (void)))
+
+;; ── Host-level select-or-dial enliven (ADR-0098) ──────────────────────────────
+;; Enliven a complete sturdyref against the host: select a live session this
+;; host already dialed to the sturdyref's peer, or stage a dial and settle
+;; over the opened session. The blocking wait is host-scoped — the vow
+;; belongs to no session (its row's conn is #f, and no session's teardown
+;; sweeps it), the initial drain runs a staged dial in this thread, the
+;; dialed exporter serves itself on its own thread (`run-dial!`), and this
+;; thread parks on host progress until the settle lands. The dial executor's
+;; failure handler breaks the vow, so the wait always ends. Every binding's
+;; `pancake_host_enliven` contract: the full sturdyref verifies before wire
+;; traffic, and a session-scoped repeat rides `session-enliven`'s cache.
+(define (host-enliven m sturdyref)
+  (when (unbox (host-released? m))
+    (raise-pancake 'host-enliven ERR-CLOSED "host released"))
+  (define sturdyref-bytes (string->bytes/utf-8 sturdyref))
+  (define v
+    (call-with-host m
+      (lambda ()
+        (define-values (rc id)
+          (pancake_host_enliven (host-ptr m) (pin-immobile sturdyref-bytes)
+                                (bytes-length sturdyref-bytes)))
+        (check/host rc)
+        (define fresh (session-vow #f id 'pending '()))
+        (register-vow! m fresh)
+        fresh)))
+  ;; Fire the staged work: a cache-hit's pre-queued settle, or the dial
+  ;; action whose executor opens the exporter session and its serve thread.
+  (with-host-drain m (lambda () (drain-host-actions! m)))
+  (let loop ()
+    (define s (session-vow-state v))
+    (cond
+      [(eq? s 'pending)
+       ;; Snapshot, re-check, then park: the bump posts the snapshot under
+       ;; the host lock, so a settle between the check and the sync still
+       ;; wakes this waiter (the pump-until idiom, host-scoped).
+       (define gen (host-progress-evt m))
+       (when (eq? (session-vow-state v) 'pending) (sync gen))
+       (loop)]
+      [(eq? (car s) 'ok)
+       (define val (cdr s))
+       (unless (ref? val)
+         (raise-pancake 'host-enliven ERR-UNSUPPORTED-VALUE
+                        "enliven \"~a\" did not resolve to a capability: ~a" sturdyref val))
+       val]
+      [else
+       (raise-pancake 'host-enliven ERR-BROKEN "enliven \"~a\" broke: ~a" sturdyref (cdr s))])))
+
+;; ── Off-turn settlement: the resolver pair ────────────────────────────────────
+;; A behavior mints a pair with `host-spawn-resolver` (legal inside a turn,
+;; which is the primary use), defers its answer onto the pair's vow with
+;; `resolver-forward-turn!`, parks the resolver for whatever completes the
+;; work, and returns; the completion settles it later with
+;; `resolver-fulfill!` / `resolver-break!` as its own top-level event. One
+;; settle per resolver — a second refuses — and a deferred settle carries
+;; plain data only: a value that names a capability is refused, and an answer
+;; that carries authority forwards to a send instead.
+
+(struct resolver (host vow-id id))
+
+;; Mint a resolver pair on `m`.
+(define (host-spawn-resolver m)
+  (call-with-host m
+    (lambda ()
+      (define-values (rc vow-id resolver-id) (pancake_host_spawn_resolver (host-ptr m)))
+      (check/host rc)
+      (resolver m vow-id resolver-id))))
+
+;; Defer the current turn's answer onto `r`'s vow: the answer settles when
+;; the resolver does. Legal only inside a behavior hosted by `r`'s host.
+(define (resolver-forward-turn! r)
+  (define t (current-turn))
+  (unless t
+    (error 'resolver-forward-turn! "a turn verb: call it inside a behavior"))
+  (unless (eq? (session-host (cdr t)) (resolver-host r))
+    (error 'resolver-forward-turn! "the turn belongs to another host"))
+  (check/host (pancake_host_turn_forward_vow (car t) (resolver-vow-id r))))
+
+;; Settle the deferred answer fulfilled with the capability-free `value`.
+(define (resolver-fulfill! r value)
+  (define m (resolver-host r))
+  (with-host-drain m
+    (lambda ()
+      (define keep (box '()))
+      (define-values (aptr acnt) (args->c (list value) keep))
+      (void acnt)
+      ;; args->c hands back a raw block; the generated signature wants the
+      ;; tagged single-struct pointer.
+      (check/host (pancake_host_resolver_fulfill
+                   (host-ptr m) (resolver-id r)
+                   (cast aptr _pointer _PancakeArgument-pointer)))
+      (drain-host-actions! m))))
+
+;; Settle the deferred answer broken with the worker's own words.
+(define (resolver-break! r reason)
+  (define m (resolver-host r))
+  (with-host-drain m
+    (lambda ()
+      (define rb (string->bytes/utf-8 reason))
+      (check/host (pancake_host_resolver_break (host-ptr m) (resolver-id r)
+                                               (pin-immobile rb) (bytes-length rb)))
+      (drain-host-actions! m))))

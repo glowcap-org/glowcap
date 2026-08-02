@@ -24,28 +24,25 @@ const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
 /// True when the call fulfilled with an integer, the shape a clock answers.
-fn fulfilledInteger(settled: driver.Settled) bool {
+fn fulfilledInteger(settled: driver.Reply) bool {
     return settled == .fulfilled and settled.fulfilled == .integer;
 }
 
 /// True when the call fulfilled with a string, the shape a file read answers.
-fn fulfilledString(settled: driver.Settled) bool {
+fn fulfilledString(settled: driver.Reply) bool {
     return settled == .fulfilled and settled.fulfilled == .string;
 }
 
-/// Grant a tool and return a far reference to it, or fail if the grant did not
-/// return a capability.
-fn grant(session: *driver.Session, tools: actors.Ref, verb: []const u8, which: []const u8, arena: std.mem.Allocator) !actors.Ref {
-    const settled = try session.call(tools, .{ .verb = verb, .args = &.{.{ .string = which }} }, arena);
+/// Grant a tool and return its capability, or fail if the grant did not
+/// return one.
+fn grant(session: *driver.Session, tools: driver.Capability, verb: []const u8, which: []const u8, arena: std.mem.Allocator) !driver.Capability {
+    const settled = try session.call(tools, verb, &.{.{ .string = which }}, arena);
     return switch (settled) {
         .fulfilled => |arg| switch (arg) {
-            .reference => |reference| switch (reference) {
-                .far => |far_ref| .{ .far = far_ref },
-                else => error.NotACapability,
-            },
+            .capability => |cap| cap,
             else => error.NotACapability,
         },
-        .broken, .give => error.NotACapability,
+        .broken => error.NotACapability,
     };
 }
 
@@ -74,20 +71,20 @@ pub fn main(init: std.process.Init) !void {
     var ok = true;
 
     const clock = try grant(session, tools, "grant", "clock", arena);
-    const now = try session.call(clock, .{ .verb = "now", .args = &.{} }, arena);
+    const now = try session.call(clock, "now", &.{}, arena);
     ok = demo_check.check(nick, "delegation: was handed a clock and called it", fulfilledInteger(now)) and ok;
 
     const files = try grant(session, tools, "grant", "files-readonly", arena);
-    const read = try session.call(files, .{ .verb = "read", .args = &.{.{ .string = "report.txt" }} }, arena);
+    const read = try session.call(files, "read", &.{.{ .string = "report.txt" }}, arena);
     ok = demo_check.check(nick, "attenuation: read through the read-only view", fulfilledString(read)) and ok;
-    const write = try session.call(files, .{ .verb = "write", .args = &.{ .{ .string = "report.txt" }, .{ .string = "tampered" } } }, arena);
+    const write = try session.call(files, "write", &.{ .{ .string = "report.txt" }, .{ .string = "tampered" } }, arena);
     ok = demo_check.check(nick, "attenuation: write is refused", write == .broken) and ok;
 
     const revocable = try grant(session, tools, "grant-revocable", "clock", arena);
-    const before = try session.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
+    const before = try session.call(revocable, "now", &.{}, arena);
     ok = demo_check.check(nick, "revocation: the handle works before revoke", fulfilledInteger(before)) and ok;
-    _ = try session.call(tools, .{ .verb = "revoke-last", .args = &.{} }, arena);
-    const after = try session.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
+    _ = try session.call(tools, "revoke-last", &.{}, arena);
+    const after = try session.call(revocable, "now", &.{}, arena);
     ok = demo_check.check(nick, "revocation: the handle breaks after revoke", after == .broken) and ok;
 
     if (ok) {

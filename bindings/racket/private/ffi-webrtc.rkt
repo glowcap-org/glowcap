@@ -24,7 +24,7 @@
 (define-cstruct _PancakeWebrtcReadyEvent ([subject _uintptr] [events _uint32])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeWebrtcReadyEvent _PancakeWebrtcReadyEvent
-             PANCAKE-WEBRTC-READY-EVENT-SIZE '(uintptr uint32))
+             PANCAKE-WEBRTC-READY-EVENT-SIZE '(uint64 uint32))
 
 (define webrtc-ffi-cache (box #f))
 

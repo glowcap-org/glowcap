@@ -30,6 +30,11 @@ The wire codec is chosen for a host. `connect` and `listen` accept `#:codec`;
 the default is `'syrup`, and both peers must agree before using `'capnp`.
 Goblins interop uses CapTP 1.0 over Syrup.
 
+A `keyed-relay` locator names a peer that opens no socket and holds inbound
+connections at a relay under its key. Call `set-host-rendezvous-url!` with the
+mapping from designator to the relay's rendezvous WebSocket URL and `connect`
+opens the bridge over `net/rfc6455`, loaded only when such a dial runs.
+
 ## Hosted behavior rules
 
 A hosted method runs on the pumping thread inside the current feed. It must not

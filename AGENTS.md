@@ -21,6 +21,7 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | Quick fix in one layer                                                     | Focused rule for that surface ([rule index](.agents/README.md))                                 | `zig build test` or narrower                            |
 | Substantial feature, refactor, sweep, or release check                     | [`docs/vision.md`](docs/vision.md) + [work skill](.agents/skills/work/SKILL.md)                 | `zig build check`                                       |
+| Red gate, flaky failure, or bug hunt                                       | [debugging rule](.agents/rules/debugging.md)                                                    | reproduce alone, then the narrowest failing step        |
 | Protocol semantics or layer boundary                                       | [architecture rule](.agents/rules/architecture.md) + [tests rule](.agents/rules/tests.md)       | `zig build oracle-check`, then `check-external`          |
 | Inbound parsing, length limits, or any attacker-controlled bytes           | [resilience rule](.agents/rules/resilience.md)                                                  | `zig build test` + `zig build oracle-check`             |
 | Allocation, copy, or frame ownership on the wire path                      | [memory rule](.agents/rules/memory.md)                                                          | `zig build test` (alloc and footprint budgets run here) |
@@ -52,10 +53,20 @@ Match depth to the task: do not read the whole tree for a one-line fix.
   destination do not get traded for convenience.
 - Protocol correctness and capability semantics come before implementation
   convenience.
+- **Principled moves only. No workarounds, no quick fixes.** Every change fixes
+  the root, or it is not the change. A shortcut is a design decision made badly
+  and then hidden, and it costs most where it is easiest: the layer stops
+  explaining itself, and the next reader inherits a shape nobody chose. When
+  the right fix looks too big, that is the design asking to be understood, not
+  routed around. Understand it, then make it.
 - Performance is a public contract: every allocation and copy on the wire path
   is forbidden, intentional, or measured.
 - Production APIs should make the correct path the easy path. Do not rely on
   comments to prevent misuse.
+- A fact has one authority, an effect stays local to the seam that owns it, and
+  of two otherwise equal shapes the easier one to change wins. This is the
+  "DRY, orthogonal, and easier to change" value in
+  [project-values](.agents/rules/project-values.md); hold it in every diff.
 - The portable core stays sync and no-I/O; adapters own `std.Io`, transports,
   scheduling, and host integration.
 - Frame movement is owned transfer or bounded borrow. Test/debug copying lives
@@ -63,24 +74,20 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 - Session state is authoritative; codecs parse and render but do not own
   authority.
 - Conformance is load-bearing. A semantic claim needs a scenario or fixture.
-- Live CapTP while writing pancake: dogfood the product fronts — Cursor/Claude
-  MCP tools via [pancake-mcp](.agents/skills/pancake-mcp/SKILL.md); shell
-  argv/REPL/listen via [pancake-cli](.agents/skills/pancake-cli/SKILL.md); room
-  wake via [rooms-peer](.agents/skills/rooms-peer/SKILL.md). Do not invent a
-  throwaway Zig harness for a product-shaped CapTP act.
-- Names associated with external engineering taste references belong in prompts
-  and plans, not in committed files. Encode that taste as explicit protocol
-  vocabulary, honest allocation/lifetime surfaces, polished boundaries, and
-  tests.
+- Live CapTP runs through the product fronts — the
+  [pancake-mcp](.agents/skills/pancake-mcp/SKILL.md),
+  [pancake-cli](.agents/skills/pancake-cli/SKILL.md), and
+  [rooms-peer](.agents/skills/rooms-peer/SKILL.md) skills — never a throwaway
+  Zig harness for a product-shaped CapTP act.
+- Engineering-taste reference names stay in prompts and plans, never in
+  committed files; the taste lands as structure
+  ([agent-scaffolding](.agents/rules/agent-scaffolding.md)).
 
 ## Agent Scaffolding
 
 Canonical agent guidance lives under [`.agents/`](.agents/); its
-[index](.agents/README.md) names every rule and skill and what each governs.
-Claude gets rules through one directory symlink,
-[`.claude/rules`](.claude/rules/) → `.agents/rules`. Cursor gets one symlink per
-rule, `.cursor/rules/<name>.mdc` → `.agents/rules/<name>.md`, because Cursor
-discovers rules by `.mdc` file.
+[index](.agents/README.md) names every rule and skill, what each governs, and
+the overlay symlinks that load them into each tool.
 
 The scaffolding is itself a public API for agents, with its own gate. Read
 [`.agents/rules/agent-scaffolding.md`](.agents/rules/agent-scaffolding.md)

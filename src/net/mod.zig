@@ -72,6 +72,12 @@ pub const socket = @import("socket.zig");
 /// layer only — the sans-io core bans `std.atomic`). See `sync.zig`.
 pub const sync = @import("sync.zig");
 
+/// The cross-thread wake channel: a nonblocking socketpair a waiting thread
+/// polls (or arms a completion recv on) and any thread nudges, under the
+/// ADR-0089 nudge invariant. The off-turn settle mailbox rides it
+/// (ADR-0102). See `wake_channel.zig`.
+pub const wake_channel = @import("wake_channel.zig");
+
 /// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
 /// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
 /// reaping. See `socket.Keepalive`.
@@ -90,6 +96,12 @@ pub const tcp_keyed = @import("transport/tcp_keyed.zig");
 /// than socket-shaped, and gives tests a full OCapN conversation in one process.
 /// See `transport/inproc.zig`.
 pub const inproc = @import("transport/inproc.zig");
+
+/// The keyed-relay netlayer (`keyed-relay`): RFC 6455 WebSocket client legs
+/// over TCP sockets, so a native peer dials — and registers to be dialed
+/// through — a relay's rendezvous (ADR-0088). The relay mapping is resident
+/// configuration, never locator bytes. See `transport/keyed_relay.zig`.
+pub const keyed_relay = @import("transport/keyed_relay.zig");
 
 /// Shared `std.Io` Reader/Writer scaffolding for byte-source residents
 /// (inproc, iroh). Pub because the out-of-graph iroh resident is its own

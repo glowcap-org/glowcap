@@ -57,10 +57,14 @@ pub const message_seeds = [_][]const u8{
 
 /// The corpus also holds bare Syrup values that are not CapTP messages: a
 /// dictionary, integers at both ends of the small/big boundary, a list, a set, a
-/// string. They seed the fuzzer with well-formed Syrup that the message decoder
-/// must still refuse, which is a different and useful starting shape, so they
-/// are seeds but not subject to `ratifySyrupSeeds`.
+/// string, and the ADR-0097 credential vectors (a bare signing-domain record
+/// and a hint-dict locator record). They seed the fuzzer with well-formed
+/// Syrup that the message decoder must still refuse, which is a different and
+/// useful starting shape, so they are seeds but not subject to
+/// `ratifySyrupSeeds`.
 pub const primitive_seeds = [_][]const u8{
+    seed(@embedFile("../oracle/corpus/cred_locator_keyed_tcp_hint.bin")),
+    seed(@embedFile("../oracle/corpus/cred_session_key_attestation_v1.bin")),
     seed(@embedFile("../oracle/corpus/prim_dict_str_to_int.bin")),
     seed(@embedFile("../oracle/corpus/prim_integer_big_neg.bin")),
     seed(@embedFile("../oracle/corpus/prim_integer_neg_7.bin")),

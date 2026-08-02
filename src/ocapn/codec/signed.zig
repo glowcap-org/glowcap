@@ -31,6 +31,14 @@ pub const locationBytes = syrup.canonicalLocationSignedBytes;
 /// verbatim span rather than a parsed locator.
 pub const locationBytesRaw = syrup.canonicalLocationSignedBytesRaw;
 
+/// The ADR-0097 durable-key credential's signing domain: canonical bytes of
+/// `<session-key-attestation-v1 transport designator session-pubkey>`, built
+/// into a caller buffer (allocation-free pre-open chokepoint scratch).
+pub const sessionKeyAttestationBytes = syrup.sessionKeyAttestationSignedBytes;
+
+/// Buffer bound for `sessionKeyAttestationBytes`.
+pub const session_key_attestation_max_bytes = syrup.session_key_attestation_max_bytes;
+
 /// Encode a `<ocapn-peer …>` record. A give embeds these verbatim, so this is
 /// the only spelling that may reach a signed envelope.
 pub const encodeLocatorRecord = syrup.encodePeerLocatorRecord;

@@ -53,8 +53,16 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_session_publish",
     "pancake_host_session_spawn",
     "pancake_host_publish",
+    "pancake_host_unpublish",
+    "pancake_host_publish_durable",
+    "pancake_host_remove_durable",
     "pancake_host_session_fetch",
     "pancake_host_session_enliven",
+    "pancake_host_enliven",
+    "pancake_host_spawn_resolver",
+    "pancake_host_resolver_fulfill",
+    "pancake_host_resolver_break",
+    "pancake_host_session_listen",
     "pancake_host_session_send",
     "pancake_host_session_tell",
     "pancake_host_vow_send",
@@ -62,6 +70,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_vow_untag",
     "pancake_host_vow_get",
     "pancake_host_turn_forward",
+    "pancake_host_turn_forward_vow",
     "pancake_host_turn_send",
     "pancake_host_turn_tell",
     "pancake_host_turn_spawn",
@@ -73,7 +82,6 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_session_last_abort",
     "pancake_host_session_partner_abort",
     "pancake_host_session_partner_identity",
-    "pancake_host_session_partner_designator_is_key",
     "pancake_host_last_error",
     "pancake_host_clear_last_error",
 };
@@ -98,12 +106,16 @@ const Spec = struct {
         .{ .name = "PANCAKE_DIAL_SHAPE_HOST_PORT", .doc = "PancakeDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp)." },
         .{ .name = "PANCAKE_DIAL_SHAPE_PEER_ID", .doc = "PancakeDialPlan.shape: peer-id open (node-id designator + addresses + reach; today from the iroh locator scheme)." },
         .{ .name = "PANCAKE_DIAL_SHAPE_SIGNALING", .doc = "PancakeDialPlan.shape: signaling-mediated open (webrtc); no dialable address, the channel comes up through offer/answer/ICE (ADR-0089 phase 4)." },
+        .{ .name = "PANCAKE_DIAL_SHAPE_RENDEZVOUS", .doc = "PancakeDialPlan.shape: rendezvous-bridged open (keyed-relay); no dialable address, the dialer opens the relay rendezvous leg its host is configured for (ADR-0088)." },
         .{ .name = "PANCAKE_DIAL_REACH_DIRECT", .doc = "PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture." },
         .{ .name = "PANCAKE_DIAL_REACH_CONFIGURED", .doc = "PancakeDialPlan.reach_kind (peer-id shape): the node's own configured redeem posture." },
         .{ .name = "PANCAKE_DIAL_REACH_EXPLICIT", .doc = "PancakeDialPlan.reach_kind (peer-id shape): the caller posture carried in reach_value." },
         .{ .name = "PANCAKE_DIAL_POSTURE_REDEEM", .doc = "pancake_host_plan_dial posture_policy: a redeem (a DIAL action) — direct when a hint is present, else the node's configured posture." },
         .{ .name = "PANCAKE_DIAL_POSTURE_EXPLICIT", .doc = "pancake_host_plan_dial posture_policy: a connect carrying a posture in posture_value." },
         .{ .name = "PANCAKE_DIAL_POSTURE_EXPLICIT_NONE", .doc = "pancake_host_plan_dial posture_policy: a connect that named no posture; a peer-id dial refuses PANCAKE_ERR_INVALID_ARGUMENT." },
+        .{ .name = "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", .doc = "PancakePartnerIdentity.provenance: the transport layer proved the partner's durable key (iroh's QUIC handshake, or WebRTC's DTLS binding under capability-authorized signaling)." },
+        .{ .name = "PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION", .doc = "PancakePartnerIdentity.provenance: the hello carried a session-key-attestation signed by the durable key its designator names, and it verified (keyed-tcp, keyed-relay). Static authorization, not proof the signer is live on this connection." },
+        .{ .name = "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED", .doc = "PancakePartnerIdentity.provenance: no durable identity was proved. An address transport designates a socket address rather than a key, and a partner that advertised an address on a key transport claimed no durable identity to authenticate." },
     };
 
     pub fn special(comptime T: type) ?[]const u8 {
@@ -135,6 +147,7 @@ comptime {
     std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_HOST_PORT == 0);
     std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_PEER_ID == 1);
     std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_SIGNALING == 2);
+    std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_RENDEZVOUS == 3);
     std.debug.assert(Spec.c.PANCAKE_DIAL_REACH_DIRECT == 0);
     std.debug.assert(Spec.c.PANCAKE_DIAL_REACH_CONFIGURED == 1);
     std.debug.assert(Spec.c.PANCAKE_DIAL_REACH_EXPLICIT == 2);
@@ -267,6 +280,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "PANCAKE_MAX_LOCAL_FORWARD_HOPS");
     try emitConst(&b, gpa, "PANCAKE_DISCOVERY_DIAL_RETRY_MS");
     try emitConst(&b, gpa, "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS");
+    try emitConst(&b, gpa, "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT");
+    try emitConst(&b, gpa, "PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION");
+    try emitConst(&b, gpa, "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED");
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
         \\One embedder effect popped from pancake_host_next_action. kind selects the
@@ -316,7 +332,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
 
-    try emitFn(&b, gpa, "pancake_host_new", &.{ "seed", "seed_len", "frame_cap", "verify_partner", "codec", "local_turn_budget", "out_host" }, "Create a byte-fed host bound to the caller-drawn 32-byte Ed25519 identity\nseed (the host never draws entropy), allocating through the library\nallocator. frame_cap sizes every session's maximum admissible frame; a\nnonzero verify_partner keeps partner-signature verification on (the secure\ndefault); codec is the PANCAKE_CODEC_* wire grammar (pancake_ocapn.h) every\nsession this host mints negotiates in — both ends of a session must\ncarry the same value, as on the peer tier's _negotiated constructors;\nlocal_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);\nnonzero caps local-turn amplification per drive (ADR-0076).\n*out_host receives the handle; release with pancake_host_release.");
+    try emitFn(&b, gpa, "pancake_host_new", &.{ "seed", "seed_len", "frame_cap", "verify_partner", "codec", "local_turn_budget", "out_host" }, "Create a byte-fed host bound to the caller-drawn Ed25519 identity seed (the\nhost never draws entropy), allocating through the library allocator.\n\nseed_len is 32 or 64. The first 32 bytes are the durable identity and must\nstay stable across restarts, because a keyed locator's designator derives\nfrom them. The optional next 32 are the session-key root, and they must be\nFRESH PER PROCESS: they are what makes each CapTP session sign with its own\nkey, so an old handoff certificate cannot resolve against a session opened\nafter a restart. Passing only 32 leaves every session signing with the\ndurable key, which is the weaker posture.\n\nframe_cap sizes every session's maximum admissible frame; a\nnonzero verify_partner keeps partner-signature verification on (the secure\ndefault); codec is the PANCAKE_CODEC_* wire grammar (pancake_ocapn.h) every\nsession this host mints negotiates in — both ends of a session must\ncarry the same value, as on the peer tier's _negotiated constructors;\nlocal_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);\nnonzero caps local-turn amplification per drive (ADR-0076).\n*out_host receives the handle; release with pancake_host_release.");
     try emitFn(&b, gpa, "pancake_host_new_in", &.{ "context", "seed", "seed_len", "frame_cap", "verify_partner", "codec", "local_turn_budget", "out_host" }, "pancake_host_new allocating every byte the host owns through context's host\nallocator (pancake_context_new_with_allocator).");
     try emitFn(&b, gpa, "pancake_host_release", &.{"host"}, "Release the host and everything it owns: every still-open session (each\nstill-parked vow breaks inside this call, its undrained completion freed\nwith the rest of the action queue), the vow map, parked actions, the node,\nand the giftable rows (each giftable's free runs exactly once here). NULL is\na no-op. Session (PancakeHostSession) handles this host minted are freed with it —\nnever touch one after its host is gone. Refused (last error set, nothing freed) from\ninside a callback.");
     try emitFn(&b, gpa, "pancake_host_designator_from_seed", &.{ "seed", "seed_len", "out", "out_len" }, "Derive the canonical key designator (exactly 64 lowercase hex digits) from a\n32-byte Ed25519 identity seed — the public half of the key pancake_host_new\nsigns with. Writes 64 bytes into out (out_len must be at least 64). Used by a\nkeyed-tcp listener whose Node identity is the locator designator (ADR-0075).");
@@ -328,6 +344,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_HOST_PORT");
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_PEER_ID");
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_SIGNALING");
+    try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_RENDEZVOUS");
     try emitConst(&b, gpa, "PANCAKE_DIAL_REACH_DIRECT");
     try emitConst(&b, gpa, "PANCAKE_DIAL_REACH_CONFIGURED");
     try emitConst(&b, gpa, "PANCAKE_DIAL_REACH_EXPLICIT");
@@ -402,9 +419,15 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_session_publish", &.{ "session", "name", "name_len", "behavior", "ctx", "free", "out_ref" }, "Publish a hosted object a partner on this session can fetch by name (a\nswiss-number). The Host Vat owns the object; this session selects its first\nPort projection. Releasing that session does not run free. On success, free,\nif non-NULL, runs exactly once at Host teardown; a failed construction runs it\nafter this call takes ownership. *out_ref receives the opaque Host-scoped\ncapability. Refused inside a callback (ctx stays yours on a null-pointer or\nreentry refusal).");
     try emitFn(&b, gpa, "pancake_host_session_spawn", &.{ "session", "behavior", "ctx", "free", "out_ref" }, "Spawn a hosted object in the Host Vat and create its first projection on this\nsession, without a fetchable name. It becomes reachable once a reply or\nargument carries the opaque Host-scoped capability written to *out_ref. Same\nfree contract as pancake_host_session_publish.");
     try emitFn(&b, gpa, "pancake_host_publish", &.{ "host", "name", "name_len", "behavior", "ctx", "free" }, "Publish one hosted object in the Vat owned by this Host and bind name as its\nhost-wide alias. Fetch lazily projects the actor onto the requesting Port; a\ndeposited gift retains the exact actor and never consults the alias at\nwithdrawal. The giftable row owns ctx: free, if non-NULL, runs exactly once, at\npancake_host_release on success or before this returns on any non-OK outcome\n(the null-pointer and reentry refusals touch nothing and leave ctx yours).\nAll-or-nothing over this call's own work: registration failure discards the\nfresh actor and frees ctx, so a retry starts with no partial alias or projection.");
+    try emitFn(&b, gpa, "pancake_host_unpublish", &.{ "host", "name", "name_len" }, "Remove the host-wide alias name. Discovery-only, alias-only: a later fetch of\nthe name misses on every session, while capabilities already issued, live Port\nprojections, and deposited gifts keep naming the exact actor, which stays in\nthe Host's Vat until pancake_host_release. An absent alias returns\nPANCAKE_ERR_NOT_FOUND, so a typo is loud instead of an idempotent no-op. A name\nin the reserved durable namespace is refused INVALID_ARGUMENT: minted durable\npublications leave through pancake_host_remove_durable.");
+    try emitFn(&b, gpa, "pancake_host_publish_durable", &.{ "host", "entropy", "entropy_len", "behavior", "ctx", "free", "out_swiss", "swiss_cap" }, "Publish one hosted object under a freshly minted durable swiss name: a\nreserved-prefix namespace mutable aliases structurally cannot enter,\nunpredictable, never reassigned, and removable only through\npancake_host_remove_durable. entropy supplies exactly 16 caller-drawn random\nbytes (the embedder owns the entropy boundary, as for gift ids). The minted\nswiss is written into out_swiss (swiss_cap of at least 50 bytes, or\nBUFFER_TOO_SMALL and nothing published) and the written length is returned.\nctx/free follow pancake_host_publish's ownership exactly. Durability across\nprocess restart requires durable registry storage, which does not exist yet:\na restart makes the old sturdyref miss, fail-closed.");
+    try emitFn(&b, gpa, "pancake_host_remove_durable", &.{ "host", "swiss", "swiss_len" }, "Remove a minted durable publication: the old sturdyref misses from now on,\nwhile capabilities already issued and deposited gifts keep the exact actor. A\nswiss outside the durable namespace returns INVALID_ARGUMENT (mutable aliases\nleave through pancake_host_unpublish); an unknown durable name returns\nPANCAKE_ERR_NOT_FOUND.");
 
     try emitFn(&b, gpa, "pancake_host_session_fetch", &.{ "session", "name", "name_len", "out_vow" }, "Fetch the partner capability published as name, minting a host vow whose id\nlands in *out_vow; the outcome arrives as that vow's SETTLE or FAIL action.\nA fulfilled far capability settles ALREADY enrolled under a node-unique\ntoken — recorded before the completion is queued, so a reply that\nimmediately re-gifts it routes to the right exporter. Refused inside a\ncallback.");
     try emitFn(&b, gpa, "pancake_host_session_enliven", &.{ "session", "sturdyref_uri", "sturdyref_uri_len", "out_vow" }, "Enliven the complete sturdyref URI (ADR-0098), minting a host vow whose id\nlands in *out_vow; the live reference arrives as that vow's SETTLE action.\nThe URI's transport and designator must match the selected session before\nthe swiss namespace is consulted or wire traffic is emitted. A dedup-cache\nhit settles before this returns; a fresh enliven rides bootstrap-fetch.\nRefused inside a callback.");
+
+    try emitFn(&b, gpa, "pancake_host_enliven", &.{ "host", "sturdyref_uri", "sturdyref_uri_len", "out_vow" }, "Select-or-dial enliven of a complete sturdyref URI (ADR-0098): enliven it\nover a live session this host already dialed to that peer, or stage a dial\nand finish when you report it. The host vow id lands in *out_vow and its\noutcome arrives as that vow's SETTLE or FAIL action either way. A staged\ndial surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL — borrow it with\npancake_host_pending_dial and answer it with pancake_host_dialed /\npancake_host_dial_failed exactly as a handoff redeem's — so a parked vow's\nid has no session and no row until it settles. Refused inside a callback.");
+    try emitFn(&b, gpa, "pancake_host_session_listen", &.{ "session", "target", "out_vow" }, "Listen on a promise capability this session holds (CapTP op:listen), minting\na host vow whose id lands in *out_vow; the promise's resolution arrives as\nthat vow's SETTLE or FAIL action. The target must be a far promise; a\nnon-promise far is refused. A re-gifted promise routes to its exporter\nsession transparently, and a give in the settlement auto-redeems exactly as\na fetch's would. The vow is plain: a listen makes no claim the result is a\ncapability. Legal inside a callback.");
 
     try emitFn(&b, gpa, "pancake_host_session_send", &.{ "session", "target", "verb", "verb_len", "args", "args_len", "out_vow" }, "Eventual-send to an opaque Host-scoped target and mint a host vow for the\nanswer; the outcome arrives as that vow's SETTLE or FAIL action. The Host\nchooses local delivery or the owning exporter session. A target or nested\nargument from another Host, or a retired identity, is refused rather than\nbeing interpreted as a wire position. verb/args are borrowed; the host copies\nwhat it queues. An empty verb — including (NULL, 0), which the family's ptr+len\ncontract admits — is a real message, not an error: it delivers positionally,\nthe way Goblins invokes a capability. Legal inside a callback (the send\nencodes when the enclosing call unwinds).");
     try emitFn(&b, gpa, "pancake_host_session_tell", &.{ "session", "target", "verb", "verb_len", "args", "args_len" }, "Fire-and-forget eventual-send: pancake_host_session_send with no answer and no\nvow. Same routing, refusals, and empty-verb contract.");
@@ -413,7 +436,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_vow_untag", &.{ "host", "vow", "tag", "tag_len", "out_vow" }, "Pipeline an op:untag projection against a far host vow, minting a new vow for\nthe unwrapped payload (a single-value Tagged unwraps to that value; a\nvariadic one to its value list). tag is borrowed.");
     try emitFn(&b, gpa, "pancake_host_vow_get", &.{ "host", "vow", "field", "field_len", "out_vow" }, "Pipeline an op:get projection against a far host vow, minting a new vow for\nthe named Struct field. Same local-vow and unknown-vow refusals as\npancake_host_vow_send; field is borrowed.");
 
+    try emitFn(&b, gpa, "pancake_host_spawn_resolver", &.{ "host", "out_vow_id", "out_resolver_id" }, "Mint a resolver pair (ADR-0102): *out_vow_id is the read side, whose whole\nsurface is pancake_host_turn_forward_vow; *out_resolver_id is the settle\nauthority for pancake_host_resolver_fulfill / _break. Legal inside a\nbehavior callback — a behavior mints, defers its answer onto the vow, hands\nthe resolver id to whatever completes the work, and returns.");
+    try emitFn(&b, gpa, "pancake_host_resolver_fulfill", &.{ "host", "resolver_id", "value" }, "Settle a resolver vow fulfilled with one capability-free value (a value\nnaming a capability refuses whole; an answer that carries authority uses\nthe turn's forward instead). Top-level: refused inside a callback; the\nsettle runs the deferred answers and pumps the sessions they dirtied. One\nattempt per resolver; a second settle or an unknown id refuses.");
+    try emitFn(&b, gpa, "pancake_host_resolver_break", &.{ "host", "resolver_id", "message", "message_len" }, "Settle a resolver vow broken with a diagnostic borrowed for the call. The\nsame top-level, one-attempt contract as pancake_host_resolver_fulfill.");
     try emitFn(&b, gpa, "pancake_host_turn_forward", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_reply" }, "From inside a behavior callback, forward this turn's call to an opaque\nHost-scoped target and let this object's own answer settle on the forwarded\nresult — the caretaker/attenuator primitive. The Host resolves the target and\nevery nested capability; a stale or foreign-Host identity is refused. In a\nwire-served turn the real answer rides the forwarded vow and *out_reply gets a\nvoid placeholder; pass your behavior's own out_reply and return PANCAKE_OK.\nThe written reply is BORROWED — valid until the next turn verb or drive on\nthis host. The empty-verb contract is pancake_host_session_send's.");
+    try emitFn(&b, gpa, "pancake_host_turn_forward_vow", &.{ "turn", "vow_id" }, "From inside a behavior callback, defer this turn's answer onto a resolver\nvow (ADR-0102): the answer settles when pancake_host_resolver_fulfill /\n_break fires later, as its own top-level event. vow_id must be the read side\nof pancake_host_spawn_resolver's pair — a wire vow's answer belongs to its\nsession and refuses here. The behavior still returns normally; its return\nvalue resolves nothing once the turn is forwarded.");
     try emitFn(&b, gpa, "pancake_host_turn_send", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_vow" }, "From inside a behavior callback, eventual-send to target and mint a host vow\nfor the answer — the same routing, refusals, and empty-verb contract as\npancake_host_session_send, on the turn's own session. The send encodes when the\nenclosing top-level call unwinds.");
     try emitFn(&b, gpa, "pancake_host_turn_tell", &.{ "turn", "target", "verb", "verb_len", "args", "args_len" }, "From inside a behavior callback, fire-and-forget eventual-send —\npancake_host_turn_send with no answer and no vow. Same empty-verb contract.");
     try emitFn(&b, gpa, "pancake_host_turn_spawn", &.{ "turn", "behavior", "ctx", "free", "out_ref" }, "From inside a behavior callback, spawn a hosted object in the Host Vat and\ncreate its first projection on the Port that delivered this turn. This is how a\nserved factory mints a capability it replies with (a task board's create, a\ncaretaker wrapping a target), the turn-time form of\npancake_host_session_spawn. Same free contract; *out_ref receives the opaque\nHost-scoped capability, ready to ride this turn's own reply.");
@@ -451,10 +478,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "",
         "The verbatim location record, or NULL when the apply path captured none.",
         "",
+        "How the durable identity in designator was authenticated, one of the\nPANCAKE_DURABLE_PROVENANCE_* values. Session identity, durable identity, and\nthis provenance are three separate facts: a caller that requires a proved\ndurable peer reads this, never a comparison of designator against\nsession_key, which is a coincidence of today's key reuse and stops holding\nwhen each connection draws a fresh session key.",
     });
     try b.appendSlice(gpa, "\n");
     try emitFn(&b, gpa, "pancake_host_session_partner_identity", &.{ "session", "out" }, "Borrow this session's verified partner identity into *out: the partner's\nsession public key, the location designator it signed, and the verbatim\nlocation record those came from.\n\nA PANCAKE_OK return always means the signature was checked. Before the\npartner's op:start-session has arrived with a key this returns\nPANCAKE_ERR_WOULD_BLOCK, and a session opened without partner verification\nreturns PANCAKE_ERR_SESSION rather than an identity nothing proved. That\nrefusal is the contract: you cannot read an unverified identity through this\nentry point, so you never have to remember to ask whether the bytes were\nchecked.");
-    try emitFn(&b, gpa, "pancake_host_session_partner_designator_is_key", &.{ "session", "out_matches" }, "Nonzero into *out_matches when this session's partner proved it owns the\ndesignator it advertised, meaning the designator is exactly its verified\nsession key in canonical hex.\n\nThis is here so no binding re-derives that comparison. It answers only for a\nkey-designator transport (keyed-tcp, iroh, webrtc, keyed-relay); an address\ntransport such as tcp names a socket address the key does not determine, so\nthe answer is zero there, and zero is correct rather than a failure. The\nrefusals are pancake_host_session_partner_identity's, and *out_matches is\nleft untouched on any of them.");
 
     try emitFn(&b, gpa, "pancake_host_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last pancake_host_* error into out_buf, the host\nsibling of pancake_last_error, reading this archive's own per-thread slot.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap\n0 queries the length. Returns the full message length, or 0 when none is set.");
     try emitFn(&b, gpa, "pancake_host_clear_last_error", &.{}, "Clear the calling thread's pancake_host_* last-error slot.");

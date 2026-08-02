@@ -29,6 +29,7 @@ const engine = @import("engine");
 const actors = @import("actors");
 const net = @import("net");
 const driver_core = @import("driver_core");
+const settle_mailbox = @import("settle_mailbox.zig");
 
 const Budget = driver_core.Budget;
 const Error = driver_core.Error;
@@ -59,6 +60,9 @@ pub const PollHost = struct {
     poll_scratch: std.ArrayListUnmanaged(std.posix.pollfd) = .empty,
     conn_scratch: std.ArrayListUnmanaged(*Wire) = .empty,
     borrow_scratch: std.ArrayListUnmanaged(*net.Connection) = .empty,
+    /// The off-turn settle mailbox (ADR-0102 stage 4), minted on first
+    /// request; its wake fd rides every readiness wait beside the wires.
+    mailbox: ?*settle_mailbox.SettleMailbox = null,
     /// Where the next readiness scan starts. `net.waitAnyReadable` reports the
     /// *first* ready wire, so a fixed order lets one always-readable partner
     /// starve every sibling — unbounded on `serve`/`step`, which carry no
@@ -72,6 +76,13 @@ pub const PollHost = struct {
     /// safe builds: a view outliving its server's host is a dangle, and the
     /// wire count cannot stand in — redeem-dialed sessions have no view.
     accepted_views: usize = 0,
+    /// One vow whose synchronously settled completion the next action drain
+    /// hands back instead of dropping: the select-or-dial enliven's
+    /// cache-hit arm settles inside the verb, before any listener can
+    /// register. Every other wait on this face registers first, so this is
+    /// the only claimer.
+    awaited_completion: ?u64 = null,
+    claimed_completion: ?driver_core.HostAction = null,
 
     /// Options for the owning face and its `connect`/`listen` views.
     /// `frame_cap` sizes the owned read/write buffers and the session's
@@ -132,10 +143,19 @@ pub const PollHost = struct {
                 break :blk s;
             },
         };
+        // Every session on this host signs with its own key (ADR-0097). The
+        // root is drawn here, at the driver's entropy boundary, because the
+        // sans-io core draws none; it is fresh per process, so a restarted
+        // host cannot recreate a prior session's handoff names.
+        var session_root: [foundation.crypto.SEED_BYTES]u8 = undefined;
+        io.randomSecure(&session_root) catch return Error.HandshakeEntropyFailed;
         var host = PollHost{
             .allocator = allocator,
             .io = io,
-            .core = driver_core.Host.init(allocator, seed, .{ .codec = opts.codec }),
+            .core = driver_core.Host.init(allocator, seed, .{
+                .codec = opts.codec,
+                .session_seeds = .{ .rooted = session_root },
+            }),
             .netlayers = netlayers,
             .opts = opts,
         };
@@ -165,6 +185,7 @@ pub const PollHost = struct {
         self.poll_scratch.deinit(self.allocator);
         self.conn_scratch.deinit(self.allocator);
         self.borrow_scratch.deinit(self.allocator);
+        if (self.mailbox) |mb| mb.deinit();
         self.core.deinit();
     }
 
@@ -279,14 +300,81 @@ pub const PollHost = struct {
     /// Spawn `initial` once in the Host Vat and bind `name` as a Host-wide
     /// alias. Fetching the name lazily projects that actor onto the requesting
     /// Port; exact gifts retain the actor target and do not consult this name
-    /// again.
+    /// again. `Behavior` is Value-shaped (`driver_core.Hosting`), like every
+    /// owning-tier behavior.
     pub fn publishGiftable(
         self: *PollHost,
         name: []const u8,
         comptime Behavior: type,
         initial: Behavior,
     ) !void {
-        _ = try self.core.publishGiftable(name, Behavior, initial);
+        _ = try self.core.publishGiftable(name, driver_core.Hosting(Behavior), .{ .inner = initial });
+    }
+
+    /// Remove the host-wide alias `name` (see `driver_core.Host.unpublish`):
+    /// a later fetch misses on every session, while issued capabilities and
+    /// deposited gifts keep the exact actor.
+    pub fn unpublish(self: *PollHost, name: []const u8) error{ UnknownPublication, ReservedDurableNamespace }!void {
+        return self.core.unpublish(name);
+    }
+
+    /// Adopt a settled/failed completion the enliven wait below is waiting
+    /// for; ownership moves to `claimed_completion` and the wait frees it.
+    fn claimCompletion(self: *PollHost, action: driver_core.HostAction) bool {
+        const wanted = self.awaited_completion orelse return false;
+        const vow_id = switch (action) {
+            .settled => |settled| settled.vow_id,
+            .failed => |failed| failed.vow_id,
+            else => return false,
+        };
+        if (vow_id != wanted or self.claimed_completion != null) return false;
+        self.claimed_completion = action;
+        return true;
+    }
+
+    /// Host-level select-or-dial enlivenment (ADR-0098 step 4): resolve the
+    /// sturdyref's peer to the live dialed session it names, or dial it
+    /// through this host's netlayers, then enliven — under the same complete
+    /// peer check every enliven path shares — and lift the settled
+    /// capability. The caller never picks a session; the peer named in the
+    /// sturdyref does.
+    pub fn enliven(self: *PollHost, sturdy: model.SturdyRef) !driver_core.Capability {
+        const hs = self.core.dialedSessionFor(sturdy.peer.transport, sturdy.peer.designator) orelse
+            try self.connectLocator(sturdy.peer);
+        const vow_id = try self.core.enliven(hs, sturdy);
+        var capture = driver_core.FetchCapture{};
+        var flag = driver_core.SettleFlag{ .inner = .{ .ctx = &capture, .func = driver_core.FetchCapture.record } };
+        self.core.vowOn(vow_id, .{ .ctx = &flag, .func = driver_core.SettleFlag.fire }) catch |err| switch (err) {
+            // The enliven settled inside the verb (a session-cache hit): its
+            // completion is parked on the action queue with no listener to
+            // fire. Claim it from the drain instead of dropping it.
+            error.NoSuchVow => {
+                self.awaited_completion = vow_id;
+                defer self.awaited_completion = null;
+                try self.drainActions();
+                const action = self.claimed_completion orelse return driver_core.Error.ConnectionClosed;
+                self.claimed_completion = null;
+                defer self.core.freeAction(action);
+                return switch (action) {
+                    .settled => |settled| switch (settled.value) {
+                        .reference => |reference| self.core.liftCapability(hs, reference),
+                        else => driver_core.Error.FetchNotACapability,
+                    },
+                    .failed => driver_core.Error.FetchBroken,
+                    else => unreachable,
+                };
+            },
+            else => return err,
+        };
+        self.pumpUntilFlag(hs, &flag.done, self.opts.settle) catch |err| {
+            hs.served.port.breakFarVows(hs.served.closeReason("wait failed"));
+            return err;
+        };
+        return switch (capture.outcome orelse return driver_core.Error.ConnectionClosed) {
+            .capability => |far_ref| self.core.liftCapability(hs, .{ .far = far_ref }),
+            .broken => driver_core.Error.FetchBroken,
+            .not_a_capability => driver_core.Error.FetchNotACapability,
+        };
     }
 
     /// Release one session and its wire: outbound the core already queued for
@@ -353,6 +441,7 @@ pub const PollHost = struct {
         }
 
         pub fn complete(self: Exec, action: driver_core.HostAction) !void {
+            if (self.host.claimCompletion(action)) return;
             self.host.core.freeAction(action);
         }
     };
@@ -529,6 +618,18 @@ pub const PollHost = struct {
         return wire.closed;
     }
 
+    /// The off-turn settle mailbox (ADR-0102 stage 4), minted on the owning
+    /// thread the first time it is asked for. Hand the returned pointer (and
+    /// resolver ids) to worker threads; their `post` calls wake this host's
+    /// readiness wait and the settles apply here, on the owning thread. The
+    /// mailbox lives until the host's own teardown.
+    pub fn settleMailbox(self: *PollHost) !*settle_mailbox.SettleMailbox {
+        if (self.mailbox) |mb| return mb;
+        const mb = try settle_mailbox.SettleMailbox.init(self.allocator, settle_mailbox.default_slots);
+        self.mailbox = mb;
+        return mb;
+    }
+
     /// Fill the scratch lists with the live wires and wait for the first with
     /// readable progress. Null on timeout.
     fn waitAnyReadable(self: *PollHost, timeout_ms: i32) !?usize {
@@ -541,13 +642,27 @@ pub const PollHost = struct {
         if (n == 0) return Error.ConnectionClosed;
         std.mem.rotate(*Wire, self.conn_scratch.items, self.wait_cursor % n);
         self.wait_cursor +%= 1;
-        try self.poll_scratch.resize(self.allocator, n);
+        const wake_fd: ?std.posix.fd_t = if (self.mailbox) |mb| mb.wakeFd() else null;
+        try self.poll_scratch.resize(self.allocator, n + @intFromBool(wake_fd != null));
         // Borrow the connections for the wait through retained scratch; net
         // polls, we route by index, and the wait itself allocates nothing
         // once the lists have grown to the live-wire count.
         try self.borrow_scratch.resize(self.allocator, n);
         for (self.conn_scratch.items, 0..) |wire, i| self.borrow_scratch.items[i] = &wire.conn;
-        return net.waitAnyReadable(self.borrow_scratch.items, self.poll_scratch.items, timeout_ms);
+        const idx = try net.waitAnyReadable(self.borrow_scratch.items, self.poll_scratch.items, timeout_ms, wake_fd) orelse return null;
+        if (idx == n) {
+            // The settle mailbox woke us (ADR-0102 stage 4): apply the
+            // posted settles on this owning thread and write what they
+            // flushed, then report a quiet wait — every pump re-checks its
+            // probe at the loop top, so a settle that completed the wait
+            // terminates it there.
+            const mb = self.mailbox.?;
+            mb.drainWake();
+            mb.apply(&self.core);
+            self.drainActions() catch {};
+            return null;
+        }
+        return idx;
     }
 
     /// One raw read off `wire` fed through the core's stream delimiter.

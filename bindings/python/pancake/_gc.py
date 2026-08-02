@@ -82,12 +82,13 @@ class HostGc:
         self._h = h
 
     def track_import(self, ref: "Ref") -> "Ref":
-        # Register a fetched capability for GC when enabled. The `Ref` holds a
-        # node-unique token (ADR-0069) — only ids in the token range are
-        # tracked — and the host resolves the token to its home connection and
-        # real wire import when the release fires. The finalizer captures only
-        # the bare token integer, never the `Ref`, so it cannot resurrect the
-        # handle whose death it waits on.
+        # Register a fetched capability for GC when enabled. The id is an
+        # opaque Host-scoped identity (ADR-0096) — the fetch seam is what
+        # scopes tracking, not any id-range branch here — and the host
+        # resolves it to its home connection and real wire import when the
+        # release fires. The finalizer captures only the bare id integer,
+        # never the `Ref`, so it cannot resurrect the handle whose death it
+        # waits on.
         h = self._h
         if h is None:
             return ref

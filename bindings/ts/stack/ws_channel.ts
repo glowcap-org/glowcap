@@ -1,11 +1,12 @@
-// One WebSocket adapted to the stack's byte-`Channel` seam, shared by every
-// place that carries pancake bytes over a WebSocket: the browser binding's own
-// dial (`adapter.ts`), the accepting-host test (`test/serve_ws_host.ts`), and
-// the rooms relay test. Each caller differs only in how it gets the socket
-// (opening it, or being handed an accepted one) and whether it wraps a
-// `localAddr`; the byte plumbing is this one function.
+// One WebSocket adapted to the byte-`Channel` seam, shared by every place that
+// carries pancake bytes over a WebSocket: the browser adapter's dial, both
+// halves of the keyed-relay rendezvous (ADR-0088), and the relay tests. The
+// `WebSocket` global is a web standard every supported runtime ships (browser,
+// Deno, Bun), so this is runtime-neutral stack code, not a per-runtime adapter
+// seam. Each caller differs only in how it gets the socket — opening it, or
+// being handed an accepted one; the byte plumbing is this one module.
 
-import type { Channel } from "@pancake/stack";
+import type { Channel } from "./session.ts";
 
 // A `WebSocket` has no drain event, so `write` gates outbound flow by polling
 // `bufferedAmount` down below this high-water before it resolves: a producer
@@ -61,4 +62,18 @@ export function webSocketChannel(ws: WebSocket): Channel {
 			ws.close();
 		},
 	};
+}
+
+/** Open a WebSocket to `url` and adapt it to the byte-`Channel` seam once the
+ * socket is open. A failure before the open rejects here; after it, an error
+ * or close surfaces through the channel's `read`, which the session's teardown
+ * classifies. */
+export function openWebSocketChannel(url: string): Promise<Channel> {
+	return new Promise((resolve, reject) => {
+		const ws = new WebSocket(url);
+		// A pre-open error rejects the connect. Once open, `webSocketChannel`
+		// re-wires the handlers for the byte lifecycle.
+		ws.onerror = () => reject(new Error(`WebSocket connect failed: ${url}`));
+		ws.onopen = () => resolve(webSocketChannel(ws));
+	});
 }

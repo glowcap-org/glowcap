@@ -9,11 +9,11 @@
 // message path, the relay blind to both. Bob answers over that same arriving
 // connection (`currentSession`), so a tab that never listens still replies.
 //
-// This is the browser-to-browser cold-dial on a shared relay. It is not a
-// general stranger cold-dial: the dialer is itself a browser (only a browser
-// carries a `connectRendezvous` adapter today), and the `keyed-relay` locator
-// names the identity, not the relay, so the redeemer reaches it only through the
-// same relay it is already configured for. That honest scope is ADR-0088's.
+// This is the browser-to-browser cold-dial on a shared relay. Its native
+// sibling is `web_dm_native_dial_test.ts`, where the dialer is a plain Deno
+// peer. Either way the `keyed-relay` locator names the identity, not the
+// relay, so the redeemer reaches it only through the relay its host is
+// configured for (`Host.setRendezvousUrl`). That honest scope is ADR-0088's.
 //
 // The room and both tabs run over plain TCP-through-relay (no iroh, no cargo):
 // the tabs reach the room over `/relay?target=…` and reach each other over the

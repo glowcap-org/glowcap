@@ -293,8 +293,9 @@
                 (define-values (rc p) (pancake_host_session_spawn (session-ptr c) tramp #f #f))
                 (check/host rc)
                 p])))])))
-  (bind-export! v actor (ref-id capability))
-  (make-ref/internal (ref-id capability)))
+  (define id (PancakeReference-id capability))
+  (bind-export! v actor id)
+  (make-ref/internal id))
 
 ;; ADR-0064 caretaker factory: resolve `target`, spawn a forwarding actor, host
 ;; it, and record the live box for `revoke-caretaker!`. Session's

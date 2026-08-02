@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# pancake — format a single agent-edited Zig file.
+# pancake — format a single agent-edited file (Zig, Rust, TypeScript/JavaScript).
+# Python and Racket have no single-file formatter on PATH; the
+# `bindings-fmt-check` gate holds them.
 #
 # Wired from:
 #   .cursor/hooks.json    (afterFileEdit)                       — input is .file_path
@@ -28,5 +30,23 @@ case "$abs_path" in
       exit 0
     fi
     zig fmt "$abs_path" >&2 || true
+    ;;
+  *.rs)
+    if ! command -v rustfmt >/dev/null 2>&1; then
+      printf 'pancake hook: rustfmt not on PATH; skipping %s\n' "$abs_path" >&2
+      exit 0
+    fi
+    # Config (tabs, edition) comes from the root rustfmt.toml, which rustfmt
+    # discovers upward from the file.
+    rustfmt "$abs_path" >&2 || true
+    ;;
+  *.ts|*.js)
+    if ! command -v deno >/dev/null 2>&1; then
+      printf 'pancake hook: deno not on PATH; skipping %s\n' "$abs_path" >&2
+      exit 0
+    fi
+    # Run from the file's directory so deno discovers the nearest deno.json
+    # (the bindings workspace and the root scope carry different fmt blocks).
+    (cd "$(dirname "$abs_path")" && deno fmt "$abs_path") >&2 || true
     ;;
 esac

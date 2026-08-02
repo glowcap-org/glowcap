@@ -156,6 +156,12 @@ const registered = [_]Table{
     },
     .{
         .file = "driver/core/host.zig",
+        .name = "peer_by_durable",
+        .owner = "Durable peer identities a partner *proved* to this host (ADR-0097). Only an authenticated designator is indexed, so an unproved claim cannot occupy dial availability, and the bytes are the session's own arena-held designator. Deliberately not partner_by_side, which names a session incarnation by the key that signed it.",
+        .epoch = "Written when the partner's handshake half arrives and never rewritten; the row clears on unindex, condemn, and release, and removal is identity-checked so a released session cannot evict a newer session's row for the same peer.",
+    },
+    .{
+        .file = "driver/core/host.zig",
         .name = "giftables",
         .owner = "Application-installed bootstrap aliases in one Host; only that Host's projection seam resolves them for its session Ports.",
         .epoch = "Replacement intentionally changes discovery in place and Host teardown removes the row. Issued capabilities and deposited gifts retain Vat targets instead of this mutable name.",
@@ -189,6 +195,18 @@ const registered = [_]Table{
         .name = "listeners",
         .owner = "Answer positions on the vat's own sessions; per vat.",
         .epoch = "A listener row is removed when it fires or its session goes.",
+    },
+    .{
+        .file = "actors/vat/mod.zig",
+        .name = "resolver_vows",
+        .owner = "Resolver ids minted by this vat's own monotonic counter (ADR-0102); the map is the vat's, so the vat is the owner dimension.",
+        .epoch = "Ids are never reused, and a row is consumed by the first settle attempt, so a resolver maps to a live authority or to nothing.",
+    },
+    .{
+        .file = "driver/core/host.zig",
+        .name = "resolver_index",
+        .owner = "Host resolver ids from the host's own monotonic counter (ADR-0102), distinct from the vow-id namespace beside it; per host.",
+        .epoch = "Ids are never reused, and a row is consumed by the first settle attempt, so a resolver maps to a live authority or to nothing.",
     },
     .{
         .file = "actors/vat/boxed.zig",
@@ -225,6 +243,30 @@ const registered = [_]Table{
         .name = "by_id",
         .owner = "Connection ids the bound sidecar endpoint mints; the reverse of `conns`, scoped to this backend and endpoint.",
         .epoch = "Monotonic and never reused during the endpoint lifetime, so queued readiness for a released connection cannot name its replacement.",
+    },
+    .{
+        .file = "net/transport/webrtc.zig",
+        .name = "conns",
+        .owner = "Synthetic descriptors this backend mints from its own `next_fd` counter to stand in for sidecar peers. They are not OS descriptors and nothing outside this backend chooses one.",
+        .epoch = "Monotonic and never reused, so a stale synthetic fd finds no row rather than another peer's.",
+    },
+    .{
+        .file = "net/transport/webrtc.zig",
+        .name = "by_id",
+        .owner = "Peer ids the bound sidecar resident mints (`ReadyEvent.subject`); the reverse of `conns` plus the pre-open rows, scoped to this backend and resident.",
+        .epoch = "Stable and never reused during the resident lifetime, so queued readiness for a released peer cannot name its replacement.",
+    },
+    .{
+        .file = "net/transport/webrtc.zig",
+        .name = "pending_dials",
+        .owner = "Synthetic descriptors this backend reserves from its own `next_fd` counter, doubling as the signaling exchange tokens its authority routes by.",
+        .epoch = "Monotonic and never reused. A row lives from `startDial` through the channel's open, its close, or `closeFd`.",
+    },
+    .{
+        .file = "net/transport/webrtc.zig",
+        .name = "adopting",
+        .owner = "The same synthetic-descriptor namespace as `pending_dials`, reserved by `adoptAnswerer` for signaled inbound peers.",
+        .epoch = "Monotonic and never reused. A row lives from adoption through the channel's open or its close.",
     },
     .{
         .file = "net/transport/iroh.zig",

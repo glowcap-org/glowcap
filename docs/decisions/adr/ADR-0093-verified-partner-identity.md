@@ -62,9 +62,15 @@ refusal and not a flag on the result.
 covers the whole location record, so the designator is bound to the key by the
 same signature. `PartnerIdentity.designatorIsSessionKey` compares the
 designator against the key in the canonical hex a key designator is spelled in,
-and `pancake_host_session_partner_designator_is_key` wraps it, so no binding
-re-derives that encoding. This is the same reasoning that put dial resolution in
-`driver_core.dial_plan` rather than in four bindings.
+so no binding re-derives that encoding. This is the same reasoning that put dial
+resolution in `driver_core.dial_plan` rather than in four bindings.
+
+[ADR-0097](ADR-0097-captp-session-identity-attestation.md) later demoted that
+comparison to a diagnostic and gave the identity a third field. Whether a
+partner's durable name was *authenticated* is now `PartnerIdentity.provenance`,
+which every public tier reports, because key equality is a coincidence of
+today's key reuse and answers false for a fully authenticated partner once each
+connection draws a fresh session key.
 
 ## Scope (what this does not decide)
 

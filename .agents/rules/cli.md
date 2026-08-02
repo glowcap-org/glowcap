@@ -15,6 +15,9 @@ zig build check
 
 A gate passes by its exit code, not by its output: piping through `tail` or
 `grep` reports the pipe's status and turns a failing build into a false green.
+The converse also holds: the build runner echoes a passing step's captured
+stderr under a `failed command:` label, so error-shaped output in a green log
+is not a failure verdict either.
 Run `zig build` from the repository root: run from a subdirectory it drops
 `zig-out/` and `.zig-cache/` debris where it stands and resolves relative
 manifest paths wrong. Test runs are exclusive: the suite and the interop steps
@@ -81,7 +84,7 @@ zig build docs              # generate the Zig API reference (autodoc) under zig
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
 zig build oracle-check
-zig build check-external     # core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role and the relayed give, upstream-Syrup corpus parity (needs uv + racket + goblins)
+zig build check-external     # core external protocol baseline: upstream OCapN suite, pinned-source findings, native Goblins both directions, every handoff role, the relayed give, the hinted-locator give, upstream-Syrup corpus parity (needs uv + racket + goblins)
 zig build consumer-check     # build a downstream package against the pancake module — the README's fetch-and-import path, as a check; part of check
 zig build cross-check        # compile-only: full library for macOS (kqueue) + sans-io core for wasm32 + the browser-binding wasm Host, part of check
 zig build wasm-driver        # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
@@ -125,6 +128,7 @@ zig build racket-goblins-interop # live keyed conversation: Racket binding vs a 
 zig build bindings-goblins-interop # per-binding live keyed conversation vs a real Goblins vat, every binding (needs racket + goblins + the runtimes)
 zig build goblins-handoff   # live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)
 zig build goblins-gift      # live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)
+zig build goblins-gift-hints # the gift topology with a credential-bearing exporter locator: the Goblins exporter's hello advertises a session-key-attestation hint dict, pancake's give embeds it verbatim, and live Goblins decodes, re-encodes, and verifies it byte-exactly (ADR-0097 step 1; needs racket + goblins)
 zig build goblins-exporter  # live three-party handoff vs Goblins, pancake as exporter: a Goblins pair deposits into and withdraws from pancake's gift registry (needs racket + goblins)
 zig build goblins-relayed-give # live relayed give vs Goblins: pancake introduces a Goblins recipient to a promise a second Goblins vat has not settled, and the recipient reads the give out of the listener fire (needs racket + goblins)
 zig build goblins-gc        # live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)
@@ -145,11 +149,13 @@ zig build webrtc-sidecar-test # run the WebRTC sidecar Rust unit tests, includin
 zig build webrtc-datachannel-test # prove a headless Chromium RTCDataChannel carries bytes both directions to a native webrtc-crate peer on loopback (ADR-0089 phase 1, signaling out-of-band over stdio; needs cargo + deno + a Playwright Chromium)
 zig build webrtc-resident-check # type-check the WebRTC DataChannel netlayer resident src/net/transport/webrtc.zig (ADR-0089 phase 2), compile-only, no cargo; also rides check
 zig build webrtc-interop     # live WebRTC: two native pancake peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (ADR-0089 phase 2; needs cargo)
+zig build webrtc-loop        # live WebRTC scale: many concurrent DataChannels served from one loop thread through the generic Host completion adapter (webrtc.Backend + Bridge + Host, ADR-0089; needs cargo)
+zig build webrtc-bridge-redeem # live native three-party handoff over WebRTC: the recipient's loop redeems a give naming a bare webrtc designator, dialing through its configured signaling authority (ADR-0089; needs cargo)
 zig build webrtc-mesh      # live WebRTC signaling mesh: two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089 phase 5; needs cargo)
 zig build webrtc-signaling-captp # live WebRTC signaling capability over CapTP: the exporter hosts a signaling inbox behind a keyed session, the recipient drives offer/answer/candidate over it to open a DataChannel, then holds a keyed session over it (ADR-0089 phase 5; needs cargo)
 zig build webrtc-answerer  # build the native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6; needs cargo)
 zig build webrtc-browser-peer # prove a real headless Chromium runs @pancake/web + @pancake/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)
-zig build webrtc-browser-to-browser # prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the signaling host out of the byte path (ADR-0089 phase 6; needs deno + a Playwright Chromium)
+zig build webrtc-browser-to-browser # prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the offerer dialing a bare webrtc locator through its host's configured signaling authority (Host.setSignaling), the signaling host out of the byte path (ADR-0089; needs deno + a Playwright Chromium)
 zig build iroh-interop      # live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)
 zig build iroh-reachability # opt-in: live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (needs cargo + internet)
 zig build iroh-loop         # live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)
@@ -175,6 +181,12 @@ zig build deno-keyed-tcp-restart # keyed-tcp restart proof: the Deno binding (ha
 zig build python-keyed-tcp-restart # keyed-tcp restart proof: the Python binding (happy, squatter, restart)
 zig build rust-keyed-tcp-restart # keyed-tcp restart proof: the Rust binding (happy, squatter, restart; needs cargo)
 zig build racket-keyed-tcp-restart # keyed-tcp restart proof: the Racket binding (happy, squatter, restart; needs racket)
+zig build bindings-keyed-relay-rendezvous # per-consumer keyed-relay rendezvous cold-dial proof: each language binding and the native CLI dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)
+zig build deno-keyed-relay-rendezvous # keyed-relay rendezvous cold-dial proof: the Deno binding dials a registered peer through the reference relay (needs deno)
+zig build python-keyed-relay-rendezvous # keyed-relay rendezvous cold-dial proof: the Python binding dials a registered peer through the reference relay (needs deno + uv)
+zig build racket-keyed-relay-rendezvous # keyed-relay rendezvous cold-dial proof: the Racket binding dials a registered peer through the reference relay (needs deno + racket)
+zig build rust-keyed-relay-rendezvous # keyed-relay rendezvous cold-dial proof: the Rust binding dials a registered peer through the reference relay (needs deno + cargo)
+zig build zig-keyed-relay-rendezvous # keyed-relay rendezvous cold-dial proof: the native pancake CLI dials a registered peer through the reference relay via PANCAKE_RENDEZVOUS (needs deno)
 zig build bindings-iroh-reachability # per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)
 zig build deno-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Deno binding (opt-in; needs cargo + deno + internet)
 zig build python-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)
@@ -188,7 +200,7 @@ zig build release-pack      # stage the installed archives, headers, and license
 zig build fixture-gen-check # regenerate the Syrup fixture corpus via the upstream Racket Syrup encoder and diff against the committed bytes (needs racket + syrup)
 zig build gen-capnp-fixtures # regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/
 zig build c-abi-extract-check # hermetic C-ABI extract hygiene: run each resolve port's own validator against the hostile fixture set in tools/c-abi/c-abi-extract-matrix.sh, accept clean lib/ (ADR-0077; part of check)
-zig build ocapn-findings-check # reproduce the pinned op:listen arity discrepancy against the OCapN spec, suite, and Goblins submodules; part of check-external
+zig build ocapn-findings-check # reproduce the pinned op:listen, locator-hints, and withdrawal-lookup discrepancies against the OCapN spec, suite, and Goblins submodules; part of check-external
 zig build ocapn-conformance # run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)
 zig build demo-rooms             # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-rooms-iroh        # the rooms chat over iroh's encrypted QUIC: an iroh-enabled Zig client + cross-language clients through the iroh C ABI (needs cargo + deno)
@@ -204,8 +216,11 @@ zig build rooms-web              # serve the rooms browser UI over TCP (public r
 zig build rooms-web-relay-peer   # prove a wasm browser peer drives the room directory through serve.ts's /relay byte pipe (needs deno)
 zig build rooms-web-browser-peer # prove a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)
 zig build rooms-web-page      # prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
+zig build rooms-web-reconnect # prove the rooms page survives losing its room server: it notices, reconnects and re-enters its room untouched, keeps the conversation the dead session delivered, and reaches the room again over the new one (needs deno + a Playwright Chromium)
 zig build rooms-web-dm        # prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-tabs   # prove two browser tabs cold-dial each other by relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser on a shared relay, deno-only (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-native # prove a native peer cold-dials a browser member by relay rendezvous (ADR-0088): the tab registers its keyed identity, the native Host redeems a room introduction through its configured rendezvous mapping (Host.setRendezvousUrl), the keyed session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-webrtc # prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only the offer/answer/candidate exchange (Host.setSignaling), the keyed session opens over the DataChannel off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-retarget # prove a nickname changing hands cannot move a direct conversation: the member leaves, another is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)
 zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build rooms-deploy-prep  # build everything the rooms deploy container mounts: shared libraries, iroh transport, wasm Host, and the prebuilt browser bundle (needs cargo + deno)

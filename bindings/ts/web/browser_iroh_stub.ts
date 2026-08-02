@@ -6,7 +6,7 @@
 // over it. The relay only moves bytes; session authority stays end to end.
 
 import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
-import { webSocketChannel } from "./ws_channel.ts";
+import { webSocketChannel } from "../stack/ws_channel.ts";
 import { _relayUrl } from "./mod.ts";
 
 // The relay accepts this socket first and dials the far endpoint only after, so

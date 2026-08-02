@@ -53,6 +53,30 @@ pub(crate) async fn fetch_like(
 /// The send spine both `Session::send` and a local `Forward`'s far arm
 /// ride: mint the vow (which IS the registration) under the same synchronous
 /// call stack, then hand back the promise.
+/// `Session::listen`'s wire half: mint the listen vow over a held far promise
+/// (CapTP `op:listen`) and hand back the settle handle. The vow is plain — a
+/// listen may settle to any value, not only a capability.
+pub(crate) fn listen_promise(shared: &Rc<SessionShared>, target: &crate::Ref) -> RemotePromise {
+	let failed =
+		|error: Error, conn: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(conn));
+	if let Err(error) = shared.guard_open() {
+		return failed(error, shared);
+	}
+	shared.drain_gc();
+	let wire = match target.to_sys() {
+		Ok(wire) => wire,
+		Err(error) => return failed(error, shared),
+	};
+	let mut vow: u64 = 0;
+	let rc = unsafe { ffi::pancake_host_session_listen(shared.ptr.get(), &wire, &mut vow) };
+	if let Err(error) = check_host(rc) {
+		return failed(error, shared);
+	}
+	shared.host.vow_minted(vow, Some(shared));
+	shared.host.schedule_kick();
+	RemotePromise::far(vow, Rc::clone(shared))
+}
+
 pub(crate) fn send_promise(
 	shared: &Rc<SessionShared>,
 	target: CmdTarget,

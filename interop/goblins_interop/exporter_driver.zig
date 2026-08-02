@@ -49,24 +49,64 @@ const opts: driver.SessionOptions = .{
     .settle = .{ .ms = 20_000 },
 };
 
-/// The exported capability. Carol reaches it only through the handoff.
+/// The exported capability, one stateful Host-Vat actor for every session.
+/// Alice primes it with a marker before any introduction; Carol reaches it
+/// only through the handoff, and her greeting must carry that marker — which
+/// proves the withdrawn object is the exact mutated actor, even after the
+/// alias it was discovered under has been replaced.
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        if (msg.args.len != 1 or msg.args[0] != .string) return error.BadInvocation;
+    primed: *std.atomic.Value(bool),
+    mark: [64]u8 = undefined,
+    mark_len: usize = 0,
+
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        // A Goblins `(<- greeter 'prime "…")` arrives with the method symbol
+        // as the deliver's verb; the plain greet arrives with an empty verb
+        // and the caller's name as the one argument.
+        if (std.mem.eql(u8, verb, "prime")) {
+            if (args.len != 1 or args[0] != .string) return error.BadInvocation;
+            self.mark_len = @min(args[0].string.len, self.mark.len);
+            @memcpy(self.mark[0..self.mark_len], args[0].string[0..self.mark_len]);
+            self.primed.store(true, .release);
+            return .{ .string = "primed" };
+        }
+        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(
-            turn.arena,
-            "Hello {s}, I'm the pancake exporter, reached by handoff!",
-            .{msg.args[0].string},
+            ht.turn.arena,
+            "Hello {s}, I'm the pancake exporter, primed with {s}!",
+            .{ args[0].string, self.mark[0..self.mark_len] },
         ) };
     }
 };
 
+/// The replacement bound after Alice's deposit path is armed. If withdrawal
+/// wrongly consulted the alias, Carol's greeting would come from here and the
+/// marker assert below would fail the run.
+const DecoyGreeter = struct {
+    pub fn handle(self: *DecoyGreeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = self;
+        _ = ht;
+        _ = verb;
+        _ = args;
+        return .{ .string = "I am the decoy the alias now names" };
+    }
+};
+
 /// Serve every partner that dials: Alice (who enlivens and deposits) and Carol
-/// (who withdraws). Both sessions share one `driver.Server` host, which is what
-/// lets the gift Alice deposited be withdrawn by Carol — the gift registry is
-/// the host's, not the session's (ADR-0056).
-fn serveExporter(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
+/// (who withdraws). Both sessions share one `driver.Server` host, which is
+/// what lets the gift Alice deposited be withdrawn by Carol; the greeter is
+/// one Host-wide giftable, so both Ports project the same actor (ADR-0096).
+fn serveExporter(
+    server: *driver.Server,
+    done: *std.atomic.Value(bool),
+    primed: *std.atomic.Value(bool),
+    replaced: *std.atomic.Value(bool),
+) anyerror!void {
+    // One thread drives one host: every host verb — the publication, the
+    // accepts, the pumping, and the mid-run alias replacement — lives on this
+    // serving thread; main only watches the atomics.
+    try server.publishGiftable(greeter_swiss, Greeter, .{ .primed = primed });
+
     var sessions: [4]?*driver.Session = .{ null, null, null, null };
     var count: usize = 0;
     defer for (sessions[0..count]) |s| if (s) |sess| sess.deinit();
@@ -74,11 +114,6 @@ fn serveExporter(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror
     while (!done.load(.acquire)) {
         if (count < sessions.len and server.waitAcceptable(20) catch false) {
             const session = server.accept() catch continue;
-            // This fixture still publishes a separate stateless greeter on
-            // each session. It proves live Goblins deposit/withdraw
-            // choreography, not Host-wide exact-object identity; the latter's
-            // missing live mutation case is tracked in docs/community-review.
-            _ = session.publish(greeter_swiss, Greeter, .{}) catch {};
             sessions[count] = session;
             count += 1;
         }
@@ -86,6 +121,14 @@ fn serveExporter(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror
             if (s) |sess| {
                 _ = sess.stepReadable(10) catch {};
             }
+        }
+        if (primed.load(.acquire) and !replaced.load(.acquire)) {
+            // Alice's prime has landed, so she holds the original actor.
+            // Replace the alias with the decoy before Carol exists: the
+            // withdrawal must project the deposited actor, not resolve the
+            // name again.
+            server.publishGiftable(greeter_swiss, DecoyGreeter, .{}) catch {};
+            replaced.store(true, .release);
         }
     }
 }
@@ -112,8 +155,10 @@ pub fn main(init: std.process.Init) !void {
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind }, .ephemeral, opts);
     defer server.close() catch {};
 
+    var primed = std.atomic.Value(bool).init(false);
+    var replaced = std.atomic.Value(bool).init(false);
     var done = std.atomic.Value(bool).init(false);
-    var serving = try io.concurrent(serveExporter, .{ &server, &done });
+    var serving = try io.concurrent(serveExporter, .{ &server, &done, &primed, &replaced });
     defer {
         done.store(true, .release);
         serving.await(io) catch {};
@@ -137,6 +182,20 @@ pub fn main(init: std.process.Init) !void {
 
     var alice_designator_buf: [32]u8 = undefined;
     const alice_designator = try std.fmt.bufPrint(&alice_designator_buf, "{s}:{s}", .{ host_addr, alice_port_str });
+
+    // Wait until Alice's prime landed and the serving thread bound the decoy
+    // over the alias: from here, only exact-object withdrawal can carry the
+    // mark.
+    {
+        const deadline = harness.deadlineAfter(io, deadline_ms);
+        while (!replaced.load(.acquire)) {
+            if (harness.expired(io, deadline)) {
+                goblins_child.dumpChildStderr(io, "goblins-exporter", &alice);
+                return error.PrimeNeverArrived;
+            }
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+        }
+    }
 
     // Carol enlivens Alice's introducer, receives the give naming pancake, and
     // must reach pancake directly to use it.
@@ -166,7 +225,7 @@ pub fn main(init: std.process.Init) !void {
     alice.kill(io);
     alice_reaped = true;
     std.debug.print(
-        "goblins-exporter OK: a live Goblins pair deposited into and withdrew from pancake's gift registry, reaching the pancake-hosted capability\n",
+        "goblins-exporter OK: a live Goblins pair deposited into and withdrew from pancake's gift registry, reaching the exact primed actor across an alias replacement\n",
         .{},
     );
 }
@@ -182,7 +241,12 @@ fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
             else => return err,
         };
         std.debug.print("goblins-exporter: {s}", .{line});
-        if (std.mem.indexOf(u8, line, "GIFT OK:") != null) return;
+        if (std.mem.indexOf(u8, line, "GIFT OK:") != null) {
+            // The greeting must be the primed original, not the decoy the
+            // alias now names: exact-object identity, proven live.
+            if (std.mem.indexOf(u8, line, "primed with alice-mark-7") == null) return error.WrongObjectWithdrawn;
+            return;
+        }
         if (std.mem.indexOf(u8, line, "GIFT ERR:") != null or
             std.mem.indexOf(u8, line, "GIFT TIMEOUT") != null) return error.HandoffFailed;
     }

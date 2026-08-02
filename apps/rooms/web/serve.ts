@@ -62,9 +62,20 @@ const ROOT = new URL(".", import.meta.url).pathname;
 // dies writing `deno.lock`, and the supervisor respawns it forever. Nothing
 // needs the lockfile: it is gitignored, and the one npm dependency is version
 // pinned in the import map.
-const DENO_FLAGS = TRANSPORT === "iroh"
-	? ["run", "-A", "--unstable-ffi", "--no-lock"]
-	: ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", "--no-lock"];
+// The same scoped set on both arms. The iroh room server needs one thing the TCP
+// one does not — `--unstable-ffi`, for the transport's dynamic library — and
+// nothing else: it reads that library, opens sockets, and reads the environment
+// exactly as the TCP arm does. It used to be given everything, which is a wider
+// grant than a network-facing child has any use for.
+const DENO_FLAGS = [
+	"run",
+	"--allow-ffi",
+	"--allow-read",
+	"--allow-net",
+	"--allow-env",
+	"--no-lock",
+	...(TRANSPORT === "iroh" ? ["--unstable-ffi"] : []),
+];
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -244,14 +255,15 @@ console.log(
 	} ${ROOT}../clients/deno/chat.ts ${roomLocator} <room> <nick>)`,
 );
 
-// The browser UI lives in ui/: page.html, page.css, and a set of TypeScript modules
-// entered through main.ts. page.html and page.css are read fresh on each request, so
-// editing them shows on a browser refresh with no restart. The modules are authored in
-// TypeScript (ui/deno.json targets the DOM libs) and served as JavaScript: a pre-built
-// ui/page.js is used if present — the deploy builds it ahead of time with `deno bundle`,
-// so the runtime does not need to download bundler dependencies — otherwise the bundle
-// runs once here at startup (a module edit needs a restart to re-bundle). Everything is
-// served with no-store, so a browser always fetches the current build.
+// The browser UI lives in ui/: page.html, page.css, and a set of React components
+// entered through main.tsx. page.html and page.css are read fresh on each request, so
+// editing them shows on a browser refresh with no restart. The components are authored in
+// TypeScript and JSX (ui/deno.json targets the DOM libs) and served as JavaScript: a
+// pre-built ui/page.js is used if present — the deploy builds it ahead of time with
+// `deno bundle`, so the runtime does not need to download bundler dependencies —
+// otherwise the bundle runs once here at startup (a module edit needs a restart to
+// re-bundle). Everything is served with no-store, so a browser always fetches the current
+// build.
 const UI_DIR = `${ROOT}ui/`;
 // Not minified, so the served bundle stays readable in the browser's view-source.
 // A production build can shrink it a lot by adding "--minify" to a pre-built
@@ -268,7 +280,7 @@ async function bundleClient(): Promise<string> {
 			"--quiet",
 			"--config",
 			BROWSER_BUNDLE_CONFIG,
-			`${UI_DIR}main.ts`,
+			`${UI_DIR}main.tsx`,
 		],
 		stdout: "piped",
 		stderr: "piped",
@@ -279,16 +291,24 @@ async function bundleClient(): Promise<string> {
 	return new TextDecoder().decode(stdout);
 }
 // The newest modification time across the UI sources, or null if none can be read.
-// Used only to tell a current prebuilt bundle from a stale one.
-async function newestSourceTime(): Promise<number | null> {
+// Used only to tell a current prebuilt bundle from a stale one. It walks, rather
+// than reading one directory, so putting a component in a subdirectory cannot
+// quietly stop the staleness check from seeing it.
+async function newestSourceTime(dir = UI_DIR): Promise<number | null> {
 	let newest: number | null = null;
+	const note = (at: number | undefined) => {
+		if (at !== undefined && (newest === null || at > newest)) newest = at;
+	};
 	try {
-		for await (const entry of Deno.readDir(UI_DIR)) {
+		for await (const entry of Deno.readDir(dir)) {
+			const path = `${dir}${entry.name}`;
+			if (entry.isDirectory) {
+				note(await newestSourceTime(`${path}/`) ?? undefined);
+				continue;
+			}
 			if (!entry.isFile) continue;
-			if (!/\.(ts|css|html)$/.test(entry.name)) continue;
-			const stat = await Deno.stat(`${UI_DIR}${entry.name}`);
-			const at = stat.mtime?.getTime();
-			if (at !== undefined && (newest === null || at > newest)) newest = at;
+			if (!/\.(tsx?|css|html)$/.test(entry.name)) continue;
+			note((await Deno.stat(path)).mtime?.getTime());
 		}
 	} catch {
 		return null;

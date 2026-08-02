@@ -40,8 +40,11 @@
 ;; The layout gate, as in `ffi-shared.rkt`: the hand-mirrored ready-event
 ;; record is pinned at require time against `PANCAKE-IROH-READY-EVENT-SIZE`
 ;; (from `layouts-gen.rkt`) and the field layout hand-copied here (conn at 0,
-;; events at 8, trailing pad to 16).
-(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE '(uintptr uint32))
+;; events at 8, trailing pad to 16). The expected spelling is what
+;; `ctype->layout` reports, not the ctype the field is declared with:
+;; `_uintptr` is an alias that normalizes to `uint64` on a 64-bit target, and
+;; naming the alias here fails the gate on every load.
+(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE '(uint64 uint32))
 
 ;; One iroh endpoint's config, the cstruct counterpart of the header's
 ;; PancakeIrohConfig: reachability (mandatory) + connect_timeout_ms (0 = the

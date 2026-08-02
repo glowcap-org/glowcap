@@ -55,6 +55,9 @@ require_text "$suite" "wants_partial = record.args[2]" "suite third op:listen op
 require_text "$goblins" "(to-desc listener-desc wants-partial?)" "Goblins third op:listen operand"
 require_text "$netlayers" "Since hints is just a mapping of information" "draft mapping-shaped locator hints"
 require_text "$goblins_urls" "[hints (or/c #f string?)]" "Goblins string-or-false locator hints"
+require_text "$goblins_urls" "ignoring hints" "Goblins hints-ignoring node equality"
+require_text "$goblins" "($ locations->open-session-names 'ref exporter-location))" "Goblins withdrawal session lookup by full node value"
+require_text "$goblins" "($ locations->open-session-names 'set remote-location session-name)" "Goblins session registration under the hello-declared location"
 
-printf '%s\n' "ocapn-findings-check: pinned op:listen and locator-hints discrepancies reproduced"
+printf '%s\n' "ocapn-findings-check: pinned op:listen, locator-hints, and withdrawal-lookup discrepancies reproduced"
 git -C "$repo_root" submodule status -- $submodules
