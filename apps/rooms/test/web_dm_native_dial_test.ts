@@ -25,13 +25,12 @@
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server and the native peer dlopen them), and a Playwright
-// Chromium (`npx playwright install chromium && sudo npx playwright
-// install-deps`).
+// Chromium (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web_dm_native_dial_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
-import { formatPeerUri, Host, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
-import { dial } from "../lib/locator.ts";
+import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
+import { dial, roomsHost } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
 
@@ -160,7 +159,7 @@ try {
 	// The native peer: one Host whose rendezvous mapping names the relay's
 	// bridge leg — deployment configuration, the same fact the page wires for
 	// its own tabs. Everything else is the ordinary native rooms client.
-	const carolHost = new Host();
+	const carolHost = roomsHost();
 	carolHost.setRendezvousUrl((id) =>
 		`ws://127.0.0.1:${httpPort}/relay?rendezvous=${encodeURIComponent(id)}`
 	);

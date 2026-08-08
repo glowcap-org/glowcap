@@ -22,6 +22,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_iroh_netlayer_direct_addrs", .out_params = &.{ 1, 3 } },
     .{ .name = "pancake_iroh_conn_release" },
     .{ .name = "pancake_iroh_conn_id" },
+    .{ .name = "pancake_iroh_conn_remote_node_id", .out_params = &.{ 1, 3 } },
     .{
         .name = "pancake_iroh_netlayer_readiness_fd",
         .section = "The event-driven loop surface: the netlayer's one I/O model.\n`readiness_fd` hands back the endpoint's single OS readiness fd, which the\nevent loop parks on (a `node:net` Socket over a dup of it); `drain_ready`,\nconnect lifecycle, and the `try_*` calls all return immediately.",

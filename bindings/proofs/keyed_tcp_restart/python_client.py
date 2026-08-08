@@ -50,26 +50,25 @@ async def serve_once(server) -> None:
 async def call_greeter(uri: str, expected: str) -> None:
     conn = await connect(uri)
     try:
-        # On this transport the designator is the peer's *durable* identity, so
-        # the identity the handshake proved has to be the one that was dialed.
+        # Keyed TCP carries a key-shaped designator. The verified session hello
+        # must claim the dial target, but the cleartext channel does not prove
+        # control of that durable key.
         proved = conn.partner_identity()
         if proved.designator != expected:
-            fail("keyed-tcp-restart", f"partner signed {proved.designator}, not the dialed {expected}")
-        # And its session key is deliberately NOT that identity: every
-        # connection signs with its own key (ADR-0097), so a session key is not
-        # a name and comparing the two would prove nothing.
+            fail("keyed-tcp-restart", f"partner claimed {proved.designator}, not the dialed {expected}")
+        # Every connection signs with a fresh session key (ADR-0097), distinct
+        # from the claimed durable designator.
         if proved.session_key.hex() == expected:
-            fail("keyed-tcp-restart", "session key still spells the durable designator; sessions are not keyed per connection")
-        # What proved the durable identity is the hello's
-        # session-key-attestation credential, which is what a caller needing a
-        # proved peer reads.
-        if proved.provenance is not DurableProvenance.DURABLE_KEY_ATTESTATION:
+            fail("keyed-tcp-restart", "session key still equals the durable designator; sessions are not keyed per connection")
+        # Raw keyed TCP carries the stable key-shaped locator but does not prove
+        # that whoever answered controls it.
+        if proved.provenance is not DurableProvenance.UNAUTHENTICATED:
             fail(
                 "keyed-tcp-restart",
-                f"keyed-tcp durable provenance is {proved.provenance}, not the attestation credential",
+                f"keyed-tcp durable provenance is {proved.provenance}, not unauthenticated",
             )
-        if not proved.durable_identity_authenticated():
-            fail("keyed-tcp-restart", "a keyed-tcp partner's durable identity is authenticated")
+        if proved.durable_identity_authenticated():
+            fail("keyed-tcp-restart", "raw keyed-tcp authenticated an unproved locator claim")
         greeter_ref = await conn.fetch("greeter")
         reply = await conn.send(greeter_ref, "greet", [])
         if reply != GREETING:

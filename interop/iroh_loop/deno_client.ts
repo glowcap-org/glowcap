@@ -69,7 +69,7 @@ async function clientOnce(serverId: string): Promise<void> {
 	}
 }
 
-const server = listenIroh(Reachability.LocalDiscovery);
+const server = listenIroh({ reachability: Reachability.LocalDiscovery });
 const serverId = server.nodeId;
 console.log(`${GATE}: server endpoint id ${serverId}`);
 

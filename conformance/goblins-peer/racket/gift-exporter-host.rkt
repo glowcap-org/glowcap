@@ -14,9 +14,8 @@
 ;;
 ;; With the optional pair, this vat's advertised location carries a hints
 ;; mapping `{hint-name: <bytes of hint-hex>}` in its hello. The gifter then
-;; embeds that hinted location verbatim in its `desc:handoff-give`, which is
-;; how a session-key-attestation credential would ride an exporter locator
-;; (ADR-0097's provisional shape).
+;; embeds that hinted location verbatim in its `desc:handoff-give`. This checks
+;; Goblins' mapping-shaped hint round trip with opaque route metadata.
 ;;
 ;; Stdout (line-buffered NDJSON):
 ;;   {"v":1,"event":"vat-ready","vat":"goblins-bob","listen":"127.0.0.1:22120"}

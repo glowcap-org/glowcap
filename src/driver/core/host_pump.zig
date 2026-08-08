@@ -165,7 +165,7 @@ fn drainWork(self: *Host) !void {
             // the Node's peek/commit seam. A fulfilled settle may still need a
             // fallible Vat clone; if it fails, the listener and Node action
             // both remain parked for the next action drain.
-            try self.reserveActionsFor(1);
+            try self.reserveActions(1);
             const action = self.node.peekAction().?;
             progressed = true;
             try execNodeAction(self, action);
@@ -203,9 +203,9 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
             // inbound hello). ADR-0012 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
             const view = self.node.pendingDial(d.pending) orelse return;
-            if (self.liveSessionForDial(view.designator)) |existing| {
+            if (self.liveSessionForDial(view.transport, view.designator)) |existing| {
                 if (existing.sessionOpen()) {
-                    return self.node.exporterDialed(d.pending, existing.peer_id);
+                    return self.node.exporterSelected(d.pending, existing.peer_id);
                 }
             }
             try queueHostAction(self, .{ .dial = .{ .ticket = d.pending } });
@@ -223,6 +223,11 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
             const session = self.sessions.get(f.peer_id) orelse return;
             try session.served.port.settleFar(&self.vat, model.AnswerPosition.from(f.answer), .{ .broken = f.reason.bytes() });
         },
+        .retire_exporter => |peer_id| {
+            if (!self.node.claimExporterRetirement(peer_id)) return;
+            const session = self.sessions.get(peer_id) orelse return;
+            try retireRedeemOnlyExporter(self, session);
+        },
         .need_gift_id => |n| try queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
     }
 }
@@ -230,7 +235,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
 pub fn queueHostAction(self: *Host, action: HostAction) !void {
     // The ceiling of already-promised notifications lives on the Host; this
     // append is the one slot beyond it.
-    try self.reserveActionsFor(1);
+    try self.reserveActions(1);
     self.actions.pushReserved(action);
 }
 
@@ -274,12 +279,63 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
     {
         defer leaveCallback(self);
         body.call() catch |err| {
-            if (!session.sessionOpen()) self.unindexSession(session);
-            return failDispatch(self, session.peer_id, err);
+            if (!session.sessionOpen()) {
+                if (session.served.partnerAbort() != null) {
+                    // A partner abort is the successful terminal outcome of
+                    // this feed. Keep unwinding through `finishDispatch` so
+                    // the queued close reaches the embedder.
+                    try retirePartnerAbortedSession(self, session);
+                } else {
+                    self.unindexSession(session);
+                    return failDispatch(self, session.peer_id, err);
+                }
+            } else {
+                return failDispatch(self, session.peer_id, err);
+            }
         };
-        if (!session.sessionOpen()) self.unindexSession(session);
+        if (!session.sessionOpen()) {
+            if (session.served.partnerAbort() != null)
+                try retirePartnerAbortedSession(self, session)
+            else
+                self.unindexSession(session);
+        }
     }
     try finishDispatch(self, session);
+}
+
+/// A partner abort is a complete remote verdict, not merely a closed session
+/// bit. Retire every Host-owned consequence while the dispatch latch is still
+/// held, then tell the embedder to close the transport without echoing an
+/// abort. Notification capacity was reserved when the shell was minted.
+fn retirePartnerAbortedSession(self: *Host, session: *HostSession) !void {
+    if (session.condemned) return;
+    session.condemned = true;
+    self.unindexSession(session);
+    const reason = session.served.closeReason("partner aborted session");
+    session.served.port.breakFarVows(reason);
+    var first_error: ?anyerror = null;
+    self.cancelSessionIngress(session, reason) catch |err| {
+        first_error = err;
+    };
+    queueUniqueSessionAction(self, .close, session.peer_id);
+    if (first_error) |err| return err;
+}
+
+/// Retire a session the Host opened only to redeem a handoff that failed. This
+/// is ownership cleanup, not a partner protocol violation, so it closes the
+/// transport without manufacturing an `op:abort`.
+fn retireRedeemOnlyExporter(self: *Host, session: *HostSession) !void {
+    if (session.condemned) return;
+    session.condemned = true;
+    self.unindexSession(session);
+    const reason = "handoff redemption failed";
+    session.served.port.breakFarVows(reason);
+    var first_error: ?anyerror = null;
+    self.cancelSessionIngress(session, reason) catch |err| {
+        first_error = err;
+    };
+    queueUniqueSessionAction(self, .close, session.peer_id);
+    if (first_error) |err| return err;
 }
 
 /// Shared inbound-dispatch latch: refuse reentry, refuse a condemned
@@ -324,7 +380,7 @@ pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, messag
     session.served.port.peer.commitAbortOutbound(.{
         .kind = kind,
         .message = message,
-    }, .close) catch |err| {
+    }) catch |err| {
         session.served.port.peer.closeSession();
         first_error = err;
     };

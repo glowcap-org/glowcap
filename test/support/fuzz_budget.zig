@@ -25,12 +25,20 @@ pub const Budget = struct {
     /// a decoder does tens of allocations, an open session does hundreds, and a
     /// point past the end of a run is the same as no failure at all.
     pub fn draw(smith: *std.testing.Smith, span: u16) Budget {
+        return drawWith(smith, span, std.testing.allocator);
+    }
+
+    /// `draw` with an explicit backing allocator. Lifecycle-heavy targets use
+    /// this to put a fresh lightweight leak-checking allocator around each
+    /// mutation instead of retaining the test runner's allocator state across
+    /// hundreds of thousands of complete host lifecycles.
+    pub fn drawWith(smith: *std.testing.Smith, span: u16, backing: std.mem.Allocator) Budget {
         // Inducing a failure is the *top* of the range. When a draw runs past
         // the input the generator falls back to the bottom, so putting it at
         // the bottom meant every seed replay failed its very first allocation
         // and the program under it never ran at all.
         const pick = smith.valueRangeAtMost(u16, 0, span *| 2);
-        return .{ .failing = std.testing.FailingAllocator.init(std.testing.allocator, .{
+        return .{ .failing = std.testing.FailingAllocator.init(backing, .{
             .fail_index = if (pick > span) pick - span - 1 else std.math.maxInt(usize),
         }) };
     }

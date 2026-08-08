@@ -61,6 +61,12 @@ const _: () = {
 pub struct PancakeIrohConfig {
 	pub reachability: u32,
 	pub connect_timeout_ms: u64,
+	/// How long a connection may go with nothing arriving on it before QUIC
+	/// declares it dead, which decides how quickly a peer killed rather than
+	/// closed stops counting as connected. 0 keeps the built-in default.
+	pub idle_timeout_ms: u64,
+	/// Worker threads for this endpoint's runtime; 0 keeps the default.
+	pub worker_threads: u32,
 }
 
 // Pinned against `layouts_gen` (`zig build gen-binding-ffi-layouts`),
@@ -72,6 +78,12 @@ const _: () = {
 	assert!(
 		offset_of!(PancakeIrohConfig, connect_timeout_ms)
 			== PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF
+	);
+	assert!(
+		offset_of!(PancakeIrohConfig, idle_timeout_ms) == PANCAKE_IROH_CONFIG_IDLE_TIMEOUT_MS_OFF
+	);
+	assert!(
+		offset_of!(PancakeIrohConfig, worker_threads) == PANCAKE_IROH_CONFIG_WORKER_THREADS_OFF
 	);
 };
 

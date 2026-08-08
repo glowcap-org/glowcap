@@ -222,6 +222,53 @@ fn resolveSession(ctx: *Ctx, pos: []const []const u8, min_after_uri: usize) !str
     return .{ .{ .borrow = held }, 0 };
 }
 
+/// Which netlayer a `listen` binds, from its flags. Two ways to be reachable:
+/// the default binds a TCP socket and signs its address, while `--rendezvous`
+/// registers this identity at a relay and holds an inbound socket there
+/// (ADR-0088) — how a peer behind a NAT, or one that declines to listen at
+/// all, still gets dialed.
+///
+/// The caller supplies both residents' storage because each must outlive the
+/// server that borrows its netlayer, and the two fronts keep them in
+/// different places: argv on its own frame, the background listener in the
+/// handle its thread owns. The policy lives here either way.
+///
+/// `register_url` is borrowed for the listener's whole life, not just this
+/// call: `RelayUrl` holds subslices of it, and the resident re-reads them on
+/// every re-registration. Argv passes its `Parsed` flag, which outlives the
+/// accept loop; a front whose flags die with the request duplicates the bytes
+/// first. The dial override comes from the environment, which lives as long
+/// as the process.
+pub fn listenNetlayer(
+    ctx: *Ctx,
+    register_url_opt: ?[]const u8,
+    tcp: *pancake.net.tcp.Resident,
+    relay: *pancake.net.keyed_relay.Resident,
+) !pancake.net.netlayer.Netlayer {
+    tcp.* = .{ .io = ctx.io };
+    const register_url = register_url_opt orelse return tcp.netlayer();
+    const register = pancake.net.keyed_relay.RelayUrl.parse(register_url) catch {
+        ctx.logErr("--rendezvous wants a ws://host:port/path relay URL, got {s}", .{register_url});
+        return error.Usage;
+    };
+    // The dial half is the deployment's own mapping. A listener that also
+    // dials keyed-relay peers names it with PANCAKE_RENDEZVOUS; with none
+    // set, this host registers but never dials one, so the register endpoint
+    // stands in and no dial can reach it.
+    const dial_url = ctx.environ.get("PANCAKE_RENDEZVOUS") orelse register_url;
+    const dial = pancake.net.keyed_relay.RelayUrl.parse(dial_url) catch {
+        ctx.logErr("PANCAKE_RENDEZVOUS is not a ws://host:port/path relay URL: {s}", .{dial_url});
+        return error.Usage;
+    };
+    relay.* = .{
+        .io = ctx.io,
+        .relay_url = dial,
+        .register_url = register,
+        .public_key = (try ctx.ensureSecret()).publicKey(),
+    };
+    return relay.netlayer();
+}
+
 pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     // An accept loop would starve the MCP stdio (or REPL prompt) loop, so the
     // non-argv fronts listen in the background: bind and answer now, accept
@@ -232,10 +279,18 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     const bind = parsed.flagString("bind") orelse "127.0.0.1:0";
     const publish_name = parsed.flagString("publish");
     const once = parsed.flagBool("once");
+    const accept_id = try ctx.acceptIdentity();
 
     var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
-    const accept_id = try ctx.acceptIdentity();
-    var server = try driver.listen(ctx.gpa, tcp.netlayer(), .{ .designator = bind }, accept_id, sessionOpts());
+    var relay: pancake.net.keyed_relay.Resident = undefined;
+    // Argv's `Parsed` outlives the accept loop below, so its flag bytes are
+    // already durable enough for the borrows `RelayUrl` keeps.
+    const netlayer = try listenNetlayer(ctx, parsed.flagString("rendezvous"), &tcp, &relay);
+
+    var server = driver.listen(ctx.gpa, netlayer, .{ .designator = bind }, accept_id, sessionOpts()) catch |err| {
+        ctx.logErr("listen: {s}", .{@errorName(err)});
+        return exit_codes.dial;
+    };
     defer server.close() catch {};
 
     var addr_buf: [128]u8 = undefined;
@@ -245,7 +300,7 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     };
 
     const uri = try model.uri.writePeer(ctx.gpa, .{
-        .transport = "tcp",
+        .transport = server.listener.transportName(),
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     });
@@ -533,7 +588,19 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
             try argv.writeJsonString(&out, ctx.gpa, loc);
         }
         if (ctx.background_listener) |listener| {
-            try out.print(ctx.gpa, ",\"listening\":true,\"accepted\":{d}", .{listener.accepted.load(.acquire)});
+            // A listener that stopped accepting — a fault, or a one-partner
+            // listener that served its partner — reports why rather than
+            // claiming to be listening: the handle outlives the thread, so
+            // its presence alone is not evidence of life.
+            const stopped = listener.stop_reason.load(.acquire);
+            try out.print(ctx.gpa, ",\"listening\":{s},\"accepted\":{d}", .{
+                if (stopped == null) "true" else "false",
+                listener.accepted.load(.acquire),
+            });
+            if (stopped) |reason| {
+                try out.appendSlice(ctx.gpa, ",\"listener_stopped\":");
+                try argv.writeJsonString(&out, ctx.gpa, std.mem.span(reason));
+            }
         }
         if (abort) |info| {
             try out.appendSlice(ctx.gpa, ",\"abort_kind\":");

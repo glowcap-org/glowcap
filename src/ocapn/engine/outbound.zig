@@ -7,7 +7,9 @@
 
 const std = @import("std");
 
+const codec = @import("codec");
 const model = @import("model");
+const session = @import("session");
 
 const engine = @import("mod.zig");
 const Peer = engine.Peer;
@@ -40,6 +42,11 @@ pub const FireTarget = union(enum) {
     near_object: model.ExportPosition,
 };
 
+const NextAnswered = struct {
+    operation: model.Message,
+    listener: model.Message,
+};
+
 /// One slot in the outbound queue. Most kinds queue a fully-built `message` the
 /// queue owns until `step` encodes it. A sent `op:resolve` is the exception: its
 /// resolution lives in the answer store (it moved there at record time), so the
@@ -67,6 +74,11 @@ pub const FireTarget = union(enum) {
 /// stamp proves the payload too.
 pub const Outbound = union(enum) {
     message: model.Message,
+    /// A next-profile answered operation and the mandatory listener that must
+    /// immediately follow it. `step` encodes both and reserves both outbound
+    /// slots before publishing either frame, so an internal allocation failure
+    /// cannot expose the operation without its listener.
+    next_answered: NextAnswered,
     /// A sent `op:resolve` whose resolution lives in the inbound answer store
     /// (it moved there at record time). Carries the answer position *and* the
     /// store row's identity stamp, exactly as `listener_fire` does over the
@@ -103,6 +115,10 @@ pub const Outbound = union(enum) {
             // it at row GC, overwrite, or session teardown; the carriers own
             // nothing.
             .settled_answer, .listener_fire => {},
+            .next_answered => |pair| {
+                freeMessage(allocator, pair.operation);
+                freeMessage(allocator, pair.listener);
+            },
             .message => |message| freeMessage(allocator, message),
         }
     }
@@ -125,6 +141,20 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
             freeMessage(self.allocator, message);
             return err;
         };
+    }
+
+    self.session_state.rewriteShortenedMessage(&message);
+    if (message == .gc_export) {
+        self.session_state.expandShorteningGcExportReleases(self.allocator, &message.gc_export) catch |err| {
+            freeMessage(self.allocator, message);
+            return err;
+        };
+    }
+
+    if (self.session_state.captp_version == .next) {
+        if (answerProducedBy(message)) |answer| {
+            return enqueueNextAnsweredOperation(self, message, answer);
+        }
     }
 
     // A sent `op:resolve` moves its resolution into the answer store at
@@ -165,6 +195,55 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     appended = false;
 }
 
+fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
+    return switch (message) {
+        .deliver => |deliver| deliver.answer,
+        .get => |get| get.answer,
+        .index => |index| index.answer,
+        .untag => |untag| untag.answer,
+        else => null,
+    };
+}
+
+/// Queue a next-profile operation and its mandatory shortening-capable listen
+/// as one preparation. Every fallible resource is acquired before `recordSend`
+/// commits the operation's answer; the two queue appends are then infallible and
+/// preserve wire order.
+fn enqueueNextAnsweredOperation(
+    self: *Peer,
+    message: model.Message,
+    answer: model.AnswerPosition,
+) !void {
+    self.pending_send.ensureUnusedCapacityForOne(self.allocator) catch |err| {
+        freeMessage(self.allocator, message);
+        return err;
+    };
+
+    const resolver_export = self.session_state.mintMentionedResolverExport(answer, .object) catch |err| {
+        freeMessage(self.allocator, message);
+        return err;
+    };
+    var resolver_owned = true;
+    errdefer if (resolver_owned)
+        self.session_state.abandonMentionedResolverExport(resolver_export);
+
+    self.session_state.recordSend(message) catch |err| {
+        freeMessage(self.allocator, message);
+        return err;
+    };
+
+    const listener: model.Message = .{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = answer } },
+        .listener = session.slot.toReference(self.session_state.exportSlot(resolver_export).?).?,
+        .mode = .shortening_or_settling,
+    } };
+    self.pending_send.pushAssumeCapacity(.{ .next_answered = .{
+        .operation = message,
+        .listener = listener,
+    } });
+    resolver_owned = false;
+}
+
 /// Encode the front pending-send item during `step`. A store-backed
 /// `settled_answer` remains queued until encode succeeds because its POD
 /// carrier is retry-safe. The other arms transfer ownership before encode:
@@ -187,18 +266,46 @@ pub fn stepPending(self: *Peer) !void {
                 return;
             };
             const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
-            try emitOutboundMessage(self, .{ .resolve = resolve });
-            // Once a frame exists, a consequence-drain failure must not retain
-            // the carrier or duplicate the already-queued resolve on retry.
+            // V1.0 sends the settlement through its resolver callback. The
+            // next profile has no wire op:resolve: its mandatory op:listen is
+            // the notification path, so only the local consequence drain runs.
+            if (self.session_state.captp_version == .v1_0)
+                try emitOutboundMessage(self, .{ .resolve = resolve });
+            // Once notification is committed (or, on next, deliberately
+            // omitted), a consequence-drain failure must not retain the
+            // carrier and repeat the settlement on retry.
             discardPendingFront(self);
             // A sent `op:resolve` also settles one of our inbound answers locally.
             try settleSentResolve(self, resolve);
         },
+        .next_answered => |pair| try stepNextAnswered(self, pair),
         .message, .listener_fire => try stepConsumedPending(
             self,
             self.pending_send.consumeFront(self.allocator),
         ),
     }
+}
+
+fn stepNextAnswered(self: *Peer, pair: NextAnswered) !void {
+    var operation_frame = try codec.dispatch.encodeMessageForProfile(
+        self.session_state.codec,
+        self.allocator,
+        self.session_state.captp_version,
+        pair.operation,
+    );
+    errdefer operation_frame.deinit();
+    var listener_frame = try codec.dispatch.encodeMessageForProfile(
+        self.session_state.codec,
+        self.allocator,
+        self.session_state.captp_version,
+        pair.listener,
+    );
+    errdefer listener_frame.deinit();
+    try self.outbound.ensureUnusedCapacity(self.allocator, 2);
+
+    self.outbound.pushAssumeCapacity(operation_frame);
+    self.outbound.pushAssumeCapacity(listener_frame);
+    self.pending_send.consumeFront(self.allocator).deinit(self.allocator);
 }
 
 fn stepConsumedPending(self: *Peer, item: Outbound) !void {
@@ -241,7 +348,7 @@ fn stepConsumedPending(self: *Peer, item: Outbound) !void {
             };
             try emitOutboundMessage(self, message);
         },
-        .settled_answer => unreachable,
+        .settled_answer, .next_answered => unreachable,
     }
 }
 
@@ -308,7 +415,7 @@ pub fn resolveStoreChecked(self: *Peer, target: StoreTarget) ?*const model.Resol
 /// (close after successful push) so the partner can still take the frame.
 fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
     if (message == .abort) {
-        try self.commitAbortOutbound(message.abort, .close);
+        try self.commitAbortOutbound(message.abort);
         return;
     }
 

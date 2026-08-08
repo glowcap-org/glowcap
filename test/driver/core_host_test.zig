@@ -43,7 +43,8 @@ test "core host: inbound OOM leaves a borrowed hello retryable" {
     var peer = Host.init(std.testing.allocator, [_]u8{0x32} ** 32, Host.Options.withFrameCap(frame_cap));
     defer peer.deinit();
 
-    const accepted = try host.openAccepted("tcp", "127.0.0.1:7091", &.{});
+    const accepted = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7091", &.{});
+    try peer.ensureAdvertisedLocator("tcp");
     const dialed = try peer.openDialedLocator(tcpLocator("127.0.0.1:7091"));
     defer peer.releaseSession(dialed) catch unreachable;
     var hello = (try dialed.takeOutbound()) orelse return error.MissingHello;
@@ -100,10 +101,234 @@ const Introducer = struct {
 
 /// A wired pair: one host's connection whose outbound is the other's inbound.
 const host_pair = @import("../support/host_pair.zig");
+const handshake_support = @import("../support/handshake.zig");
 const Pair = host_pair.Pair;
 const shuttle = host_pair.shuttle;
 const shuttleAll = host_pair.shuttleAll;
 const tcpLocator = host_pair.tcpLocator;
+const publishAndOpenAccepted = host_pair.publishAndOpenAccepted;
+const publishAndOpenAcceptedOver = host_pair.publishAndOpenAcceptedOver;
+
+fn helloLocatorBytes(allocator: std.mem.Allocator, session: *HostSession) ![]u8 {
+    var frame = (try session.takeOutbound()) orelse return error.MissingHello;
+    defer frame.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+    if (body != .start_session) return error.MissingHello;
+    const locator = try body.start_session.acceptable_location.toOwned(allocator);
+    defer model.freePeerLocator(allocator, locator);
+    return pancake.ocapn.codec.signed.locationBytes(allocator, locator);
+}
+
+test "core host advertised locator: missing snapshot refuses dial and accept" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x70} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try std.testing.expectError(
+        error.MissingAdvertisedLocator,
+        host.openDialedLocator(tcpLocator("127.0.0.1:7090")),
+    );
+    try std.testing.expectError(
+        error.MissingAdvertisedLocator,
+        host.openAcceptedAdvertised("tcp"),
+    );
+}
+
+test "core host advertised locator: address transport keeps a hex designator opaque" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x72} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const address_shaped_like_key = [_]u8{'a'} ** crypto.PeerKey.designator_len;
+    try host.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = &address_shaped_like_key,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const stored = host.advertisedLocator("tcp") orelse return error.MissingAdvertisedLocator;
+    try std.testing.expectEqualSlices(u8, &address_shaped_like_key, stored.designator);
+
+    const other_key = crypto.SecretKey.fromSeed([_]u8{0x74} ** 32).publicKey().toDesignator();
+    try std.testing.expectError(error.UnheldIdentity, host.setAdvertisedLocator(.{
+        .transport = "iroh",
+        .designator = &other_key,
+        .hints = model.Hints.emptyFalse(),
+    }));
+}
+
+test "core host advertised locator: duplicate caller hints are refused before storage" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x76} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const hints = [_]model.HintEntry{
+        .{ .name = model.transport.hint_direct_addresses, .value = .{ .string = "127.0.0.1:7091" } },
+        .{ .name = model.transport.hint_direct_addresses, .value = .{ .string = "127.0.0.1:7092" } },
+    };
+    try std.testing.expectError(error.DuplicateHintName, host.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:7091",
+        .hints = .{ .entries = &hints },
+    }));
+    try std.testing.expect(host.advertisedLocator("tcp") == null);
+}
+
+test "core host advertised locator: explicit dial default publishes once" {
+    const allocator = std.testing.allocator;
+    const seed = [_]u8{0x73} ** 32;
+    var host = Host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const tcp = host.advertisedLocator("tcp") orelse return error.MissingAdvertisedLocator;
+    try std.testing.expectEqualStrings("127.0.0.1:0", tcp.designator);
+    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, tcp.hints.wire_form);
+    try std.testing.expectEqualStrings("tcp", host.acceptableLocator().?.transport);
+
+    const own_key = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    try host.ensureAdvertisedLocator("iroh");
+    const iroh = host.advertisedLocator("iroh") orelse return error.MissingAdvertisedLocator;
+    try std.testing.expectEqualSlices(u8, &own_key, iroh.designator);
+    try std.testing.expectEqualStrings("tcp", host.acceptableLocator().?.transport);
+    host.removeAdvertisedLocator("iroh");
+    try std.testing.expect(host.advertisedLocator("iroh") == null);
+
+    try host.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:7099",
+        .hints = model.Hints.emptyFalse(),
+    });
+    try host.ensureAdvertisedLocator("tcp");
+    try std.testing.expectEqualStrings(
+        "127.0.0.1:7099",
+        host.advertisedLocator("tcp").?.designator,
+    );
+}
+
+test "core host advertised locator: a cross-transport route survives dial preparation and enters every hello" {
+    const allocator = std.testing.allocator;
+    const seed = [_]u8{0x75} ** 32;
+    var host = Host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const own_key = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    const advertised: model.PeerLocator = .{
+        .transport = "keyed-relay",
+        .designator = &own_key,
+        .hints = model.Hints.emptyFalse(),
+    };
+    try host.setAdvertisedLocator(advertised);
+    // Opening the room connection prepares TCP as a dial fallback. It must not
+    // replace the keyed-relay route other peers use to reach this host.
+    try host.ensureAdvertisedLocator("tcp");
+
+    const dialed = try host.openDialedLocator(tcpLocator("127.0.0.1:7090"));
+    defer host.releaseSession(dialed) catch unreachable;
+    const accepted = try host.openAcceptedAdvertised("tcp");
+    defer host.releaseSession(accepted) catch unreachable;
+
+    const expected = try pancake.ocapn.codec.signed.locationBytes(allocator, advertised);
+    defer allocator.free(expected);
+    const dialed_location = try helloLocatorBytes(allocator, dialed);
+    defer allocator.free(dialed_location);
+    const accepted_location = try helloLocatorBytes(allocator, accepted);
+    defer allocator.free(accepted_location);
+    try std.testing.expectEqualSlices(u8, expected, dialed_location);
+    try std.testing.expectEqualSlices(u8, expected, accepted_location);
+}
+
+test "core host handshake: a key dial accepts the partner's selected address route" {
+    const allocator = std.testing.allocator;
+    var dialer = Host.init(allocator, [_]u8{0x76} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer dialer.deinit();
+    const partner_seed = [_]u8{0x77} ** 32;
+    const partner_key = crypto.SecretKey.fromSeed(partner_seed).publicKey().toDesignator();
+
+    try dialer.setAdvertisedLocator(tcpLocator("127.0.0.1:7092"));
+    const session = try dialer.openDialedLocator(.{
+        .transport = "iroh",
+        .designator = &partner_key,
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    // The iroh channel reached the demanded key, while the peer asks future
+    // sessions to use a TCP ingress. The hello's route is not a description of
+    // this channel and therefore is not compared as though it were the dial
+    // target.
+    var hello = try handshake_support.signedHelloFrame(
+        allocator,
+        crypto.SecretKey.fromSeed(partner_seed),
+        "tcp",
+        "proxy.example:443",
+        model.Hints.emptyFalse(),
+    );
+    defer hello.deinit();
+    try dialer.feed(session, hello.view());
+    try std.testing.expect(session.sessionOpen());
+    try dialer.releaseSession(session);
+}
+
+test "core host advertised locator: dial and accept sign byte-identical snapshots" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x71} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    var hints = [_]model.HintEntry{
+        .{ .name = "route", .value = .{ .string = "published-once" } },
+    };
+    const advertised: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:7089",
+        .hints = .{ .entries = &hints },
+    };
+    try host.setAdvertisedLocator(advertised);
+
+    const dialed = try host.openDialedLocator(tcpLocator("127.0.0.1:7090"));
+    defer host.releaseSession(dialed) catch unreachable;
+    const accepted = try host.openAcceptedAdvertised("tcp");
+    defer host.releaseSession(accepted) catch unreachable;
+
+    const dial_bytes = try helloLocatorBytes(allocator, dialed);
+    defer allocator.free(dial_bytes);
+    const accept_bytes = try helloLocatorBytes(allocator, accepted);
+    defer allocator.free(accept_bytes);
+    const published_bytes = try pancake.ocapn.codec.signed.locationBytes(allocator, advertised);
+    defer allocator.free(published_bytes);
+
+    try std.testing.expectEqualSlices(u8, published_bytes, dial_bytes);
+    try std.testing.expectEqualSlices(u8, published_bytes, accept_bytes);
+    try std.testing.expect(!std.mem.eql(u8, advertised.designator, "127.0.0.1:7090"));
+}
+
+test "core host advertised locator retains complete multi-hint snapshots" {
+    const allocator = std.testing.allocator;
+    var opts = Host.Options.withFrameCap(frame_cap);
+    opts.captp_version = .next;
+    opts.codec = .capnp;
+    var host = Host.init(allocator, [_]u8{0x78} ** 32, opts);
+    defer host.deinit();
+
+    const hints = [_]model.HintEntry{
+        .{ .name = "route-a", .value = .{ .string = "one" } },
+        .{ .name = "route-b", .value = .{ .string = "two" } },
+        .{ .name = "route-c", .value = .{ .string = "three" } },
+        .{ .name = "route-d", .value = .{ .string = "four" } },
+    };
+    try host.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:7088",
+        .hints = .{ .entries = &hints },
+    });
+
+    const stored = host.acceptableLocator().?;
+    try std.testing.expectEqual(@as(usize, hints.len + 2), stored.hints.entries.len);
+    for (hints) |expected| {
+        const actual = for (stored.hints.entries) |candidate| {
+            if (std.mem.eql(u8, expected.name, candidate.name)) break candidate;
+        } else return error.MissingHint;
+        try std.testing.expectEqualStrings(expected.value.string, actual.value.string);
+    }
+}
 
 fn tcpSturdyref(designator: []const u8, swissnum: []const u8) model.SturdyRef {
     return .{ .peer = tcpLocator(designator), .swissnum = swissnum };
@@ -182,7 +407,9 @@ fn openPair(
     designator: []const u8,
     dials: *std.ArrayList(ParkedDial),
 ) !Pair {
-    const accepted = try acceptor.openAccepted("tcp", designator, &.{});
+    try dialer.ensureAdvertisedLocator("tcp");
+    try acceptor.setAdvertisedLocator(tcpLocator(designator));
+    const accepted = try acceptor.openAcceptedAdvertised("tcp");
     const dialed = try dialer.openDialedLocator(tcpLocator(designator));
     const pair = Pair{ .ah = dialer, .a = dialed, .bh = acceptor, .b = accepted };
     try pumpToQuiescence(allocator, &.{ dialer, acceptor }, &.{pair}, dials);
@@ -204,12 +431,7 @@ test "core host: two hosts complete the keyed handshake over fed bytes" {
     try std.testing.expectEqual(@as(usize, 0), dials.items.len);
 }
 
-test "core host: keyed-tcp handshake mints and verifies the durable-key credential end to end" {
-    // ADR-0097 step 2, byte-fed: the acceptor's hello advertises its key
-    // designator, so `helloAndEnroll` mints the session-key-attestation hint,
-    // and the dialer's `mintShell` installed the contract, so its verifier
-    // demands and checks it. The dialer's own hello claims the address
-    // placeholder (no durable identity), which the acceptor's contract passes.
+test "core host: keyed-tcp handshake leaves durable identity unauthenticated" {
     const allocator = std.testing.allocator;
     const acceptor_seed = [_]u8{0x2b} ** 32;
     var dialer = Host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
@@ -218,7 +440,8 @@ test "core host: keyed-tcp handshake mints and verifies the durable-key credenti
     defer acceptor.deinit();
 
     const designator = crypto.SecretKey.fromSeed(acceptor_seed).publicKey().toDesignator();
-    const accepted = try acceptor.openAccepted("keyed-tcp", designator[0..], "127.0.0.1:7777");
+    const accepted = try publishAndOpenAccepted(&acceptor, "keyed-tcp", designator[0..], "127.0.0.1:7777");
+    try dialer.ensureAdvertisedLocator("keyed-tcp");
     const dialed = try dialer.openDialedLocator(.{
         .transport = "keyed-tcp",
         .designator = designator[0..],
@@ -232,41 +455,50 @@ test "core host: keyed-tcp handshake mints and verifies the durable-key credenti
     try std.testing.expect(accepted.sessionOpen());
 }
 
-test "core host: a credential-less keyed claim is refused before a same-chunk frame applies" {
-    // ADR-0097's one-chunk rule at the byte-fed tier: the hello and a deliver
-    // arrive in one `feedBytes` chunk. Without the credential check the valid
-    // hello would open the session and the deliver would apply; with it, the
-    // hello is refused at the pre-open chokepoint and the session never
-    // opens, so the trailing frame cannot apply under the unproven identity.
+test "core host: a host that never listens still advertises its key on a key transport" {
+    // The defect a WebRTC direct message showed: a browser Host never starts a
+    // listener, so it never sets a self designator, and its dialing hello
+    // signed the unreachable-client placeholder. That is a `tcp` *address*, on
+    // a transport whose designator grammar is a key, so the far end could
+    // attribute nothing and every consumer downstream honestly reported that
+    // it knew nobody.
+    //
+    // There is exactly one legal value here and the host can derive it, so it
+    // does (`sessions.advertisedDesignator`). Held over `webrtc` because that
+    // is where it was found, and the same derivation serves `iroh`,
+    // `keyed-tcp`, and `keyed-relay`.
     const allocator = std.testing.allocator;
-    const host_seed = [_]u8{0x2c} ** 32;
-    var host = Host.init(allocator, host_seed, Host.Options.withFrameCap(frame_cap));
-    defer host.deinit();
-    const own_designator = crypto.SecretKey.fromSeed(host_seed).publicKey().toDesignator();
-    const conn = try host.openAccepted("keyed-tcp", own_designator[0..], "127.0.0.1:7778");
+    const client_seed = [_]u8{0x7a} ** 32;
+    const server_seed = [_]u8{0x7b} ** 32;
+    var client = Host.init(allocator, client_seed, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
 
-    var sender = engine.Peer.initNegotiating(allocator);
-    defer sender.deinit();
-    const partner_secret = crypto.SecretKey.fromSeed([_]u8{0x2d} ** 32);
-    const partner_designator = partner_secret.publicKey().toDesignator();
-    var entry = [_]model.HintEntry{.{
-        .name = model.transport.hint_direct_addresses,
-        .value = .{ .string = "127.0.0.1:7779" },
-    }};
-    try sender.sendKeyedStartSession(.v1_0, .{
-        .transport = "keyed-tcp",
-        .designator = partner_designator[0..],
-        .hints = .{ .entries = entry[0..] },
-    }, partner_secret);
-    _ = try sender.step();
-    var hello = sender.takeOutbound().?;
-    defer hello.deinit();
+    // Neither side calls `setSelfDesignator`: the browser peer has no listener
+    // to learn one from, and the answering member is reached by signaling.
+    const server_designator = keyedDesignator(server_seed);
+    const accepted = try publishAndOpenAccepted(&server, "webrtc", &server_designator, &.{});
+    try client.ensureAdvertisedLocator("webrtc");
+    const dialed = try client.openDialedLocator(.{
+        .transport = "webrtc",
+        .designator = &server_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+    try std.testing.expect(accepted.sessionOpen());
 
-    const deliver_bytes = "<10'op:deliver<11'desc:export7+>[]11+f>";
-    const chunk = try std.mem.concat(allocator, u8, &.{ hello.bytes(), deliver_bytes });
-    defer allocator.free(chunk);
-    try std.testing.expectError(error.PartnerAttestationMissing, host.feedBytes(conn, chunk));
-    try std.testing.expect(!conn.sessionOpen());
+    // The browser still advertises its key rather than an unreachable address,
+    // but this byte-fed path supplies no channel proof for that claim.
+    const client_designator = keyedDesignator(client_seed);
+    const seen = try server.partnerIdentity(pair.b);
+    try std.testing.expectEqualStrings(&client_designator, seen.designator);
+    try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, seen.provenance);
+    try std.testing.expect(!seen.durableIdentityAuthenticated());
 }
 
 test "core host: verified session directory authenticates an early handoff gifter" {
@@ -427,7 +659,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
 
     // The embedder opens the connection it was told to and reports it; the
     // parked enliven then runs over that fresh session.
-    const accepted = try second.openAccepted("tcp", "127.0.0.1:7802", &.{});
+    const accepted = try publishAndOpenAccepted(&second, "tcp", "127.0.0.1:7802", &.{});
     _ = try accepted.served.publish(&accepted.host.vat, "widget", Widget, .{});
     const dialed = try client.openDialedLocator(tcpLocator("127.0.0.1:7802"));
     const second_pair = Pair{ .ah = &client, .a = dialed, .bh = &second, .b = accepted };
@@ -525,13 +757,12 @@ test "core host: sturdyref peer mismatch and accepted TCP assertion refuse befor
     fetch_frame.deinit();
 }
 
-test "core host: feedBytes fails closed on incomplete-at-cap" {
+test "core host: feedBytes rejects an outer length over cap before its body" {
     const allocator = std.testing.allocator;
     var host = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(8));
     defer host.deinit();
-    const conn = try host.openAccepted("tcp", "127.0.0.1:7010", &.{});
-    const junk = [_]u8{ '<', '1', '0', '\'', 'o', 'p', ':', 'd' };
-    try std.testing.expectError(error.FrameTooLarge, host.feedBytes(conn, &junk));
+    const conn = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7010", &.{});
+    try std.testing.expectError(error.FrameTooLarge, host.feedBytes(conn, "9:"));
 }
 
 test "core host: publish, fetch, and a settled send over fed bytes" {
@@ -724,7 +955,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     // the exporter, drive it open, and report it back. The withdraw, its
     // settle, and the vow's fulfillment all pump inside the report. No alias is
     // projected on this Port until either the exact gift or a fresh fetch asks.
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7001", &.{});
+    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7001", &.{});
     // Production Bridge dials from pendingDial parts — no URI re-parse.
     const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
@@ -838,7 +1069,7 @@ test "core host: unpublish removes discovery on every session while issued capab
 
     // Outcome 3: the deposited gift still redeems the exact actor over the
     // recipient's own exporter session, opened after the removal.
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7021", &.{});
+    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
     const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
         .transport = redeem_view.transport,
@@ -960,7 +1191,7 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     const parked = dials.items[0];
 
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7031", &.{});
+    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7031", &.{});
     const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
         .transport = redeem_view.transport,
@@ -1089,7 +1320,7 @@ test "core host: a target reached directly and through handoff lifts to one Host
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     const parked = dials.items[0];
 
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7051", &.{});
+    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7051", &.{});
     const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
         .transport = redeem_view.transport,
@@ -1255,7 +1486,31 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     try std.testing.expect(restart_miss.broken);
 }
 
-test "core host: closing the gifter session destroys its deposited gifts and breaks later withdraw" {
+const FailedRedeemListener = struct {
+    host: *Host,
+    session: ?*HostSession = null,
+    adopt_exporter: bool,
+    adopted: bool = false,
+    captured: CapturedRef = .{},
+
+    fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *FailedRedeemListener = @ptrCast(@alignCast(ctx.?));
+        CapturedRef.record(&self.captured, resolution);
+        if (!self.adopt_exporter or resolution != .broken) return;
+        const session = self.session orelse return;
+        // `tell` is intentionally callback-safe. It claims application
+        // ownership synchronously, while its encode work waits for the host
+        // pump's outer unwind.
+        self.host.tell(
+            session,
+            .{ .far = model.FarRef.object(0) },
+            .{ .verb = "keep-open", .args = &.{} },
+        ) catch return;
+        self.adopted = true;
+    }
+};
+
+fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     const allocator = std.testing.allocator;
     var exporter = Host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
@@ -1282,8 +1537,11 @@ test "core host: closing the gifter session destroys its deposited gifts and bre
     try pumpToQuiescence(allocator, &.{ &gifter, &recipient }, &.{r_to_g}, &dials);
 
     const introduction = try recipient.send(r_to_g.a, try introducer.require(), .{ .verb = "introduce", .args = &.{} });
-    var redeemed = CapturedRef{};
-    try recipient.vowOn(introduction, .{ .ctx = &redeemed, .func = CapturedRef.record });
+    var listener = FailedRedeemListener{
+        .host = &recipient,
+        .adopt_exporter = adopt_in_failure_listener,
+    };
+    try recipient.vowOn(introduction, .{ .ctx = &listener, .func = FailedRedeemListener.fire });
 
     // Deliver only the call to the gifter. Its reply cannot leave until the
     // embedder answers the gift-id request, at which point the two handoff legs
@@ -1326,20 +1584,41 @@ test "core host: closing the gifter session destroys its deposited gifts and bre
     try pumpToQuiescence(allocator, &.{ &gifter, &recipient }, &.{r_to_g}, &dials);
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
     const parked = dials.items[0];
-    const accepted = try exporter.openAccepted("tcp", "127.0.0.1:7011", &.{});
+    const accepted = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7011", &.{});
     const pending = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const dialed = try recipient.openDialedLocator(.{
         .transport = pending.transport,
         .designator = pending.designator,
         .hints = model.Hints.emptyFalse(),
     });
+    listener.session = dialed;
     const r_to_e = Pair{ .ah = &recipient, .a = dialed, .bh = &exporter, .b = accepted };
     try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ r_to_g, r_to_e }, &dials);
     try recipient.exporterDialed(parked.ticket, dialed);
     try pumpToQuiescence(allocator, &.{ &exporter, &gifter, &recipient }, &.{ r_to_g, r_to_e }, &dials);
 
-    try std.testing.expect(redeemed.broken);
-    try std.testing.expectEqualStrings("handoff redeem failed: gifter session is not open", redeemed.reason_buf[0..redeemed.reason_len]);
+    try std.testing.expect(listener.captured.broken);
+    try std.testing.expectEqualStrings(
+        "handoff redeem failed: gifter session is not open",
+        listener.captured.reason_buf[0..listener.captured.reason_len],
+    );
+    if (adopt_in_failure_listener) {
+        try std.testing.expect(listener.adopted);
+        try std.testing.expect(!dialed.condemned);
+    } else {
+        // The recipient opened r_to_e solely for this redemption. With no
+        // capability produced, the Host retires it instead of leaving an
+        // application-invisible session cached indefinitely.
+        try std.testing.expect(dialed.condemned);
+    }
+}
+
+test "core host: closing the gifter session destroys its deposited gifts and breaks later withdraw" {
+    try runMissingGifterRedeem(false);
+}
+
+test "core host: failure-listener activity preserves a redeem-opened exporter" {
+    try runMissingGifterRedeem(true);
 }
 
 const EarlyWithdrawOutcome = enum { deposit, close };
@@ -1393,7 +1672,7 @@ fn runEarlyWithdrawComposition(outcome: EarlyWithdrawOutcome) !void {
     try std.testing.expectEqual(@as(usize, 1), dials.items.len);
 
     const parked = dials.items[0];
-    const accepted = try exporter.openAccepted("tcp", "127.0.0.1:7021", &.{});
+    const accepted = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
     const pending = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const dialed = try recipient.openDialedLocator(.{
         .transport = pending.transport,
@@ -1555,7 +1834,7 @@ const ReentryProbe = struct {
             refusedReentered(host.takeAction()) and
             refusedReentered(conn.takeOutbound()) and
             refusedReentered(host.openDialedLocator(tcpLocator("127.0.0.1:7009"))) and
-            refusedReentered(host.openAccepted("tcp", "127.0.0.1:7009", &.{})) and
+            refusedReentered(publishAndOpenAccepted(host, "tcp", "127.0.0.1:7009", &.{})) and
             refusedReentered(host.releaseSession(conn)) and
             refusedReentered(host.exporterDialed(0, conn)) and
             refusedReentered(host.dialFailed(0, "no")) and
@@ -1620,8 +1899,10 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
     // condemns exactly one of a's two connections.
     const designator = "127.0.0.1:7001";
     try b.setSelfDesignator(designator);
+    try a.ensureAdvertisedLocator("tcp");
+    try b.ensureAdvertisedLocator("tcp");
     const a_dialed = try a.openDialedLocator(tcpLocator(designator));
-    const a_accepted = try a.openAccepted("tcp", "127.0.0.1:7002", &.{});
+    const a_accepted = try publishAndOpenAccepted(&a, "tcp", "127.0.0.1:7002", &.{});
     const b_dialed = try b.openDialedLocator(tcpLocator("127.0.0.1:7002"));
 
     var hello = (try b_dialed.takeOutbound()) orelse return error.MissingHello;
@@ -1656,16 +1937,42 @@ test "core host: a second dial to the same partner refuses SessionPairExists" {
     defer host.deinit();
 
     const designator = "127.0.0.1:7011";
+    try host.ensureAdvertisedLocator("tcp");
     const first = try host.openDialedLocator(tcpLocator(designator));
     try std.testing.expectError(driver.core.HostError.SessionPairExists, host.openDialedLocator(tcpLocator(designator)));
 
     // Crossed hellos may still open an accepted session beside the dial.
-    _ = try host.openAccepted("tcp", "127.0.0.1:7012", &.{});
+    _ = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7012", &.{});
 
     // After release, a fresh dial to the same partner is admitted again.
     try host.releaseSession(first);
     const again = try host.openDialedLocator(tcpLocator(designator));
     try host.releaseSession(again);
+}
+
+test "core host: equal designators on different transports remain distinct dials" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const designator = "shared-endpoint";
+    try host.ensureAdvertisedLocator("tcp");
+    try host.ensureAdvertisedLocator("test-alt");
+    const tcp = try host.openDialedLocator(.{
+        .transport = "tcp",
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const alternate = try host.openDialedLocator(.{
+        .transport = "test-alt",
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    try std.testing.expectEqual(tcp, host.dialedSessionFor("tcp", designator).?);
+    try std.testing.expectEqual(alternate, host.dialedSessionFor("test-alt", designator).?);
+    try host.releaseSession(tcp);
+    try host.releaseSession(alternate);
 }
 
 test "core host: accepted tcp session's declared designator does not squat dial availability" {
@@ -1706,7 +2013,8 @@ test "core host: keyed dial to a verified partner session key refuses SessionPai
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    const accepted = try acceptor.openAccepted("iroh", designator[0..], &.{});
+    const accepted = try publishAndOpenAccepted(&acceptor, "iroh", designator[0..], &.{});
+    try dialer.ensureAdvertisedLocator("iroh");
     const loc = try model.uri.parsePeer(allocator, uri);
     defer model.freePeerLocator(allocator, loc);
     const first = try dialer.openDialedLocator(loc);
@@ -1732,10 +2040,11 @@ test "core host: dual accept settlement condemns the second session to the same 
     var peer = Host.init(allocator, [_]u8{0x40} ** 32, Host.Options.withFrameCap(frame_cap));
     defer peer.deinit();
 
-    const first = try host.openAccepted("tcp", "127.0.0.1:7015", &.{});
-    const second = try host.openAccepted("tcp", "127.0.0.1:7016", &.{});
+    const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7015", &.{});
+    const second = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7016", &.{});
     // One peer hello fed to both accepted sessions: the first keeps the
     // partner key; the second is condemned at start-session (ADR-0012).
+    try peer.ensureAdvertisedLocator("tcp");
     const peer_dialed = try peer.openDialedLocator(tcpLocator("127.0.0.1:7015"));
     var hello = (try peer_dialed.takeOutbound()) orelse return error.MissingHello;
     defer hello.deinit();
@@ -1757,8 +2066,9 @@ test "core host: partner-side index empties after enroll, learn, condemn, and re
     var peer = Host.init(allocator, [_]u8{0x54} ** 32, Host.Options.withFrameCap(frame_cap));
     defer peer.deinit();
 
-    const first = try host.openAccepted("tcp", "127.0.0.1:7020", &.{});
-    const second = try host.openAccepted("tcp", "127.0.0.1:7021", &.{});
+    const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7020", &.{});
+    const second = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7021", &.{});
+    try peer.ensureAdvertisedLocator("tcp");
     const peer_dialed = try peer.openDialedLocator(tcpLocator("127.0.0.1:7020"));
     var hello = (try peer_dialed.takeOutbound()) orelse return error.MissingHello;
     defer hello.deinit();
@@ -1770,7 +2080,7 @@ test "core host: partner-side index empties after enroll, learn, condemn, and re
     try std.testing.expectEqual(@as(usize, 1), host.partner_by_side.count());
     try host.releaseSession(first);
     try std.testing.expectEqual(@as(usize, 0), host.partner_by_side.count());
-    try std.testing.expectEqual(@as(usize, 0), host.dialed_by_designator.count());
+    try std.testing.expectEqual(@as(usize, 0), host.dialed_by_target.count());
     try peer.releaseSession(peer_dialed);
 }
 
@@ -1800,7 +2110,8 @@ test "core host: a burst of accepts before any start-session indexes every partn
         peers_inited += 1;
         var buf: [24]u8 = undefined;
         const designator = try std.fmt.bufPrint(&buf, "127.0.0.1:{d}", .{7100 + i});
-        accepted[i] = try host.openAccepted("tcp", designator, &.{});
+        accepted[i] = try publishAndOpenAccepted(&host, "tcp", designator, &.{});
+        try peers[i].ensureAdvertisedLocator("tcp");
         dialed[i] = try peers[i].openDialedLocator(tcpLocator(designator));
     }
     try std.testing.expectEqual(@as(usize, 0), host.partner_by_side.count());
@@ -1842,8 +2153,8 @@ test "core host: crossed dials with mismatched designator spellings keep one key
     // Accept designators differ from the addresses the peer will dial, so
     // crossed-hellos registry lookup misses and refuseDuplicatePartnerKey is
     // the only collapse.
-    const a_accept = try a.openAccepted("tcp", "10.0.0.1:9000", &.{});
-    const b_accept = try b.openAccepted("tcp", "10.0.0.1:8001", &.{});
+    const a_accept = try publishAndOpenAccepted(&a, "tcp", "10.0.0.1:9000", &.{});
+    const b_accept = try publishAndOpenAccepted(&b, "tcp", "10.0.0.1:8001", &.{});
     const a_dialed = try a.openDialedLocator(tcpLocator("127.0.0.1:8001"));
     const b_dialed = try b.openDialedLocator(tcpLocator("127.0.0.1:9000"));
 
@@ -1879,7 +2190,7 @@ test "core host: crossed dials with mismatched designator spellings keep one key
     try std.testing.expectEqual(@as(usize, 0), b.partner_by_side.count());
 }
 
-test "session identity: crossed-hello ordering is per connection, and duplicate collapse is not yet" {
+test "session identity: crossed-hello ordering is per connection over one advertised snapshot" {
     // ADR-0097 evidence item 9. The tiebreak is two operations over two
     // different identities, and fresh session keys are what force them apart:
     //
@@ -1905,8 +2216,8 @@ test "session identity: crossed-hello ordering is per connection, and duplicate 
 
     // Each side accepts on the address the other dials, so both crossed-hellos
     // tables match by durable peer and each end runs the tiebreak itself.
-    const a_accept = try a.openAccepted("tcp", "127.0.0.1:9100", &.{});
-    const b_accept = try b.openAccepted("tcp", "127.0.0.1:9101", &.{});
+    const a_accept = try publishAndOpenAccepted(&a, "tcp", "127.0.0.1:9100", &.{});
+    const b_accept = try publishAndOpenAccepted(&b, "tcp", "127.0.0.1:9101", &.{});
     const a_dialed = try a.openDialedLocator(tcpLocator("127.0.0.1:9101"));
     const b_dialed = try b.openDialedLocator(tcpLocator("127.0.0.1:9100"));
 
@@ -1935,23 +2246,19 @@ test "session identity: crossed-hello ordering is per connection, and duplicate 
     var b_accept_hello = (try b_accept.takeOutbound()) orelse return error.MissingBAcceptHello;
     defer b_accept_hello.deinit();
 
-    // Cross-feed: each dialed hello lands on the peer's accepted session, and
-    // each accepted hello lands on the peer's dialed session.
+    // Each dialed hello lands on the peer's accepted session. Because dial and
+    // accept now advertise the same Node snapshot, both crossed-hello tables
+    // match and independently condemn the same physical connection. Only a
+    // surviving dialed half may consume its partner's accepted hello.
     try b.feed(b_accept, a_hello.view());
     try a.feed(a_accept, b_hello.view());
-    try b.feed(b_dialed, a_accept_hello.view());
-    try a.feed(a_dialed, b_accept_hello.view());
+    if (!b_dialed.condemned) try b.feed(b_dialed, a_accept_hello.view());
+    if (!a_dialed.condemned) try a.feed(a_dialed, b_accept_hello.view());
 
-    // `tcp` proves no durable identity, so there is nothing here a collapse
-    // may match on: a partner's declared location is a claim, and pancake
-    // refuses to condemn a live session on one — the same refusal
-    // `liveSessionForDial` makes, and for the same squatting reason. The
-    // crossed-hellos declared-location match is this transport's only
-    // collapse, with the weakness ADR-0030 states; these dialers sign the
-    // unreachable-client placeholder, so it does not fire. The keyed sibling
-    // below is where collapse is proved.
-    try std.testing.expect(!a_accept.condemned and !a_dialed.condemned);
-    try std.testing.expect(!b_accept.condemned and !b_dialed.condemned);
+    try std.testing.expect(a_accept.condemned != a_dialed.condemned);
+    try std.testing.expect(b_accept.condemned != b_dialed.condemned);
+    try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
+    try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
 
     try a.releaseSession(a_accept);
     try a.releaseSession(a_dialed);
@@ -1959,14 +2266,65 @@ test "session identity: crossed-hello ordering is per connection, and duplicate 
     try b.releaseSession(b_dialed);
 }
 
-test "session identity: a crossed pair on a keyed transport collapses to the same survivor on both ends" {
-    // ADR-0097 evidence item 9, the half that needs a proved durable identity.
-    // Two hosts reach each other twice over `keyed-tcp`, each connection
-    // signing with its own key. The duplicate is invisible to session identity
-    // — four connections, four different keys — so collapse has to recognise
-    // the peer by the durable name its hello proves, and both ends have to
-    // reach the same verdict or one would talk into a session the other
-    // condemned.
+test "core host: crossed hellos match the advertised route across different channel transports" {
+    const allocator = std.testing.allocator;
+    var a_opts = Host.Options.withFrameCap(frame_cap);
+    a_opts.session_seeds = .{ .rooted = [_]u8{0xd3} ** crypto.SEED_BYTES };
+    var b_opts = Host.Options.withFrameCap(frame_cap);
+    b_opts.session_seeds = .{ .rooted = [_]u8{0xd4} ** crypto.SEED_BYTES };
+    var a = Host.init(allocator, [_]u8{0x11} ** 32, a_opts);
+    defer a.deinit();
+    var b = Host.init(allocator, [_]u8{0xee} ** 32, b_opts);
+    defer b.deinit();
+
+    const a_locator: model.PeerLocator = .{
+        .transport = "test-alt",
+        .designator = "a-alt",
+        .hints = model.Hints.emptyFalse(),
+    };
+    const b_locator = tcpLocator("127.0.0.1:9111");
+    try a.setAdvertisedLocator(a_locator);
+    try b.setAdvertisedLocator(b_locator);
+
+    // A reaches B over TCP while B reaches A over test-alt. Each inbound
+    // channel therefore differs from the transport in the partner's hello.
+    const a_dialed = try a.openDialedLocator(b_locator);
+    const b_accept = try b.openAcceptedAdvertised("tcp");
+    const b_dialed = try b.openDialedLocator(a_locator);
+    const a_accept = try a.openAcceptedAdvertised("test-alt");
+
+    var a_hello = (try a_dialed.takeOutbound()) orelse return error.MissingAHello;
+    defer a_hello.deinit();
+    var b_hello = (try b_dialed.takeOutbound()) orelse return error.MissingBHello;
+    defer b_hello.deinit();
+    var a_accept_hello = (try a_accept.takeOutbound()) orelse return error.MissingAAcceptHello;
+    defer a_accept_hello.deinit();
+    var b_accept_hello = (try b_accept.takeOutbound()) orelse return error.MissingBAcceptHello;
+    defer b_accept_hello.deinit();
+
+    try a.feed(a_accept, b_hello.view());
+    try b.feed(b_accept, a_hello.view());
+    if (!a_dialed.condemned) try a.feed(a_dialed, b_accept_hello.view());
+    if (!b_dialed.condemned) try b.feed(b_dialed, a_accept_hello.view());
+
+    try std.testing.expect(a_accept.condemned != a_dialed.condemned);
+    try std.testing.expect(b_accept.condemned != b_dialed.condemned);
+    try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
+    try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+
+    try a.releaseSession(a_accept);
+    try a.releaseSession(a_dialed);
+    try b.releaseSession(b_accept);
+    try b.releaseSession(b_dialed);
+}
+
+const CrossedPairProof = enum { none, authenticated_channel };
+
+/// Exercise the same fresh-key crossed pair with and without realizer proof.
+/// Four distinct session keys make the durable-peer directory the only possible
+/// cross-connection match; a bare key designator cannot populate it, while a
+/// channel-authenticated durable key can.
+fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof) !void {
     const allocator = std.testing.allocator;
     const a_seed = [_]u8{0x01} ** 32;
     const b_seed = [_]u8{0xff} ** 32;
@@ -1982,31 +2340,31 @@ test "session identity: a crossed pair on a keyed transport collapses to the sam
     const a_designator = crypto.SecretKey.fromSeed(a_seed).publicKey().toDesignator();
     const b_designator = crypto.SecretKey.fromSeed(b_seed).publicKey().toDesignator();
 
-    // Each host declares its own durable identity, so its *dials* advertise
-    // that name too. Without this a dialer signs the unreachable-client
-    // placeholder, which names no durable peer — and a host that never says
-    // who it is genuinely has no identity for a partner to collapse on, which
-    // is the same honest boundary the address-transport sibling records.
     try a.setSelfDesignator(a_designator[0..]);
     try b.setSelfDesignator(b_designator[0..]);
 
-    // Each host accepts under its own durable identity and dials the other's,
-    // so both hellos advertise a durable name the partner can hold them to.
-    const a_accept = try a.openAccepted("keyed-tcp", a_designator[0..], "127.0.0.1:9200");
-    const b_accept = try b.openAccepted("keyed-tcp", b_designator[0..], "127.0.0.1:9201");
+    const a_direct: []const u8 = if (std.mem.eql(u8, transport, "keyed-tcp")) "127.0.0.1:9200" else &.{};
+    const b_direct: []const u8 = if (std.mem.eql(u8, transport, "keyed-tcp")) "127.0.0.1:9201" else &.{};
+    const a_accept = try publishAndOpenAccepted(&a, transport, a_designator[0..], a_direct);
+    const b_accept = try publishAndOpenAccepted(&b, transport, b_designator[0..], b_direct);
     const a_dialed = try a.openDialedLocator(.{
-        .transport = "keyed-tcp",
+        .transport = transport,
         .designator = b_designator[0..],
         .hints = model.Hints.emptyFalse(),
     });
     const b_dialed = try b.openDialedLocator(.{
-        .transport = "keyed-tcp",
+        .transport = transport,
         .designator = a_designator[0..],
         .hints = model.Hints.emptyFalse(),
     });
 
-    // The teeth: all four connections carry distinct session keys, so nothing
-    // below can be explained by two of them sharing one.
+    if (proof == .authenticated_channel) {
+        try a.bindVerifiedChannelKey(a_accept, &b_designator);
+        try a.bindVerifiedChannelKey(a_dialed, &b_designator);
+        try b.bindVerifiedChannelKey(b_accept, &a_designator);
+        try b.bindVerifiedChannelKey(b_dialed, &a_designator);
+    }
+
     const ids = [_][32]u8{
         crypto.derivePublicIdentifier(a_accept.sessionSecret().publicKey()).bytes,
         crypto.derivePublicIdentifier(a_dialed.sessionSecret().publicKey()).bytes,
@@ -2031,19 +2389,31 @@ test "session identity: a crossed pair on a keyed transport collapses to the sam
     try b.feed(b_dialed, a_accept_hello.view());
     try a.feed(a_dialed, b_accept_hello.view());
 
-    // Each host keeps exactly one of its two connections...
-    try std.testing.expect(a_accept.condemned != a_dialed.condemned);
-    try std.testing.expect(b_accept.condemned != b_dialed.condemned);
-    // ...and the two survivors are the two ends of the same connection, which
-    // is the property that makes a crossed pair collapse rather than leave two
-    // half-open sessions.
-    try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
-    try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+    switch (proof) {
+        .none => {
+            try std.testing.expect(!a_accept.condemned and !a_dialed.condemned);
+            try std.testing.expect(!b_accept.condemned and !b_dialed.condemned);
+        },
+        .authenticated_channel => {
+            try std.testing.expect(a_accept.condemned != a_dialed.condemned);
+            try std.testing.expect(b_accept.condemned != b_dialed.condemned);
+            try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
+            try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+        },
+    }
 
     try a.releaseSession(a_accept);
     try a.releaseSession(a_dialed);
     try b.releaseSession(b_accept);
     try b.releaseSession(b_dialed);
+}
+
+test "session identity: raw keyed transport cannot collapse crossed locator claims" {
+    try expectFreshKeyCrossedPair("keyed-tcp", .none);
+}
+
+test "session identity: authenticated channel collapses a crossed pair to one shared survivor" {
+    try expectFreshKeyCrossedPair("iroh", .authenticated_channel);
 }
 
 test "durable publication: a sturdyref issued before a restart still names a live object after it" {
@@ -2391,9 +2761,11 @@ test "core host: a settle under OOM never strands a vow and never trips the rese
     }
 }
 
-test "designatorSchemeForTransport maps iroh and keyed-tcp to key" {
+test "designatorSchemeForTransport maps every built-in key transport" {
     try std.testing.expectEqual(driver.core.DesignatorScheme.key, driver.core.designatorSchemeForTransport("iroh"));
     try std.testing.expectEqual(driver.core.DesignatorScheme.key, driver.core.designatorSchemeForTransport("keyed-tcp"));
+    try std.testing.expectEqual(driver.core.DesignatorScheme.key, driver.core.designatorSchemeForTransport("keyed-relay"));
+    try std.testing.expectEqual(driver.core.DesignatorScheme.key, driver.core.designatorSchemeForTransport("webrtc"));
     try std.testing.expectEqual(driver.core.DesignatorScheme.address, driver.core.designatorSchemeForTransport("tcp"));
 }
 
@@ -2417,7 +2789,13 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
         defer dials.deinit(allocator);
 
         // iroh accepts may omit direct-addresses (discovery); keyed-tcp may not.
-        const accepted = try acceptor.openAccepted("iroh", designator[0..], &.{});
+        try dialer.ensureAdvertisedLocator("iroh");
+        try acceptor.setAdvertisedLocator(.{
+            .transport = "iroh",
+            .designator = designator[0..],
+            .hints = model.Hints.emptyFalse(),
+        });
+        const accepted = try acceptor.openAcceptedAdvertised("iroh");
         const loc = try model.uri.parsePeer(allocator, uri);
         defer model.freePeerLocator(allocator, loc);
         const dialed = try dialer.openDialedLocator(loc);
@@ -2438,7 +2816,13 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
         var acceptor = Host.init(allocator, other_seed, Host.Options.withFrameCap(frame_cap));
         defer acceptor.deinit();
 
-        const accepted = try acceptor.openAccepted("iroh", other_designator[0..], &.{});
+        try dialer.ensureAdvertisedLocator("iroh");
+        try acceptor.setAdvertisedLocator(.{
+            .transport = "iroh",
+            .designator = other_designator[0..],
+            .hints = model.Hints.emptyFalse(),
+        });
+        const accepted = try acceptor.openAcceptedAdvertised("iroh");
         const loc = try model.uri.parsePeer(allocator, uri);
         defer model.freePeerLocator(allocator, loc);
         const dialed = try dialer.openDialedLocator(loc);
@@ -2448,38 +2832,47 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
         try std.testing.expect(!dialed.sessionOpen());
     }
 
-    // A peer that advertises the dialed identity while signing with another
-    // key is *not* caught in band, and must not be reported as though it were.
-    // Under fresh session keys a session key is not an identity, so equality
-    // proves nothing; what proves an iroh peer is its QUIC handshake, which a
-    // byte-fed Host only has if its embedder supplies it. With no proof
-    // supplied the session reports `unauthenticated`, and every API that
-    // requires a proved durable peer refuses on that.
+    // A peer cannot advertise an identity it does not hold the secret for
+    // (ADR-0105). The forgery is refused at the squatter's own side, by the
+    // seam that would have signed the hello, so it never reaches the wire.
+    {
+        const squatter_seed = [_]u8{0x42} ** 32;
+        var acceptor = Host.init(allocator, squatter_seed, Host.Options.withFrameCap(frame_cap));
+        defer acceptor.deinit();
+        try std.testing.expectError(
+            error.UnheldIdentity,
+            acceptor.setAdvertisedLocator(.{
+                .transport = "iroh",
+                .designator = designator[0..],
+                .hints = model.Hints.emptyFalse(),
+            }),
+        );
+    }
+
+    // A byte-fed host can still be handed a channel with no endpoint proof.
+    // The claim must match the dial target, but its provenance remains
+    // unauthenticated because no realizer vouched for the channel.
     {
         const squatter_seed = [_]u8{0x42} ** 32;
         var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
-        var acceptor = Host.init(allocator, squatter_seed, Host.Options.withFrameCap(frame_cap));
-        defer acceptor.deinit();
-
-        const accepted = try acceptor.openAccepted("iroh", designator[0..], &.{});
+        try dialer.ensureAdvertisedLocator("iroh");
         const loc = try model.uri.parsePeer(allocator, uri);
         defer model.freePeerLocator(allocator, loc);
         const dialed = try dialer.openDialedLocator(loc);
-        var hello = accepted.served.port.peer.takeOutbound().?;
+
+        var hello = try handshake_support.signedHelloFrame(
+            allocator,
+            crypto.SecretKey.fromSeed(squatter_seed),
+            "iroh",
+            designator[0..],
+            model.Hints.emptyFalse(),
+        );
         defer hello.deinit();
         try dialer.feed(dialed, hello.view());
-
+        try std.testing.expect(dialed.sessionOpen());
         const seen = try dialer.partnerIdentity(dialed);
         try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, seen.provenance);
-        try std.testing.expect(!seen.durableIdentityAuthenticated());
-
-        // A sturdyref for that peer therefore refuses rather than enlivening
-        // against an identity nothing proved.
-        try std.testing.expectError(
-            error.PeerIdentityUnverified,
-            dialer.enliven(dialed, .{ .peer = loc, .swissnum = "s" }),
-        );
     }
 }
 
@@ -2487,8 +2880,8 @@ test "queueUniqueSessionAction keeps one flush and one close per conn" {
     const allocator = std.testing.allocator;
     var host = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
-    const a_session = try host.openAccepted("tcp", "127.0.0.1:7101", &.{});
-    const b_session = try host.openAccepted("tcp", "127.0.0.1:7102", &.{});
+    const a_session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7101", &.{});
+    const b_session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7102", &.{});
     const a = a_session.peer_id;
     const b = b_session.peer_id;
     try host.testingQueueUniqueSessionAction(.flush, a);
@@ -2519,7 +2912,7 @@ test "reserved session notifications remain allocation-free after mint" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var host = Host.init(failing.allocator(), [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
-    const session = try host.openAccepted("tcp", "127.0.0.1:7103", &.{});
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7103", &.{});
 
     // A queued frame and a terminal verdict can both need notification after
     // protocol ownership has moved. Mint reserved these two slots; neither
@@ -2548,7 +2941,7 @@ test "abort encode OOM still closes authority and exposes close notification" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var host = Host.init(failing.allocator(), [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
-    const session = try host.openAccepted("tcp", "127.0.0.1:7104", &.{});
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7104", &.{});
 
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(
@@ -2570,12 +2963,85 @@ test "abort encode OOM still closes authority and exposes close notification" {
     try std.testing.expect(saw_close);
 }
 
+test "partner abort immediately retires a byte-fed session without an echo" {
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x6b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7107", &dials);
+    var captured = CapturedRef{};
+    const vow = try client.fetch(pair.a, "never-resolves");
+    try client.vowOn(vow, .{ .ctx = &captured, .func = CapturedRef.record });
+    var abandoned = (try pair.a.takeOutbound()) orelse return error.MissingFetch;
+    abandoned.deinit();
+    while (try client.takeAction()) |_| {}
+
+    const diagnostic = "server is shutting down";
+    try pair.b.served.port.peer.sendCopying(.{ .abort = .{
+        .kind = .graceful_shutdown,
+        .message = diagnostic,
+    } });
+    try pair.b.served.port.peer.stepToIdle();
+    var abort_frame = (try pair.b.takeOutbound()) orelse return error.MissingAbort;
+    defer abort_frame.deinit();
+
+    try client.feed(pair.a, abort_frame.view());
+    try std.testing.expect(pair.a.condemned);
+    try std.testing.expect(pair.a.ingress_cancelled);
+    try std.testing.expect(captured.broken);
+    try std.testing.expectEqualStrings(diagnostic, captured.reason_buf[0..captured.reason_len]);
+    try std.testing.expect((try pair.a.takeOutbound()) == null);
+    try std.testing.expectError(error.ConnectionCondemned, client.feed(pair.a, abort_frame.view()));
+
+    const action = (try client.takeAction()) orelse return error.MissingClose;
+    try std.testing.expect(action == .close);
+    try std.testing.expectEqual(pair.a.peer_id, action.close);
+    try std.testing.expect((try client.takeAction()) == null);
+}
+
+test "partner abort before start-session retires an accepted session without an echo" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x7b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7108", &.{});
+
+    // Accepted sessions project their own hello immediately. Remove it so any
+    // later outbound frame would be an improper abort echo.
+    var hello = (try session.takeOutbound()) orelse return error.MissingHello;
+    hello.deinit();
+    const hello_action = (try host.takeAction()) orelse return error.MissingFlush;
+    try std.testing.expect(hello_action == .flush);
+    try std.testing.expectEqual(session.peer_id, hello_action.flush);
+    try std.testing.expect((try host.takeAction()) == null);
+
+    var abort_frame = try pancake.ocapn.codec.syrup.encodeMessage(allocator, .{ .abort = .{
+        .kind = .graceful_shutdown,
+        .message = "partner stopped during negotiation",
+    } });
+    defer abort_frame.deinit();
+
+    try host.feed(session, abort_frame.view());
+    try std.testing.expect(session.condemned);
+    try std.testing.expect(session.ingress_cancelled);
+    try std.testing.expect(!session.sessionOpen());
+    try std.testing.expect((try session.takeOutbound()) == null);
+
+    const action = (try host.takeAction()) orelse return error.MissingClose;
+    try std.testing.expect(action == .close);
+    try std.testing.expectEqual(session.peer_id, action.close);
+    try std.testing.expect((try host.takeAction()) == null);
+}
+
 test "release cleanup OOM remains resumable through the action drain" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var host = Host.init(failing.allocator(), [_]u8{0x4b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
-    const remaining = try host.openAccepted("tcp", "127.0.0.1:7105", &.{});
-    const released = try host.openAccepted("tcp", "127.0.0.1:7106", &.{});
+    const remaining = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7105", &.{});
+    const released = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7106", &.{});
 
     try remaining.served.port.peer.sendCopying(.{ .abort = .{
         .kind = .graceful_shutdown,
@@ -2610,6 +3076,7 @@ test "a keyed dial to a malformed designator refuses without freeing it twice" {
     const allocator = std.testing.allocator;
     var host = Host.init(allocator, [_]u8{0x21} ** 32, .{});
     defer host.deinit();
+    try host.ensureAdvertisedLocator("keyed-tcp");
 
     try std.testing.expectError(error.InvalidAddress, host.openDialedLocator(.{
         .transport = "keyed-tcp",
@@ -2757,7 +3224,7 @@ test "cross-session: a capability minted under one host is refused on another ho
 test "cross-session: an adopted peer gets its own export range too" {
     const allocator = std.testing.allocator;
     // The completion loop owns its peers inline and hands them to the host
-    // through `openAcceptedOver`, so an adopted session never passes through
+    // through `publishAndOpenAcceptedOver`, so an adopted session never passes through
     // the owned mint. That is the path with the most connections on it, and
     // the one an application most plausibly holds two sessions of at once — so
     // it is the path a session-numbering fix least affords to miss.
@@ -2769,8 +3236,8 @@ test "cross-session: an adopted peer gets its own export range too" {
     var second = engine.Peer.initNegotiating(allocator);
     defer second.deinit();
 
-    const a = try host.openAcceptedOver(&first, "tcp", "127.0.0.1:7451", &.{});
-    const b = try host.openAcceptedOver(&second, "tcp", "127.0.0.1:7452", &.{});
+    const a = try publishAndOpenAcceptedOver(&host, &first, "tcp", "127.0.0.1:7451", &.{});
+    const b = try publishAndOpenAcceptedOver(&host, &second, "tcp", "127.0.0.1:7452", &.{});
 
     const from_a = try a.served.spawn(&a.host.vat, Pad, .{});
     const from_b = try b.served.spawn(&b.host.vat, Pad, .{});
@@ -2795,14 +3262,14 @@ test "cross-session: a released session's export range comes back for reuse" {
 
     var first = engine.Peer.initNegotiating(allocator);
     defer first.deinit();
-    const a = try host.openAcceptedOver(&first, "tcp", "127.0.0.1:7461", &.{});
+    const a = try publishAndOpenAcceptedOver(&host, &first, "tcp", "127.0.0.1:7461", &.{});
     const released_base = first.session_state.export_base;
     const counter_after_first = host.node.next_export_base;
     try host.releaseSession(a);
 
     var second = engine.Peer.initNegotiating(allocator);
     defer second.deinit();
-    _ = try host.openAcceptedOver(&second, "tcp", "127.0.0.1:7462", &.{});
+    _ = try publishAndOpenAcceptedOver(&host, &second, "tcp", "127.0.0.1:7462", &.{});
     try std.testing.expectEqual(released_base, second.session_state.export_base);
     // And the counter did not move: the reuse is what paid for this session.
     try std.testing.expectEqual(counter_after_first, host.node.next_export_base);
@@ -2821,8 +3288,8 @@ test "cross-session: a reused export range is the oldest freed, not the newest" 
     defer first.deinit();
     var second = engine.Peer.initNegotiating(allocator);
     defer second.deinit();
-    const a = try host.openAcceptedOver(&first, "tcp", "127.0.0.1:7463", &.{});
-    const b = try host.openAcceptedOver(&second, "tcp", "127.0.0.1:7464", &.{});
+    const a = try publishAndOpenAcceptedOver(&host, &first, "tcp", "127.0.0.1:7463", &.{});
+    const b = try publishAndOpenAcceptedOver(&host, &second, "tcp", "127.0.0.1:7464", &.{});
     const oldest = first.session_state.export_base;
     const newer = second.session_state.export_base;
     try host.releaseSession(a);
@@ -2832,8 +3299,8 @@ test "cross-session: a reused export range is the oldest freed, not the newest" 
     defer third.deinit();
     var fourth = engine.Peer.initNegotiating(allocator);
     defer fourth.deinit();
-    _ = try host.openAcceptedOver(&third, "tcp", "127.0.0.1:7465", &.{});
-    _ = try host.openAcceptedOver(&fourth, "tcp", "127.0.0.1:7466", &.{});
+    _ = try publishAndOpenAcceptedOver(&host, &third, "tcp", "127.0.0.1:7465", &.{});
+    _ = try publishAndOpenAcceptedOver(&host, &fourth, "tcp", "127.0.0.1:7466", &.{});
     try std.testing.expectEqual(oldest, third.session_state.export_base);
     try std.testing.expectEqual(newer, fourth.session_state.export_base);
 }
@@ -2858,7 +3325,7 @@ test "cross-session: a host that has spent its export slot refuses rather than n
     defer peer.deinit();
     try std.testing.expectError(
         error.ExportRangeExhausted,
-        host.openAcceptedOver(&peer, "tcp", "127.0.0.1:7467", &.{}),
+        publishAndOpenAcceptedOver(&host, &peer, "tcp", "127.0.0.1:7467", &.{}),
     );
     // Refused, not carried: the counter is still inside this node's slot.
     try std.testing.expectEqual(host.node.export_base_end, host.node.next_export_base);
@@ -2896,48 +3363,110 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
         .designator = &victim_designator,
         .hints = pancake.ocapn.model.Hints.emptyFalse(),
     };
+    const our_designator = us.node.secretKey().publicKey().toDesignator();
+    var our_hint = [_]model.HintEntry{.{
+        .name = model.transport.hint_direct_addresses,
+        .value = .{ .string = "127.0.0.1:9200" },
+    }};
+    try us.setAdvertisedLocator(.{
+        .transport = "keyed-tcp",
+        .designator = &our_designator,
+        .hints = .{ .entries = &our_hint },
+    });
+    try us.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9100",
+        .hints = model.Hints.emptyFalse(),
+    });
     const our_dial = try us.openDialedLocator(keyed_locator);
 
-    // The attacker dials us claiming the victim's designator as its own
-    // location, signing with its own key, which is the only key it has.
-    try attacker.setSelfDesignator(&victim_designator);
-    const our_accepted = try us.openAccepted("tcp", "127.0.0.1:9100", &.{});
-    const attacker_dial = try attacker.openDialedLocator(tcpLocator("127.0.0.1:9100"));
-    var claim = (try attacker_dial.takeOutbound()) orelse return error.MissingAttackerHello;
+    // A host of ours will not publish that locator: a key-designator transport
+    // may name only the durable identity this node holds (ADR-0105).
+    var attacker_hint = [_]model.HintEntry{.{
+        .name = model.transport.hint_direct_addresses,
+        .value = .{ .string = "127.0.0.1:9201" },
+    }};
+    try std.testing.expectError(
+        error.UnheldIdentity,
+        attacker.setAdvertisedLocator(.{
+            .transport = "keyed-tcp",
+            .designator = &victim_designator,
+            .hints = .{ .entries = &attacker_hint },
+        }),
+    );
+
+    // A hostile peer is not bound by our seams, so the attack is built by
+    // hand: an `op:start-session` claiming the victim's designator as its own
+    // location, signed with the attacker's own session key.
+    const our_accepted = try us.openAcceptedAdvertised("tcp");
+    var claim = try handshake_support.signedHelloFrame(
+        allocator,
+        attacker.node.secretKey(),
+        "keyed-tcp",
+        &victim_designator,
+        pancake.ocapn.model.Hints.emptyFalse(),
+    );
     defer claim.deinit();
 
     try us.feed(our_accepted, claim.view());
 
-    // The claim is ignored, so the dial to the real victim stands.
+    // Crossed-hello matching does not treat a key-shaped designator as a peer
+    // identity unless it is the session key that signed the hello, so this
+    // unproved claim cannot condemn the dial to the real victim.
     try std.testing.expect(!our_dial.condemned);
 
     try us.releaseSession(our_accepted);
     try us.releaseSession(our_dial);
-    try attacker.releaseSession(attacker_dial);
 }
 
-/// The partner identity a handshake proves, and the one question an application
-/// actually asks of it: is the locator this caller claims its own?
+test "core host: a key-shaped address remains an address for crossed hellos" {
+    const allocator = std.testing.allocator;
+    var us = Host.init(allocator, [_]u8{0x01} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer us.deinit();
+    var partner = Host.init(allocator, [_]u8{0xff} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer partner.deinit();
+
+    const our_pid = crypto.derivePublicIdentifier(us.node.secretKey().publicKey());
+    const partner_pid = crypto.derivePublicIdentifier(partner.node.secretKey().publicKey());
+    try std.testing.expect(std.mem.order(u8, &our_pid.bytes, &partner_pid.bytes) == .lt);
+
+    const address = partner.node.secretKey().publicKey().toDesignator();
+    try us.setAdvertisedLocator(tcpLocator("127.0.0.1:9120"));
+    const dialed = try us.openDialedLocator(tcpLocator(&address));
+    const accepted = try us.openAcceptedAdvertised("tcp");
+
+    // Byte shape cannot change an address transport into a key transport. The
+    // signed claim matches the address we dialed, so ordinary crossed-hello
+    // ordering applies even though a different session key signed it.
+    var hello = try handshake_support.signedHelloFrame(
+        allocator,
+        partner.node.secretKey(),
+        "tcp",
+        &address,
+        model.Hints.emptyFalse(),
+    );
+    defer hello.deinit();
+    try us.feed(accepted, hello.view());
+    try std.testing.expect(dialed.condemned);
+    try std.testing.expect(!accepted.condemned);
+
+    try us.releaseSession(accepted);
+    try us.releaseSession(dialed);
+}
+
+/// `Host.partnerIdentity` keeps three facts distinct: the session key verified
+/// by the `op:start-session` signature, the designator claimed by the partner's
+/// acceptable location, and the provenance of any durable identity proof.
+/// Success means the handshake signature was verified; it does not make the
+/// advertised designator an authenticated durable identity. Only provenance
+/// from an authenticated channel establishes that stronger fact.
 ///
-/// `Host.partnerIdentity` reports what the `op:start-session` signature covered,
-/// and it refuses rather than reporting anything a signature did not cover. The
-/// tests below pin both halves, because the refusals are the whole reason a
-/// caller can treat a success as proof. A failure here means an application
-/// that trusts `partnerIdentity` is trusting a claim instead of a signature.
+/// The tests below cover the verified-session requirement, the claimed locator
+/// representation, and the provenance distinction. Transport-specific channel
+/// proof is covered separately by the verified-channel tests.
 ///
-/// These were validated by injection rather than by passing on a healthy tree.
-/// Dropping the `verify_partner_handshake` check made the unverified-session
-/// test hand back a key nothing had proved, which is the hole that refusal
-/// exists to close. Comparing the designator against raw key bytes instead of
-/// canonical hex failed the keyed-tcp test. Reporting an absent key as an empty
-/// success failed the not-yet-spoken test. Each defect was caught by exactly one
-/// test, and the tree went green again when each was reverted.
-///
-/// What they do not measure: nothing here drives `iroh`, `webrtc`, or
-/// `keyed-relay`, so the key-designator claim is proved for `keyed-tcp` alone
-/// and rests on the shared `designatorSchemeForTransport` table for the rest.
-/// The designator a key-designator transport spells for the host built on
-/// `seed`: that host's Ed25519 public key in canonical hex.
+/// The designator for the host built on `seed`: that host's Ed25519 public key
+/// in canonical hexadecimal form.
 fn keyedDesignator(seed: [32]u8) [crypto.PeerKey.designator_len]u8 {
     return crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
 }
@@ -2974,7 +3503,7 @@ test "partner identity: a verified tcp session reports the key its handshake pro
     try std.testing.expect(!seen.durableIdentityAuthenticated());
 }
 
-test "partner identity: a keyed-tcp partner proves it owns the designator it advertised" {
+test "partner identity: keyed-tcp reports its claimed designator without authenticating it" {
     const allocator = std.testing.allocator;
     var client = Host.init(allocator, [_]u8{0x1a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
@@ -2985,7 +3514,8 @@ test "partner identity: a keyed-tcp partner proves it owns the designator it adv
     defer dials.deinit(allocator);
 
     const designator = keyedDesignator(server_seed);
-    const accepted = try server.openAccepted("keyed-tcp", &designator, "127.0.0.1:7002");
+    const accepted = try publishAndOpenAccepted(&server, "keyed-tcp", &designator, "127.0.0.1:7002");
+    try client.ensureAdvertisedLocator("keyed-tcp");
     const dialed = try client.openDialedLocator(.{
         .transport = "keyed-tcp",
         .designator = &designator,
@@ -2995,9 +3525,8 @@ test "partner identity: a keyed-tcp partner proves it owns the designator it adv
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     try std.testing.expect(dialed.sessionOpen());
 
-    // This is the check an application makes before believing a locator a
-    // caller hands it: the advertised name is exactly the key the caller
-    // proved it holds.
+    // The advertised durable name and the session key remain separately
+    // observable even when this compatibility setup makes them equal.
     const seen = try client.partnerIdentity(pair.a);
     try std.testing.expectEqualStrings(&designator, seen.designator);
     try std.testing.expect(seen.designatorIsSessionKey());
@@ -3006,13 +3535,11 @@ test "partner identity: a keyed-tcp partner proves it owns the designator it adv
     // is twice the key's length, so a raw-bytes comparison cannot match.
     try std.testing.expectEqual(seen.session_key.len * 2, seen.designator.len);
 
-    // The load-bearing fact is the provenance, not that equality (ADR-0097):
-    // keyed-tcp has no lower-layer proof, so what authenticated this durable
-    // name is the hello's credential. `designatorIsSessionKey` is a
-    // coincidence of today's key reuse and will answer false here once each
-    // connection draws a fresh session key, while this stays true.
-    try std.testing.expectEqual(driver.core.DurableProvenance.durable_key_attestation, seen.provenance);
-    try std.testing.expect(seen.durableIdentityAuthenticated());
+    // keyed-tcp supplies no channel proof, so the claimed key remains
+    // unauthenticated even when a compatibility seed makes it equal the
+    // session key.
+    try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, seen.provenance);
+    try std.testing.expect(!seen.durableIdentityAuthenticated());
 }
 
 test "session identity: a host signs each session with that session's own key" {
@@ -3032,8 +3559,8 @@ test "session identity: a host signs each session with that session's own key" {
 
     // Two connections accepted on one listener, which is the simultaneous case
     // a real host sees: same advertised identity, different sessions.
-    const first = try host.openAccepted("tcp", "127.0.0.1:7301", &.{});
-    const second = try host.openAccepted("tcp", "127.0.0.1:7301", &.{});
+    const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7301", &.{});
+    const second = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7301", &.{});
 
     // Two sessions in one host, two different signing keys — and neither is
     // the host's durable key, which stays the node's own identity.
@@ -3105,13 +3632,12 @@ test "session identity: a give is signed by its session's key, not the host's du
     try std.testing.expectEqualSlices(u8, session_key, signer.asBytes());
 }
 
-test "partner identity: an authenticated transport reports transport provenance on both legs" {
-    // The three provenances are selected by the transport's mechanism, not by
-    // a key-shaped designator (ADR-0097). `iroh` is an authenticated-transport
-    // row, so a session whose adapter installed the verified binding reports
-    // that mechanism — and a session on the same transport where no binding
-    // was installed reports `unauthenticated` rather than inferring proof from
-    // the designator's shape.
+test "partner identity: each leg reports the fact it holds, not the transport's name" {
+    // Provenance is selected by the evidence one session holds, never by its
+    // transport symbol (ADR-0105). Both legs below run `iroh` and neither
+    // reports the same thing, because they hold different evidence: the dialer
+    // was handed a verified remote by the code that realized the connection,
+    // and the acceptor has no channel proof.
     const allocator = std.testing.allocator;
     var client = Host.init(allocator, [_]u8{0x3c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
@@ -3122,7 +3648,8 @@ test "partner identity: an authenticated transport reports transport provenance 
     defer dials.deinit(allocator);
 
     const designator = keyedDesignator(server_seed);
-    const accepted = try server.openAccepted("iroh", &designator, &.{});
+    const accepted = try publishAndOpenAccepted(&server, "iroh", &designator, &.{});
+    try client.ensureAdvertisedLocator("iroh");
     const dialed = try client.openDialedLocator(.{
         .transport = "iroh",
         .designator = &designator,
@@ -3130,7 +3657,7 @@ test "partner identity: an authenticated transport reports transport provenance 
     });
     // What the iroh adapter installs off the QUIC handshake; the byte-fed core
     // is handed the proof rather than inferring one.
-    dialed.served.port.peer.expectPartnerDurableKey(crypto.SecretKey.fromSeed(server_seed).publicKey(), .transport_verified);
+    dialed.served.port.peer.bindVerifiedChannelKey(crypto.SecretKey.fromSeed(server_seed).publicKey());
     const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
     try std.testing.expect(dialed.sessionOpen());
@@ -3139,11 +3666,71 @@ test "partner identity: an authenticated transport reports transport provenance 
     try std.testing.expectEqual(driver.core.DurableProvenance.authenticated_transport, bound.provenance);
     try std.testing.expect(bound.durableIdentityAuthenticated());
 
-    // The acceptor's side had no binding installed (nothing proved the dialer
-    // to it), so it reports the honest absence.
-    const unbound = try server.partnerIdentity(pair.b);
-    try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, unbound.provenance);
-    try std.testing.expect(!unbound.durableIdentityAuthenticated());
+    // The acceptor had no realizer to hand it a verified remote, so the
+    // dialer's key-shaped claim remains unauthenticated.
+    const unproved = try server.partnerIdentity(pair.b);
+    try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, unproved.provenance);
+    try std.testing.expect(!unproved.durableIdentityAuthenticated());
+    try std.testing.expectEqualStrings(&keyedDesignator([_]u8{0x3c} ** 32), unproved.designator);
+}
+
+test "verified channel key: an embedder's testimony reaches provenance on both legs" {
+    // The test above is this topology with nobody to speak for the acceptor.
+    // Here the embedder says what its own transport proved, which is what a binding
+    // hosting its own iroh listener holds and had no way to state. Both legs,
+    // because the proof belongs to the connection rather than to a direction.
+    const allocator = std.testing.allocator;
+    const client_seed = [_]u8{0x4c} ** 32;
+    var client = Host.init(allocator, client_seed, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    const server_seed = [_]u8{0x4d} ** 32;
+    var server = Host.init(allocator, server_seed, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const server_designator = keyedDesignator(server_seed);
+    const client_designator = keyedDesignator(client_seed);
+    const accepted = try publishAndOpenAccepted(&server, "iroh", &server_designator, &.{});
+    try client.ensureAdvertisedLocator("iroh");
+    const dialed = try client.openDialedLocator(.{
+        .transport = "iroh",
+        .designator = &server_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    try client.bindVerifiedChannelKey(dialed, &server_designator);
+    try server.bindVerifiedChannelKey(accepted, &client_designator);
+    // The same statement made twice is still that statement.
+    try server.bindVerifiedChannelKey(accepted, &client_designator);
+    // One connection has one far end, so a second name for it is refused
+    // rather than allowed to overwrite the first.
+    try std.testing.expectError(
+        error.ChannelKeyConflict,
+        server.bindVerifiedChannelKey(accepted, &server_designator),
+    );
+    // A realizer's proof names a key; an address transport has none to give.
+    try std.testing.expectError(
+        error.InvalidChannelKey,
+        server.bindVerifiedChannelKey(accepted, "127.0.0.1:9000"),
+    );
+
+    const pair = Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expect(dialed.sessionOpen());
+
+    // The acceptor now reports the channel proof.
+    const accepted_identity = try server.partnerIdentity(pair.b);
+    try std.testing.expectEqual(driver.core.DurableProvenance.authenticated_transport, accepted_identity.provenance);
+    const bound = try client.partnerIdentity(pair.a);
+    try std.testing.expectEqual(driver.core.DurableProvenance.authenticated_transport, bound.provenance);
+
+    // Too late to be the evidence it was for: the chokepoint that weighs a
+    // partner's claim has already run.
+    try std.testing.expectError(
+        error.HandshakeAlreadyApplied,
+        server.bindVerifiedChannelKey(accepted, &client_designator),
+    );
 }
 
 test "partner identity: a session that does not verify its partner reports no identity" {
@@ -3181,7 +3768,7 @@ test "partner identity: a session whose partner has not spoken yet reports no id
 
     // Accepted, but no partner bytes have been fed, so no `op:start-session`
     // has arrived and there is no key yet.
-    const accepted = try server.openAccepted("tcp", "127.0.0.1:7004", "");
+    const accepted = try publishAndOpenAccepted(&server, "tcp", "127.0.0.1:7004", "");
     try std.testing.expectError(error.HandshakeIncomplete, server.partnerIdentity(accepted));
 }
 
@@ -3447,7 +4034,7 @@ test "enroll: a capability from a call reply gifts once it is enrolled" {
     const parked = dials.items[0];
     try std.testing.expect(parked.host == &recipient);
 
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7611", &.{});
+    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7611", &.{});
     _ = try e_accepts_r.served.publish(&e_accepts_r.host.vat, "widget", Widget, .{});
     const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
@@ -3731,7 +4318,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
     var third = Host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer third.deinit();
-    const spare = try third.openAccepted("tcp", "127.0.0.1:7844", &.{});
+    const spare = try publishAndOpenAccepted(&third, "tcp", "127.0.0.1:7844", &.{});
     const spare_dialed = try client.openDialedLocator(tcpLocator("127.0.0.1:7844"));
     const spare_pair = Pair{ .ah = &client, .a = spare_dialed, .bh = &third, .b = spare };
 
@@ -3759,4 +4346,536 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
         }
     }
     try std.testing.expect(settled_ids[0] and settled_ids[1]);
+}
+
+// ── The live trace tap (driver_core.trace) ───────────────────────────────────
+// One sink per host hears the open (with the real codec and the partner's
+// name), the message verbs both directions, and the close, with no sink
+// installed costing every emit site one null check. The bindings' enable_trace
+// veneers stand on this seam, so this scenario is the family's root proof.
+
+/// Records each message's verb, direction, and wire tag, so a test can ask
+/// whether two hosts tagged one frame the same way.
+const DigestLog = struct {
+    const Row = struct { verb: [32]u8 = undefined, verb_len: usize = 0, outbound: bool = false, digest: [driver.core.trace.digest_bytes]u8 = undefined };
+    rows: [32]Row = undefined,
+    n: usize = 0,
+
+    fn emit(ctx: ?*anyopaque, event: driver.core.trace.Event) void {
+        const self: *DigestLog = @ptrCast(@alignCast(ctx.?));
+        switch (event) {
+            .message => |m| {
+                if (self.n == self.rows.len) return;
+                var row = Row{ .outbound = m.outbound, .digest = m.digest };
+                row.verb_len = @min(m.verb.len, row.verb.len);
+                @memcpy(row.verb[0..row.verb_len], m.verb[0..row.verb_len]);
+                self.rows[self.n] = row;
+                self.n += 1;
+            },
+            else => {},
+        }
+    }
+
+    fn find(self: *const DigestLog, verb: []const u8, outbound: bool) ?[driver.core.trace.digest_bytes]u8 {
+        for (self.rows[0..self.n]) |row| {
+            if (row.outbound != outbound) continue;
+            if (!std.mem.eql(u8, row.verb[0..row.verb_len], verb)) continue;
+            return row.digest;
+        }
+        return null;
+    }
+
+    /// The first two outbound tags for `verb`, or null when fewer than two
+    /// were recorded.
+    fn bothOutbound(self: *const DigestLog, verb: []const u8) ?[2][driver.core.trace.digest_bytes]u8 {
+        var out: [2][driver.core.trace.digest_bytes]u8 = undefined;
+        var seen: usize = 0;
+        for (self.rows[0..self.n]) |row| {
+            if (!row.outbound) continue;
+            if (!std.mem.eql(u8, row.verb[0..row.verb_len], verb)) continue;
+            out[seen] = row.digest;
+            seen += 1;
+            if (seen == 2) return out;
+        }
+        return null;
+    }
+};
+
+const TraceLog = struct {
+    /// Compact rows: kind letter + detail, enough to assert order and facts.
+    buf: [16][96]u8 = undefined,
+    lens: [16]usize = .{0} ** 16,
+    n: usize = 0,
+    /// Each open's wire name, kept whole rather than folded into the row
+    /// above: the claim it carries is an equality between two hosts, not an
+    /// order or a spelling.
+    wires: [8][64]u8 = undefined,
+    wire_lens: [8]usize = .{0} ** 8,
+    wire_n: usize = 0,
+
+    fn emit(ctx: ?*anyopaque, event: driver.core.trace.Event) void {
+        const self: *TraceLog = @ptrCast(@alignCast(ctx.?));
+        if (event == .session_open and self.wire_n < self.wires.len) {
+            const wire = event.session_open.session_id;
+            if (wire.len <= self.wires[self.wire_n].len) {
+                @memcpy(self.wires[self.wire_n][0..wire.len], wire);
+                self.wire_lens[self.wire_n] = wire.len;
+                self.wire_n += 1;
+            }
+        }
+        if (self.n == self.buf.len) return;
+        const line = switch (event) {
+            .session_open => |open| std.fmt.bufPrint(
+                &self.buf[self.n],
+                "open codec={s} captp={s} designator={s} transport={s} provenance={s}",
+                .{
+                    @tagName(open.codec),
+                    @tagName(open.captp_version),
+                    open.designator,
+                    open.transport,
+                    @tagName(open.provenance),
+                },
+            ) catch return,
+            .message => |msg| std.fmt.bufPrint(
+                &self.buf[self.n],
+                "msg {s} {s}",
+                .{ if (msg.outbound) "out" else "in", msg.verb },
+            ) catch return,
+            .session_close => std.fmt.bufPrint(&self.buf[self.n], "close", .{}) catch return,
+        };
+        self.lens[self.n] = line.len;
+        self.n += 1;
+    }
+
+    fn row(self: *const TraceLog, i: usize) []const u8 {
+        return self.buf[i][0..self.lens[i]];
+    }
+
+    fn contains(self: *const TraceLog, needle: []const u8) bool {
+        for (0..self.n) |i| {
+            if (std.mem.indexOf(u8, self.row(i), needle) != null) return true;
+        }
+        return false;
+    }
+
+    /// The one wire name this log saw, for a host holding exactly one session.
+    fn onlyWire(self: *const TraceLog) []const u8 {
+        std.debug.assert(self.wire_n == 1);
+        return self.wires[0][0..self.wire_lens[0]];
+    }
+
+    fn sawWire(self: *const TraceLog, needle: []const u8) bool {
+        for (0..self.wire_n) |i| {
+            if (std.mem.eql(u8, self.wires[i][0..self.wire_lens[i]], needle)) return true;
+        }
+        return false;
+    }
+};
+
+test "core host: the live trace reports open, both message directions, and close" {
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var client_log = TraceLog{};
+    var server_log = TraceLog{};
+    client.setTrace(.{ .ctx = &client_log, .emit = TraceLog.emit });
+    server.setTrace(.{ .ctx = &server_log, .emit = TraceLog.emit });
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7009", &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+
+    var fetched = CapturedRef{};
+    const fetch_vow = try client.fetch(pair.a, "widget");
+    try client.vowOn(fetch_vow, .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    const widget_ref = try fetched.require();
+
+    const vow = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
+    var reply = CapturedString{};
+    try client.vowOn(vow, .{ .ctx = &reply, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqualStrings("poked over fed bytes", reply.buf[0..reply.len]);
+
+    // The dialer's first row is its open, naming the codec the core actually
+    // negotiated and the designator it dialed; the send traced outbound.
+    try std.testing.expect(client_log.n > 0);
+    try std.testing.expect(std.mem.startsWith(u8, client_log.row(0), "open codec=syrup"));
+    try std.testing.expect(client_log.contains("designator=127.0.0.1:7009"));
+    // A designator alone does not name a location: the spec requires the
+    // transport beside it. Provenance says whether the channel proved it.
+    try std.testing.expect(client_log.contains("transport=tcp"));
+    try std.testing.expect(client_log.contains("provenance=unauthenticated"));
+    try std.testing.expect(client_log.contains("msg out poke"));
+
+    // The acceptor heard the same verb inbound, on its own open session.
+    try std.testing.expect(server_log.contains("open codec=syrup"));
+    try std.testing.expect(server_log.contains("msg in poke"));
+
+    // Release pairs the close with the open, exactly once per side.
+    try client.releaseSession(pair.a);
+    try server.releaseSession(pair.b);
+    try std.testing.expect(client_log.contains("close"));
+    try std.testing.expect(server_log.contains("close"));
+}
+
+test "core host: a pancake-to-pancake pair holds the next profile over capnp" {
+    // The native pancake job — `engine.negotiation.Offer.native` prefers
+    // `next` and Cap'n Proto together — run at the Host tier for the first
+    // time. Only `engine.pairing` (in-process, no Host) had ever exercised
+    // `next`, because `Host.Options` carried no version and every socket
+    // session took the v1.0 floor. The profile is a wire difference, not a
+    // label: on `next` an answer settles through a resolve, where V1.0 has
+    // no native `op:resolve` and settles through a `resolve_me_desc`
+    // callback. A handshake that completes here is both ends agreeing on
+    // the version they put in `op:start-session` and on the grammar that
+    // framed it.
+    const allocator = std.testing.allocator;
+    var opts = Host.Options.withFrameCap(frame_cap);
+    opts.codec = .capnp;
+    opts.captp_version = .next;
+    var a = Host.init(allocator, [_]u8{0x4a} ** 32, opts);
+    defer a.deinit();
+    var b = Host.init(allocator, [_]u8{0x4b} ** 32, opts);
+    defer b.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &a, &b, "127.0.0.1:7010", &dials);
+    try std.testing.expect(pair.a.sessionOpen());
+    try std.testing.expect(pair.b.sessionOpen());
+    // Both ends recorded the negotiated profile, not the floor.
+    try std.testing.expectEqual(
+        model.CaptpVersion.next,
+        pair.a.served.port.peer.session_state.captp_version,
+    );
+    try std.testing.expectEqual(
+        model.CodecId.capnp,
+        pair.b.served.port.peer.session_state.codec,
+    );
+}
+
+test "core host: one host holds a next capnp session and a baseline session at once" {
+    // The shape `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
+    // a pancake peer talking Cap'n Proto to another pancake peer while talking
+    // the v1.0 Syrup baseline to a peer that speaks only that, on the same host
+    // at the same time. Nothing in the tree could do this before: a host's
+    // profile was stamped onto every session it minted, so a partner that
+    // disagreed was refused rather than met where it stood.
+    //
+    // Neither side is told anything out of band. Each hello states what its
+    // sender prefers, and each session settles its own pair from the two.
+    const allocator = std.testing.allocator;
+    var native_opts = Host.Options.withFrameCap(frame_cap);
+    native_opts.codec = .capnp;
+    native_opts.captp_version = .next;
+
+    var hub = Host.init(allocator, [_]u8{0x5a} ** 32, native_opts);
+    defer hub.deinit();
+    var native_peer = Host.init(allocator, [_]u8{0x5b} ** 32, native_opts);
+    defer native_peer.deinit();
+    // A peer that knows only the baseline: the profile a Goblins vat speaks.
+    var baseline_peer = Host.init(allocator, [_]u8{0x5c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer baseline_peer.deinit();
+
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const native = try openPair(allocator, &hub, &native_peer, "127.0.0.1:7011", &dials);
+    const baseline = try openPair(allocator, &hub, &baseline_peer, "127.0.0.1:7012", &dials);
+
+    try std.testing.expect(native.a.sessionOpen());
+    try std.testing.expect(baseline.a.sessionOpen());
+
+    // Two sessions on one host, each on the profile its pair reached.
+    const native_state = &native.a.served.port.peer.session_state;
+    try std.testing.expectEqual(model.CaptpVersion.next, native_state.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, native_state.codec);
+
+    const baseline_state = &baseline.a.served.port.peer.session_state;
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, baseline_state.captp_version);
+    try std.testing.expectEqual(model.CodecId.syrup, baseline_state.codec);
+
+    // The hub asked for the same thing on both, and got what each partner
+    // could follow. That difference is the point: the preference is a
+    // property of this peer, the active pair a property of the two.
+    try std.testing.expectEqual(model.CaptpVersion.next, baseline_state.preferred.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, baseline_state.preferred.codec);
+
+    // And the partner that knows only the baseline recorded the same session.
+    const far_state = &baseline.b.served.port.peer.session_state;
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, far_state.captp_version);
+    try std.testing.expectEqual(model.CodecId.syrup, far_state.codec);
+}
+
+test "core host: feature offers are carried by the signed hello and intersected" {
+    const allocator = std.testing.allocator;
+    var limited_opts = Host.Options.withFrameCap(frame_cap);
+    limited_opts.features = model.FeatureSet.minimum();
+    var limited = Host.init(allocator, [_]u8{0x6d} ** 32, limited_opts);
+    defer limited.deinit();
+
+    var full = Host.init(allocator, [_]u8{0x6e} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer full.deinit();
+
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &limited, &full, "127.0.0.1:7015", &dials);
+    try std.testing.expectEqual(model.FeatureSet.minimum(), pair.a.served.port.peer.session_state.features);
+    try std.testing.expectEqual(model.FeatureSet.minimum(), pair.b.served.port.peer.session_state.features);
+}
+
+test "core host: the live trace reports each session's settled profile, not the host's preference" {
+    // What a viewer draws has to be what the two peers agreed, or it draws the
+    // configuration and calls it the wire. The ordering this depends on is not
+    // obvious: a session reaches `open` inside apply, while the settle runs
+    // just after it, so an open fact emitted between the two would carry the
+    // preference. Both sessions here are opened by one host that prefers
+    // `next` over Cap'n Proto, and only one partner can follow it.
+    const allocator = std.testing.allocator;
+    var native_opts = Host.Options.withFrameCap(frame_cap);
+    native_opts.codec = .capnp;
+    native_opts.captp_version = .next;
+
+    var hub = Host.init(allocator, [_]u8{0x6a} ** 32, native_opts);
+    defer hub.deinit();
+    var native_peer = Host.init(allocator, [_]u8{0x6b} ** 32, native_opts);
+    defer native_peer.deinit();
+    var baseline_peer = Host.init(allocator, [_]u8{0x6c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer baseline_peer.deinit();
+
+    var hub_log = TraceLog{};
+    hub.setTrace(.{ .ctx = &hub_log, .emit = TraceLog.emit });
+
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const native = try openPair(allocator, &hub, &native_peer, "127.0.0.1:7013", &dials);
+    const baseline = try openPair(allocator, &hub, &baseline_peer, "127.0.0.1:7014", &dials);
+    try pumpToQuiescence(allocator, &.{ &hub, &native_peer, &baseline_peer }, &.{ native, baseline }, &dials);
+
+    // The open fact is emitted the first time a session is *observed* open,
+    // which is its first traffic rather than the handshake itself, so an idle
+    // session contributes no row. One fetch each is enough to observe both.
+    _ = try native.b.served.publish(&native.b.host.vat, "widget", Widget, .{});
+    _ = try baseline.b.served.publish(&baseline.b.host.vat, "widget", Widget, .{});
+    _ = try hub.fetch(native.a, "widget");
+    _ = try hub.fetch(baseline.a, "widget");
+    try pumpToQuiescence(allocator, &.{ &hub, &native_peer, &baseline_peer }, &.{ native, baseline }, &dials);
+
+    // One host, two opens, two different profiles on the wire.
+    try std.testing.expect(hub_log.contains("open codec=capnp captp=next"));
+    try std.testing.expect(hub_log.contains("open codec=syrup captp=v1_0"));
+}
+
+test "core host: both peers of one session report the same wire name" {
+    // The name a consumer merges two producers' feeds on. A session id is
+    // host-local — every host starts counting at one — so two peers tracing
+    // the same conversation say nothing to each other by it. The wire name is
+    // the OCapN session identifier, derived from both session public keys with
+    // the pair sorted, so the dialer and the accepter compute the same digits
+    // and a viewer can tell one wire watched twice from two wires.
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x71} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x72} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var third = Host.init(allocator, [_]u8{0x73} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer third.deinit();
+
+    var client_log = TraceLog{};
+    var server_log = TraceLog{};
+    var third_log = TraceLog{};
+    client.setTrace(.{ .ctx = &client_log, .emit = TraceLog.emit });
+    server.setTrace(.{ .ctx = &server_log, .emit = TraceLog.emit });
+    third.setTrace(.{ .ctx = &third_log, .emit = TraceLog.emit });
+
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7031", &dials);
+    const other = try openPair(allocator, &client, &third, "127.0.0.1:7032", &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+    _ = try other.b.served.publish(&other.b.host.vat, "widget", Widget, .{});
+    _ = try client.fetch(pair.a, "widget");
+    _ = try client.fetch(other.a, "widget");
+    try pumpToQuiescence(allocator, &.{ &client, &server, &third }, &.{ pair, other }, &dials);
+
+    // The dialer saw both sessions; each accepter saw its own. Every accepter's
+    // name is one the dialer also reported, which is the whole claim: two
+    // producers watching one session say the same word for it.
+    try std.testing.expectEqual(@as(usize, 2), client_log.wire_n);
+    try std.testing.expect(client_log.sawWire(server_log.onlyWire()));
+    try std.testing.expect(client_log.sawWire(third_log.onlyWire()));
+    // Two sessions are two names, or election would fold unrelated wires.
+    try std.testing.expect(!std.mem.eql(u8, server_log.onlyWire(), third_log.onlyWire()));
+    try std.testing.expectEqual(@as(usize, 64), server_log.onlyWire().len);
+    for (server_log.onlyWire()) |ch| {
+        try std.testing.expect((ch >= '0' and ch <= '9') or (ch >= 'a' and ch <= 'f'));
+    }
+}
+
+test "core host: a three-vat handoff holds native between the pancake pair and baseline with the third" {
+    // The cast `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
+    // a pancake gifter introduces a peer that speaks only the v1.0 Syrup
+    // baseline — a Goblins vat's profile — to a pancake exporter. Three
+    // sessions, and the profile each runs on is a property of its pair:
+    // gifter-to-exporter is native because both ends can be, and both of the
+    // recipient's sessions are the baseline because it cannot.
+    //
+    // The handoff itself has to survive that split, and this is the case
+    // `codec.signed` exists for: a give is minted on one session and redeemed
+    // on another that negotiated independently, so its signed envelope is
+    // Syrup whatever each session settled.
+    const allocator = std.testing.allocator;
+    var native_opts = Host.Options.withFrameCap(frame_cap);
+    native_opts.codec = .capnp;
+    native_opts.captp_version = .next;
+
+    var exporter = Host.init(allocator, [_]u8{0x7e} ** 32, native_opts);
+    defer exporter.deinit();
+    var gifter = Host.init(allocator, [_]u8{0x76} ** 32, native_opts);
+    defer gifter.deinit();
+    // The Goblins-shaped peer: it knows only the baseline.
+    var recipient = Host.init(allocator, [_]u8{0x7c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer recipient.deinit();
+
+    const hosts = [_]*Host{ &exporter, &gifter, &recipient };
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer {
+        for (dials.items) |parked| allocator.free(parked.designator);
+        dials.deinit(allocator);
+    }
+
+    var row_freed = false;
+    var row = TaggedRow{ .tag = "greeter", .freed = &row_freed };
+    _ = try exporter.publishGiftable("widget", Tagged, .{ .row = &row });
+
+    // Gifter to exporter: both prefer native, so the session is native.
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7021", &dials);
+    var widget = CapturedRef{};
+    try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
+    const widget_ref = try widget.require();
+
+    // Recipient to gifter: the recipient can only do the baseline.
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7022", &dials);
+    _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = widget_ref });
+    var introducer = CapturedRef{};
+    try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+    const introducer_ref = try introducer.require();
+
+    const introduce_vow = try recipient.send(r_to_g.a, introducer_ref, .{ .verb = "introduce", .args = &.{} });
+    var redeemed = CapturedRef{};
+    try recipient.vowOn(introduce_vow, .{ .ctx = &redeemed, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
+
+    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
+    const parked = dials.items[0];
+
+    // The redeem dial: two pancake hosts on the wire, but the recipient still
+    // cannot do native, so this session settles on the baseline too.
+    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
+    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
+    const r_to_e = try recipient.openDialedLocator(.{
+        .transport = redeem_view.transport,
+        .designator = redeem_view.designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
+    const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try std.testing.expect(r_to_e.sessionOpen());
+    try recipient.exporterDialed(parked.ticket, r_to_e);
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+
+    // The handoff completed across the profile split.
+    const token_ref = try redeemed.require();
+    try std.testing.expect(token_ref == .far);
+    const reached = try recipient.send(r_to_g.a, token_ref, .{ .verb = "tag", .args = &.{} });
+    var tag = CapturedString{};
+    try recipient.vowOn(reached, .{ .ctx = &tag, .func = CapturedString.record });
+    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
+    try std.testing.expectEqualStrings("greeter", tag.buf[0..tag.len]);
+
+    // Each session runs the profile its own pair could reach.
+    const pancake_pair = &g_to_e.a.served.port.peer.session_state;
+    try std.testing.expectEqual(model.CaptpVersion.next, pancake_pair.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, pancake_pair.codec);
+
+    inline for (.{ r_to_g.a, r_to_e }) |with_recipient| {
+        const state = &with_recipient.served.port.peer.session_state;
+        try std.testing.expectEqual(model.CaptpVersion.v1_0, state.captp_version);
+        try std.testing.expectEqual(model.CodecId.syrup, state.codec);
+    }
+
+    // The exporter asked for native on every session it holds and got it on
+    // one of the two. That difference is the point.
+    try std.testing.expectEqual(
+        model.CaptpVersion.next,
+        e_accepts_r.served.port.peer.session_state.preferred.captp_version,
+    );
+    try std.testing.expectEqual(
+        model.CaptpVersion.v1_0,
+        e_accepts_r.served.port.peer.session_state.captp_version,
+    );
+}
+
+test "core host: both ends of a wire tag one message identically" {
+    // The property the whole merge rests on. A frame crosses one wire, so the
+    // sender and the receiver hold the same bytes and derive the same tag
+    // with no coordination — which is what lets a consumer recognise two
+    // observers' records as one message instead of drawing it twice, and why
+    // the endpoint need not pick a winner and throw the other view away.
+    //
+    // Derived, not claimed: a producer cannot assert that some other message
+    // is this one without holding its bytes.
+    const allocator = std.testing.allocator;
+    var client = Host.init(allocator, [_]u8{0x8a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = Host.init(allocator, [_]u8{0x8b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+
+    var client_log = DigestLog{};
+    var server_log = DigestLog{};
+    client.setTrace(.{ .ctx = &client_log, .emit = DigestLog.emit });
+    server.setTrace(.{ .ctx = &server_log, .emit = DigestLog.emit });
+
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7030", &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+
+    var fetched = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    const widget = try fetched.require();
+    var reply = CapturedString{};
+    try client.vowOn(
+        try client.send(pair.a, widget, .{ .verb = "poke", .args = &.{} }),
+        .{ .ctx = &reply, .func = CapturedString.record },
+    );
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    // The dialer sent `poke` outbound; the acceptor saw the same frame
+    // inbound. Two records of one message, and the tags agree.
+    const sent = client_log.find("poke", true) orelse return error.NoOutboundPoke;
+    const heard = server_log.find("poke", false) orelse return error.NoInboundPoke;
+    try std.testing.expectEqualSlices(u8, &sent, &heard);
+
+    // And the tag must cover the frame, not something coarser that happens to
+    // agree across ends. Two sends of the SAME verb carrying different
+    // arguments are different messages, and a tag over the verb alone — which
+    // both ends would also agree on — cannot tell them apart.
+    var second = CapturedString{};
+    try client.vowOn(
+        try client.send(pair.a, widget, .{ .verb = "poke", .args = &.{.{ .string = "again" }} }),
+        .{ .ctx = &second, .func = CapturedString.record },
+    );
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    const both = client_log.bothOutbound("poke") orelse return error.OnlyOnePoke;
+    try std.testing.expect(!std.mem.eql(u8, &both[0], &both[1]));
 }

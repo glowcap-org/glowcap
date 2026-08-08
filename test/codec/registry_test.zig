@@ -26,6 +26,12 @@ const FixtureCodec = struct {
         return .too_large;
     }
 
+    pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) dispatch.Boundary {
+        _ = bytes;
+        _ = max_frame_bytes;
+        return .too_large;
+    }
+
     pub fn encodeMessageForProfile(
         allocator: std.mem.Allocator,
         profile: model.CaptpVersion,
@@ -48,6 +54,8 @@ test "a consumer codec registered past the built-ins routes through dispatch" {
     // proving a third codec dispatches with zero changes to the built-in set.
     const verdict = dispatch.decodePrefixWith(&specs, custom_id, "anything at all", 4096);
     try std.testing.expect(verdict == .too_large);
+    const boundary = dispatch.framePrefixWith(&specs, custom_id, "anything at all", 4096);
+    try std.testing.expect(boundary == .too_large);
 
     // The body decode routes through the same injected registry: the fixture
     // answers with its own typed error, not a built-in's.

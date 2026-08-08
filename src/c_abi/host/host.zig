@@ -17,6 +17,7 @@ const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
 const common = @import("common.zig");
+const trace_queue = @import("trace_queue.zig");
 
 const crypto = foundation.crypto;
 
@@ -134,6 +135,8 @@ fn hostNewIn(
     frame_cap: usize,
     verify_partner: u32,
     codec: u32,
+    captp_version: u32,
+    features: u32,
     local_turn_budget: u32,
     out_host: ?*?*PancakeHost,
 ) i32 {
@@ -159,11 +162,21 @@ fn hostNewIn(
         shared.setLastError("host: codec must be a PANCAKE_CODEC_* value", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
+    const version_id = shared.captpVersionFromC(captp_version) orelse {
+        shared.setLastError("host: captp_version must be a PANCAKE_CAPTP_* value", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    const feature_set = shared.featureSetFromC(features) orelse {
+        shared.setLastError("host: features must be a PANCAKE_FEATURE_* bitmask", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
     ensureCapabilityKey(seed_nn[0..crypto.SEED_BYTES].*);
     const inst = alloc.create(Instance) catch |err| return errToCode(err);
     var opts = Host.Options.withFrameCap(frame_cap);
     opts.verify_partner = verify_partner != 0;
     opts.codec = codec_id;
+    opts.captp_version = version_id;
+    opts.features = feature_set;
     opts.local_turn_budget = if (local_turn_budget == 0) null else local_turn_budget;
     opts.capability_id_issuer = .{ .next = issueCapabilityId };
     if (seed_len == session_root_len) {
@@ -184,23 +197,24 @@ fn hostNewIn(
 /// `seed` (the host never draws entropy), allocating through the library
 /// allocator. `frame_cap` sizes every session's maximum admissible frame;
 /// a nonzero `verify_partner` keeps partner-signature verification on (the
-/// secure default); `codec` is the `PANCAKE_CODEC_*` wire grammar every
-/// session this host mints negotiates in — both ends of a session must
-/// carry the same value (`op:start-session` carries no codec operand, so
-/// agreement is the embedder's, as on the peer tier's `_negotiated`
-/// constructors); `local_turn_budget` is 0 for unbounded (the same default as
-/// Zig Host + Bridge) or a nonzero cap on local-turn amplification per drive
-/// (ADR-0076). Released with `pancake_host_release`.
+/// secure default); `codec`, `captp_version`, and `features` are this host's
+/// preferred profile offer. The signed hello carries them as locator hints,
+/// and each session settles them with its partner. `local_turn_budget` is 0
+/// for unbounded (the same default as Zig Host + Bridge) or a nonzero cap on
+/// local-turn amplification per drive (ADR-0076). Released with
+/// `pancake_host_release`.
 pub export fn pancake_host_new(
     seed: ?[*]const u8,
     seed_len: usize,
     frame_cap: usize,
     verify_partner: u32,
     codec: u32,
+    captp_version: u32,
+    features: u32,
     local_turn_budget: u32,
     out_host: ?*?*PancakeHost,
 ) i32 {
-    return hostNewIn(shared.library_allocator, seed, seed_len, frame_cap, verify_partner, codec, local_turn_budget, out_host);
+    return hostNewIn(shared.library_allocator, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
 }
 
 /// `pancake_host_new` allocating every byte the host owns through `context`'s
@@ -212,11 +226,13 @@ pub export fn pancake_host_new_in(
     frame_cap: usize,
     verify_partner: u32,
     codec: u32,
+    captp_version: u32,
+    features: u32,
     local_turn_budget: u32,
     out_host: ?*?*PancakeHost,
 ) i32 {
     const ctx = shared.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
-    return hostNewIn(ctx.allocator(), seed, seed_len, frame_cap, verify_partner, codec, local_turn_budget, out_host);
+    return hostNewIn(ctx.allocator(), seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
 }
 
 /// Release the host and everything it owns: every still-open session
@@ -245,6 +261,10 @@ pub export fn pancake_host_release(host: ?*PancakeHost) i32 {
     inst.arg_scratch.deinit();
     inst.turn_scratch.deinit();
     inst.completion_scratch.deinit();
+    if (inst.trace_queue) |queue| {
+        queue.deinit(alloc);
+        alloc.destroy(queue);
+    }
     alloc.destroy(inst);
     return PANCAKE_OK;
 }
@@ -287,6 +307,44 @@ pub export fn pancake_host_set_self_designator(host: ?*PancakeHost, designator: 
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const bytes = shared.sliceFromC(designator, len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.setSelfDesignator(bytes) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Retain and select this host's complete acceptable location. `locator` is a
+/// Syrup `<ocapn-peer ...>` record and is borrowed for this call; the Host parses
+/// and deep-copies it before returning.
+pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: ?[*]const u8, locator_len: usize) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const bytes = shared.sliceFromC(locator, locator_len) catch |err| return shared.marshalErrorToCode(err);
+    var cursor: usize = 0;
+    const parsed = engine.readLocatorOwned(inst.allocator, bytes, &cursor) catch {
+        shared.setLastError("host: set_advertised_locator expects one Syrup ocapn-peer record", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    defer model.freePeerLocator(inst.allocator, parsed);
+    if (cursor != bytes.len) {
+        shared.setLastError("host: set_advertised_locator locator record has trailing bytes", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
+    inst.core.setAdvertisedLocator(parsed) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Retain the deterministic dial fallback for `transport` without displacing
+/// an acceptable location already selected for another transport.
+pub export fn pancake_host_ensure_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
+    inst.core.ensureAdvertisedLocator(bytes) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Remove the retained locator for `transport`. Removing the selected route
+/// leaves no acceptable location. Existing sessions retain their signed hello.
+pub export fn pancake_host_remove_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
+    inst.core.removeAdvertisedLocator(bytes);
     return PANCAKE_OK;
 }
 
@@ -452,20 +510,157 @@ pub export fn pancake_host_plan_dial(
     return PANCAKE_OK;
 }
 
-/// Select-or-dial enliven (ADR-0098): enliven the complete sturdyref URI over
-/// a live session this host already dialed to its peer, or stage a dial and
-/// finish when the embedder reports it. The host vow id lands in *out_vow and
-/// its outcome arrives as that vow's SETTLE or FAIL action, whether the
-/// enliven rode a selected session or waited for a dial. A staged dial
-/// surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL: borrow it with
-/// pancake_host_pending_dial and report it with pancake_host_dialed /
-/// pancake_host_dial_failed exactly as a handoff redeem's dial. Refused
-/// inside a callback.
 /// Mint a resolver pair (ADR-0102): *out_vow_id is the read side, whose whole
 /// surface is pancake_host_turn_forward_vow; *out_resolver_id is the settle
 /// authority for pancake_host_resolver_fulfill / _break. Legal inside a
 /// behavior callback — a behavior mints, forwards its answer, hands the
 /// resolver id to whatever completes the work, and returns.
+/// Install (or clear, with a null callback) the live trace: the host reports
+/// its own session opens (partner designator, negotiated codec, whether a
+/// durable identity verified the name), every message's verb in both
+/// directions, and session closes, through `callback` on the host's one
+/// thread. Views in the event are borrowed for the call. The callback must
+/// call no host-driving verb; stamp, copy, and return.
+pub export fn pancake_host_set_trace(
+    host: ?*PancakeHost,
+    callback: ?c.PancakeTraceCallback,
+    ctx: ?*anyopaque,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    inst.trace_cb = callback;
+    inst.trace_ctx = ctx;
+    if (callback == null and inst.trace_queue == null) {
+        inst.core.setTrace(null);
+    } else {
+        inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit });
+    }
+    return PANCAKE_OK;
+}
+
+/// Install (or clear, with a zero `capacity`) the drained live trace: instead
+/// of calling back, the host captures each fact into a fixed ring the embedder
+/// pops with `pancake_host_next_trace`. This is the seam for an embedder that
+/// cannot hand the library a C function pointer — a browser, where the wasm
+/// module's import set is pinned to the one behavior trampoline.
+///
+/// `capacity` records are held, each with `payload_cap` bytes for that
+/// record's borrowed strings (the partner designator and wire name of an open;
+/// the verb and as much of the frame as fits, for a message). Nothing here
+/// grows: a full ring drops the newest record and reports the count on the
+/// next one it does capture, so tracing can never make the protocol wait.
+///
+/// Installing replaces any prior queue, dropping whatever it still held. A
+/// zero `capacity` clears the queue; the callback seam, if one is installed,
+/// keeps running either way.
+pub export fn pancake_host_set_trace_queue(
+    host: ?*PancakeHost,
+    capacity: usize,
+    payload_cap: usize,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (inst.trace_queue) |queue| {
+        queue.deinit(inst.allocator);
+        inst.allocator.destroy(queue);
+        inst.trace_queue = null;
+    }
+    if (capacity == 0) {
+        if (inst.trace_cb == null) inst.core.setTrace(null);
+        return PANCAKE_OK;
+    }
+    if (payload_cap == 0) {
+        shared.setLastError("host: set_trace_queue: payload_cap must be positive", .{});
+        return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+    }
+    const queue = inst.allocator.create(trace_queue.TraceQueue) catch |err| return errToCode(err);
+    queue.* = trace_queue.TraceQueue.init(inst.allocator, capacity, payload_cap) catch |err| {
+        inst.allocator.destroy(queue);
+        return errToCode(err);
+    };
+    inst.trace_queue = queue;
+    inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit });
+    return PANCAKE_OK;
+}
+
+/// Pop the oldest captured trace record into `out`. Its byte views point into
+/// the queue and stay valid until the next `pancake_host_next_trace` call,
+/// the same borrow `pancake_host_next_action` carries. Returns
+/// `PANCAKE_ERR_WOULD_BLOCK` when nothing is captured, so an embedder drains
+/// in a loop until it sees that code.
+pub export fn pancake_host_next_trace(
+    host: ?*PancakeHost,
+    out: ?*c.PancakeTraceEvent,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const queue = inst.trace_queue orelse return shared.PANCAKE_ERR_WOULD_BLOCK;
+    if (!queue.pop(slot)) return shared.PANCAKE_ERR_WOULD_BLOCK;
+    return PANCAKE_OK;
+}
+
+/// The core-sink half of the trace bridge: project the typed fact onto the C
+/// event and call the installed callback.
+fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
+    const inst: *common.Instance = @ptrCast(@alignCast(ctx.?));
+    if (inst.trace_queue) |queue| queue.push(event);
+    const cb = inst.trace_cb orelse return;
+    var out = c.PancakeTraceEvent{
+        .kind = 0,
+        .session = 0,
+        .outbound = 0,
+        .provenance = c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
+        .codec = shared.PANCAKE_CODEC_UNKNOWN,
+        .captp_version = shared.PANCAKE_CAPTP_V1_0,
+        .designator = null,
+        .designator_len = 0,
+        .transport = null,
+        .transport_len = 0,
+        .session_id = null,
+        .session_id_len = 0,
+        .verb = null,
+        .verb_len = 0,
+        .frame = null,
+        .frame_len = 0,
+        .frame_total_len = 0,
+        .dropped = 0,
+        .digest = @splat(0),
+    };
+    switch (event) {
+        .session_open => |open| {
+            out.kind = c.PANCAKE_TRACE_SESSION_OPEN;
+            out.session = open.session.int();
+            out.provenance = common.provenanceToC(open.provenance);
+            out.codec = shared.codecToC(open.codec);
+            out.captp_version = shared.captpVersionToC(open.captp_version);
+            out.designator = open.designator.ptr;
+            out.designator_len = open.designator.len;
+            out.transport = open.transport.ptr;
+            out.transport_len = open.transport.len;
+            if (open.session_id.len > 0) {
+                out.session_id = open.session_id.ptr;
+                out.session_id_len = open.session_id.len;
+            }
+        },
+        .message => |msg| {
+            out.kind = c.PANCAKE_TRACE_MESSAGE;
+            out.session = msg.session.int();
+            out.outbound = @intFromBool(msg.outbound);
+            out.verb = msg.verb.ptr;
+            out.verb_len = msg.verb.len;
+            out.digest = msg.digest;
+            if (msg.frame.len > 0) {
+                out.frame = msg.frame.ptr;
+                out.frame_len = msg.frame.len;
+                out.frame_total_len = msg.frame.len;
+            }
+        },
+        .session_close => |close| {
+            out.kind = c.PANCAKE_TRACE_SESSION_CLOSE;
+            out.session = close.session.int();
+        },
+    }
+    cb(inst.trace_ctx, &out);
+}
+
 pub export fn pancake_host_spawn_resolver(
     host: ?*PancakeHost,
     out_vow_id: ?*u64,
@@ -511,6 +706,15 @@ pub export fn pancake_host_resolver_break(
     return PANCAKE_OK;
 }
 
+/// Select-or-dial enliven (ADR-0098): enliven the complete sturdyref URI over
+/// a live session this host already dialed to its peer, or stage a dial and
+/// finish when the embedder reports it. The host vow id lands in *out_vow and
+/// its outcome arrives as that vow's SETTLE or FAIL action, whether the
+/// enliven rode a selected session or waited for a dial. A staged dial
+/// surfaces as an ordinary PANCAKE_HOST_ACTION_DIAL: borrow it with
+/// pancake_host_pending_dial and report it with pancake_host_dialed /
+/// pancake_host_dial_failed exactly as a handoff redeem's dial. Refused
+/// inside a callback.
 pub export fn pancake_host_enliven(
     host: ?*PancakeHost,
     sturdyref_uri: ?[*]const u8,
@@ -520,7 +724,11 @@ pub export fn pancake_host_enliven(
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err| return shared.marshalErrorToCode(err);
-    const sturdyref = model.uri.parseSturdyref(inst.allocator, uri) catch |err| return errToCode(err);
+    const sturdyref = model.uri.parseSturdyrefForProfile(
+        inst.allocator,
+        inst.core.opts.captp_version,
+        uri,
+    ) catch |err| return errToCode(err);
     defer model.uri.freeSturdyref(inst.allocator, sturdyref);
     slot.* = inst.core.enlivenSelectOrDial(sturdyref) catch |err| return errToCode(err);
     return PANCAKE_OK;

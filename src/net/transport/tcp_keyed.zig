@@ -8,15 +8,17 @@
 //! posture iroh's node id ships — and the socket address rides the locator's
 //! `direct-addresses` hint instead. The key outlives the process, so a partner
 //! re-dials the same designator across a restart with only the hint updated,
-//! and the driver's dial-side pin (`engine.Peer.expectPartnerKey`) verifies at
-//! the handshake that whoever answered actually holds that key.
+//! and the dial turns that designator into a demand on the partner's hello
+//! (`engine.Peer.demandPartnerDurableKey`). A key-designator route in that
+//! hello must match; an independently selected address route relies on this
+//! netlayer to have honored the dial. Nothing under this transport can
+//! authenticate either case, and this resident asserts no verified remote.
 //!
 //! The wire underneath is the plain TCP resident's: this file owns no sockets,
 //! streams, or pinned wrappers of its own. It reuses `tcp.connectAddress`,
 //! `tcp.Listener`, and `tcp.parseDesignator`, and adds only the designator
 //! grammar (key in the locator, address in the hint). The channel is therefore
-//! exactly as cleartext as `tcp` — the key authenticates the identity, it does
-//! not encrypt the bytes; see the boundary in `docs/boundaries.md`.
+//! exactly as cleartext as `tcp`; see the boundary in `docs/boundaries.md`.
 
 const std = @import("std");
 
@@ -59,21 +61,17 @@ pub const Resident = struct {
     }
 };
 
+const resident_ctx = netlayer.ResidentContext(Resident);
+
 const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
     // The designator is the listener's Ed25519 key, so a driver dial pins the
     // partner's session identity to it (`net.netlayer.DesignatorScheme`).
     .designator_scheme = .key,
-    .authentication = .durable_key_attestation,
     .dial = residentDial,
     .listen = residentListen,
-    .io = residentIo,
+    .io = resident_ctx.io,
 };
-
-fn residentIo(ctx: *anyopaque) ?std.Io {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
-    return self.io;
-}
 
 fn residentDial(
     ctx: *anyopaque,
@@ -81,7 +79,7 @@ fn residentDial(
     loc: model.PeerLocator,
     bufs: Buffers,
 ) netlayer.DialError!Connection {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     // Same admission as the completion loop: `tcp.DialResolver.resolve` owns key
     // shape + required hint + hostport parse.
     const direct = netlayer.directAddrHint(loc.hints) orelse &.{};
@@ -94,7 +92,7 @@ fn residentListen(
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
 ) netlayer.ListenError!NetLayerListener {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     // The bind address is ordinary tcp (`host:port`, port 0 for
     // kernel-chosen); the key plays no part in where the socket lives.
     const address = tcp.parseDesignator(config.designator) catch return error.InvalidAddress;
@@ -119,11 +117,10 @@ const ListenerBox = struct {
 const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = .key,
-    .authentication = .durable_key_attestation,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
-    .localHint = listenerLocalHint,
+    .localDirectAddresses = listenerLocalDirectAddresses,
     .close = listenerClose,
 };
 
@@ -138,7 +135,7 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
 }
 
 /// The dialable designator is the identity key's canonical hex — durable
-/// across rebinds, which is the point. The bound socket address is `localHint`.
+/// across rebinds, which is the point. The bound socket address is `localDirectAddresses`.
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     const hex = box.public_key.toDesignator();
@@ -147,7 +144,7 @@ fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
 
 /// The bound `host:port` (with the kernel-chosen port when bound to port 0):
 /// the `direct-addresses` hint value a partner dials this listener with.
-fn listenerLocalHint(ctx: *anyopaque, out: []u8) []const u8 {
+fn listenerLocalDirectAddresses(ctx: *anyopaque, out: []u8) error{OutputBufferTooSmall}![]const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     return tcp.designatorOnListener(&box.listener, out);
 }

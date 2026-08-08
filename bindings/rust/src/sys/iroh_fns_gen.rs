@@ -39,6 +39,12 @@ extern "C" {
 	) -> c_int;
 	pub fn pancake_iroh_conn_release(conn: *mut PancakeIrohConn);
 	pub fn pancake_iroh_conn_id(conn: *mut PancakeIrohConn) -> usize;
+	pub fn pancake_iroh_conn_remote_node_id(
+		conn: *mut PancakeIrohConn,
+		out: *mut c_uchar,
+		cap: usize,
+		out_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_iroh_netlayer_readiness_fd(netlayer: *mut PancakeIrohNetlayer) -> c_int;
 	pub fn pancake_iroh_netlayer_drain_ready(
 		netlayer: *mut PancakeIrohNetlayer,

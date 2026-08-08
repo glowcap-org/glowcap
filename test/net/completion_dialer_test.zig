@@ -84,7 +84,7 @@ const ClientCtx = struct {
     fulfilled_total: *usize,
     fetch_sent: bool = false,
     answer_position: model.AnswerPosition = .from(0),
-    resolver_export: model.ExportPosition = .from(0),
+    resolver_export: ?model.ExportPosition = null,
     fulfilled: usize = 0,
 
     fn serve(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
@@ -329,7 +329,7 @@ const FailingConnectBackend = struct {
         _ = fd;
     }
 
-    pub fn remotePartnerKey(self: *FailingConnectBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *FailingConnectBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;

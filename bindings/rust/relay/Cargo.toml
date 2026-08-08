@@ -21,7 +21,7 @@ iroh = ["dep:pancake-rust-dogfood"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "time"] }
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.30"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 pancake-rust-dogfood = { path = "..", features = ["iroh", "async"], optional = true }
 

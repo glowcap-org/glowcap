@@ -23,6 +23,7 @@ Names follow each language's conventions, but the operations are the same:
 | --- | --- |
 | `connect(locator)` | Dial an `ocapn://` peer and return a session. |
 | `listen(address)` | Accept partners and return one session per connection. |
+| `session.listen(ref)` | Subscribe to the listen notification for a held far capability; 1.0 accepts far promises and live far objects, while pancake-next accepts only far promises. |
 | `fetch(name)` | Fetch a capability published by the partner. |
 | `publish(name, behavior)` | Make a local behavior fetchable by name. |
 | `spawn(behavior)` | Create a local actor and return its capability. |
@@ -42,7 +43,7 @@ Three-party handoff is part of the ordinary call path. If a result names a
 capability hosted by another peer, the host opens or reuses the required
 connection and settles the call with the live capability.
 
-`send_redeeming` (spelled in each language's style) is for the less common case
+`send_redeeming` (named according to each language's style) is for the less common case
 where the caller also needs the direct exporter session for session-specific
 operations or peer identity. The capability itself remains Host-scoped.
 

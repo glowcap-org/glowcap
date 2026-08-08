@@ -1,14 +1,10 @@
 //! A connection: it runs a borrowed `*engine.Peer` over a `std.Io` byte stream.
 //!
-//! A CapTP transport is a stream of self-delimiting codec frames. The connection
-//! reads bytes into a buffer and hands the buffered prefix to the engine, and the
-//! active codec's own decoder finds the frame boundary as it decodes
-//! (`engine.Peer.recvStreamPrefix`). One parse does both jobs, and the decoder
-//! stays the only authority on where a frame ends. Ahead of it sits a cheap
-//! resumable scan that answers only "could a whole frame be there yet", so a
-//! frame arriving over many reads is walked once instead of once per read; it
-//! decides nothing the decoder then re-decides. A decoded frame is applied right away, the bytes it
-//! used are dropped, and the peer's outbound frames are streamed back. The read
+//! A byte-stream CapTP transport wraps each bare codec frame in a Syrup byte
+//! string. The connection reads that canonical length prefix and bounded body,
+//! applies the body as one whole frame, and streams outbound frames through the
+//! same outer envelope. Intrinsically message-framed transports drive the
+//! engine's whole-frame APIs directly and do not use this layer. The read
 //! buffer sizes the steady state, not the largest admissible frame: a frame that
 //! outgrows it assembles in a bounded owned spill and is freed when it drains
 //! (ADR-0041).
@@ -331,7 +327,7 @@ pub fn pumpOver(
 
     const supply = if (spill.isActive()) spill.bytes() else r.buffered();
     if (supply.len > 0) {
-        const outcome = peer.recvStreamPrefix(supply) catch |err| {
+        const outcome = frame_stream.recvOuterPrefix(peer, supply) catch |err| {
             // The core projected an op:abort into outbound; flush it best-effort
             // so the partner sees the fail-loud close, then surface the cause.
             peer.stepToIdle() catch {};
@@ -365,8 +361,7 @@ fn drainOutbound(peer: *engine.Peer, w: *std.Io.Writer) std.Io.Writer.Error!usiz
         var frame: foundation.Frame = frame_value;
         defer frame.deinit();
         const bytes = frame.bytes();
-        try w.writeAll(bytes);
-        total += bytes.len;
+        total += try frame_stream.writeFrameBytes(w, bytes);
     }
     if (total > 0) try w.flush();
     return total;

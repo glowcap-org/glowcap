@@ -3,7 +3,7 @@
 //! `serve` dispatches one inbound peer event — a deliver to a bound export
 //! runs the actor's turn through the shared frame spine and resolves the
 //! answer; a resolve fires the far vow's one-shot listener, projecting a
-//! handoff give typed. `settleFar` is the byte-fed host's spelling of the
+//! handoff give typed. `settleFar` is the byte-fed host's counterpart to the
 //! same settle, `forwardTurn` drives `Turn.forward`, and export binding
 //! (`bindExport`/`refForExport`) plus disconnect breaks (`breakFarVows`) live
 //! beside them. The `Vat` re-binds the public verbs; the turn module runs the
@@ -115,7 +115,15 @@ pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, eve
     const body = event.view() catch return false;
     return switch (body) {
         .deliver => |deliver| serveDeliver(self, port, ingress, deliver),
-        .resolve => |resolve| serveResolve(self, port, resolve),
+        .resolve => |resolve| blk: {
+            var handled = try serveResolve(self, port, resolve);
+            for (event.resolveAliases()) |answer| {
+                var alias = resolve;
+                alias.answer = answer;
+                handled = (try serveResolve(self, port, alias)) or handled;
+            }
+            break :blk handled;
+        },
         else => false,
     };
 }
@@ -316,7 +324,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
 /// Settle the far vow at `answer` with `resolution`, firing and removing its
 /// one-shot listener. This is how an embedder that executes node serve-step
 /// actions (`engine.Node.Action.settle` / `.fail`) delivers a settlement
-/// that never crossed this vat's own wire — the byte-fed host's spelling of
+/// that never crossed this vat's own wire — the byte-fed host's counterpart to
 /// the resolve arm of `serve`, minus the wire event. The fulfilled value is
 /// cloned into the settle arena for the listener call, under the same depth
 /// guard as `serveResolve`'s fulfilled arm; a broken reason is borrowed for

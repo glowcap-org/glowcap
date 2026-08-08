@@ -1,11 +1,16 @@
 # A2A on CapTP (Spec D)
 
-Status: active plan
+Status: historical snapshot — a design sketch, recorded at the moment it was
+made and not worked since. Nobody is building this, and no part of it has
+started.
+[ADR-0084](../decisions/adr/ADR-0084-pancake-cli-product-boundary.md) is the
+decision that deferred it and the reason it is not an active plan; this file
+survives only because that ADR points here for the object shapes below, which
+it does not itself carry. Read it as a starting point for whoever picks the
+work up, never as a commitment that anyone will.
 
 Deferred product design for Agent2Agent ([A2A](https://github.com/a2aproject/A2A))
-as an application vocabulary on CapTP. Not implemented. Companion:
-[ADR-0084](../decisions/adr/ADR-0084-pancake-cli-product-boundary.md)
-(product CLI boundary; Spec D is deferred from A-v1).
+as an application vocabulary on CapTP. Not implemented.
 
 ## Boundary
 

@@ -1,12 +1,12 @@
-//! `Host.openAcceptedOver` and `Host.serveEvent`: the adoption seam a
+//! `Host.openAcceptedAdvertisedOver` and `Host.serveEvent`: the adoption seam a
 //! peer-owning loop rides. The embedder pins an `engine.Peer` at a stable
 //! address (here: the test frame), the host adopts it: node routing, keyed
-//! hello, enrollment, everything `openAccepted` wires, and serves it per
-//! polled event, while ownership never moves: `releaseSession` unregisters the
-//! adopted peer without freeing it, and the embedder deinits it afterward
+//! hello, enrollment, everything `openAcceptedAdvertised` wires, and serves it
+//! per polled event, while ownership never moves: `releaseSession` unregisters
+//! the adopted peer without freeing it, and the embedder deinits it afterward
 //! (the testing allocator makes a double free or a leak fail loud). This is
-//! `engine.Node`'s registerPeerOver contract proven one level up, at the
-//! host tier.
+//! `engine.Node`'s registerPeerOver contract proven one level up, at the host
+//! tier.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -45,7 +45,7 @@ fn pumpToQuiescence(client_host: *Host, client: *HostSession, server_host: *Host
     try host_pair.pumpToQuiescence(&.{.{ .ah = client_host, .a = client, .bh = server_host, .b = adopted }});
 }
 
-test "openAcceptedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {
+test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {
     const allocator = std.testing.allocator;
 
     var server = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
@@ -58,7 +58,18 @@ test "openAcceptedOver adopts an embedder-pinned peer: handshake, fetch, per-eve
     var pinned = engine.Peer.initNegotiating(allocator);
     defer pinned.deinit();
 
-    const adopted = try server.openAcceptedOver(&pinned, "tcp", "127.0.0.1:7001", &.{});
+    try server.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:7001",
+        .hints = model.Hints.emptyFalse(),
+    });
+    try client.setAdvertisedLocator(.{
+        .transport = "tcp",
+        .designator = "127.0.0.1:7002",
+        .hints = model.Hints.emptyFalse(),
+    });
+
+    const adopted = try server.openAcceptedAdvertisedOver(&pinned, "tcp");
     const dialed = try client.openDialedLocator(.{
         .transport = "tcp",
         .designator = "127.0.0.1:7001",

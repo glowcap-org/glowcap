@@ -204,13 +204,17 @@ const PromiseResolver = struct {
     pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = msg;
         const peer = (turn.port orelse return error.NotConnected).peer;
-        const answer_position = model.AnswerPosition.from((try peer.session_state.allocateExport()).int());
+        // This value crosses as desc:import-promise, so its authoritative
+        // export slot must be unresolved from allocation onward. The paired
+        // inbound answer stores the value that settles that promise.
+        const promise_export = try peer.session_state.allocatePromiseExport();
+        const answer_position = promise_export.reinterpret(model.AnswerPosition);
         try peer.session_state.installInboundAnswer(answer_position);
         const resolver_export = try peer.session_state.allocateExport();
         try peer.session_state.registerExport(resolver_export);
         try self.conf.resolver_map.put(turn.vat.allocator, resolver_export.int(), answer_position.int());
         const pair = try turn.vat.allocator.alloc(model.Argument, 2);
-        pair[0] = .{ .reference = .{ .near = model.NearRef.promise(answer_position.int()) } };
+        pair[0] = .{ .reference = .{ .near = model.NearRef.promise(promise_export.int()) } };
         pair[1] = .{ .reference = .{ .near = model.NearRef.object(resolver_export.int()) } };
         return .{ .list = pair };
     }

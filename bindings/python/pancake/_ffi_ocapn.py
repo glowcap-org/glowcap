@@ -30,17 +30,10 @@ from ._lib_resolve import _lib_path
 # ``Structure`` types it declares below.
 from ._sigs_gen import ocapn_sigs
 
-# Expected sizes for the hand-mirrored ctypes.Structure types below, reflected
-# off the real Zig C ABI types (``zig build gen-binding-ffi-layouts``), so
-# this pin cannot drift from them.
-from ._layouts_gen import (
-    PANCAKE_ALLOCATOR_SIZE,
-    PANCAKE_ARGUMENT_SIZE,
-    PANCAKE_FRAME_SIZE,
-    PANCAKE_LAST_ABORT_SIZE,
-    PANCAKE_MANAGED_FRAME_SIZE,
-    PANCAKE_REFERENCE_SIZE,
-)
+# The layout gate for the hand-mirrored ctypes.Structure types below, held
+# against sizes and offsets reflected off the real Zig C ABI types
+# (``zig build gen-binding-ffi-layouts``).
+from ._pin import pin_struct
 
 # ── Raw ctypes layer (private) ───────────────────────────────────────────────
 
@@ -104,33 +97,14 @@ class _LastAbort(ctypes.Structure):
     ]
 
 
-def _pin_layout() -> None:
-    # The layout gate for the shared cstructs this module declares, at the
-    # declaration site (the driver mirror pins its own _HostAction the same
-    # way): each mirror is pinned at import time against the sizes
-    # `_layouts_gen` reflects off the real Zig C ABI types — so the gate
-    # catches a mirror that drifts from its documented layout (a mis-swept
-    # field, a wrong ctype), not a C-side change that updates neither; the
-    # dogfoods defend that behaviorally. A plain `raise` rather than
-    # `assert`, so `python -O` cannot strip the gate.
-    expected_sizes = (
-        (_Reference, PANCAKE_REFERENCE_SIZE),
-        (_Argument, PANCAKE_ARGUMENT_SIZE),
-        (_Frame, PANCAKE_FRAME_SIZE),
-        (_ManagedFrame, PANCAKE_MANAGED_FRAME_SIZE),
-        (_Allocator, PANCAKE_ALLOCATOR_SIZE),
-        (_LastAbort, PANCAKE_LAST_ABORT_SIZE),
-    )
-    for struct, want in expected_sizes:
-        got = ctypes.sizeof(struct)
-        if got != want:
-            raise ImportError(
-                f"pancake FFI layout drift: sizeof({struct.__name__}) == {got}, "
-                f"the C headers say {want}; re-mirror the struct"
-            )
-
-
-_pin_layout()
+# The layout gate for the shared mirrors this module declares, at the
+# declaration site (every other _ffi_* module pins its own the same way).
+pin_struct(_Reference, "PANCAKE_REFERENCE")
+pin_struct(_Argument, "PANCAKE_ARGUMENT")
+pin_struct(_Frame, "PANCAKE_FRAME")
+pin_struct(_ManagedFrame, "PANCAKE_MANAGED_FRAME")
+pin_struct(_Allocator, "PANCAKE_ALLOCATOR")
+pin_struct(_LastAbort, "PANCAKE_LAST_ABORT")
 
 
 class _Lib:

@@ -22,8 +22,8 @@ name = "pancake_iroh_sidecar"
 crate-type = ["staticlib"]
 
 [dependencies]
-iroh = "=1.0.2"
-tokio = { version = "=1.52.3", features = ["rt-multi-thread"] }
+iroh = "=1.0.3"
+tokio = { version = "=1.53.1", features = ["rt-multi-thread"] }
 
 [profile.release]
 # The staticlib links into Zig-built gate executables; thin LTO keeps the

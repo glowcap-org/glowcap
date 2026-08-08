@@ -11,10 +11,7 @@
 // everything else: routing, redemption, gift origination, far vows. `mod.ts`
 // re-exports the public members.
 
-import {
-	DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
-	DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION,
-} from "@pancake/abi";
+import { DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT } from "@pancake/abi";
 import {
 	attenuateProxy,
 	caretakerProxy,
@@ -48,23 +45,25 @@ import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer, outU64, readBytes } from "./internal/seam.ts";
 import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, INVALID_ARGUMENT, NOT_FOUND, TIMEOUT } from "@pancake/abi";
+import { CLOSED, HANDSHAKE_TIMEOUT_MS, INVALID_ARGUMENT, NOT_FOUND, TIMEOUT } from "@pancake/abi";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
 // Decoder for the partner designator, which is text on every transport.
 const utf8Decoder = new TextDecoder();
 
-/** What a CapTP partner proved about itself during the handshake, as
+/** What a CapTP handshake reports about its partner, as
  * {@link Session.partnerIdentity} returns it.
  *
- * The partner signs its whole location record, and these three fields are read
- * back out of that one verified signature, so the designator and the record are
- * bound to the session key rather than merely accompanying it. */
+ * The verified hello signature proves control of the fresh session key and
+ * binds that key to the locator the partner claimed. It does not by itself
+ * prove control of the locator's durable designator; `provenance` reports
+ * whether the realized channel supplied that proof. */
 export interface PartnerIdentity {
 	/** The partner's session public key. Always present. */
 	readonly sessionKey: Uint8Array;
-	/** The designator the partner signed, as text: its key in hex on a
+	/** The designator the partner claimed under its session signature, as text:
+	 * its key in hex on a
 	 * key-designator transport, a `host:port` on an address transport. It is
 	 * `""` when the signed location carried no designator. */
 	readonly designator: string;
@@ -73,43 +72,40 @@ export interface PartnerIdentity {
 	readonly locatorRecord: Uint8Array;
 	/** How the durable identity in {@link PartnerIdentity.designator} was
 	 * authenticated, if at all. Session identity, durable identity, and this
-	 * provenance are three separate facts (ADR-0097): a caller that requires a
-	 * proved durable peer reads this, never whether the designator equals the
-	 * session key — that is a coincidence of today's key reuse and stops
-	 * holding once each connection draws a fresh session key. */
+	 * provenance are three separate facts (ADR-0097, ADR-0105): a caller that
+	 * requires a proved durable peer reads this. The fresh session key and the
+	 * durable designator are independent values. */
 	readonly provenance: DurableProvenance;
 }
 
 /** How a partner's advertised durable identity was authenticated, the third
  * fact {@link PartnerIdentity} reports beside session key and designator.
  *
- * `authenticated-transport` means the transport layer proved the partner's
- * durable key (iroh's QUIC handshake, or WebRTC's DTLS binding under
- * capability-authorized signaling). `durable-key-attestation` means the hello
- * carried a `session-key-attestation` signed by the durable key its designator
- * names and it verified (`keyed-tcp`, `keyed-relay`), which is static
- * authorization rather than proof the signer is live on this connection.
- * `unauthenticated` means no durable identity was proved: an address transport
- * designates a socket address rather than a key, and a partner that advertised
- * an address on a key transport claimed no durable identity. */
+ * The answer is a property of the connection rather than of its transport name
+ * (ADR-0105): the same transport symbol reaches this peer over code that can
+ * prove something and code that cannot, so no list of transports belongs here.
+ *
+ * `authenticated-transport` means the code that realized this connection
+ * verified the far end of the byte channel holds a durable key, and the partner
+ * claimed that same key. `unauthenticated` means no durable identity was
+ * proved. */
 export type DurableProvenance =
 	| "authenticated-transport"
-	| "durable-key-attestation"
 	| "unauthenticated";
 
-/** Whether this identity's durable name was cryptographically authenticated,
- * by either mechanism — the predicate to ask when an operation requires a
- * proved durable peer. */
+/** Whether this identity's durable name was authenticated by the realized
+ * channel. */
 export function durableIdentityAuthenticated(id: PartnerIdentity): boolean {
 	return id.provenance !== "unauthenticated";
 }
 
-function provenanceFromAbi(raw: number): DurableProvenance {
+/** Convert one ABI provenance value to its public name. Exported because the
+ * trace surface reports the same fact about the same partner, and two mappings
+ * for one answer could drift apart. */
+export function provenanceFromAbi(raw: number): DurableProvenance {
 	switch (raw) {
 		case DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT:
 			return "authenticated-transport";
-		case DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION:
-			return "durable-key-attestation";
 		default:
 			return "unauthenticated";
 	}
@@ -125,7 +121,7 @@ function provenanceFromAbi(raw: number): DurableProvenance {
  * handshake alone, never opening the channel: a TCP connect keeps the runtime's
  * own timeout, and an iroh dial-by-id keeps its discovery retry budget
  * (ADR-0082), both spent before the handshake starts. */
-export const HANDSHAKE_TIMEOUT_MS = 10_000;
+export { HANDSHAKE_TIMEOUT_MS };
 
 /** Race one connection's keyed handshake against `ms`, the bound both halves
  * of `#establish` reach. A falsy budget is the caller's explicit opt-in to
@@ -334,10 +330,12 @@ export class Session {
 		designator: string,
 		transport: Channel,
 		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
+		verifiedChannelKey: string | null = null,
 	): Promise<Session> {
 		const t = utf8Encoder.encode(transportName);
 		const d = utf8Encoder.encode(designator);
 		const out = new Uint8Array(8);
+		host.ensureAdvertisedLocator(transportName);
 		checkHost(driverS.pancake_host_session_open_dialed_locator(
 			host.raw,
 			ab(t),
@@ -351,6 +349,9 @@ export class Session {
 			host,
 			transport,
 		);
+		// Before the first partner byte, which is the only window a realizer's
+		// proof can be weighed in.
+		if (verifiedChannelKey) conn.bindVerifiedChannelKey(verifiedChannelKey);
 		return conn.#establish(handshakeTimeoutMs);
 	}
 
@@ -371,6 +372,7 @@ export class Session {
 		transport: Channel,
 		acceptedLocalAddr = "",
 		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
+		verifiedChannelKey: string | null = null,
 	): Promise<Session> {
 		const t = utf8Encoder.encode(transportName);
 		const server = utf8Encoder.encode(serverDesignator);
@@ -400,15 +402,16 @@ export class Session {
 			L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
 			L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
 		);
+		host.setAdvertisedLocator(
+			transportName,
+			utf8Decoder.decode(designator),
+			utf8Decoder.decode(hint),
+		);
 		const out = new Uint8Array(8);
 		checkHost(driverS.pancake_host_session_open_accepted(
 			host.raw,
 			ab(t),
 			BigInt(t.length),
-			ab(designator),
-			BigInt(designator.length),
-			ab(hint),
-			BigInt(hint.length),
 			ab(out),
 		));
 		const conn = new Session(
@@ -416,6 +419,9 @@ export class Session {
 			host,
 			transport,
 		);
+		// Before the first partner byte, which is the only window a realizer's
+		// proof can be weighed in.
+		if (verifiedChannelKey) conn.bindVerifiedChannelKey(verifiedChannelKey);
 		return conn.#establish(handshakeTimeoutMs);
 	}
 
@@ -552,10 +558,12 @@ export class Session {
 	 * returned identity is opaque and Host-scoped; wire export positions stay
 	 * inside pancake. Callable from inside a served turn (a factory's `create`
 	 * minting the task it replies with). */
-	/** Listen on a promise capability this session holds (CapTP `op:listen`,
-	 * ADR-0095): the returned handle settles with the promise's resolution,
-	 * which may be any value, not only a capability. A re-gifted promise
-	 * routes to its exporter session transparently. */
+	/** Listen on a far capability this session holds (CapTP `op:listen`,
+	 * ADR-0095): the returned handle settles with the listen notification,
+	 * which may be any value, not only a capability. In 1.0, the target may be
+	 * a far promise or live far object; in pancake-next, the target must be a
+	 * promise. A re-gifted promise routes to its exporter session
+	 * transparently. */
 	listen(target: Ref): RemotePromise {
 		this.#guardOpen();
 		return listenFar(this.#makePromiseFactory(), target);
@@ -789,23 +797,22 @@ export class Session {
 		));
 	}
 
-	// ── The partner's proved identity ──────────────────────────────────────────
+	// ── The partner's session identity and locator claim ───────────────────────
 
-	/** Read the identity this session's partner proved during the handshake.
+	/** Read this partner's verified session identity, locator claim, and durable
+	 * identity provenance.
 	 *
-	 * A returned identity always means the partner's signature was checked.
-	 * That signature covers the partner's whole location record, so the
-	 * designator is bound to the session key by the same signature: only the
-	 * holder of that key can advertise that designator. This is how a server
-	 * refuses a caller that claims a locator it does not own. Read the
-	 * designator here, compare it against the name the caller claims for
-	 * itself, and refuse the call when the two differ.
+	 * A returned value always means the hello signature was checked. That
+	 * signature proves control of `sessionKey` and binds the locator record to
+	 * that session. It proves only that the session claimed `designator`, not
+	 * that the partner controls the durable key or address it names. Read
+	 * `provenance` before relying on a durable identity; only
+	 * `authenticated-transport` records channel proof of that identity.
 	 *
 	 * It throws while the partner's `op:start-session` has not arrived with a
-	 * key yet, and it throws on a session opened without partner verification,
-	 * because then there is no proved identity to hand back. You cannot read an
-	 * unverified identity through this verb, so you never have to remember to
-	 * ask whether the bytes were checked.
+	 * key yet, and it throws on a session opened without a verified hello
+	 * signature. This verification does not change an unauthenticated locator
+	 * claim into durable identity proof.
 	 *
 	 * The bytes are copied out of the session, so the returned values are yours
 	 * and stay valid once the session is gone. */
@@ -836,6 +843,34 @@ export class Session {
 				dv.getUint32(L.PARTNER_IDENTITY_PROVENANCE_OFF, true),
 			),
 		};
+	}
+
+	/** Testify what proved this connection's far end, when your own transport
+	 * proved one.
+	 *
+	 * pancake does not open your sockets, so it cannot see what opening them
+	 * established. An iroh connection completes only with the holder of the
+	 * node id you dialed or accepted, and that is a stronger fact than anything
+	 * a partner can claim about itself — but only you hold it. Pass the node id
+	 * here and {@link partnerIdentity} reports `authenticated-transport`;
+	 * withhold it and the same session reports `unauthenticated`.
+	 *
+	 * `designator` is that identity as a locator writes it, which is exactly
+	 * what the iroh transport's `remoteNodeId` hands you.
+	 *
+	 * Call it after opening the session and before feeding the first byte from
+	 * the partner. It throws afterwards, because by then the handshake this
+	 * evidence was for has already been judged. Naming a second, different
+	 * identity throws too: one connection has one far end. Naming the same one
+	 * twice is the same statement made twice and is fine. */
+	bindVerifiedChannelKey(designator: string): void {
+		this.#guardOpen();
+		const bytes = utf8Encoder.encode(designator);
+		checkHost(driverS.pancake_host_session_bind_verified_channel_key(
+			this.#ptr,
+			ab(bytes),
+			BigInt(bytes.length),
+		));
 	}
 
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────

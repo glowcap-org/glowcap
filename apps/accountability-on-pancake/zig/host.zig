@@ -28,10 +28,10 @@ const ip = std.Io.net;
 
 const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
 const frame_cap = affordance.frame_cap;
-const data_root = affordance.data_root;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
+    const data_root = affordance.dataRoot(init);
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -39,7 +39,9 @@ pub fn main(init: std.process.Init) !void {
     var host_id = try identity.Identity.incept(allocator, io);
     defer host_id.deinit();
 
-    var store = try accountable.Store.init(allocator, io, &host_id, data_root ++ "/host");
+    const host_data_dir = try std.fmt.allocPrint(allocator, "{s}/host", .{data_root});
+    defer allocator.free(host_data_dir);
+    var store = try accountable.Store.init(allocator, io, &host_id, host_data_dir);
     defer store.deinit();
 
     var args = std.process.Args.Iterator.init(init.minimal.args);

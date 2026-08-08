@@ -25,19 +25,31 @@ const StructLoc = shared.StructLoc;
 /// Encode for a CapTP version, the codec-dispatch boundary's counterpart to
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is pancake's self-consistent
 /// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
-/// `wants_partial`, and the engine applies the V1.0 semantic translation
-/// (resolver-callback projection) before handing a `model.Message` here, so the
-/// word layout is profile-independent. The parameter is accepted for boundary
-/// uniformity and intentionally unused.
+/// `wants_partial`, and word layout stays profile-independent. The profile
+/// still gates what may be encoded: `.next` refuses wire `op:resolve` and a
+/// deliver that still carries `resolve_me_desc`, matching the listen-mode
+/// profile split on the decode path.
 pub fn encodeMessageForProfile(
     allocator: std.mem.Allocator,
-    _: model.CaptpVersion,
+    profile: model.CaptpVersion,
     message: model.Message,
 ) EncodeError!foundation.Frame {
-    return encodeMessage(allocator, message);
+    return encodeMessageOptionalProfile(allocator, profile, message);
 }
 
 pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) EncodeError!foundation.Frame {
+    return encodeMessageOptionalProfile(allocator, null, message);
+}
+
+fn encodeMessageOptionalProfile(allocator: std.mem.Allocator, profile: ?model.CaptpVersion, message: model.Message) EncodeError!foundation.Frame {
+    if (profile == .next and message == .resolve) return Error.UnsupportedMessage;
+    if (profile == .next and message == .deliver and message.deliver.resolve_me_desc != null)
+        return Error.UnsupportedMessage;
+    // Validate model text before the builder obtains its first word. The walk
+    // borrows every slice and allocates nothing, so malformed outbound text is
+    // a protocol refusal rather than an allocation-dependent partial encode.
+    try validateMessageUtf8(message);
+
     var builder = wire.Builder{};
     defer builder.deinit(allocator);
 
@@ -46,7 +58,7 @@ pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) Encod
     setStructPtr(&builder, root_idx, env);
     builder.set(env.data_idx, @intFromEnum(messageKind(message)));
 
-    const body = try encodeBody(&builder, allocator, message);
+    const body = try encodeBody(&builder, allocator, profile, message);
     setStructPtr(&builder, env.data_idx + env.data_words, body);
 
     return builder.finish(allocator);
@@ -61,7 +73,97 @@ fn messageKind(message: model.Message) Kind {
     };
 }
 
-fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Message) EncodeError!StructLoc {
+fn validateUtf8(text: []const u8) Error!void {
+    if (!std.unicode.utf8ValidateSlice(text)) return Error.UnsupportedArgument;
+}
+
+fn validateMessageUtf8(message: model.Message) Error!void {
+    switch (message) {
+        .deliver => |deliver| {
+            try validateReferenceUtf8(deliver.target);
+            try validateArgumentsUtf8(deliver.args);
+            if (deliver.resolve_me_desc) |reference| try validateReferenceUtf8(reference);
+        },
+        .resolve => |resolve| try validateResolutionUtf8(resolve.resolution),
+        .start_session => |start_session| try validateLocatorUtf8(start_session.acceptable_location),
+        .abort => |abort| try validateUtf8(abort.message),
+        .listen => |listen| {
+            try validateReferenceUtf8(listen.target);
+            try validateReferenceUtf8(listen.listener);
+        },
+        .get => |get| {
+            try validateReferenceUtf8(get.receiver);
+            try validateUtf8(get.field);
+        },
+        .index => |index| {
+            try validateReferenceUtf8(index.receiver);
+            if (index.index == .big_integer and !index.index.big_integer.isCanonical()) {
+                return Error.UnsupportedArgument;
+            }
+        },
+        .untag => |untag| {
+            try validateReferenceUtf8(untag.receiver);
+            try validateUtf8(untag.tag);
+        },
+        .gc_export, .gc_answer => {},
+    }
+}
+
+fn validateResolutionUtf8(resolution: model.Resolution) Error!void {
+    switch (resolution) {
+        .fulfill => |argument| try validateArgumentUtf8(argument),
+        .@"break" => |reason| try validateUtf8(reason.message),
+    }
+}
+
+fn validateReferenceUtf8(reference: model.Reference) Error!void {
+    switch (reference) {
+        .promise => |promise| for (promise.path.ops) |op| switch (op) {
+            .field => |field| try validateUtf8(field),
+            .call => |arguments| try validateArgumentsUtf8(arguments),
+        },
+        .sturdy => |sturdy| try validateLocatorUtf8(sturdy.peer),
+        .broken => |reason| try validateUtf8(reason.message),
+        .near, .far => {},
+    }
+}
+
+fn validateLocatorUtf8(locator: model.PeerLocator) Error!void {
+    try validateUtf8(locator.transport);
+    try validateUtf8(locator.designator);
+    for (locator.hints.entries) |entry| {
+        try validateUtf8(entry.name);
+        if (entry.value == .string) try validateUtf8(entry.value.string);
+    }
+}
+
+fn validateArgumentsUtf8(arguments: []const model.Argument) Error!void {
+    for (arguments) |argument| try validateArgumentUtf8(argument);
+}
+
+fn validateArgumentUtf8(argument: model.Argument) Error!void {
+    switch (argument) {
+        .symbol, .string, .keyword => |text| try validateUtf8(text),
+        .reference => |reference| try validateReferenceUtf8(reference),
+        .@"error" => |reason| try validateUtf8(reason.message),
+        .handoff => |handoff| switch (handoff.*) {
+            .give => |give| try validateLocatorUtf8(give.exporter),
+            .receive => |receive| try validateLocatorUtf8(receive.signed_give.exporter),
+        },
+        .list, .set => |items| try validateArgumentsUtf8(items),
+        .tagged => |tagged| {
+            try validateUtf8(tagged.tag);
+            try validateArgumentsUtf8(tagged.value);
+        },
+        .@"struct" => |entries| for (entries) |entry| {
+            try validateUtf8(entry.key);
+            try validateArgumentUtf8(entry.value);
+        },
+        .bytes, .integer, .boolean, .void, .float64, .big_integer => {},
+    }
+}
+
+fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?model.CaptpVersion, message: model.Message) EncodeError!StructLoc {
     return switch (message) {
         .gc_answer => |gc| blk: {
             const loc = try allocStruct(b, allocator, 0, 1);
@@ -89,7 +191,10 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Mes
         .deliver => |deliver| try encodeDeliver(b, allocator, deliver),
         .listen => |listen| blk: {
             const loc = try allocStruct(b, allocator, 1, 2);
-            b.set(loc.data_idx, @intFromBool(listen.wants_partial));
+            b.set(loc.data_idx, switch (profile orelse .v1_0) {
+                .v1_0 => @intFromBool(listen.mode.toV1_0WantsPartial() orelse return Error.UnsupportedMessage),
+                .next => @intFromEnum(listen.mode),
+            });
             setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, listen.target));
             setStructPtr(b, ptrIndex(loc, 1), try encodeReference(b, allocator, listen.listener));
             break :blk loc;
@@ -102,11 +207,27 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Mes
             break :blk loc;
         },
         .index => |index| blk: {
-            const loc = try allocStruct(b, allocator, 2, 1);
-            b.set(loc.data_idx, @bitCast(index.index));
-            b.set(loc.data_idx + 1, index.answer.int());
-            setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, index.receiver));
-            break :blk loc;
+            switch (index.index) {
+                .integer => |value| {
+                    // Preserve the original compact layout for ordinary indexes.
+                    const loc = try allocStruct(b, allocator, 2, 1);
+                    b.set(loc.data_idx, @bitCast(value));
+                    b.set(loc.data_idx + 1, index.answer.int());
+                    setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, index.receiver));
+                    break :blk loc;
+                },
+                .big_integer => |big| {
+                    if (!big.isCanonical()) return Error.UnsupportedArgument;
+                    const loc = try allocStruct(b, allocator, 3, 2);
+                    b.set(loc.data_idx, 0);
+                    b.set(loc.data_idx + 1, index.answer.int());
+                    b.set(loc.data_idx + 2, shared.index_big_integer |
+                        (if (big.negative) shared.index_negative else 0));
+                    setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, index.receiver));
+                    try setData(b, allocator, loc, 1, big.digits);
+                    break :blk loc;
+                },
+            }
         },
         .untag => |untag| blk: {
             const loc = try allocStruct(b, allocator, 1, 2);
@@ -116,7 +237,6 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Mes
             break :blk loc;
         },
         .start_session => |ss| try encodeStartSession(b, allocator, ss),
-        .handoff => |handoff| try encodeHandoff(b, allocator, handoff),
     };
 }
 
@@ -137,7 +257,10 @@ fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, deliver: model.
 
 fn encodeStartSession(b: *wire.Builder, allocator: std.mem.Allocator, ss: model.StartSession) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 0, 4);
-    try setData(b, allocator, loc, 0, ss.captp_version.wireString());
+    // A hello with no version is one this codebase never builds: outbound the
+    // version is ours. Refuse rather than invent one.
+    const version = ss.captp_version orelse return Error.MalformedFrame;
+    try setData(b, allocator, loc, 0, version.wireString());
     try setData(b, allocator, loc, 1, ss.session_pubkey.bytes);
     setStructPtr(b, ptrIndex(loc, 2), try encodePeerLocator(b, allocator, ss.acceptable_location));
     try setData(b, allocator, loc, 3, ss.acceptable_location_sig.bytes);

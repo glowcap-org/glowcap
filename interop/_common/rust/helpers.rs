@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStdout};
 
 pub type Fail = Box<dyn std::error::Error>;
+pub const INTEROP_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub fn ignore_port_args() -> Result<(), Fail> {
 	for arg in std::env::args().skip(1) {
@@ -48,11 +49,35 @@ pub async fn read_swiss(child: &mut Child) -> Result<String, Fail> {
 }
 
 pub fn extract_swiss(line: &str) -> Option<String> {
-	let needle = "\"swiss\":\"";
-	let start = line.find(needle)? + needle.len();
+	extract_readiness_field(line, "swiss")
+}
+
+pub fn extract_sturdyref_path(line: &str) -> Option<String> {
+	extract_readiness_field(line, "sturdyref-path")
+}
+
+fn extract_readiness_field(line: &str, field: &str) -> Option<String> {
+	let needle = format!("\"{field}\":\"");
+	let start = line.find(&needle)? + needle.len();
 	let rest = &line[start..];
 	let end = rest.find('"')?;
 	Some(rest[..end].to_string())
+}
+
+pub async fn read_sturdyref_path(child: &mut Child) -> Result<String, Fail> {
+	let stdout = child.stdout.take().ok_or("no child stdout")?;
+	let mut lines = BufReader::new(stdout).lines();
+	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+	loop {
+		match tokio::time::timeout_at(deadline, lines.next_line()).await?? {
+			Some(line) => {
+				if let Some(path) = extract_sturdyref_path(&line) {
+					return Ok(path);
+				}
+			}
+			None => return Err("never saw the sturdyref path readiness field".into()),
+		}
+	}
 }
 
 /// Read an exporter's NDJSON readiness lines until the greeter's appears, or

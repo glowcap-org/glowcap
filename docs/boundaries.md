@@ -7,30 +7,37 @@ inventory, [stability](stability.md) says how each surface is tested, and the
 
 ## Transports and peer identity
 
-- **Plain TCP and `keyed-tcp` are cleartext.** A locator's designator is the
-  value that names the peer the dialer intends to reach. `keyed-tcp` binds that
-  advertised identity to the CapTP handshake key, but it does not encrypt
-  frames. Use iroh or WebRTC when the channel must be confidential.
+- **Plain `tcp` is a testing transport.** Its designator is an address, so the
+  peer claims no identity and proves none, and the channel is cleartext. That
+  fails the OCapN draft's own netlayer requirement that a session be secure
+  enough that only its participants can insert messages. Upstream Goblins ships
+  no TCP netlayer, and the OCapN suite's equivalent is named `tcp-testing-only`
+  and declares itself unsafe in its own source. The Goblins TCP netlayer these
+  checks dial is a shim written in this repository for interoperability work.
+  Use `tcp` to reach a peer that speaks nothing else, not to deploy.
+- **`keyed-tcp` and `keyed-relay` are cleartext and unauthenticated.** Their key
+  designator is a stable dial target, but the channel proves no possession of
+  it. Anyone on the path reads and can alter every frame; on `keyed-relay` that
+  includes the relay operator, whose leg the native resident opens as `ws://`.
+  Use iroh or WebRTC for production channel identity and confidentiality.
 - **An address is not an identity.** On plain TCP, the crossed-connection
   tiebreak trusts the location each peer declares. A peer that can connect and
   claim an address you are dialing can make your outgoing session lose that
-  tiebreak. A key-designator transport avoids this because the identity a hello
-  claims must be proved before the session opens, by the transport on iroh and
-  WebRTC or by the hello's credential on `keyed-tcp` and keyed-relay. Only a
-  proved identity can collapse a session, so an unproved claim cannot condemn
-  one.
+  tiebreak. Only a channel-authenticated key designator can collapse a session,
+  so an unproved claim from raw keyed TCP or keyed relay cannot condemn one.
 - **Two sessions to one peer stay open on an address transport.** `127.0.0.1`
   and `[::1]` are different designators, and neither is an identity pancake
   will act on, so nothing joins the two sessions. A key-designator transport
-  recognises the peer by the durable name its hello proves and keeps one.
+  with channel proof recognises the peer by its durable name and keeps one.
 - **`inproc` is a test transport.** Its unbounded pipes block the reading
   thread, so it is not a production or load-test substitute.
 - **iroh reachability is not fully exercised in CI.** The loop checks
   multiplexing, and opt-in checks cover discovery and relay use from one host.
   They do not cover hole-punching between separate NATs.
   `discovery_no_relay` has no green check because it needs a publishable direct
-  address. Goblins ships no iroh netlayer, so there is no live
-  Goblins-over-iroh check.
+  address. A live Goblins-over-iroh session does have one, `goblins-iroh`, over
+  the iroh netlayer this repository wrote for Goblins; it runs on loopback under
+  the direct posture, so it adds no reachability evidence.
 - **A `webrtc` dial needs configured signaling authority.** On the TypeScript
   stack, a host configured with `Host.setSignaling` dials a bare `webrtc`
   locator: the dial executor runs the offer, answer, and candidate exchange
@@ -41,6 +48,18 @@ inventory, [stability](stability.md) says how each surface is tested, and the
 
 The iroh and WebRTC transports rely on their existing sidecars; pancake does
 not ship a native Zig QUIC or WebRTC stack.
+
+- **A peer that dies without closing is noticed on iroh in seconds, not at
+  once.** A TCP peer killed at the terminal is reported gone immediately: the
+  OS sends a FIN and the far end reads end of stream. UDP has no equivalent, so
+  a killed QUIC peer simply stops answering.
+- **iroh ends a silent peer with an idle timeout.** The sidecar turns that into
+  a closed event (`transports/iroh/src/lib.rs`). The default is fifteen seconds;
+  set `PancakeIrohConfig.idle_timeout_ms` (surfaced on every binding) when a
+  live session means presence. Rooms asks for eight. There is no separate
+  keep-alive: the transport derives the heartbeat from the timeout. A shorter
+  timeout costs more idle traffic, charged against the per-connection budget in
+  [`docs/ladder.md`](ladder.md).
 
 ## Runtime and scale
 
@@ -90,6 +109,12 @@ not ship a native Zig QUIC or WebRTC stack.
 - **Some binding pumps copy outbound frames.** TypeScript, Python, and Racket
   copy bytes before an asynchronous write because their FFI lifetimes cannot
   retain the Zig-owned frame. Rust retains the frame across the write.
+- **Third-party codec registration is Zig-native today.** The C ABI and the
+  language bindings can select the built-in Syrup and Cap'n Proto codecs, but
+  they cannot install a new codec implementation into the registry. A future
+  binding-facing codec extension should be an extension archive or Wasm
+  component registered at the codec seam, with explicit frame ownership and no
+  per-frame callback into a host-language runtime.
 - **macOS is compiled but not run in CI, and Windows is not implemented.**
   Linux is the only platform on which the full check set runs today.
 
@@ -103,18 +128,16 @@ not ship a native Zig QUIC or WebRTC stack.
   `assertion_only` opt-in proceeds, and it reports that provenance.
 - **The opt-in GC finalizer tracks the `fetch` seam only
   ([ADR-0063](decisions/adr/ADR-0063-finalizer-driven-distributed-gc.md)).**
-  Each excluded class has its own owner rather than a missing one. A near
-  reference has no wire row; its lifetime is the actor-roots policy, with the
-  deterministic release verb beside it. A dropped reply promise needs no
-  finalizer because answer positions are single-reference and the stateless
-  policy releases them. An enlivened capability is owned by the enliven dedup
-  cache, which a finalizer would invalidate. The bootstrap position is
-  refused in a `gc-exports` by send validation. One deferral is genuine and
-  the decision records it: the other lift seams (a capability arriving in a
-  send reply or a delivered argument, including a redeemed handoff's) are not
-  finalizer-tracked. Those references are released at session teardown, and
-  every binding has the deterministic `release` verb for reclaiming one by
-  hand before that.
+  Other classes already have owners:
+  - near references: actor-roots policy, plus the deterministic release verb;
+  - dropped reply promises: single-reference answers, released by the
+    stateless policy;
+  - enlivened capabilities: the enliven dedup cache;
+  - bootstrap: refused in a `gc-exports` by send validation.
+  One real deferral remains: capabilities lifted from a send reply or a
+  delivered argument (including a redeemed handoff) are not finalizer-tracked.
+  They release at session teardown, and every binding has `release` for reclaiming
+  one by hand before that.
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees yet. Pin a commit when consuming the package.
 
@@ -124,20 +147,15 @@ assets are not published.
 
 ## Protocol and interop
 
-- **A cleartext keyed-TCP hello can be replayed.** Every connection signs with
-  its own key. Each key-designator transport states what authenticates the
-  durable identity a hello claims. iroh's QUIC handshake and WebRTC's DTLS
-  binding prove it at the transport. keyed-TCP and keyed-relay instead carry a
-  `session-key-attestation` signed by the durable key the designator names. A
-  partner identity reports which of those proved the name, so an application
-  asks provenance rather than comparing a designator against a session key.
-  What none of that provides is channel freshness. The attestation and the
-  hello signature both cover static records, so a captured keyed-TCP hello
-  replayed on another cleartext connection revives its own claim. Fresh keys
-  isolate honest reconnects; they do not make cleartext replay-safe. A
-  challenge or channel-binding protocol would be a separate wire decision
-  ([ADR-0075](decisions/adr/ADR-0075-keyed-tcp-designator.md),
-  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)).
+- **Raw keyed TCP and keyed relay do not authenticate a peer.** Their key
+  designator is a stable dial target and a claim in the hello. Matching it
+  rejects an accidental mismatch, but the cleartext channel proves no key
+  possession and reports `unauthenticated`. A fresh session key limits honest
+  reconnects to distinct CapTP identities; it does not stop a captured hello
+  from being replayed. iroh, WebRTC signaling, and the planned Noise channel
+  supply connection-scoped identity proof. An embedder that realizes its own
+  authenticated channel records the same fact through
+  `pancake_host_session_bind_verified_channel_key`.
 - **OCapN Null is absent.** Unknown Syrup records remain tagged values instead.
   The encoding is an open upstream question
   ([watch](upstream-watch.md#ocapn-null)).
@@ -151,6 +169,14 @@ assets are not published.
   refused. A relayed settlement can carry a plain value, a break, a sturdyref,
   or a capability introduced by handoff. A promise, a locally exported object,
   or a capability nested inside a container settles broken instead.
+- **Goblins indexes exporter sessions by the complete locator.** A give must
+  therefore carry the same locator snapshot the exporter advertises in its
+  hello. pancake keeps that snapshot on the peer instead of reconstructing it
+  at the handoff site. Onion locators remain the stable
+  `(onion, service-id, #f)` value Goblins expects. An iroh deployment without
+  reachability may refresh `direct-addresses`; the new snapshot applies to
+  subsequent sessions and gifts. This upstream lookup behavior is pinned
+  interop evidence, not a pancake architecture boundary.
 - **Handoff is return-based.** A capability from another session can be
   returned as an answer, but it cannot be pushed as an argument. An application
   that needs to push one must pass a promise for the eventual answer instead.
@@ -165,13 +191,20 @@ assets are not published.
   than established; where two do coexist, their targets stay unrelated.
 - **Projection responder coverage is partly in-tree.** Field, index, and tag
   projections are implemented. The upstream suite does not cover them, and
-  Goblins cannot yet marshal `op:untag`, so not every direction has a live
-  outside-peer check.
+  Goblins has no `op:untag`; default `1.0` refuses it, so only `pancake-next`
+  has tag projection. `zig build goblins-interop` proves a live Goblins
+  netlayer can write canonical `op:get` and `op:index` frames, and that
+  pancake settles the projected answers through the V1.0 resolver-callback
+  form Goblins uses. That Racket path still bypasses a public Goblins
+  application-level projection API, so the remaining live gap is `op:untag`.
 - **One-way send uses `op:deliver` without an answer.** The draft folded
   one-way delivery into `op:deliver` with a false answer and resolver, and
   that is the frame pancake sends; no separate `op:deliver-only` operation
-  exists in the pinned draft, the upstream suite, or Goblins. No live Goblins
-  check sends a `tell` today.
+  exists in the pinned draft, the upstream suite, or Goblins. A live Goblins
+  vat accepts that frame: `zig build goblins-interop` sends two one-way
+  delivers to a stateful actor and then reads the count back through an
+  answered call, which is the only way an unanswered send can prove it
+  arrived.
 - **Two position ranges are reserved internally.** A peer-supplied import at or
   above 2^60, or answer position at or above 2^63, is refused so it cannot
   collide with pancake's internal handoff and virtual-answer ranges. Proven
@@ -189,8 +222,11 @@ and specification-gap record.
 A browser is a full peer after it has a channel, but it cannot open a listening
 socket. Cold dial works through a shared relay. The relay holds an inbound
 socket under the browser's keyed identity, and a dialer configured for that
-relay (another browser, or a native peer) bridges onto it. The CapTP handshake
-still authenticates the peers end to end.
+relay (another browser, or a native peer) bridges onto it. The relay carries
+bytes and proves nothing. Raw `keyed-relay` therefore provides reachability but
+not peer authentication or confidentiality. WebRTC supplies both through its
+DTLS channel and signaling authority; ADR-0107 proposes Noise_XK for an
+end-to-end sealed byte channel through the relay.
 
 The core classifies a `keyed-relay` locator as the `rendezvous` dial shape for
 every consumer. Each consumer opens it through its host's configured relay
@@ -198,12 +234,16 @@ mapping: the four language bindings through their runtimes' WebSocket clients,
 and native Zig through the in-tree `net.keyed_relay` resident (the CLI joins
 it with `PANCAKE_RENDEZVOUS`). The
 `zig build bindings-keyed-relay-rendezvous` proof family holds all five rows.
-The native resident also serves the registration half, so a native peer that
-declines a listener can register at a relay and be cold-dialed; the CLI does
-not surface that half.
+The registration half is native too: `pancake ocapn listen --rendezvous
+ws://host:port/register` binds no listening socket, holds an inbound socket at
+the relay under its key designator, and prints the `keyed-relay` locator that
+names it. `zig build zig-keyed-relay-register` proves a CLI registrant
+answering a CLI cold dial.
 
 One reachability path is not built: a cold dial across different relays,
 because the locator names the peer identity rather than a relay route.
 
-The [roadmap](roadmap.md) owns those tasks and the unbuilt product work,
-including the griddle simulator, protocol visualization, and A2A facade.
+The [roadmap](roadmap.md) owns those tasks and the remaining product work,
+including the A2A facade. The griddle simulator and protocol visualization ship
+today; what they still lack is named in the roadmap's Beyond the library
+section.

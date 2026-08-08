@@ -85,8 +85,23 @@ pub fn Emit(comptime Spec: type) type {
                         break :blk prefix ++ child ++ " *";
                     },
                     .@"struct", .@"opaque" => baseName(T),
+                    // A C array's length is part of the DECLARATOR, not the type
+                    // name, so this half spells the element and `arraySuffix`
+                    // spells the `[N]` that has to sit after the field name.
+                    .array => |a| cType(a.child),
                     else => @compileError("no C mapping for " ++ @typeName(T)),
                 },
+            };
+        }
+
+        /// The `[N]` a fixed-array field carries after its name in C, or the
+        /// empty string for every other field. C splits an array declaration
+        /// across the type and the name, so this is the half `cType` cannot
+        /// return.
+        fn arraySuffix(comptime FieldT: type) []const u8 {
+            return switch (@typeInfo(FieldT)) {
+                .array => |a| std.fmt.comptimePrint("[{d}]", .{a.len}),
+                else => "",
             };
         }
 
@@ -197,7 +212,8 @@ pub fn Emit(comptime Spec: type) type {
                 if (doc.len != 0) try line(b, gpa, "    /* {s} */", .{doc});
                 const ty = comptime selfRef(T, f.type, name);
                 const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
-                try line(b, gpa, "    {s}{s}{s};", .{ ty, space, f.name });
+                const suffix = comptime arraySuffix(f.type);
+                try line(b, gpa, "    {s}{s}{s}{s};", .{ ty, space, f.name, suffix });
             }
             if (use_typedef) {
                 try line(b, gpa, "}} {s};", .{name});

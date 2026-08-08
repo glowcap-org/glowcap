@@ -20,7 +20,15 @@
 
 // Target-independent ABI values come straight from the generated, staleness-
 // gated mirror (`gen-ts-abi-check`), so this proof cannot drift from the C ABI.
-import { CODEC_SYRUP, DEFAULT_FRAME_CAP, INVALID_ARGUMENT, OK, WOULD_BLOCK } from "@pancake/abi";
+import {
+	CAPTP_V1_0,
+	CODEC_SYRUP,
+	DEFAULT_FRAME_CAP,
+	FEATURE_FULL,
+	INVALID_ARGUMENT,
+	OK,
+	WOULD_BLOCK,
+} from "@pancake/abi";
 
 // The `PancakeManagedFrame` byte offsets ARE target-specific (wasm32 pointers
 // and usize are four bytes), so they cannot come from the 64-bit `abi.ts`. The
@@ -40,10 +48,38 @@ type Exports = {
 		frameCap: number,
 		verifyPartner: number,
 		codec: number,
+		captpVersion: number,
+		features: number,
 		localTurnBudget: number,
 		outHost: number,
 	) => number;
 	pancake_host_release: (host: number) => void;
+	pancake_host_set_advertised_locator: (
+		host: number,
+		locator: number,
+		locatorLen: number,
+	) => number;
+	pancake_host_ensure_advertised_locator: (
+		host: number,
+		transport: number,
+		transportLen: number,
+	) => number;
+	pancake_host_remove_advertised_locator: (
+		host: number,
+		transport: number,
+		transportLen: number,
+	) => number;
+	pancake_locator_record_encode: (
+		transport: number,
+		transportLen: number,
+		designator: number,
+		designatorLen: number,
+		directAddresses: number,
+		directAddressesLen: number,
+		out: number,
+		outLen: number,
+	) => number;
+	pancake_locator_record_bytes_release: (bytes: number, len: number) => void;
 	pancake_host_session_open_dialed_locator: (
 		host: number,
 		transport: number,
@@ -56,10 +92,6 @@ type Exports = {
 		host: number,
 		transport: number,
 		transportLen: number,
-		designator: number,
-		designatorLen: number,
-		hint: number,
-		hintLen: number,
 		outSession: number,
 	) => number;
 	pancake_host_session_release: (session: number) => void;
@@ -77,6 +109,7 @@ type Exports = {
 	) => number;
 	pancake_host_session_take_outbound: (session: number, outFrame: number) => number;
 	pancake_managed_frame_release: (frame: number) => void;
+	pancake_host_last_error: (out: number, cap: number) => number;
 	pancake_wasm_abi_layout: (out: number, cap: number) => number;
 };
 
@@ -161,6 +194,17 @@ function writeStr(s: string): { ptr: number; len: number } {
 }
 const free = (ptr: number, len: number) => ex.pancake_wasm_free(ptr, len);
 
+function lastHostError(): string {
+	const cap = 256;
+	const ptr = ex.pancake_wasm_alloc(cap);
+	try {
+		const len = ex.pancake_host_last_error(ptr, cap);
+		return new TextDecoder().decode(u8().slice(ptr, ptr + Math.min(len, cap)));
+	} finally {
+		free(ptr, cap);
+	}
+}
+
 function hostNew(seed: Uint8Array): number {
 	// Durable identity followed by a session-key root, so every session this
 	// host opens signs with its own key (ADR-0097). The wasm module draws no
@@ -177,6 +221,8 @@ function hostNew(seed: Uint8Array): number {
 			DEFAULT_FRAME_CAP,
 			1, // verify_partner: the secure default
 			CODEC_SYRUP,
+			CAPTP_V1_0,
+			FEATURE_FULL,
 			0, // local_turn_budget: unbounded
 			outPtr,
 		);
@@ -192,15 +238,32 @@ function openAccepted(host: number, transport: string, designator: string): numb
 	const t = writeStr(transport);
 	const d = writeStr(designator);
 	const outPtr = ex.pancake_wasm_alloc(4);
+	const locatorPtr = ex.pancake_wasm_alloc(4);
+	const locatorLenPtr = ex.pancake_wasm_alloc(4);
 	try {
-		const rc = ex.pancake_host_session_open_accepted(
-			host,
+		const encodeRc = ex.pancake_locator_record_encode(
 			t.ptr,
 			t.len,
 			d.ptr,
 			d.len,
 			0,
 			0,
+			locatorPtr,
+			locatorLenPtr,
+		);
+		if (encodeRc !== OK) throw new Error(`locator_record_encode failed: rc=${encodeRc}`);
+		const locator = readU32(locatorPtr);
+		const locatorLen = readU32(locatorLenPtr);
+		try {
+			const setRc = ex.pancake_host_set_advertised_locator(host, locator, locatorLen);
+			if (setRc !== OK) throw new Error(`set_advertised_locator failed: rc=${setRc}`);
+		} finally {
+			ex.pancake_locator_record_bytes_release(locator, locatorLen);
+		}
+		const rc = ex.pancake_host_session_open_accepted(
+			host,
+			t.ptr,
+			t.len,
 			outPtr,
 		);
 		if (rc !== OK) throw new Error(`open_accepted failed: rc=${rc}`);
@@ -209,6 +272,8 @@ function openAccepted(host: number, transport: string, designator: string): numb
 		free(t.ptr, t.len);
 		free(d.ptr, d.len);
 		free(outPtr, 4);
+		free(locatorPtr, 4);
+		free(locatorLenPtr, 4);
 	}
 }
 
@@ -217,6 +282,10 @@ function openDialed(host: number, transport: string, designator: string): number
 	const d = writeStr(designator);
 	const outPtr = ex.pancake_wasm_alloc(4);
 	try {
+		const ensureRc = ex.pancake_host_ensure_advertised_locator(host, t.ptr, t.len);
+		if (ensureRc !== OK) {
+			throw new Error(`ensure_advertised_locator failed: rc=${ensureRc}`);
+		}
 		const rc = ex.pancake_host_session_open_dialed_locator(
 			host,
 			t.ptr,
@@ -236,8 +305,9 @@ function openDialed(host: number, transport: string, designator: string): number
 
 const sessionOpen = (session: number) => ex.pancake_host_session_is_open(session) !== 0;
 
-// Drain every encoded outbound frame the session has queued, copying each out of
-// wasm memory before releasing its managed frame.
+// Drain every encoded outbound frame as a canonical Syrup byte-string prefix
+// followed by a copied bare frame. Keeping the two chunks separate mirrors the
+// real binding pump without allocating a combined wrapper.
 function drainOutbound(session: number): Uint8Array[] {
 	const frames: Uint8Array[] = [];
 	const mf = ex.pancake_wasm_alloc(MF_SIZE);
@@ -248,6 +318,7 @@ function drainOutbound(session: number): Uint8Array[] {
 			if (rc !== OK) throw new Error(`take_outbound failed: rc=${rc}`);
 			const bytesPtr = readU32(mf + MF_BYTES_OFF);
 			const len = readU32(mf + MF_LEN_OFF);
+			frames.push(new TextEncoder().encode(`${len}:`));
 			frames.push(u8().slice(bytesPtr, bytesPtr + len));
 			ex.pancake_managed_frame_release(mf);
 		}
@@ -329,16 +400,22 @@ for (let round = 0; round < 64; round++) {
 const aliceOpen = sessionOpen(aliceSession);
 const bobOpen = sessionOpen(bobSession);
 drainOutbound(aliceSession);
-const wrongSturdyref = writeStr("ocapn://127.0.0.1%3A7999.tcp/s/widget");
+const wrongSturdyref = writeStr("ocapn://127.0.0.1%3A7999.tcp/s/d2lkZ2V0");
 const outVow = ex.pancake_wasm_alloc(8);
 let mismatchRefused = false;
+let mismatchRc = OK;
+let mismatchOutput = 0;
+let mismatchError = "";
 try {
-	mismatchRefused = ex.pancake_host_session_enliven(
-				aliceSession,
-				wrongSturdyref.ptr,
-				wrongSturdyref.len,
-				outVow,
-			) === INVALID_ARGUMENT && drainOutbound(aliceSession).length === 0;
+	mismatchRc = ex.pancake_host_session_enliven(
+		aliceSession,
+		wrongSturdyref.ptr,
+		wrongSturdyref.len,
+		outVow,
+	);
+	mismatchOutput = drainOutbound(aliceSession).length;
+	mismatchError = lastHostError();
+	mismatchRefused = mismatchRc === INVALID_ARGUMENT && mismatchOutput === 0;
 } finally {
 	free(wrongSturdyref.ptr, wrongSturdyref.len);
 	free(outVow, 8);
@@ -352,7 +429,8 @@ ex.pancake_host_release(bob);
 
 if (!ok) {
 	console.error(
-		`FAIL: wasm Host proof failed (alice open=${aliceOpen}, bob open=${bobOpen}, wrong-peer refused without output=${mismatchRefused})`,
+		`FAIL: wasm Host proof failed (alice open=${aliceOpen}, bob open=${bobOpen}, ` +
+			`wrong-peer rc=${mismatchRc}, outbound chunks=${mismatchOutput}, error=${mismatchError})`,
 	);
 	Deno.exit(1);
 }

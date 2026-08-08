@@ -457,7 +457,7 @@ fn materializeBorrowedHints(
     return switch (hints) {
         .empty => |wf| .{ .wire_form = wf },
         .projected => |h| h,
-        .lazy => |l| try l.list.materialize(scratch, l.list, l.wire_form),
+        .lazy => |l| try l.list.vtable.materialize(scratch, l.list, l.wire_form),
     };
 }
 

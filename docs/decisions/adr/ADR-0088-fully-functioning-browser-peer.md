@@ -1,22 +1,34 @@
-# ADR-0088: Fully Functioning Browser Peer
-
-**Status:** Decided
-**Date:** 2026-07-20
-**Decision:** A browser tab is a first-class OCapN peer. It dials, hosts objects,
-answers calls, and holds a bidirectional capability graph over every session it
-opens — including replying to a caller that cannot itself be dialed. The one
-capability a browser genuinely cannot have on its own is being cold-dialed by a
-stranger: a browser opens no listening socket, so a third party that names the
-browser as an exporter reaches it only through a relay rendezvous. Everything
-else is relay-less or relay-optional, and this ADR states which is which, with
-the hard reason for each, and names what is built versus what remains.
-
-This ADR builds on the browser binding (`ADR-0070`) and the byte-transparent
-relay (`ADR-0086`). It settles the peer-completeness question those two leave
-open: given that a browser can hold a keyed session and run a wasm Host, what
-does it take for the browser to be a *full* peer, and where is the honest floor?
-
 ---
+id: ADR-0088
+status: accepted
+date: 2026-07-20
+tags: [browser, wasm, peer, relay, rendezvous, handoff]
+decision: "A browser tab is a first-class OCapN peer. It dials, hosts objects, answers calls, and holds a bidirectional capability graph over every session it opens, including replying to a caller that cannot itself be dialed. The one capability a browser genuinely cannot have on its own is being cold-dialed by a stranger: a browser opens no listening socket, so a third party that names the browser as an exporter reaches it only through a relay rendezvous. Everything else is relay-less or relay-optional, and this ADR states which is which, with the hard reason for each, and names what is built versus what remains."
+supersedes: []
+superseded_by: []
+amends: []
+amended_by: []
+---
+
+# ADR-0088 Fully functioning browser peer
+
+## Decision
+
+A browser tab is a first-class OCapN peer. It dials, hosts objects, answers
+calls, and holds a bidirectional capability graph over every session it opens,
+including replying to a caller that cannot itself be dialed. The one capability
+a browser genuinely cannot have on its own is being cold-dialed by a stranger: a
+browser opens no listening socket, so a third party that names the browser as an
+exporter reaches it only through a relay rendezvous. Everything else is
+relay-less or relay-optional, and this ADR states which is which, with the hard
+reason for each, and names what is built versus what remains.
+
+This ADR builds on the browser binding
+([ADR-0070](ADR-0070-browser-binding-via-wasm.md)) and the byte-transparent
+relay ([ADR-0086](ADR-0086-byte-transparent-relay.md)). It settles the
+peer-completeness question those two leave open: given that a browser can hold a
+keyed session and run a wasm Host, what does it take for the browser to be a
+*full* peer, and where is the honest floor?
 
 ## What "fully functioning peer" means
 

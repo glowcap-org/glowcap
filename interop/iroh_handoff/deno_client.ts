@@ -78,7 +78,7 @@ function greeter(verb: string, args: unknown[]): string | null {
 }
 
 // ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-const exporter = listenIroh(Reachability.Direct);
+const exporter = listenIroh({ reachability: Reachability.Direct });
 exporter.host.publishGiftable("greeter", greeter);
 const [exporterId, exporterAddrs] = await dialable(exporter);
 const exporterServed: Session[] = [];
@@ -86,7 +86,7 @@ const exporterAccept = acceptLoopWithServed(exporter, exporterServed);
 console.log(`${GATE}: exporter published greeter on ${exporterId}`);
 
 // ── Gifter: dials the exporter under one identity, re-gifts the greeter ─────
-const gifter = listenIroh(Reachability.Direct);
+const gifter = listenIroh({ reachability: Reachability.Direct });
 const [gifterId, gifterAddrs] = await dialable(gifter);
 const exporterUri = formatPeerUri(
 	TRANSPORT_IROH,

@@ -208,7 +208,7 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     {
         var event = recipient_from_gifter.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
+        try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
 
     // The exporter builds its verifier from the key it stored at deposit (the
@@ -334,21 +334,26 @@ test "borrowed handoff signing domains equal owned domains through both codecs" 
         receive.signature = receive_sig.asBytes();
 
         for ([_]model.CodecId{ .syrup, .capnp }) |codec_id| {
+            var handoff = model.Handoff{ .receive = receive };
             var frame = try codec.dispatch.encodeMessageForProfile(
                 codec_id,
                 allocator,
                 .v1_0,
-                .{ .handoff = .{ .receive = receive } },
+                .{ .deliver = .{
+                    .target = .{ .far = model.FarRef.object(1) },
+                    .args = &.{.{ .handoff = &handoff }},
+                } },
             );
             defer frame.deinit();
             const decoded = try codec.dispatch.decodeBody(codec_id, frame.view());
-            try std.testing.expect(decoded.handoff == .receive);
+            const decoded_handoff = (try decoded.deliver.args.at(0)).handoff;
+            try std.testing.expect(decoded_handoff == .receive);
 
-            const borrowed_give = try codec.signed.giveViewBytes(allocator, decoded.handoff.receive.signed_give);
+            const borrowed_give = try codec.signed.giveViewBytes(allocator, decoded_handoff.receive.signed_give);
             defer allocator.free(borrowed_give);
             try std.testing.expectEqualSlices(u8, give_signed, borrowed_give);
 
-            const borrowed_receive = try codec.signed.receiveViewBytes(allocator, decoded.handoff.receive);
+            const borrowed_receive = try codec.signed.receiveViewBytes(allocator, decoded_handoff.receive);
             defer allocator.free(borrowed_receive);
             try std.testing.expectEqualSlices(u8, receive_signed, borrowed_receive);
         }
@@ -804,8 +809,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     const receive_sig = crypto.sign(&recipient_secret, receive_signed);
     receive.signature = receive_sig.asBytes();
 
-    // next carries a wire `op:resolve`, so the settled answer is observable
-    // as one outbound frame without the V1.0 resolver-callback choreography.
+    // Next settlement is observable through the mandatory listener callback.
     var exporter = peer_fixture.openPeer(allocator);
     defer exporter.deinit();
     var resolver_fixture: GifterSessionFixture = .{
@@ -842,7 +846,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         },
         .settled => return error.TestUnexpectedSettlement,
     }
-    const frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+    const frame = try syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(0) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
         .answer = .from(1),
@@ -853,6 +857,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         var event = event_value;
         event.deinit();
     }
+    try peer_fixture.receiveListenerForAnswer(&exporter, .from(1));
 
     // Not refused, parked: no answer left the peer and the entry is held. The
     // gift is not in the registry yet; the deposit lands below. The parked row
@@ -873,7 +878,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     const later_sig = crypto.sign(&recipient_secret, later_signed);
     later_receive.signature = later_sig.asBytes();
     var later_handoff = model.Handoff{ .receive = later_receive };
-    const later_frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+    const later_frame = try syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(0) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &later_handoff } },
         .answer = .from(2),
@@ -884,6 +889,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         var event = event_value;
         event.deinit();
     }
+    try peer_fixture.receiveListenerForAnswer(&exporter, .from(2));
     try std.testing.expect(exporter.takeOutbound() == null);
     try std.testing.expectEqual(@as(usize, 2), exporter.pendingWithdrawCount());
 
@@ -980,6 +986,7 @@ test "one exact gift wake does not scan unrelated pending withdrawals" {
 
     const target = pending_count / 2;
     try exporter.session_state.installInboundAnswer(.from(target + 1));
+    try peer_fixture.receiveListenerForAnswer(&exporter, .from(target + 1));
     try exporter.session_state.registerImport(.from(9));
     try exporter.giftRegistry().depositOwned(
         allocator,
@@ -990,7 +997,7 @@ test "one exact gift wake does not scan unrelated pending withdrawals" {
     );
     const calls_before = resolver_fixture.resolve_calls;
     exporter.noteHandoffChange(engine.node_services.HandoffDependency.init(receiver_id, &gift_ids[target]));
-    try std.testing.expectEqual(engine.StepOutcome.progress, try exporter.step());
+    while ((try exporter.step()) != .idle) {}
 
     // The resolver is the observable probe at the head of every row retry.
     // Exact grouping calls it once for the matching row, not 256 times.
@@ -1320,7 +1327,7 @@ test "early-withdraw admission OOM leaves no pending row or replay state" {
             resolver_fixture.peer_id = exporter_id;
 
             var handoff_arg = model.Handoff{ .receive = receive_value };
-            const frame = try syrup.encodeMessage(std.testing.allocator, .{ .deliver = .{
+            const frame = try syrup.encodeMessageForProfile(std.testing.allocator, .next, .{ .deliver = .{
                 .target = .{ .far = model.FarRef.object(0) },
                 .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
                 .answer = .from(1),
@@ -1429,7 +1436,7 @@ test "a second early withdraw past max_pending_withdraws refuses loud and projec
         receive.signature = receive_sig.asBytes();
 
         var handoff_arg = model.Handoff{ .receive = receive };
-        const frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+        const frame = try syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
             .target = .{ .far = model.FarRef.object(0) },
             .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
             .answer = .from(@intCast(i + 1)),
@@ -1533,7 +1540,7 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
     {
         var event = recipient_from_gifter.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
+        try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
     try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
     try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
@@ -1548,7 +1555,7 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
     {
         var event = exporter.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
+        try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
     try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
@@ -1726,7 +1733,11 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
     try crypto.verify(gifter_secret.publicKey(), give_signed, give_sig);
 
     const profile = model.CaptpVersion.v1_0;
-    const message = model.Message{ .handoff = .{ .give = give } };
+    var handoff = model.Handoff{ .give = give };
+    const message = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{.{ .handoff = &handoff }},
+    } };
 
     // The cross-codec re-encode contract (ADR-0003 / ADR-0009): the signature
     // covers the *decoded* record's Syrup canonicalization, not the carrying
@@ -1745,28 +1756,32 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
             const src_owned = try src_body.toOwned(allocator);
             defer model.freeMessage(allocator, src_owned);
 
-            // Re-encode the decoded handoff into the OTHER codec: its typed
-            // fields and verbatim signature bytes ride along, so the signature
-            // still verifies on the far side (ADR-0009 / ADR-0003). Production
-            // re-encode rides the ordinary `Peer.send` → codec encode path; this
-            // spells the same move out to prove the cross-codec property.
+            // Put the decoded passable value into a fresh outbound deliver. The
+            // source deliver's target has flipped to our perspective and cannot
+            // itself be sent back out; the nested handoff is the value whose
+            // codec-neutral representation this test proves.
+            const outbound = model.Message{ .deliver = .{
+                .target = .{ .far = model.FarRef.object(1) },
+                .args = src_owned.deliver.args,
+            } };
             var tgt_frame = try dispatch.encodeMessageForProfile(
                 target,
                 allocator,
                 profile,
-                .{ .handoff = src_owned.handoff },
+                outbound,
             );
             defer tgt_frame.deinit();
             const tgt_body = try dispatch.decodeBody(target, tgt_frame.view());
             const tgt_owned = try tgt_body.toOwned(allocator);
             defer model.freeMessage(allocator, tgt_owned);
 
-            const recanonical = try syrup.canonicalHandoffGiveSignedBytes(allocator, tgt_owned.handoff.give);
+            const decoded_give = tgt_owned.deliver.args[0].handoff.*.give;
+            const recanonical = try syrup.canonicalHandoffGiveSignedBytes(allocator, decoded_give);
             defer allocator.free(recanonical);
             try std.testing.expectEqualSlices(u8, give_signed, recanonical);
 
             const carried = crypto.Signature.fromBytes(
-                tgt_owned.handoff.give.signature[0..crypto.SIGNATURE_BYTES].*,
+                decoded_give.signature[0..crypto.SIGNATURE_BYTES].*,
             );
             try crypto.verify(gifter_secret.publicKey(), recanonical, carried);
         }

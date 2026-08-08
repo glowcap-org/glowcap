@@ -53,12 +53,9 @@ pub fn checkTransportVocabulary(
     }
 }
 
-/// `driver_core.designatorSchemeForTransport` must agree with each transport
-/// resident's `designator_scheme`. Most residents declare it in a Netlayer
-/// vtable; a signaling-only resident with no address dial declares the same
-/// constant directly. The sans-io host sees neither declaration, so its string
-/// table is the byte-fed mirror and a transport added to one must land in the
-/// other.
+/// The model's designator-scheme policy must agree with each transport
+/// resident's `designator_scheme`; the driver wrapper must delegate to that
+/// policy rather than restating it.
 pub fn checkDesignatorSchemeSync(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -85,24 +82,27 @@ pub fn checkDesignatorSchemeSync(
     };
     defer gpa.free(vocab);
 
-    const fn_start = std.mem.indexOf(u8, vocab, "pub fn designatorSchemeForTransport") orelse {
+    const vocab_body = fnBody(vocab, "pub fn designatorSchemeForTransport") orelse {
         try appendViolation(gpa, violations, "{s}: missing `pub fn designatorSchemeForTransport`", .{vocab_path});
         return;
     };
-    const after_fn = vocab[fn_start..];
-    const body_open = std.mem.indexOfScalar(u8, after_fn, '{') orelse {
-        try appendViolation(gpa, violations, "{s}: designatorSchemeForTransport has no body", .{vocab_path});
+    if (std.mem.indexOf(u8, vocab_body, "return model.transport.designatorScheme(transport);") == null) {
+        try appendViolation(gpa, violations, "{s}: designatorSchemeForTransport must delegate to model.transport.designatorScheme", .{vocab_path});
+    }
+
+    const policy_path = "src/ocapn/model/transport.zig";
+    const policy = root.readFileAlloc(io, policy_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read designator-scheme policy with {s}", .{ policy_path, @errorName(err) });
         return;
     };
-    const body = after_fn[body_open..];
-    const body_close = std.mem.indexOfScalar(u8, body, '}') orelse {
-        try appendViolation(gpa, violations, "{s}: designatorSchemeForTransport body is unclosed", .{vocab_path});
+    defer gpa.free(policy);
+    const fn_body = fnBody(policy, "pub fn designatorScheme") orelse {
+        try appendViolation(gpa, violations, "{s}: missing `pub fn designatorScheme`", .{policy_path});
         return;
     };
-    const fn_body = body[0 .. body_close + 1];
 
     for (transports) |t| {
-        const vocab_scheme = designatorSchemeFromVocabBody(fn_body, t.name);
+        const policy_scheme = designatorSchemeFromPolicyBody(fn_body, t.name);
         const resident = root.readFileAlloc(io, t.path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for designator-scheme sync with {s}", .{ t.path, @errorName(err) });
             continue;
@@ -110,29 +110,24 @@ pub fn checkDesignatorSchemeSync(
         defer gpa.free(resident);
 
         const resident_scheme = designatorSchemeFromResident(resident);
-        if (!std.mem.eql(u8, vocab_scheme, resident_scheme)) {
+        if (!std.mem.eql(u8, policy_scheme, resident_scheme)) {
             try appendViolation(
                 gpa,
                 violations,
-                "designator-scheme mismatch for `{s}`: vocab.designatorSchemeForTransport → .{s}, but {s} resident declaration → .{s}",
-                .{ t.name, vocab_scheme, t.path, resident_scheme },
+                "designator-scheme mismatch for `{s}`: model.transport.designatorScheme → .{s}, but {s} resident declaration → .{s}",
+                .{ t.name, policy_scheme, t.path, resident_scheme },
             );
         }
     }
 
-    // Every explicit key arm in the vocab table must name a shipped transport
-    // (no orphan model.transport.* or string that never matches a resident).
+    // Every explicit policy arm must name a shipped transport.
     var search: usize = 0;
-    while (std.mem.indexOfPos(u8, fn_body, search, "model.transport.")) |at| {
-        const after = fn_body[at + "model.transport.".len ..];
-        const end = std.mem.indexOfAny(u8, after, ")., \n\r\t") orelse break;
-        const field = after[0..end];
-        if (std.mem.eql(u8, field, "hint_direct_addresses")) {
-            search = at + 1;
-            continue;
-        }
+    while (std.mem.indexOfPos(u8, fn_body, search, "transport, ")) |at| {
+        const after = fn_body[at + "transport, ".len ..];
+        const end = std.mem.indexOfScalar(u8, after, ')') orelse break;
+        const field = std.mem.trim(u8, after[0..end], " \t\r\n");
         const name = transportNameFromField(field) orelse {
-            try appendViolation(gpa, violations, "{s}: designatorSchemeForTransport names unknown model.transport.`{s}`", .{ vocab_path, field });
+            try appendViolation(gpa, violations, "{s}: designatorScheme names unknown transport constant `{s}`", .{ policy_path, field });
             search = at + 1;
             continue;
         };
@@ -147,8 +142,8 @@ pub fn checkDesignatorSchemeSync(
             try appendViolation(
                 gpa,
                 violations,
-                "{s}: designatorSchemeForTransport names unknown transport `{s}` — add a netlayer resident or drop the arm",
-                .{ vocab_path, name },
+                "{s}: designatorScheme names unknown transport `{s}` — add a netlayer resident or drop the arm",
+                .{ policy_path, name },
             );
         }
         search = at + 1;
@@ -170,69 +165,329 @@ pub fn checkDesignatorSchemeSync(
     }
 }
 
-/// `driver_core.authenticationMechanismForTransport` must agree with each
-/// transport resident's `authentication` declaration, the same mirror
-/// discipline as the designator scheme above — and every `key`-scheme
-/// transport must carry a non-`none` mechanism, ADR-0097's rule that
-/// designator grammar and authentication are assigned together.
-pub fn checkAuthenticationMechanismSync(
+/// A dial target and an authenticated far end are separate facts. Only code
+/// that realized the connection may state the latter (ADR-0105, ADR-0109).
+///
+/// `engine.Peer.bindVerifiedChannelKey` says what the code that realized the
+/// connection verified about the byte channel's far end. It is made by
+/// supplying the verified key, so a caller that cannot name one cannot make
+/// it, and the call belongs to a transport resident or the loop bridge that
+/// adopts its connections. Never to a session, a codec, a policy table, or an
+/// application driver that merely knows who it meant to reach.
+///
+/// `demandPartnerDurableKey` is deliberately unpoliced: naming the
+/// identity you dialed is any dialer's to do, and separating it from channel
+/// proof is the point of the split.
+///
+/// The verbs are the whole story only while nothing reaches the state
+/// behind them, so the last row is containment rather than a call ban: the
+/// field name `durable_pin` may appear in the file that declares it and
+/// nowhere else. That covers a field write, a flag write inside the pin, and a
+/// read that would let a caller re-derive a verdict of its own — which the
+/// previous spelling, a ban on one assignment form, did not: the pin's fields
+/// are public, so `peer.durable_pin.?.remote_proved = true` matched no needle
+/// and wrote evidence from anywhere. Reads go through the accessors beside the
+/// verbs.
+///
+/// Every Zig tree a caller could live in is scanned, including `bindings/` and
+/// the repository root, because the tempting place to reach for a proof is an
+/// interop or app driver rather than `src/`. Tests are exempt as a class:
+/// proving what these verbs do is their job, and they reach for them
+/// deliberately.
+///
+/// It replaces the transport-to-mechanism mirror check, whose invariant went
+/// away with the table: a transport symbol names an address grammar, not what
+/// authenticated a partner.
+///
+/// Each verb also names how a *foreign* realizer states the same fact, because
+/// a realizer is not always in this tree. A binding that owns its own sockets
+/// realizes its own connections, and an evidence verb only native code can
+/// speak is a hole: the session is weighed on what the partner volunteered
+/// while a stronger proof sat unread one layer down. That is not hypothetical —
+/// it is how a binding-hosted iroh listener under-reported every accepted
+/// session, and no generated-mirror check could see it, because those compare
+/// symbols that exist and this one did not. So a verb either names the C entry
+/// point that carries it, checked present in the public header, or says why no
+/// embedder can hold the fact.
+pub fn checkDurablePinWriters(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const Transport = struct {
-        name: []const u8,
-        path: ?[]const u8,
+    // A binding owns its own sockets, so it realizes its own connections and
+    // has evidence of its own to state. Either the public C header carries an
+    // entry point for it, or no embedder can hold the fact and this says why.
+    const Foreign = union(enum) {
+        /// The `pancake_host_*` prototype a foreign realizer speaks through,
+        /// checked present in `include/pancake_host.h` — the actual public
+        /// surface, so an export the inventory forgot to publish still fails.
+        entry: []const u8,
+        /// Why an absent entry point is the design rather than the gap.
+        none_because: []const u8,
     };
-    const transports = [_]Transport{
-        .{ .name = "tcp", .path = "src/net/transport/tcp.zig" },
-        .{ .name = "keyed-tcp", .path = "src/net/transport/tcp_keyed.zig" },
-        .{ .name = "inproc", .path = "src/net/transport/inproc.zig" },
-        .{ .name = "iroh", .path = "src/net/transport/iroh.zig" },
-        .{ .name = "webrtc", .path = "src/net/transport/webrtc.zig" },
-        .{ .name = "keyed-relay", .path = "src/net/transport/keyed_relay.zig" },
+    const Verb = struct {
+        /// The needle, not the bare symbol: prose that names a verb is how a
+        /// layering rule gets explained, and explaining it is not calling it.
+        call: []const u8,
+        declaration: []const u8,
+        declared_in: []const u8,
+        /// The only files that may speak this fact, by full repository-relative
+        /// path so a directory rename shows up as a violation rather than
+        /// passing on a basename.
+        speakers: []const []const u8,
+        /// What those files have that nobody else does, quoted at whoever
+        /// tripped the check.
+        standing: []const u8,
+        /// How a realizer outside this tree states the same fact.
+        foreign: Foreign,
     };
+    const verbs = [_]Verb{
+        .{
+            .call = ".bindVerifiedChannelKey(",
+            .declaration = "pub fn bindVerifiedChannelKey(",
+            .declared_in = "src/ocapn/engine/mod.zig",
+            .speakers = &.{
+                "src/net/transport/iroh.zig",
+                "src/net/transport/webrtc.zig",
+                "src/driver/bridge.zig",
+                "src/driver/core/host.zig",
+                "src/c_abi/host/session.zig",
+            },
+            .standing = "it realized the connection, or it carries the testimony of an embedder that did",
+            .foreign = .{ .entry = "pancake_host_session_bind_verified_channel_key" },
+        },
+        .{
+            .call = "durable_pin",
+            .declaration = "durable_pin: DurablePin = .{}",
+            .declared_in = "src/ocapn/engine/mod.zig",
+            .speakers = &.{"src/ocapn/engine/mod.zig"},
+            .standing = "it declares the pin, so every write goes through the verbs beside it and every read through the accessors beside them",
+            .foreign = .{ .none_because = "it is the state the verbs write, not a fact anyone states; C reads the verdict through pancake_host_session_partner_identity" },
+        },
+    };
+    const roots = [_][]const u8{ "src", "cli", "interop", "apps", "examples", "bench", "bindings", "tools" };
+    // This file spells the needles it searches for, so it would otherwise
+    // report itself. Naming the exemption is the honest version of that.
+    const this_check = "tools/check/meta_check/captp_product.zig";
 
-    const vocab_path = "src/driver/core/vocab.zig";
-    const vocab = root.readFileAlloc(io, vocab_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for authentication-mechanism sync with {s}", .{ vocab_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(vocab);
+    // A rename that emptied a speaker list would leave the rule holding
+    // nothing, which is the failure mode this check exists to prevent. So both
+    // halves are confirmed present rather than assumed: the declaration, and
+    // one call per speaker.
+    const public_header = "include/pancake_host.h";
+    const header_source = root.readFileAlloc(io, public_header, gpa, .limited(4 << 20)) catch null;
+    defer if (header_source) |source| gpa.free(source);
 
-    const mech_body = fnBody(vocab, "pub fn authenticationMechanismForTransport") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `pub fn authenticationMechanismForTransport`", .{vocab_path});
-        return;
-    };
-    const scheme_body = fnBody(vocab, "pub fn designatorSchemeForTransport") orelse return;
-
-    for (transports) |t| {
-        const vocab_mech = mechanismFromVocabBody(mech_body, t.name);
-        const scheme = designatorSchemeFromVocabBody(scheme_body, t.name);
-        if (std.mem.eql(u8, scheme, "key") and std.mem.eql(u8, vocab_mech, "none")) {
+    for (verbs) |verb| {
+        const declaring_source = root.readFileAlloc(io, verb.declared_in, gpa, .limited(4 << 20)) catch null;
+        defer if (declaring_source) |source| gpa.free(source);
+        if (declaring_source == null or std.mem.indexOf(u8, declaring_source.?, verb.declaration) == null) {
             try appendViolation(
                 gpa,
                 violations,
-                "{s}: key-scheme transport `{s}` has no authentication mechanism — assign one in authenticationMechanismForTransport (ADR-0097)",
-                .{ vocab_path, t.name },
+                "{s}: missing `{s}`. The ADR-0105 durable-pin verb moved or was renamed, so update `checkDurablePinWriters` in tools/check/meta_check/captp_product.zig with it",
+                .{ verb.declared_in, verb.declaration },
             );
         }
-        const path = t.path orelse continue;
-        const resident = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for authentication-mechanism sync with {s}", .{ path, @errorName(err) });
+        for (verb.speakers) |speaker| {
+            const source = root.readFileAlloc(io, speaker, gpa, .limited(4 << 20)) catch null;
+            defer if (source) |contents| gpa.free(contents);
+            if (source != null and std.mem.indexOf(u8, source.?, verb.call) != null) continue;
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: listed as the only caller of `{s}` but never calls it. Either it stopped being one, or the list in tools/check/meta_check/captp_product.zig is stale",
+                .{ speaker, verb.call },
+            );
+        }
+        switch (verb.foreign) {
+            .none_because => {},
+            .entry => |entry| {
+                const published = header_source != null and
+                    std.mem.indexOf(u8, header_source.?, entry) != null;
+                if (published) continue;
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}: no `{s}`, so a realizer outside this tree cannot state what `{s}` states. A binding owns its own sockets and proves its own connections; leaving it mute means every session it hosts is weighed on what the partner volunteered. Publish the entry point, or record in `checkDurablePinWriters` in tools/check/meta_check/captp_product.zig why no embedder can hold this fact",
+                    .{ public_header, entry, verb.call },
+                );
+            },
+        }
+    }
+
+    // The repository root's own `.zig` files (`build.zig` and its siblings) are
+    // a tree the walk below cannot reach, and a build script is exactly the
+    // kind of place a shortcut gets wired.
+    if (root.openDir(io, ".", .{ .iterate = true }) catch null) |top| {
+        var dir = top;
+        defer dir.close(io);
+        var it = dir.iterate();
+        while (try it.next(io)) |entry| {
+            if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".zig")) continue;
+            const contents = root.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch continue;
+            defer gpa.free(contents);
+            for (verbs) |verb| {
+                if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0105), and that layer is the one where {s}",
+                    .{ entry.name, verb.call, verb.standing },
+                );
+            }
+        }
+    }
+
+    for (roots) |tree| {
+        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for the durable-pin writer check with {s}", .{ tree, @errorName(err) });
             continue;
         };
-        defer gpa.free(resident);
-        const resident_mech = authenticationFromResident(resident);
-        if (!std.mem.eql(u8, vocab_mech, resident_mech)) {
-            try appendViolation(
-                gpa,
-                violations,
-                "authentication-mechanism mismatch for `{s}`: vocab.authenticationMechanismForTransport → .{s}, but {s} resident declaration → .{s}",
-                .{ t.name, vocab_mech, path, resident_mech },
-            );
+        defer dir.close(io);
+
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+            // Vendored trees carry no pancake rule; skipping by name keeps the
+            // walk from reading a dependency's sources.
+            if (std.mem.indexOf(u8, entry.path, "node_modules/") != null) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
+            defer gpa.free(path);
+            if (std.mem.eql(u8, path, this_check)) continue;
+            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch continue;
+            defer gpa.free(contents);
+
+            for (verbs) |verb| {
+                if (std.mem.indexOf(u8, contents, verb.call) == null) continue;
+                var allowed = false;
+                for (verb.speakers) |speaker| {
+                    if (std.mem.eql(u8, path, speaker)) allowed = true;
+                }
+                if (allowed) continue;
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0105), and that layer is the one where {s}. Either this file has that standing and belongs in `verbs` in tools/check/meta_check/captp_product.zig, or it should be naming the identity it dialed instead (`demandPartnerDurableKey`), or reading through `demandedPartnerKey` / `verifiedChannelKey` / `partnerDurableProvenance`.",
+                    .{ path, verb.call, verb.standing },
+                );
+            }
         }
+    }
+}
+
+/// Every member of `driver_core.HostError` is classified by name somewhere, so
+/// none of them reaches a C embedder as `PANCAKE_ERR_INTERNAL`.
+///
+/// There are two tables that classify by name, and either will do. The C
+/// adapter's own `errToCode` names the host-tier refusals, and
+/// `engine.abort_projection.classify` names the protocol failures the adapter
+/// forwards to through `shared.feedErrorToCode`. A member in neither falls
+/// through both `else` arms to `.foreign`, and the embedder is told the library
+/// has a bug when what happened is that it misused a verb. Nothing in the
+/// language notices, because an `else` makes each switch exhaustive whatever
+/// the error set holds.
+///
+/// All three sources are read rather than assumed, so a rename that emptied one
+/// fails here instead of passing on an empty set: the error set must have
+/// members, and both switches must be found.
+pub fn checkHostErrorCodeMap(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const declaring = "src/driver/core/host.zig";
+    const mapping = "src/c_abi/host/common.zig";
+    const projection = "src/ocapn/engine/abort_projection.zig";
+
+    const host_source = root.readFileAlloc(io, declaring, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the HostError code-map check with {s}", .{ declaring, @errorName(err) });
+        return;
+    };
+    defer gpa.free(host_source);
+    const map_source = root.readFileAlloc(io, mapping, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the HostError code-map check with {s}", .{ mapping, @errorName(err) });
+        return;
+    };
+    defer gpa.free(map_source);
+    const projection_source = root.readFileAlloc(io, projection, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the HostError code-map check with {s}", .{ projection, @errorName(err) });
+        return;
+    };
+    defer gpa.free(projection_source);
+
+    const set_open = "pub const HostError = error{";
+    const set_start = std.mem.indexOf(u8, host_source, set_open) orelse {
+        try appendViolation(gpa, violations, "{s}: `{s}` not found — update `checkHostErrorCodeMap` in tools/check/meta_check/captp_product.zig", .{ declaring, set_open });
+        return;
+    };
+    const set_body_start = set_start + set_open.len;
+    // The set ends at the first `};` in column zero after it, the spelling every
+    // top-level declaration in this tree closes with.
+    const set_end_rel = std.mem.indexOf(u8, host_source[set_body_start..], "\n};") orelse {
+        try appendViolation(gpa, violations, "{s}: `HostError` has no closing brace line — update `checkHostErrorCodeMap` in tools/check/meta_check/captp_product.zig", .{declaring});
+        return;
+    };
+    const set_body = host_source[set_body_start .. set_body_start + set_end_rel];
+
+    const switch_open = "pub fn errToCode(err: anyerror) i32 {";
+    const switch_start = std.mem.indexOf(u8, map_source, switch_open) orelse {
+        try appendViolation(gpa, violations, "{s}: `{s}` not found — update `checkHostErrorCodeMap` in tools/check/meta_check/captp_product.zig", .{ mapping, switch_open });
+        return;
+    };
+    const switch_end_rel = std.mem.indexOf(u8, map_source[switch_start..], "\n}") orelse map_source.len - switch_start;
+    const switch_body = map_source[switch_start .. switch_start + switch_end_rel];
+
+    const classify_open = "pub fn classify(";
+    const classify_start = std.mem.indexOf(u8, projection_source, classify_open) orelse {
+        try appendViolation(gpa, violations, "{s}: `{s}` not found — update `checkHostErrorCodeMap` in tools/check/meta_check/captp_product.zig", .{ projection, classify_open });
+        return;
+    };
+    const classify_end_rel = std.mem.indexOf(u8, projection_source[classify_start..], "\n}") orelse projection_source.len - classify_start;
+    const classify_body = projection_source[classify_start .. classify_start + classify_end_rel];
+
+    var members: usize = 0;
+    var lines = std.mem.splitScalar(u8, set_body, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        // Members are the bare `Name,` lines; doc comments and blank lines are
+        // everything else in there.
+        if (line.len < 2 or !std.mem.endsWith(u8, line, ",")) continue;
+        if (std.mem.startsWith(u8, line, "//")) continue;
+        const name = line[0 .. line.len - 1];
+        if (name.len == 0 or !std.ascii.isUpper(name[0])) continue;
+        var identifier = true;
+        for (name) |c| {
+            if (!std.ascii.isAlphanumeric(c)) identifier = false;
+        }
+        if (!identifier) continue;
+        members += 1;
+
+        var needle_buf: [128]u8 = undefined;
+        const needle = std.fmt.bufPrint(&needle_buf, "error.{s},", .{name}) catch continue;
+        var alt_buf: [128]u8 = undefined;
+        const alt = std.fmt.bufPrint(&alt_buf, "error.{s} ", .{name}) catch continue;
+        if (std.mem.indexOf(u8, switch_body, needle) != null) continue;
+        if (std.mem.indexOf(u8, switch_body, alt) != null) continue;
+        if (std.mem.indexOf(u8, classify_body, needle) != null) continue;
+        if (std.mem.indexOf(u8, classify_body, alt) != null) continue;
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}: `HostError.{s}` is named neither in `errToCode` in {s} nor in `classify` in {s}, so it falls through both to PANCAKE_ERR_INTERNAL and tells an embedder the library has a bug. Give it the return code its siblings have.",
+            .{ declaring, name, mapping, projection },
+        );
+    }
+    if (members == 0) {
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}: the HostError code-map check parsed no members, so it is holding nothing — update `checkHostErrorCodeMap` in tools/check/meta_check/captp_product.zig",
+            .{declaring},
+        );
     }
 }
 
@@ -245,35 +500,6 @@ fn fnBody(source: []const u8, decl: []const u8) ?[]const u8 {
     return body[0 .. body_close + 1];
 }
 
-fn mechanismFromVocabBody(fn_body: []const u8, transport: []const u8) []const u8 {
-    var buf: [128]u8 = undefined;
-    const needle = std.fmt.bufPrint(&buf, "transport, model.transport.{s})", .{transportSymbolField(transport)}) catch return "none";
-    const at = std.mem.indexOf(u8, fn_body, needle) orelse return "none";
-    const after = fn_body[at + needle.len ..];
-    const ret = std.mem.indexOf(u8, after, "return .") orelse return "none";
-    const start = ret + "return .".len;
-    const rest = after[start..];
-    const end = std.mem.indexOfAny(u8, rest, ";, \n\r") orelse return "none";
-    return rest[0..end];
-}
-
-/// Read a resident's explicit `authentication`, preferring the Netlayer vtable
-/// region and accepting a direct constant for a signaling-only resident.
-/// Absence means the VTable default (`.none`).
-fn authenticationFromResident(source: []const u8) []const u8 {
-    const mechanisms = [_][]const u8{ "authenticated_transport", "durable_key_attestation", "none" };
-    var needle_buf: [96]u8 = undefined;
-    for (mechanisms) |mech| {
-        const vtable_needle = std.fmt.bufPrint(&needle_buf, ".authentication = .{s}", .{mech}) catch continue;
-        if (std.mem.indexOf(u8, source, vtable_needle) != null) return mech;
-    }
-    for (mechanisms) |mech| {
-        const const_needle = std.fmt.bufPrint(&needle_buf, "pub const authentication: net.netlayer.AuthenticationMechanism = .{s}", .{mech}) catch continue;
-        if (std.mem.indexOf(u8, source, const_needle) != null) return mech;
-    }
-    return "none";
-}
-
 fn transportNameFromField(field: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, field, "tcp")) return "tcp";
     if (std.mem.eql(u8, field, "keyed_tcp")) return "keyed-tcp";
@@ -284,10 +510,12 @@ fn transportNameFromField(field: []const u8) ?[]const u8 {
     return null;
 }
 
-fn designatorSchemeFromVocabBody(fn_body: []const u8, transport: []const u8) []const u8 {
-    // Match `transport, model.transport.NAME)` arms (preferred) or legacy
-    // `transport, "NAME")` arms; unmarked names fall through to `.address`.
+fn designatorSchemeFromPolicyBody(fn_body: []const u8, transport: []const u8) []const u8 {
+    // Match the model policy's `transport, NAME)` arms, plus the former driver
+    // forms so this diagnostic remains useful while a move is incomplete.
     var buf: [128]u8 = undefined;
+    const policy_needle = std.fmt.bufPrint(&buf, "transport, {s})", .{transportSymbolField(transport)}) catch return "address";
+    if (schemeReturnAfterNeedle(fn_body, policy_needle)) |scheme| return scheme;
     const model_needle = std.fmt.bufPrint(&buf, "transport, model.transport.{s})", .{transportSymbolField(transport)}) catch return "address";
     if (schemeReturnAfterNeedle(fn_body, model_needle)) |scheme| return scheme;
     const lit_needle = std.fmt.bufPrint(&buf, "transport, \"{s}\")", .{transport}) catch return "address";
@@ -776,6 +1004,10 @@ pub fn checkCaptpAgentDogfoodRouting(
     root.access(io, rooms_team_script, .{}) catch |err| {
         try appendViolation(gpa, violations, "{s}: rooms-team skill requires companion script ({s})", .{ rooms_team_script, @errorName(err) });
     };
+    const rooms_lead_watch = ".agents/skills/rooms-team/scripts/lead-watch.sh";
+    root.access(io, rooms_lead_watch, .{}) catch |err| {
+        try appendViolation(gpa, violations, "{s}: rooms-team skill requires lead wake pager ({s})", .{ rooms_lead_watch, @errorName(err) });
+    };
     const rooms_team_skill = root.readFileAlloc(io, ".agents/skills/rooms-team/SKILL.md", gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: failed to read for companion refs with {s}", .{@errorName(err)});
         return;
@@ -786,6 +1018,21 @@ pub fn checkCaptpAgentDogfoodRouting(
         std.mem.indexOf(u8, rooms_team_skill, "strategies.md") == null)
     {
         try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must link ops.md, gotchas.md, and strategies.md", .{});
+    }
+    // Multi-surface / per-peer pending floors — prose that must not vanish when
+    // the skill is edited; the hermetic one-wake golden holds the CLI half.
+    if (std.mem.indexOf(u8, rooms_team_skill, "Multi-surface wake") == null) {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must keep Multi-surface wake (DM then room before peers)", .{});
+    }
+    if (std.mem.indexOf(u8, rooms_team_skill, "Pending is per-peer") == null) {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must keep Pending is per-peer (member dismisses own copy)", .{});
+    }
+    if (std.mem.indexOf(u8, rooms_team_skill, "DM-first is order") == null) {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must keep DM-first is order (not permission to ignore room)", .{});
+    }
+    // Positive member instruction to park lead-owned room is the wedge mode.
+    if (std.mem.indexOf(u8, rooms_team_skill, "leave pending for the lead") != null) {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must not instruct members to leave pending for the lead", .{});
     }
 }
 
@@ -1628,4 +1875,186 @@ test "blankComments erases comments without mistaking a locator for one" {
     var commented = "// .handshake = .{ .ms = 9 }\n.{}".*;
     blankComments(&commented);
     try std.testing.expect(!initializedPositive(&commented, &commented, "handshake"));
+}
+
+/// One rooms peer's spelling of the fleet's wire profile.
+///
+/// A room is a closed fleet of pancake peers, so it runs on pancake's own
+/// profile rather than the interop floor. That profile is one fact, and five
+/// languages each have to spell it: a peer that names only half of it, or
+/// names last week's half, opens a session every other member refuses. The
+/// failure is a live `CaptpVersionMismatch` in a step that has to bring five
+/// runtimes up before it can report anything, so the spelling is checked here
+/// instead.
+const RoomsProfileSpelling = struct {
+    path: []const u8,
+    /// How this language writes the Cap'n Proto codec and the Syrup floor.
+    capnp: []const u8,
+    syrup: []const u8,
+    /// How it writes the `pancake-next` version and the 1.0 floor.
+    next: []const u8,
+    v1_0: []const u8,
+};
+
+const rooms_profile_authority = "apps/rooms/lib/protocol.ts";
+
+const rooms_profile_spellings = [_]RoomsProfileSpelling{
+    .{
+        .path = "apps/rooms/lib/profile.zig",
+        .capnp = ".capnp",
+        .syrup = ".syrup",
+        .next = ".next",
+        .v1_0 = ".v1_0",
+    },
+    .{
+        .path = "apps/rooms/clients/python/room_client.py",
+        .capnp = "\"capnp\"",
+        .syrup = "\"syrup\"",
+        .next = "\"next\"",
+        .v1_0 = "\"v1_0\"",
+    },
+    .{
+        .path = "apps/rooms/clients/racket/room-client.rkt",
+        .capnp = "'capnp",
+        .syrup = "'syrup",
+        .next = "'next",
+        .v1_0 = "'v1_0",
+    },
+    .{
+        .path = "apps/rooms/clients/rust/room.rs",
+        .capnp = "Codec::Capnp",
+        .syrup = "Codec::Syrup",
+        .next = "CaptpVersion::Next",
+        .v1_0 = "CaptpVersion::V1_0",
+    },
+};
+
+/// Every rooms peer offers the same CapTP version and codec.
+///
+/// `apps/rooms/lib/protocol.ts` decides; the four sibling spellings follow.
+/// The check is parity rather than a pinned constant, so moving the fleet to a
+/// different profile stays a one-line edit in the authority — it just cannot
+/// be a one-line edit, because this fails until the others move with it.
+pub fn checkRoomsWireProfile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const authority = root.readFileAlloc(io, rooms_profile_authority, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read the rooms wire-profile authority with {s}", .{ rooms_profile_authority, @errorName(err) });
+        return;
+    };
+    defer gpa.free(authority);
+
+    const wants_capnp = std.mem.indexOf(u8, authority, "CODEC = \"capnp\"") != null;
+    const wants_next = std.mem.indexOf(u8, authority, "CAPTP_VERSION = \"next\"") != null;
+    if (!wants_capnp and std.mem.indexOf(u8, authority, "CODEC = \"syrup\"") == null) {
+        try appendViolation(gpa, violations, "{s}: names no `CODEC` the sibling peers can follow; the fleet's codec is decided here", .{rooms_profile_authority});
+        return;
+    }
+    if (!wants_next and std.mem.indexOf(u8, authority, "CAPTP_VERSION = \"v1_0\"") == null) {
+        try appendViolation(gpa, violations, "{s}: names no `CAPTP_VERSION` the sibling peers can follow; the fleet's CapTP version is decided here", .{rooms_profile_authority});
+        return;
+    }
+
+    for (rooms_profile_spellings) |peer| {
+        const source = root.readFileAlloc(io, peer.path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for the rooms wire-profile check with {s}", .{ peer.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(source);
+        // Raw source, not comment-stripped: these are language literals
+        // (`Codec::Syrup`, `'syrup`, `.v1_0`), and prose that describes the
+        // profile has no reason to spell one. Four languages' comment syntaxes
+        // would need four strippers to buy nothing.
+        const code = source;
+
+        const want_codec = if (wants_capnp) peer.capnp else peer.syrup;
+        const wrong_codec = if (wants_capnp) peer.syrup else peer.capnp;
+        if (std.mem.indexOf(u8, code, want_codec) == null) {
+            try appendViolation(gpa, violations, "{s}: does not name `{s}`, the codec {s} decides for every rooms peer; a peer on the other codec cannot open a session with the fleet", .{ peer.path, want_codec, rooms_profile_authority });
+        }
+        if (std.mem.indexOf(u8, code, wrong_codec) != null) {
+            try appendViolation(gpa, violations, "{s}: still names `{s}` after {s} moved the fleet's codec; the two spellings have drifted apart", .{ peer.path, wrong_codec, rooms_profile_authority });
+        }
+
+        const want_version = if (wants_next) peer.next else peer.v1_0;
+        const wrong_version = if (wants_next) peer.v1_0 else peer.next;
+        if (std.mem.indexOf(u8, code, want_version) == null) {
+            try appendViolation(gpa, violations, "{s}: does not name `{s}`, the CapTP version {s} decides for every rooms peer; the codec alone is half a profile and the handshake refuses on the other half", .{ peer.path, want_version, rooms_profile_authority });
+        }
+        if (std.mem.indexOf(u8, code, wrong_version) != null) {
+            try appendViolation(gpa, violations, "{s}: still names `{s}` after {s} moved the fleet's CapTP version; the two spellings have drifted apart", .{ peer.path, wrong_version, rooms_profile_authority });
+        }
+    }
+}
+
+/// The directories under `apps/rooms` whose TypeScript mints peers.
+const rooms_peer_dirs = [_][]const u8{
+    "apps/rooms/demos",
+    "apps/rooms/test",
+    "apps/rooms/server",
+    "apps/rooms/web",
+    "apps/rooms/web/ui",
+    "apps/rooms/lib",
+};
+
+/// Every rooms peer is minted through `lib/locator.ts`.
+///
+/// A peer comes into being by dialing or by being dialed, and both halves have
+/// to wear the fleet's profile. `new Host()` and `listen(host, port)` each hand
+/// back the v1.0 Syrup floor instead, and the session that peer opens is then
+/// refused as a malformed frame — a message that points at the codec rather
+/// than at the line that minted the host. That mistake was made four times in
+/// one afternoon across demos, tests, and the server, which is what a
+/// convention rather than a check buys. `roomsHost` and `roomsListen` are the
+/// two front doors; a peer that genuinely wants the floor (proving pancake
+/// meets an interop partner there) says so on the line with
+/// `rooms-profile-exempt:` and a reason.
+pub fn checkRoomsPeerMinting(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const authority = "apps/rooms/lib/locator.ts";
+    for (rooms_peer_dirs) |dir_path| {
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+        var walker = dir.iterate();
+        while (walker.next(io) catch null) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".ts") and !std.mem.endsWith(u8, entry.name, ".tsx")) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.name });
+            defer gpa.free(path);
+            // The authority is where both front doors are built, so it is the
+            // one file allowed to reach the raw constructors.
+            if (std.mem.eql(u8, path, authority)) continue;
+            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
+            defer gpa.free(source);
+
+            var line_no: usize = 0;
+            var lines = std.mem.splitScalar(u8, source, '\n');
+            while (lines.next()) |line| {
+                line_no += 1;
+                if (std.mem.indexOf(u8, line, "rooms-profile-exempt:") != null) continue;
+                // `listenIroh(` / `listenKeyedTcp(` / `roomsListen(` do not
+                // contain this token, so the match is the bare function alone.
+                if (std.mem.indexOf(u8, line, "new Host(") != null) {
+                    try appendViolation(gpa, violations, "{s}:{d}: mints a peer with `new Host(` — a default Host speaks the v1.0 Syrup floor and the room refuses its frames; mint it through `roomsHost` in {s}", .{ path, line_no, authority });
+                }
+                // A qualified `listen` belongs to something else — `Deno.listen`
+                // opens a socket, and a socket has no CapTP profile to get
+                // wrong. Only the bare call mints a pancake peer.
+                const bare_listen = if (std.mem.indexOf(u8, line, "listen(")) |at|
+                    at == 0 or line[at - 1] != '.'
+                else
+                    false;
+                if (bare_listen and std.mem.indexOf(u8, line, "function listen(") == null) {
+                    try appendViolation(gpa, violations, "{s}:{d}: accepts peers with the bare `listen(` — its default host speaks the v1.0 Syrup floor; accept through `roomsListen` in {s}", .{ path, line_no, authority });
+                }
+            }
+        }
+    }
 }

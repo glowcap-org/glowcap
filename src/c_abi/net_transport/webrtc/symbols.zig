@@ -17,10 +17,10 @@ const ts_omit = "browser-native TypeScript uses RTCPeerConnection and does not d
 
 pub const symbols = [_]Symbol{
     .{ .name = "pancake_webrtc_last_error", .out_params = &.{0}, .ts_omit = ts_omit },
-    .{ .name = "pancake_webrtc_netlayer_new", .out_params = &.{0}, .ts_omit = ts_omit },
+    .{ .name = "pancake_webrtc_netlayer_new", .out_params = &.{1}, .ts_omit = ts_omit },
     .{
         .name = "pancake_webrtc_netlayer_new_in",
-        .out_params = &.{1},
+        .out_params = &.{2},
         .ts_omit = ts_omit,
         .python_omit = "unused: the Python binding keeps its webrtc netlayer on the library allocator",
         .racket_omit = "unused: the Racket binding keeps its webrtc netlayer on the library allocator",

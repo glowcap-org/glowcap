@@ -11,10 +11,10 @@
 //! `op:start-session` keyed handshake, bootstrap fetch, and deliver/resolve the
 //! TCP gates prove against Goblins.
 //!
-//! Goblins ships no iroh netlayer, so this gate is pancake-to-pancake by
-//! construction: it proves the bring-your-own-netlayer contract carries an
-//! encrypted transport end to end, not Goblins interop (the conversation itself
-//! is the one the TCP gates already prove against Goblins).
+//! Both peers here are pancake, deliberately: this driver proves the
+//! bring-your-own-netlayer contract carries an encrypted transport end to end,
+//! with no second implementation in the picture. `goblins-iroh` is the outside
+//! partner's check, over the iroh netlayer this repository wrote for Goblins.
 //!
 //! Beyond the conversation, the gate pins the seam's edges: address defects
 //! refuse as typed `InvalidAddress` before the network is touched, closing the

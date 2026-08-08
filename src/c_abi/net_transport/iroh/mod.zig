@@ -181,13 +181,42 @@ pub const PancakeIrohReadyEvent = extern struct {
 /// `PANCAKE_IROH_REACH_*`; an unknown value is refused). `connect_timeout_ms` is
 /// the per-endpoint stream-establishment deadline in milliseconds — the dial's
 /// connect + first-stream open and each accepted stream ride it — with 0 meaning
-/// the built-in default. Callers must zero-initialize the whole struct before
+/// pancake's thirty seconds.
+///
+/// Every 0 here means pancake's number, never the QUIC stack's own. That
+/// distinction matters most for `idle_timeout_ms` below, where pancake's
+/// deliberately replaces a longer one the stack would otherwise use.
+///
+/// `idle_timeout_ms` bounds how long a connection survives without a packet
+/// from the far end. **This is the authority for what that setting means**; the
+/// residents and every binding's own config mirror this struct and point here.
+///
+/// It decides how quickly a peer that was killed rather than closed stops
+/// counting as present. Such a peer sends nothing, and UDP has no equivalent of
+/// the FIN a dying TCP process gets from the operating system, so nothing else
+/// ends the connection. An embedder that reads a live session as presence wants
+/// a shorter one than the default.
+///
+/// There is no keep-alive beside it. The two are one decision, and a timeout
+/// shorter than its own heartbeat drops connections whose peers are answering,
+/// so the transport derives the heartbeat from this value.
+///
+/// `worker_threads` sizes this endpoint's runtime; 0 takes pancake's two. That
+/// is pancake's number rather than the async runtime's own, which sizes itself
+/// to the machine's cores. It is a per-endpoint cost, so a process holding many
+/// endpoints, or one endpoint holding many connections, is the caller that
+/// should name it, and naming the core count is how a caller asks for what the
+/// runtime would have chosen alone.
+///
+/// Callers must zero-initialize the whole struct before
 /// filling the fields they set, so a field added in a later version defaults to
 /// 0 rather than reading a caller's stack garbage. The `extern struct`
 /// counterpart of the header's `PancakeIrohConfig`.
 pub const PancakeIrohConfig = extern struct {
     reachability: u32,
     connect_timeout_ms: u64,
+    idle_timeout_ms: u64,
+    worker_threads: u32,
 };
 
 // ── Netlayer lifecycle ───────────────────────────────────────────────────────
@@ -199,7 +228,7 @@ pub const PancakeIrohConfig = extern struct {
 /// `config` carries the mandatory reachability (`PANCAKE_IROH_REACH_*`; an
 /// unknown value or a null `config` is `PANCAKE_ERR_INVALID_ARGUMENT` /
 /// `PANCAKE_ERR_NULL_POINTER`) and the optional `connect_timeout_ms` (0 = the
-/// built-in default). Binds the endpoint and arms
+/// pancake's own default). Binds the endpoint and arms
 /// the readiness loop, so the returned netlayer is immediately driveable through
 /// `pancake_iroh_netlayer_readiness_fd`; `PANCAKE_ERR_IO` (see
 /// `pancake_iroh_last_error`) if the endpoint cannot bind or the loop cannot arm.
@@ -215,7 +244,12 @@ pub export fn pancake_iroh_netlayer_new(
     const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
     const seed = decodeSeed(secret_seed, secret_seed_len) catch return PANCAKE_ERR_INVALID_ARGUMENT;
     const reach = reachabilityFromC(cfg.reachability) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    return netlayerNewIn(c.library_allocator, seed, reach, cfg.connect_timeout_ms, slot);
+    return netlayerNewIn(c.library_allocator, seed, .{
+        .reachability = reach,
+        .connect_timeout_ms = cfg.connect_timeout_ms,
+        .idle_timeout_ms = cfg.idle_timeout_ms,
+        .worker_threads = cfg.worker_threads,
+    }, slot);
 }
 
 /// As `pancake_iroh_netlayer_new`, allocating the netlayer, endpoint, and every
@@ -232,7 +266,12 @@ pub export fn pancake_iroh_netlayer_new_in(
     const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
     const seed = decodeSeed(secret_seed, secret_seed_len) catch return PANCAKE_ERR_INVALID_ARGUMENT;
     const reach = reachabilityFromC(cfg.reachability) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    return netlayerNewIn(cc.allocator(), seed, reach, cfg.connect_timeout_ms, slot);
+    return netlayerNewIn(cc.allocator(), seed, .{
+        .reachability = reach,
+        .connect_timeout_ms = cfg.connect_timeout_ms,
+        .idle_timeout_ms = cfg.idle_timeout_ms,
+        .worker_threads = cfg.worker_threads,
+    }, slot);
 }
 
 fn decodeSeed(seed: ?[*]const u8, seed_len: usize) error{InvalidSeed}!?*const [32]u8 {
@@ -252,7 +291,7 @@ fn reachabilityFromC(reachability: u32) ?iroh.Reachability {
     return null;
 }
 
-fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, reachability: iroh.Reachability, connect_timeout_ms: u64, slot: *?*PancakeIrohNetlayer) i32 {
+fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, resident_config: iroh.Resident.Config, slot: *?*PancakeIrohNetlayer) i32 {
     const payload = alloc.create(NetlayerPayload) catch return PANCAKE_ERR_INTERNAL;
     payload.* = .{
         .threaded = std.Io.Threaded.init(alloc, .{}),
@@ -261,7 +300,7 @@ fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, reachability: i
     };
     // `Threaded.io()` borrows `&payload.threaded`, valid because `payload` is
     // heap-pinned; the resident captures it for the connections it mints.
-    payload.resident = iroh.Resident.init(payload.threaded.io(), seed, .{ .reachability = reachability, .connect_timeout_ms = connect_timeout_ms }) catch {
+    payload.resident = iroh.Resident.init(payload.threaded.io(), seed, resident_config) catch {
         payload.threaded.deinit();
         alloc.destroy(payload);
         setLastError("iroh netlayer_new: endpoint bind failed", .{});
@@ -365,6 +404,46 @@ pub export fn pancake_iroh_conn_release(conn: ?*PancakeIrohConn) void {
 pub export fn pancake_iroh_conn_id(conn: ?*PancakeIrohConn) usize {
     const payload = connFromOpaque(conn) orelse return 0;
     return payload.conn_id;
+}
+
+/// Write the far end's QUIC-verified endpoint id into `out` as lowercase hex,
+/// and the byte count into `out_len`. This is the transport proof of ADR-0105:
+/// the TLS handshake authenticated the key at the other end of this
+/// connection, so a host that opened the connection may say so about it. The
+/// spelling is the designator `pancake_iroh_netlayer_node_id` prints, so a
+/// caller compares it against the location a partner's CapTP hello claims and
+/// treats an equal pair — and only an equal pair — as a proved durable name.
+/// It answers for an accepted connection exactly as for a dialed one, since
+/// QUIC verifies the remote either way.
+///
+/// `cap` must be at least the id length (64) or the call is
+/// `PANCAKE_ERR_BUFFER_TOO_SMALL`. No terminator is written.
+///
+/// A connection whose remote cannot be read — the handle is gone, or the
+/// sidecar faulted — is `PANCAKE_ERR_IO` (see `pancake_iroh_last_error`) with
+/// `out_len` untouched. The call never returns `PANCAKE_OK` with a zero
+/// length, so an unproved connection cannot be mistaken for a designator: a
+/// caller that reads `out_len` bytes only on `PANCAKE_OK` can never treat a
+/// missing proof as a name.
+pub export fn pancake_iroh_conn_remote_node_id(
+    conn: ?*PancakeIrohConn,
+    out: ?[*]u8,
+    cap: usize,
+    out_len: ?*usize,
+) i32 {
+    const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
+    const dest = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
+    if (cap < iroh.node_id_len) return PANCAKE_ERR_BUFFER_TOO_SMALL;
+
+    const key = payload.netlayer.resident.loopConnRemoteKey(payload.conn) orelse {
+        setLastError("conn_remote_node_id: sidecar reported no verified remote", .{});
+        return PANCAKE_ERR_IO;
+    };
+    const designator = key.toDesignator();
+    @memcpy(dest[0..designator.len], &designator);
+    len_slot.* = designator.len;
+    return PANCAKE_OK;
 }
 
 // ── The event-driven loop surface (ADR-0057) ─────────────────────────────────

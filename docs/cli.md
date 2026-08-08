@@ -70,7 +70,7 @@ pancake --json init
 
 LOC='ocapn://127.0.0.1%3A46659.tcp'   # paste A's locator
 pancake --json ocapn call "$LOC" greeter greet world
-#                         │      │       │     └─ arg  → reply "Hello, world"
+#                         │      │       │     └─ arg, reply is "Hello, world"
 #                         │      │       └─ verb
 #                         │      └─ published name (--publish greeter)
 #                         └─ peer
@@ -121,10 +121,13 @@ pancake --json ocapn probe "$LOC"
 | `pancake repl` | CapTP lab (TTY workbench / line mode) |
 | `pancake mcp` | Agent control plane |
 | `pancake app rooms-peer` | Room presence and DM-by-introduction (`reply --dm PEER`) |
-| `pancake griddle …` | Simulator / timeline family (**placeholder**) |
+| `pancake griddle …` | Deterministic simulator and timeline family |
 
 ```sh
-pancake griddle status   # name reserved; runtime not implemented
+pancake griddle run --scenario crossed-fetch --seed 7   # timeline as NDJSON
+pancake griddle run --scenario partitioned-fetch --partition-at 1
+pancake griddle run --scenario crossed-fetch --latency --seed 5
+pancake griddle status
 pancake griddle help
 ```
 
@@ -241,6 +244,14 @@ to end:
 ```sh
 export PANCAKE_RENDEZVOUS=ws://127.0.0.1:8000/relay
 pancake --json ocapn call "ocapn://<key>.keyed-relay" greeter greet world
+```
+
+To be that peer rather than dial one, register instead of binding. The
+listener holds an inbound socket at the relay and prints the `keyed-relay`
+locator that names it, so a process behind a NAT is still reachable:
+
+```sh
+pancake --json ocapn listen --rendezvous ws://127.0.0.1:8000/register --publish greeter
 ```
 
 [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md) records the

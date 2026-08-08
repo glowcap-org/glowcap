@@ -24,6 +24,7 @@
          "private/promise.rkt"
          "private/gc.rkt"
          "private/session.rkt"
+         "private/trace.rkt"
          "private/dial.rkt"
          "private/listen.rkt"
          "private/constants.rkt")
@@ -69,16 +70,19 @@
          host-spawn-resolver resolver? resolver-vow-id
          resolver-forward-turn! resolver-fulfill! resolver-break!
          host-enliven
+         enable-trace!
          tcp-locator keyed-tcp-locator parse-locator format-peer-uri (struct-out locator)
          encode-peer-locator designator-host-port socket-addr-designator session-set-exporter-locator!
          host-redeem-reachability-value set-host-redeem-reachability!
          host-rendezvous-url-value set-host-rendezvous-url!
          designator-from-seed
          session-partner-identity partner-identity-durable-authenticated?
+         session-bind-verified-channel-key!
          session-vat session-async session-host session-spawn session-publish session-published-ref
          session-fetch session-enliven session-send session-listen session-send-redeeming
          session-send-promise session-await
          session-index session-untag session-get session-serve session-tell session-close!
+         session-annotate!
          session-with-gc! session-release! session-caretaker session-attenuate session-revoke!
          ;; Closing a session closes that connection; this closes every session
          ;; the host holds, including the ones it dialed to redeem handoffs.
@@ -109,7 +113,8 @@
   (provide (struct-out async-transport) make-fresh-host make-host
            establish-dialed-locator-session
            establish-accepted-session accept-next-session HANDSHAKE-TIMEOUT-MS
-           host-set-self-designator! host-set-session-limits! format-peer-uri
+           host-set-self-designator! host-set-advertised-locator!
+           host-set-session-limits! format-peer-uri
            check check-with read-last-error raise-pancake bytes<-c codec-id
            pin-immobile
            _PancakeFrame _PancakeFrame-pointer make-PancakeFrame

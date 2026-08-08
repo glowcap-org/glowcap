@@ -50,10 +50,7 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 /// `bindFreshResolverExport` and its rollback rather than the whole
 /// `nominateResolverExport` verb.
 pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model.ExportPosition {
-    const resolver_export = try self.bindFreshResolverExport(answer, .promise);
-    errdefer self.abandonResolverExport(resolver_export);
-    try self.retainSentExportRef(session.slot.toReference(self.exportSlot(resolver_export).?).?);
-    return resolver_export;
+    return self.mintMentionedResolverExport(answer, .promise);
 }
 
 /// Record that the partner's inbound `answer` is resolved via their resolver

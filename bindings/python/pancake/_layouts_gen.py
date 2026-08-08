@@ -3,97 +3,139 @@
 # `zig build gen-binding-ffi-layouts-check` (part of `check`) fails when
 # this is stale.
 #
-# Expected sizes and field offsets the hand-mirrored ctypes.Structure
-# types in _ffi_ocapn, _ffi_host, and _ffi_iroh pin against in their
-# _pin_layout() checks: values come from @sizeOf/@offsetOf on the real
-# Zig C ABI types, so a Zig-side field change moves a number here and
-# the pin fails loudly at import time instead of silently misparsing a
-# frame or an action.
+# The whole shape of every C ABI struct the hand-mirrored
+# ctypes.Structure types in _ffi_ocapn, _ffi_host, _ffi_iroh, and
+# _ffi_webrtc declare: struct size, then one row per field carrying
+# its name, its offset, and its own width. Values come from
+# @sizeOf/@offsetOf on the real Zig C ABI types, so a Zig-side field
+# change moves a row here and `pancake._pin.pin_struct` fails loudly
+# at import time instead of silently misparsing a frame, an action,
+# or a trace fact.
 
-PANCAKE_REFERENCE_SIZE = 8
-PANCAKE_REFERENCE_ID_OFF = 0
-PANCAKE_ARGUMENT_SIZE = 64
-PANCAKE_ARGUMENT_KIND_OFF = 0
-PANCAKE_ARGUMENT_BOOLEAN_OFF = 4
-PANCAKE_ARGUMENT_INTEGER_OFF = 8
-PANCAKE_ARGUMENT_FLOAT64_OFF = 16
-PANCAKE_ARGUMENT_BYTES_OFF = 24
-PANCAKE_ARGUMENT_BYTES_LEN_OFF = 32
-PANCAKE_ARGUMENT_REFERENCE_OFF = 40
-PANCAKE_ARGUMENT_ITEMS_OFF = 48
-PANCAKE_ARGUMENT_ITEMS_LEN_OFF = 56
-PANCAKE_FRAME_SIZE = 24
-PANCAKE_FRAME_BYTES_OFF = 0
-PANCAKE_FRAME_LEN_OFF = 8
-PANCAKE_FRAME_SHAPE_OFF = 16
-PANCAKE_MANAGED_FRAME_SIZE = 40
-PANCAKE_MANAGED_FRAME_BYTES_OFF = 0
-PANCAKE_MANAGED_FRAME_LEN_OFF = 8
-PANCAKE_MANAGED_FRAME_SHAPE_OFF = 16
-PANCAKE_MANAGED_FRAME_RELEASE_OFF = 24
-PANCAKE_MANAGED_FRAME_PRIVATE_DATA_OFF = 32
-PANCAKE_LAST_ABORT_SIZE = 56
-PANCAKE_LAST_ABORT_DOMAIN_OFF = 0
-PANCAKE_LAST_ABORT_HAS_KIND_OFF = 4
-PANCAKE_LAST_ABORT_KIND_NAME_OFF = 8
-PANCAKE_LAST_ABORT_KIND_NAME_LEN_OFF = 16
-PANCAKE_LAST_ABORT_MESSAGE_OFF = 24
-PANCAKE_LAST_ABORT_MESSAGE_LEN_OFF = 32
-PANCAKE_LAST_ABORT_ERROR_NAME_OFF = 40
-PANCAKE_LAST_ABORT_ERROR_NAME_LEN_OFF = 48
-PANCAKE_ALLOCATOR_SIZE = 24
-PANCAKE_ALLOCATOR_ALLOC_OFF = 0
-PANCAKE_ALLOCATOR_FREE_OFF = 8
-PANCAKE_ALLOCATOR_USER_DATA_OFF = 16
-PANCAKE_HOST_ACTION_SIZE = 104
-PANCAKE_HOST_ACTION_KIND_OFF = 0
-PANCAKE_HOST_ACTION_TICKET_OFF = 8
-PANCAKE_HOST_ACTION_SESSION_OFF = 16
-PANCAKE_HOST_ACTION_VALUE_OFF = 24
-PANCAKE_HOST_ACTION_MESSAGE_OFF = 88
-PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF = 96
-PANCAKE_DIAL_PLAN_SIZE = 56
-PANCAKE_DIAL_PLAN_SHAPE_OFF = 0
-PANCAKE_DIAL_PLAN_HOST_OFF = 8
-PANCAKE_DIAL_PLAN_HOST_LEN_OFF = 16
-PANCAKE_DIAL_PLAN_PORT_OFF = 24
-PANCAKE_DIAL_PLAN_ADDRESSES_OFF = 32
-PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF = 40
-PANCAKE_DIAL_PLAN_REACH_KIND_OFF = 48
-PANCAKE_DIAL_PLAN_REACH_VALUE_OFF = 52
-PANCAKE_ACCEPT_PLAN_SIZE = 32
-PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF = 0
-PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF = 8
-PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF = 16
-PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF = 24
-PANCAKE_PENDING_DIAL_SIZE = 48
-PANCAKE_PENDING_DIAL_TRANSPORT_OFF = 0
-PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF = 8
-PANCAKE_PENDING_DIAL_DESIGNATOR_OFF = 16
-PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF = 24
-PANCAKE_PENDING_DIAL_HINT_OFF = 32
-PANCAKE_PENDING_DIAL_HINT_LEN_OFF = 40
-PANCAKE_PARTNER_IDENTITY_SIZE = 56
-PANCAKE_PARTNER_IDENTITY_SESSION_KEY_OFF = 0
-PANCAKE_PARTNER_IDENTITY_SESSION_KEY_LEN_OFF = 8
-PANCAKE_PARTNER_IDENTITY_DESIGNATOR_OFF = 16
-PANCAKE_PARTNER_IDENTITY_DESIGNATOR_LEN_OFF = 24
-PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_OFF = 32
-PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF = 40
-PANCAKE_PARTNER_IDENTITY_PROVENANCE_OFF = 48
-PANCAKE_HOST_PUMP_HOOKS_SIZE = 48
-PANCAKE_HOST_PUMP_HOOKS_CTX_OFF = 0
-PANCAKE_HOST_PUMP_HOOKS_FLUSH_OFF = 8
-PANCAKE_HOST_PUMP_HOOKS_CLOSE_OFF = 16
-PANCAKE_HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF = 24
-PANCAKE_HOST_PUMP_HOOKS_COMPLETE_OFF = 32
-PANCAKE_HOST_PUMP_HOOKS_DIAL_OFF = 40
-PANCAKE_IROH_READY_EVENT_SIZE = 16
-PANCAKE_IROH_READY_EVENT_SUBJECT_OFF = 0
-PANCAKE_IROH_READY_EVENT_EVENTS_OFF = 8
-PANCAKE_WEBRTC_READY_EVENT_SIZE = 16
-PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF = 0
-PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF = 8
-PANCAKE_IROH_CONFIG_SIZE = 16
-PANCAKE_IROH_CONFIG_REACHABILITY_OFF = 0
-PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF = 8
+LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
+    "PANCAKE_REFERENCE": (8, (
+        ("id", 0, 8),
+    )),
+    "PANCAKE_ARGUMENT": (64, (
+        ("kind", 0, 4),
+        ("boolean", 4, 4),
+        ("integer", 8, 8),
+        ("float64", 16, 8),
+        ("bytes", 24, 8),
+        ("bytes_len", 32, 8),
+        ("reference", 40, 8),
+        ("items", 48, 8),
+        ("items_len", 56, 8),
+    )),
+    "PANCAKE_FRAME": (24, (
+        ("bytes", 0, 8),
+        ("len", 8, 8),
+        ("shape", 16, 4),
+    )),
+    "PANCAKE_MANAGED_FRAME": (40, (
+        ("bytes", 0, 8),
+        ("len", 8, 8),
+        ("shape", 16, 4),
+        ("release", 24, 8),
+        ("private_data", 32, 8),
+    )),
+    "PANCAKE_LAST_ABORT": (56, (
+        ("domain", 0, 4),
+        ("has_kind", 4, 4),
+        ("kind_name", 8, 8),
+        ("kind_name_len", 16, 8),
+        ("message", 24, 8),
+        ("message_len", 32, 8),
+        ("error_name", 40, 8),
+        ("error_name_len", 48, 8),
+    )),
+    "PANCAKE_ALLOCATOR": (24, (
+        ("alloc", 0, 8),
+        ("free", 8, 8),
+        ("user_data", 16, 8),
+    )),
+    "PANCAKE_HOST_ACTION": (104, (
+        ("kind", 0, 4),
+        ("ticket", 8, 8),
+        ("session", 16, 8),
+        ("value", 24, 64),
+        ("message", 88, 8),
+        ("message_len", 96, 8),
+    )),
+    "PANCAKE_DIAL_PLAN": (56, (
+        ("shape", 0, 4),
+        ("host", 8, 8),
+        ("host_len", 16, 8),
+        ("port", 24, 2),
+        ("addresses", 32, 8),
+        ("addresses_len", 40, 8),
+        ("reach_kind", 48, 4),
+        ("reach_value", 52, 4),
+    )),
+    "PANCAKE_ACCEPT_PLAN": (32, (
+        ("designator", 0, 8),
+        ("designator_len", 8, 8),
+        ("direct_addresses_hint", 16, 8),
+        ("direct_addresses_hint_len", 24, 8),
+    )),
+    "PANCAKE_PENDING_DIAL": (48, (
+        ("transport", 0, 8),
+        ("transport_len", 8, 8),
+        ("designator", 16, 8),
+        ("designator_len", 24, 8),
+        ("hint", 32, 8),
+        ("hint_len", 40, 8),
+    )),
+    "PANCAKE_PARTNER_IDENTITY": (56, (
+        ("session_key", 0, 8),
+        ("session_key_len", 8, 8),
+        ("designator", 16, 8),
+        ("designator_len", 24, 8),
+        ("locator_record", 32, 8),
+        ("locator_record_len", 40, 8),
+        ("provenance", 48, 4),
+    )),
+    "PANCAKE_TRACE_EVENT": (144, (
+        ("kind", 0, 4),
+        ("session", 8, 8),
+        ("outbound", 16, 1),
+        ("provenance", 20, 4),
+        ("codec", 24, 4),
+        ("captp_version", 28, 4),
+        ("designator", 32, 8),
+        ("designator_len", 40, 8),
+        ("transport", 48, 8),
+        ("transport_len", 56, 8),
+        ("session_id", 64, 8),
+        ("session_id_len", 72, 8),
+        ("verb", 80, 8),
+        ("verb_len", 88, 8),
+        ("frame", 96, 8),
+        ("frame_len", 104, 8),
+        ("frame_total_len", 112, 8),
+        ("dropped", 120, 8),
+        ("digest", 128, 16),
+    )),
+    "PANCAKE_HOST_PUMP_HOOKS": (48, (
+        ("ctx", 0, 8),
+        ("flush", 8, 8),
+        ("close", 16, 8),
+        ("need_gift_id", 24, 8),
+        ("complete", 32, 8),
+        ("dial", 40, 8),
+    )),
+    "PANCAKE_IROH_READY_EVENT": (16, (
+        ("subject", 0, 8),
+        ("events", 8, 4),
+    )),
+    "PANCAKE_WEBRTC_READY_EVENT": (16, (
+        ("subject", 0, 8),
+        ("events", 8, 4),
+    )),
+    "PANCAKE_IROH_CONFIG": (32, (
+        ("reachability", 0, 4),
+        ("connect_timeout_ms", 8, 8),
+        ("idle_timeout_ms", 16, 8),
+        ("worker_threads", 24, 4),
+    )),
+}

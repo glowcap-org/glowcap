@@ -162,12 +162,13 @@ fn recipientHalf(
     var engine_peer = engine.Peer.initNegotiating(allocator);
     defer engine_peer.deinit();
     engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    // The channel came up through the signaling capability above, and its DTLS
-    // handshake is what proves the far peer (ADR-0097), so the identity it may
-    // claim is pinned as transport-verified before any byte is fed.
-    engine_peer.expectPartnerDurableKey(
+    // Demand the identity the far peer must claim, before any byte is fed
+    // (ADR-0105). The channel came up through the signaling capability above,
+    // but nothing told the WebRTC resident whose channel it is. The resident
+    // asserts nothing, so this is a target check and provenance remains
+    // unauthenticated.
+    engine_peer.demandPartnerDurableKey(
         crypto.PeerKey.fromDesignator(expect_designator) orelse return error.InvalidDesignator,
-        .transport_verified,
     );
 
     const read_buf = try allocator.alloc(u8, frame_cap);
@@ -214,9 +215,9 @@ pub fn main(init: std.process.Init) !void {
     const exporter_designator = exporter_secret.publicKey().toDesignator();
 
     // The recipient offers (it initiates the reach); the exporter answers.
-    var offerer_resident = try webrtc.Resident.init();
+    var offerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer offerer_resident.deinit();
-    var answerer_resident = try webrtc.Resident.init();
+    var answerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer answerer_resident.deinit();
     var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();

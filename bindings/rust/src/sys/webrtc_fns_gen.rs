@@ -17,7 +17,10 @@ use super::webrtc::{PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReady
 
 extern "C" {
 	pub fn pancake_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_webrtc_netlayer_new(out_netlayer: *mut *mut PancakeWebrtcNetlayer) -> c_int;
+	pub fn pancake_webrtc_netlayer_new(
+		config: *const PancakeWebrtcConfig,
+		out_netlayer: *mut *mut PancakeWebrtcNetlayer,
+	) -> c_int;
 	pub fn pancake_webrtc_netlayer_readiness_fd(netlayer: *mut PancakeWebrtcNetlayer) -> c_int;
 	pub fn pancake_webrtc_netlayer_drain_ready(
 		netlayer: *mut PancakeWebrtcNetlayer,

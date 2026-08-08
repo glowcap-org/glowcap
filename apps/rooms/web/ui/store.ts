@@ -219,10 +219,10 @@ function makeConv(type: "room" | "dm", id: string): Conv {
 	const key = type === "room" ? roomKey(id) : "dm:" + introductions;
 	const base = { id, key, history: [], unread: { kind: "caught-up" } as Unread };
 	// Build only the fields the kind owns, so the union stays honest: a room gets
-	// its member/typing sets, a direct line gets its standing, neither the other's.
+	// its member set, a direct line gets its standing, and both get typing.
 	const conv: Conv = type === "room"
 		? { ...base, type, members: new Map(), typers: new Set() }
-		: { ...base, type, line: "introducing" };
+		: { ...base, type, line: "introducing", typers: new Set() };
 	put(conv);
 	return conv;
 }
@@ -409,7 +409,7 @@ export function clearMembers(key: string): void {
 
 export function setTyper(key: string, who: string, typing: boolean): void {
 	const conv = getConv(key);
-	if (conv?.type !== "room" || conv.typers.has(who) === typing) return;
+	if (conv == null || conv.typers.has(who) === typing) return;
 	const typers = new Set(conv.typers);
 	if (typing) typers.add(who);
 	else typers.delete(who);

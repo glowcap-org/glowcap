@@ -41,26 +41,29 @@ const P = "pointer",
 export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	// Lifecycle. `outBuffers` marks the buffer params the callee writes, so
 	// the wasm adapter copies back only true outputs (dlopen ignores it).
-	pancake_host_new: { parameters: [B, U, U, "u32", "u32", "u32", B], result: I, outBuffers: [6] },
-	pancake_host_new_in: {
-		parameters: [P, B, U, U, "u32", "u32", "u32", B],
+	pancake_host_new: {
+		parameters: [B, U, U, "u32", "u32", "u32", "u32", "u32", B],
 		result: I,
-		outBuffers: [7],
+		outBuffers: [8],
+	},
+	pancake_host_new_in: {
+		parameters: [P, B, U, U, "u32", "u32", "u32", "u32", "u32", B],
+		result: I,
+		outBuffers: [9],
 	},
 	pancake_host_release: { parameters: [P], result: I },
 	pancake_host_designator_from_seed: { parameters: [B, U, B, U], result: I, outBuffers: [2] },
 	pancake_host_set_self_designator: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_set_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_ensure_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_remove_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
 	pancake_host_set_session_limits: { parameters: [P, U, U], result: I },
 	pancake_host_session_open_dialed_locator: {
 		parameters: [P, B, U, B, U, B],
 		result: I,
 		outBuffers: [5],
 	},
-	pancake_host_session_open_accepted: {
-		parameters: [P, B, U, B, U, B, U, B],
-		result: I,
-		outBuffers: [7],
-	},
+	pancake_host_session_open_accepted: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	// Resolve a dial to a PancakeDialPlan (grammar + hint + iroh posture); a free function.
 	pancake_host_plan_dial: {
 		parameters: [B, U, B, U, B, U, "u32", "u32", B],
@@ -72,6 +75,7 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	pancake_host_plan_accept: { parameters: [B, U, B, U, B, U, B], result: I, outBuffers: [6] },
 	pancake_host_session_release: { parameters: [P], result: I },
 	pancake_host_session_is_open: { parameters: [P], result: I },
+	pancake_host_session_trace_id: { parameters: [P, B], result: I, outBuffers: [1] },
 	// The byte pump and action queue. The fed chunk (index 1) is input-only:
 	// the annotation is what keeps the wasm boundary at one copy-in per feed
 	// with no full-chunk copy-back.
@@ -97,6 +101,11 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	pancake_host_session_fetch: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_host_session_enliven: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_host_enliven: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	// Live trace: the host reports session opens, message verbs, and closes
+	// through one callback (null clears), or into a ring the embedder drains.
+	pancake_host_set_trace: { parameters: [P, P, P], result: I },
+	pancake_host_set_trace_queue: { parameters: [P, U, U], result: I },
+	pancake_host_next_trace: { parameters: [P, B], result: I, outBuffers: [1] },
 	// Off-turn settlement: a behavior defers its answer onto a resolver vow
 	// and the work's completion settles it later, top-level.
 	pancake_host_spawn_resolver: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
@@ -128,5 +137,10 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	},
 	pancake_host_session_last_abort: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_session_partner_identity: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_host_session_bind_verified_channel_key: {
+		parameters: [P, B, U],
+		result: I,
+		outBuffers: [],
+	},
 	pancake_host_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 });

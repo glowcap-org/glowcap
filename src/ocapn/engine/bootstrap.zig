@@ -183,7 +183,9 @@ const GiftEntry = struct {
 
 /// One CapTP session's gift and handoff-count authority. Deposits made on this
 /// session live in `gifts`; receives arriving on this session use the accepted
-/// count; gives redeemed through this session use the emitted count.
+/// count; standalone and next-profile gives redeemed through this session use
+/// the emitted count. Node-composed V1 redemption supplies its compatibility
+/// cursor without moving receive-side authority here.
 /// Cross-session withdrawal reaches the gifter's
 /// registry only through a live `GifterSessionResolver` result.
 ///
@@ -623,6 +625,7 @@ pub fn resolveForDeposit(
     scope: ?PeerId,
     request: DepositRequest,
 ) !?model.Message {
+    try session.validateHandoffGiftId(request.gift_id);
     const gifted = try request.gifted.toOwned(session.allocator);
     var transferred = false;
     errdefer if (!transferred) model.freeReference(session.allocator, gifted);
@@ -827,6 +830,9 @@ pub fn resolveForWithdraw(
     request: WithdrawRequest,
 ) !WithdrawOutcome {
     const borrowed_receive = request.receive;
+    session.validateHandoffGiftId(borrowed_receive.signed_give.gift_id) catch {
+        return .{ .settled = try preparedBreak(allocator, request.answer, "handoff gift id has invalid width") };
+    };
     const gifter_session = liveGifterSession(gifter_session_resolver, borrowed_receive.signed_give) orelse
         return .{ .settled = try preparedBreak(allocator, request.answer, "gifter session is not open") };
     // Derive the receiver identity this withdraw is checked against from *this*

@@ -202,14 +202,19 @@ try {
 
 	// The directory answers the new session too: the page cleared what the old
 	// one told it, so a room in this list is one the new session reported.
-	const listed = await tab.evaluate(() =>
-		[...document.querySelectorAll("#roomList .rname")].some((r) =>
-			r.textContent?.includes("workshop")
-		)
+	// The room echo and the directory watcher update are separate eventual
+	// messages. Neither orders the other, so observe the promised state rather
+	// than sampling it immediately after the echo happens to arrive.
+	await tab.waitForFunction(
+		() =>
+			[...document.querySelectorAll("#roomList .rname")].some((r) =>
+				r.textContent?.includes("workshop")
+			),
+		undefined,
+		{ timeout: 30_000 },
+	).catch(() =>
+		fail("the room list stayed empty after reconnecting, so the directory never replayed")
 	);
-	if (!listed) {
-		fail("the room list stayed empty after reconnecting, so the directory never replayed");
-	}
 
 	console.log(
 		"PASS: the rooms page survived losing its room server — it noticed and closed the " +

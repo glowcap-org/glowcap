@@ -13,6 +13,7 @@
 // accumulated meanwhile.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { handOffNow } from "./boot.ts";
 
 interface Props {
 	/** What this boundary protects, in words a reader would use. */
@@ -37,6 +38,11 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 			failed,
 			info.componentStack,
 		);
+		// The card below is for a reader, so it has to be one a reader can see.
+		// On a load where the peer has not answered yet, the opening screen is
+		// still over the page, and it would sit on top of that card waiting for a
+		// session that may never open.
+		handOffNow();
 	}
 
 	override render() {

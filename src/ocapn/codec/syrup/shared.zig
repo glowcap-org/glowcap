@@ -5,8 +5,8 @@
 //! Proto. It carries the same `model.Message` tree as length-prefixed records
 //! (`<...>`), lists (`[...]`), symbols, strings, and integers. The encode half
 //! lives in `encode` (`encodeMessage` and the `write*` primitives beneath it)
-//! and the decode half lives in `decode` (`decodeBody`, `decodePrefix`, which
-//! doubles as the stream framer per ADR-0029, and `decodeOwned`, which is
+//! and the decode half lives in `decode` (`decodeBody`, profile-aware
+//! `decodePrefix`, structural `framePrefix`, and `decodeOwned`, which is
 //! `decodeBody` followed by `model.view.Body.toOwned`). Both halves come out
 //! through the `syrup` barrel in `mod.zig`, and `codec.capnp` is the
 //! word-aligned counterpart with the same decode/encode/shared split.
@@ -28,8 +28,8 @@ const model = @import("model");
 /// exhaustive over the message tag, so a new `model.Message` kind fails to
 /// compile here until it is named, and the decoder (which builds its dispatch
 /// over the same tag set) gains the entry in the same breath. `op:gc-exports`
-/// and `desc:sig-envelope` are the two symbols that are not a mechanical
-/// transform of the kind name, which is exactly why the mapping is explicit.
+/// is not a mechanical transform of the kind name, which is exactly why the
+/// mapping is explicit.
 pub fn messageOp(comptime kind: std.meta.Tag(model.Message)) []const u8 {
     return switch (kind) {
         .abort => "op:abort",
@@ -42,7 +42,6 @@ pub fn messageOp(comptime kind: std.meta.Tag(model.Message)) []const u8 {
         .untag => "op:untag",
         .listen => "op:listen",
         .start_session => "op:start-session",
-        .handoff => "desc:sig-envelope",
     };
 }
 

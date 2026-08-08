@@ -312,8 +312,8 @@ fn handoffGiveOne(_: void, smith: *std.testing.Smith) anyerror!void {
 }
 
 test "fuzz: handoff give decode and span stay inside the bytes they were given" {
-    const give = seed(@embedFile("../oracle/corpus/op_handoff_give.bin"));
-    const receive = seed(@embedFile("../oracle/corpus/op_handoff_receive.bin"));
+    const give = seed(@embedFile("../oracle/corpus/desc_handoff_give_signed.bin"));
+    const receive = seed(@embedFile("../oracle/corpus/desc_handoff_receive_signed.bin"));
     // Plus the regressions, for the reason the target above gives.
     try std.testing.fuzz({}, handoffGiveOne, .{ .corpus = ([_][]const u8{ give, receive } ++ regression_seeds)[0..] });
 }

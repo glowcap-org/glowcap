@@ -23,7 +23,6 @@ extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv
 extern "c" fn close(fd: c_int) c_int;
 extern "c" fn send(fd: c_int, buf: [*]const u8, len: usize, flags: c_int) isize;
 extern "c" fn recv(fd: c_int, buf: [*]u8, len: usize, flags: c_int) isize;
-extern "c" fn fcntl(fd: c_int, cmd: c_int, arg: c_int) c_int;
 
 pub const WakeChannel = struct {
     /// The half the owning thread waits on: readable while nudges are
@@ -86,10 +85,10 @@ pub const WakeChannel = struct {
 
 fn setNonblockingC(fd: c_int) bool {
     const c = std.c;
-    const flags = fcntl(fd, @intFromEnum(c.F.GETFL), 0);
+    const flags = c.fcntl(fd, c.F.GETFL, @as(c_int, 0));
     if (flags < 0) return false;
     const nonblock: c_int = @bitCast(c.O{ .NONBLOCK = true });
-    return fcntl(fd, @intFromEnum(c.F.SETFL), flags | nonblock) >= 0;
+    return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
 }
 
 fn closeFd(fd: i32) void {

@@ -32,6 +32,36 @@ const no_dial = @import("../support/no_dial_locator.zig");
 const frame_cap = 4096;
 const client_count = 8;
 
+test "completion backend: a wake-channel nudge completes an armed recv" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var backend = try pancake.net.Backend.init(allocator, 8, 2, frame_cap);
+    defer backend.deinit();
+    const wake = try pancake.net.wake_channel.WakeChannel.open();
+    defer wake.deinit();
+    const nonblock: c_int = @bitCast(std.c.O{ .NONBLOCK = true });
+    for ([_]i32{ wake.read, wake.write }) |fd| {
+        const flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
+        try std.testing.expect(flags >= 0);
+        try std.testing.expect(flags & nonblock != 0);
+    }
+
+    const wake_user_data = 0xa11ce;
+    try backend.submitRecv(wake_user_data, wake.read);
+    wake.nudge();
+
+    var completions: [1]completion.Completion = undefined;
+    const count = try backend.poll(&completions, 1_000);
+    try std.testing.expectEqual(@as(usize, 1), count);
+    const received = completions[0];
+    try std.testing.expectEqual(@as(u64, wake_user_data), received.user_data);
+    try std.testing.expect(received.result > 0);
+    try std.testing.expect(!received.recv_no_buffer);
+    try std.testing.expectEqual(@as(usize, 1), received.recv_bytes.?.len);
+    backend.recycleRecv(received);
+}
+
 fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(tcp.transport_name, designator);
 }
@@ -539,7 +569,7 @@ const FakeBackend = struct {
         }
     }
 
-    pub fn remotePartnerKey(self: *FakeBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *FakeBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -580,13 +610,25 @@ const FakeBackend = struct {
     }
 };
 
-/// Encode `peer`'s queued sends and append their frame bytes to `sink`.
+/// Encode `peer`'s queued sends and append their bare frame bytes to `sink`.
+/// This is the intrinsic message-framed path used to prepare a peer directly.
 fn drainOutboundBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *std.ArrayList(u8)) !void {
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
         try sink.appendSlice(allocator, frame.bytes());
+    }
+}
+
+/// Encode `peer`'s queued sends at the byte-stream boundary, where every bare
+/// codec frame is carried inside one outer Syrup byte string.
+fn drainOutboundStreamBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *std.ArrayList(u8)) !void {
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        defer frame.deinit();
+        _ = try pancake.net.appendFrameBytes(sink, allocator, frame.bytes());
     }
 }
 
@@ -685,7 +727,7 @@ const OneBadPartnerBackend = struct {
         }
     }
 
-    pub fn remotePartnerKey(self: *OneBadPartnerBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *OneBadPartnerBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -736,7 +778,7 @@ test "completion loop: a per-connection drive failure closes that connection, no
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
@@ -750,7 +792,7 @@ test "completion loop: a per-connection drive failure closes that connection, no
     defer fetch_bytes.deinit(allocator);
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
     try client.send(prepared.message);
-    try drainOutboundBytes(&client, allocator, &fetch_bytes);
+    try drainOutboundStreamBytes(&client, allocator, &fetch_bytes);
 
     OneBadPartnerBackend.chunks = &.{ client_ss.items, fetch_bytes.items };
     defer OneBadPartnerBackend.chunks = &.{};
@@ -791,7 +833,7 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     // Open the client's session against the same start-session the loop's
     // server peer sends, so the fetch it prepares is admissible.
@@ -807,7 +849,7 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     defer fetch_bytes.deinit(allocator);
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
     try client.send(prepared.message);
-    try drainOutboundBytes(&client, allocator, &fetch_bytes);
+    try drainOutboundStreamBytes(&client, allocator, &fetch_bytes);
 
     // The mark sits far below one frame, so both the handshake reply and the
     // fetch reply must park the read, observable from the very first write.
@@ -953,7 +995,7 @@ const ScriptBackend = struct {
         }
     }
 
-    pub fn remotePartnerKey(self: *ScriptBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *ScriptBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -1002,7 +1044,7 @@ fn buildClientScript(
     client.session_state.limits.max_frame_bytes = frame_cap;
 
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, client_ss);
+    try drainOutboundStreamBytes(&client, allocator, client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
@@ -1014,7 +1056,7 @@ fn buildClientScript(
 
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
     try client.send(prepared.message);
-    try drainOutboundBytes(&client, allocator, fetch_bytes);
+    try drainOutboundStreamBytes(&client, allocator, fetch_bytes);
 }
 
 test "completion loop: a pool of one serves two starved connections, a starved read resumes on recycle, never drops" {
@@ -1200,7 +1242,7 @@ const HeldSendBackend = struct {
         }
     }
 
-    pub fn remotePartnerKey(self: *HeldSendBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *HeldSendBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -1262,7 +1304,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
@@ -1278,7 +1320,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     for (&fetch_frames) |*f| {
         const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
         try client.send(prepared.message);
-        try drainOutboundBytes(&client, allocator, f);
+        try drainOutboundStreamBytes(&client, allocator, f);
     }
 
     HeldSendBackend.chunks = &.{
@@ -1364,7 +1406,7 @@ fn buildBigDeliverScript(
     client.session_state.limits.max_frame_bytes = big_frame_max;
 
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, client_ss);
+    try drainOutboundStreamBytes(&client, allocator, client_ss);
 
     var server_twin = try makeBigFramePeer(null, allocator);
     defer server_twin.deinit();
@@ -1381,7 +1423,7 @@ fn buildBigDeliverScript(
     @memset(big_swiss, 'x');
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, big_swiss);
     try client.send(prepared.message);
-    try drainOutboundBytes(&client, allocator, big_deliver);
+    try drainOutboundStreamBytes(&client, allocator, big_deliver);
 }
 
 test "completion loop: an incomplete prefix over frame_cap but under the peer's max_frame_bytes is not aborted" {
@@ -1487,7 +1529,7 @@ const DeadPeerBackend = struct {
         // The vanish surfaces: a read error, not a clean EOF (result 0).
         self.push(.{ .user_data = user_data, .result = read_error });
     }
-    pub fn remotePartnerKey(self: *DeadPeerBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *DeadPeerBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -1715,7 +1757,7 @@ const FanInBackend = struct {
         }
     }
 
-    pub fn remotePartnerKey(self: *FanInBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *FanInBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -1776,7 +1818,7 @@ test "completion loop: fan_in_throttle parks a drained source while a sink is ov
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
@@ -2003,7 +2045,7 @@ test "completion loop: a condemned sink releases the fan-in sources it throttled
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();

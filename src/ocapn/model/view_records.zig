@@ -30,12 +30,19 @@ pub const HintList = struct {
     w0: u64 = 0,
     w1: u64 = 0,
     w2: u64 = 0,
-    materialize: *const fn (std.mem.Allocator, HintList, model.Hints.WireForm) Error!model.Hints,
-    /// Borrowed find-by-name: the named entry's value borrowing the frame, or
-    /// null when absent. Allocation-free by contract — the handshake's
-    /// attestation lookup runs at the pre-open chokepoint and must not
-    /// materialize the dict (ADR-0097's cost posture).
-    find: *const fn (HintList, name: []const u8) Error!?model.HintValue,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        materialize: *const fn (std.mem.Allocator, HintList, model.Hints.WireForm) Error!model.Hints,
+        /// Validate dictionary key uniqueness without materializing entries.
+        /// The session runs this on the borrowed start-session path before
+        /// lookup can turn a duplicate into "first match wins" authority.
+        validate_unique_names: *const fn (HintList) ProjectError!void,
+        /// Borrowed find-by-name: the named entry's value borrowing the frame,
+        /// or null when absent. Allocation-free by contract so callers need not
+        /// materialize the dict.
+        find: *const fn (HintList, name: []const u8) Error!?model.HintValue,
+    };
 };
 
 /// Borrowed hint shape: exactly one arm — empty spelling, projected entries, or
@@ -60,7 +67,7 @@ pub const BorrowedHints = union(enum) {
         return switch (self) {
             .empty => |wf| .{ .wire_form = wf },
             .projected => |h| try model.cloneHints(allocator, h),
-            .lazy => |l| try l.list.materialize(allocator, l.list, l.wire_form),
+            .lazy => |l| try l.list.vtable.materialize(allocator, l.list, l.wire_form),
         };
     }
 
@@ -76,7 +83,21 @@ pub const BorrowedHints = union(enum) {
                 }
                 return null;
             },
-            .lazy => |l| return l.list.find(l.list, name),
+            .lazy => |l| return l.list.vtable.find(l.list, name),
+        }
+    }
+
+    pub fn validateUniqueNames(self: BorrowedHints) ProjectError!void {
+        switch (self) {
+            .empty => {},
+            .projected => |h| {
+                for (h.entries, 0..) |entry, i| {
+                    for (h.entries[0..i]) |seen| {
+                        if (std.mem.eql(u8, seen.name, entry.name)) return error.MalformedView;
+                    }
+                }
+            },
+            .lazy => |l| try l.list.vtable.validate_unique_names(l.list),
         }
     }
 
@@ -267,7 +288,15 @@ pub const Handoff = union(enum) {
 };
 
 pub const StartSession = struct {
-    captp_version: model.CaptpVersion,
+    /// The version the partner named, or null when it named one this build
+    /// does not know. Optional because a codec's job is to say what the bytes
+    /// contain, not whether pancake likes it: an unrecognised token is a
+    /// perfectly well-formed frame naming a version we do not speak, and
+    /// calling that a malformed frame both lies to the operator and puts the
+    /// decision in two decoders instead of the one validator that owns it.
+    /// The owned send-side type stays non-optional — outbound, the version is
+    /// ours to choose.
+    captp_version: ?model.CaptpVersion,
     session_pubkey: []const u8,
     acceptable_location: PeerLocator,
     acceptable_location_sig: Signature,

@@ -16,6 +16,20 @@ use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
 use crate::{sys, AbortDomain, AbortInfo, Error, Result};
 
+fn stream_prefix(buf: &mut [u8; 32], mut length: usize) -> &[u8] {
+	let mut start = buf.len();
+	start -= 1;
+	buf[start] = b':';
+	loop {
+		start -= 1;
+		buf[start] = b'0' + (length % 10) as u8;
+		length /= 10;
+		if length == 0 {
+			return &buf[start..];
+		}
+	}
+}
+
 /// Drive a freshly opened connection's keyed handshake to an open session.
 /// The signed `op:start-session` was encoded by the open; its FLUSH is on the
 /// action queue, so the drain puts it on the wire first. The core stops
@@ -196,8 +210,9 @@ fn last_abort(shared: &SessionShared) -> Option<AbortInfo> {
 }
 
 /// Drain every encoded outbound frame on this CapTP session and write it to
-/// the transport, which is how a FLUSH action lands. The managed frame is held
-/// across the awaited write and released after it, so no frame is copied.
+/// the byte-stream transport, which is how a FLUSH action lands. The managed
+/// frame is held across both writes and released after them, so the canonical
+/// Syrup byte-string prefix uses stack storage and the frame is not copied.
 ///
 /// Writes serialize on the write half's lock, which keeps them in submission
 /// order. It does not make one write atomic: `write_all` is not
@@ -229,6 +244,10 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		// If this future is dropped between here and the line below, some of
 		// the frame is already gone and the rest never will be.
 		let in_flight = TornOnDrop { shared };
+		let mut prefix_buf = [0u8; 32];
+		sink.write_all(stream_prefix(&mut prefix_buf, frame.bytes().len()))
+			.await
+			.map_err(io_err)?;
 		sink.write_all(frame.bytes()).await.map_err(io_err)?;
 		in_flight.finished();
 	}

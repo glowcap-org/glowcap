@@ -1,6 +1,6 @@
 ---
 description: "Doc-drift discipline for Zig pancake: living-state claims must describe current code or be removed."
-globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, .cursor/*.json, .claude/*.json, .mcp.json, .serena/*.yml
+globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, .cursor/*.json, .claude/*.json, .codex/*.md, .mcp.json, .serena/*.yml
 ---
 
 # pancake — Doc Drift Prevention
@@ -26,6 +26,7 @@ change as the state they describe:
 - `PROVENANCE.md`
 - `docs/vision.md`
 - `docs/architecture.md`
+- `docs/build-steps.md`
 - `docs/ladder.md`
 - `docs/roadmap.md`
 - `docs/upstream-watch.md`
@@ -49,6 +50,7 @@ change as the state they describe:
 - `bindings/proofs/README.md`
 - `examples/README.md`
 - `apps/README.md`
+- `apps/ocapnviz/README.md`
 - `apps/rooms/README.md`
 - `apps/rooms/developing.md`
 - `apps/rooms/web/deploy/README.md`
@@ -72,6 +74,7 @@ change as the state they describe:
 - `.agents/**`
 - `.cursor/README.md`, `.cursor/*.json`, and `.cursor/rules/*.mdc`
 - `.claude/README.md`, `.claude/*.json`, and `.claude/rules`
+- `.codex/README.md`
 - `.mcp.json` and `.serena/project.yml`
 - test names that encode API contracts
 
@@ -122,4 +125,7 @@ surface; do not let old plan language masquerade as current architecture.
   prose: grep the old name across the tree before calling the rename done.
 - A Zig doc comment naming `Type.method` is a claim `zig build meta-check`
   checks (`checkZigDocSymbolClaims`): the method must be declared under `src/`.
-  Fix the name or delete the claim; do not weaken the check.
+  The memory rule's ledger is held the same way and a little wider
+  (`checkMemoryLedgerSymbolClaims`), because each entry there points at the
+  declaration that owns a cost instead of restating its derivation. Fix the name
+  or delete the claim; do not weaken either check.

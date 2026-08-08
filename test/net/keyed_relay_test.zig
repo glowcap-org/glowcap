@@ -127,37 +127,6 @@ fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(keyed_relay.transport_name, designator);
 }
 
-/// The in-process relay: accept the registration leg, ping it (the parked
-/// listener must answer in place), then accept the rendezvous leg, check both
-/// name the same identity, and bridge until the session ends.
-fn relayOnce(io: Io, server: *ip.Server, allocator: std.mem.Allocator) !void {
-    var reg: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
-    reg.wire();
-    defer reg.close();
-    try ws_relay.serveUpgrade(&reg);
-    try std.testing.expect(std.mem.startsWith(u8, reg.target, "/register?id="));
-    const reg_id = reg.target["/register?id=".len..];
-
-    // Ping the parked registration; the listener's wait loop must pong.
-    try ws_relay.writeServerFrame(&reg, .ping, "hb");
-    var pong_buf: [16]u8 = undefined;
-    const pong = try ws_relay.readClientFrame(&reg, &pong_buf);
-    try std.testing.expectEqual(keyed_relay.Opcode.pong, pong.opcode);
-    try std.testing.expectEqualStrings("hb", pong.payload);
-
-    var dial: ws_relay.Leg = .{ .stream = try server.accept(io), .io = io };
-    dial.wire();
-    defer dial.close();
-    try ws_relay.serveUpgrade(&dial);
-    try std.testing.expect(std.mem.startsWith(u8, dial.target, "/relay?rendezvous="));
-    try std.testing.expectEqualStrings(reg_id, dial.target["/relay?rendezvous=".len..]);
-
-    var to_reg = try io.concurrent(ws_relay.bridgeDirection, .{ &dial, &reg, allocator });
-    var to_dial = try io.concurrent(ws_relay.bridgeDirection, .{ &reg, &dial, allocator });
-    to_reg.await(io) catch {};
-    to_dial.await(io) catch {};
-}
-
 /// The registered peer: wait through the relay's ping on an already-live
 /// registration, accept the bridged session, and serve the bootstrap fetch.
 /// The `listen` (which registers) runs on the test fiber before this spawns,
@@ -220,7 +189,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     };
     var dialer = try keyed_relay.Resident.init(io, relay_url);
 
-    var relay_future = try io.concurrent(relayOnce, .{ io, &server, allocator });
+    var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &server, allocator });
 
     // Register on this fiber before anything dials: `listen` returns only once
     // the relay has upgraded the registration, so the rendezvous leg below can

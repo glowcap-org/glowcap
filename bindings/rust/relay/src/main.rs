@@ -38,6 +38,26 @@ use tokio_tungstenite::WebSocketStream;
 
 const READ_CHUNK: usize = 1 << 16; // 64 KiB
 
+/// The per-connection WebSocket buffers, named rather than inherited.
+///
+/// tungstenite 0.25 gave `read_buffer_size` a 128 KiB default and its changelog
+/// warns that this costs memory "particularly for users expecting a high number
+/// of connections", which is exactly what a relay is: `zig build relay-scaling`
+/// exists to hold thousands at once and extrapolate a host's RAM ceiling. The
+/// write buffer has defaulted to 128 KiB since 0.20 and is named here for the
+/// same reason, so the whole per-connection cost is visible in one place.
+///
+/// 16 KiB per direction matches `steady_outbound_bytes`, the per-connection
+/// steady figure the Zig side already budgets against, so the relay and the
+/// sessions it carries answer to one number.
+const WS_BUFFER_BYTES: usize = 16 * 1024;
+
+fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+	tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+		.read_buffer_size(WS_BUFFER_BYTES)
+		.write_buffer_size(WS_BUFFER_BYTES)
+}
+
 // The two bounded-resources knobs ADR-0086's contract names, matching the
 // @pancake/relay gold standard. The idle timeout reclaims a stalled pair; the
 // per-session byte total is a runaway backstop over the session's life, not a
@@ -89,10 +109,13 @@ async fn handle(stream: TcpStream) {
 		}
 		Ok(resp)
 	};
-	let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
-		Ok(ws) => ws,
-		Err(_) => return,
-	};
+	let ws =
+		match tokio_tungstenite::accept_hdr_async_with_config(stream, callback, Some(ws_config()))
+			.await
+		{
+			Ok(ws) => ws,
+			Err(_) => return,
+		};
 	let (target_to, target_locator) = parsed.lock().unwrap().clone();
 
 	if let Some(locator) = target_locator {
@@ -151,7 +174,9 @@ where
 		while let Some(Ok(msg)) = ws_read.next().await {
 			let bytes = match msg {
 				Message::Binary(b) => b,
-				Message::Text(t) => t.into_bytes(),
+				// tokio-tungstenite 0.30 carries text as `Utf8Bytes`, which shares the
+				// frame's `Bytes` buffer, so this conversion copies nothing.
+				Message::Text(t) => t.into(),
 				Message::Close(_) => break,
 				_ => continue,
 			};
@@ -220,7 +245,7 @@ where
 
 #[cfg(feature = "iroh")]
 async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
-	use pancake_rust_dogfood::iroh::IrohNetlayer;
+	use pancake_rust_dogfood::iroh::{IrohConfig, IrohNetlayer};
 	use pancake_rust_dogfood::{parse_locator, Reachability};
 
 	let loc = match parse_locator(locator) {
@@ -241,7 +266,7 @@ async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
 		.get("direct-addresses")
 		.cloned()
 		.unwrap_or_default();
-	let netlayer = match IrohNetlayer::new(Reachability::Direct) {
+	let netlayer = match IrohNetlayer::new(IrohConfig::new(Reachability::Direct)) {
 		Ok(netlayer) => netlayer,
 		Err(e) => {
 			eprintln!("relay: iroh netlayer: {e}");
@@ -307,10 +332,7 @@ mod tests {
 
 	#[test]
 	fn percent_decode_decodes_what_encode_uri_component_produces() {
-		assert_eq!(
-			percent_decode("ocapn%3A%2F%2Fabc.iroh"),
-			"ocapn://abc.iroh"
-		);
+		assert_eq!(percent_decode("ocapn%3A%2F%2Fabc.iroh"), "ocapn://abc.iroh");
 		assert_eq!(percent_decode("plain"), "plain");
 	}
 }

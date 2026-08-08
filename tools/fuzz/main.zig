@@ -103,7 +103,11 @@ pub fn main(init: std.process.Init) !void {
 
         const filter = try std.fmt.allocPrint(arena, "-Dtest-filter={s}", .{target.name});
         var child = try std.process.spawn(io, .{
-            .argv = &.{ zig_exe, "build", "fuzz-run", fuzz_flag, filter },
+            // Fuzzing needs safety, not Debug's per-operation overhead. This
+            // target repeatedly builds complete hosts under a leak-checking
+            // allocator; ReleaseSafe preserves those checks while making the
+            // finite mutation budget practical.
+            .argv = &.{ zig_exe, "build", "fuzz-run", "-Doptimize=ReleaseSafe", fuzz_flag, filter },
         });
         const term = try child.wait(io);
 

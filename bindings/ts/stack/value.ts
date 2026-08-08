@@ -8,8 +8,16 @@
 // package-internal.
 
 import {
+	CAPTP_NEXT,
+	CAPTP_V1_0,
 	CODEC_CAPNP,
 	CODEC_SYRUP,
+	FEATURE_FULL,
+	FEATURE_HANDOFF,
+	FEATURE_MINIMUM,
+	FEATURE_PIPELINING,
+	FEATURE_STURDYREF,
+	FEATURE_WIRE_DELTA,
 	IROH_REACH_DIRECT,
 	IROH_REACH_DISCOVERY,
 	IROH_REACH_DISCOVERY_NO_RELAY,
@@ -56,12 +64,79 @@ export type Argument =
 	| Tagged;
 
 /** The wire grammar a CapTP session speaks: OCapN Syrup (the default) or
- * Cap'n Proto. Both ends of a session must carry the same value; a `Host`
- * remembers its codec so every session it mints negotiates in it. */
+ * Cap'n Proto. A `Host` advertises its preference in signed locator hints and
+ * the session settles the pair with its partner. */
 export type Codec = "syrup" | "capnp";
 
+/** The CapTP profile a session speaks (ADR-0003): `v1_0` is the interop floor
+ * a Goblins vat and the upstream suite speak, `next` the pancake-to-pancake
+ * track that `Offer.native` prefers together with Cap'n Proto. A `Host`
+ * advertises its preference in signed locator hints and the session settles
+ * the pair with its partner. */
+export type CaptpVersion = "v1_0" | "next";
+
+export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref";
+export type FeatureSet = "full" | "minimum" | number | readonly FeatureName[];
+
+const MAX_U32 = 0xffff_ffff;
+
 export function codecId(codec: Codec): number {
-	return codec === "capnp" ? CODEC_CAPNP : CODEC_SYRUP;
+	switch (codec) {
+		case "syrup":
+			return CODEC_SYRUP;
+		case "capnp":
+			return CODEC_CAPNP;
+		default:
+			throw new TypeError(`unknown OCapN codec ${String(codec)}`);
+	}
+}
+
+export function captpVersionId(version: CaptpVersion): number {
+	switch (version) {
+		case "v1_0":
+			return CAPTP_V1_0;
+		case "next":
+			return CAPTP_NEXT;
+		default:
+			throw new TypeError(`unknown CapTP version ${String(version)}`);
+	}
+}
+
+export function featureMask(features: FeatureSet): number {
+	if (features === "full") return FEATURE_FULL;
+	if (features === "minimum") return FEATURE_MINIMUM;
+	if (typeof features === "number") {
+		const mask = features >>> 0;
+		if (
+			!Number.isInteger(features) ||
+			features < 0 ||
+			features > MAX_U32 ||
+			(mask & ~(FEATURE_FULL >>> 0)) != 0
+		) {
+			throw new TypeError(`unknown OCapN feature mask ${String(features)}`);
+		}
+		return features;
+	}
+	let mask = 0;
+	for (const feature of features) {
+		switch (feature) {
+			case "pipelining":
+				mask |= FEATURE_PIPELINING;
+				break;
+			case "handoff":
+				mask |= FEATURE_HANDOFF;
+				break;
+			case "wire_delta":
+				mask |= FEATURE_WIRE_DELTA;
+				break;
+			case "sturdyref":
+				mask |= FEATURE_STURDYREF;
+				break;
+			default:
+				throw new TypeError(`unknown OCapN feature ${String(feature)}`);
+		}
+	}
+	return mask;
 }
 
 /** How an iroh endpoint becomes reachable, a required, explicit posture with no

@@ -4,7 +4,8 @@
 // `zig build demo-rooms-dm-iroh-discovery` (needs internet). The handoff
 // choreography is shared in `runDmHandoff`.
 
-import { formatPeerUri, Host } from "@pancake/stack";
+import { formatPeerUri } from "@pancake/stack";
+import { roomsHost } from "../lib/locator.ts";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { runDmHandoff } from "../lib/dm_handoff.ts";
 
@@ -19,14 +20,14 @@ runDmHandoff({
 		"the DM arrived on the inbox Bob minted for Carol, so it named no sender",
 	],
 	startMember(who) {
-		const host = new Host();
-		const member = listenIroh(Reachability.Discovery, undefined, host);
+		const host = roomsHost();
+		const member = listenIroh({ reachability: Reachability.Discovery }, undefined, host);
 		const locator = formatPeerUri("iroh", member.nodeId);
 		console.log(`rooms-dm-iroh-discovery: ${who} published ${locator} (id only)`);
 		return { host, sessions: member, locator, close: () => member.close() };
 	},
 	startRoom() {
-		const room = listenIroh(Reachability.Discovery, undefined, new Host());
+		const room = listenIroh({ reachability: Reachability.Discovery }, undefined, roomsHost());
 		const locator = formatPeerUri("iroh", room.nodeId);
 		console.log(`rooms-dm-iroh-discovery: Room published ${locator} (id only)`);
 		return { listener: room, locator, close: () => room.close() };

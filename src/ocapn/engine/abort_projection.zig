@@ -4,9 +4,10 @@
 //! session ruled it a protocol violation, the right thing to do is tell the
 //! partner with a typed `op:abort` rather than swallow a host error and leave
 //! the other side hanging. That's the fail-loud posture. This module is the
-//! pure mapping from a dispatch error to the abort shape and CapTP disposition
-//! (`close` vs stay `negotiating`); `engine.Peer` plugs it into both inbound
-//! entry points, `Peer.step` and `Peer.recvBorrowed`.
+//! pure mapping from a dispatch error to the abort shape; `engine.Peer` plugs
+//! it into both inbound
+//! entry points, `Peer.step` and `Peer.recvBorrowed`. Every projected abort is
+//! terminal: CapTP does not admit a corrected message after either side aborts.
 //!
 //! Session `Error` values don't carry a payload, so the abort's `message` is a
 //! fixed per-kind string, not something with an id in it. The part a well-behaved
@@ -14,22 +15,12 @@
 
 const model = @import("model");
 
-/// CapTP lifecycle after a successful outbound abort push (ADR-0083).
-pub const AbortDisposition = enum {
-    /// Handshake refusal: partner sees the abort; session stays negotiating.
-    keep_negotiating,
-    /// Tear the CapTP session down after the frame is on outbound.
-    close,
-};
-
 /// The outbound abort shape an inbound failure projects to.
 pub const InboundAbort = struct {
     /// Typed `op:abort` reason kind to emit on the wire.
     kind: model.AbortKind,
     /// Static diagnostic embedded in the outbound abort.
     message: []const u8,
-    /// CapTP disposition after a successful outbound push.
-    disposition: AbortDisposition,
 };
 
 /// The wire-meaning domain of a dispatch error — the codec-vs-session split a C
@@ -60,8 +51,8 @@ pub const Classification = struct {
     domain: Domain,
 };
 
-/// Classify a dispatch `err`. Handshake refusals keep negotiating; every other
-/// protocol violation closes after a successful outbound abort push.
+/// Classify a dispatch `err`. Every projected abort closes the session after a
+/// successful outbound push; if the push fails, the caller still closes.
 pub fn classify(err: anyerror) Classification {
     return switch (err) {
         // ── codec decode / projection failures to malformed_frame ─────
@@ -81,67 +72,48 @@ pub fn classify(err: anyerror) Classification {
         => .{ .domain = .codec, .abort = .{
             .kind = .malformed_frame,
             .message = "inbound frame failed to decode",
-            .disposition = .close,
         } },
         error.UnsupportedArgument, error.UnsupportedMessage, error.UnsupportedReference => .{
             .domain = .codec,
             .abort = .{
                 .kind = .protocol_error,
                 .message = "inbound frame carried an unsupported wire shape",
-                .disposition = .close,
             },
         },
-        // ── session: handshake refusals (non-closing) ────────────────
-        // Both are decided before the session reaches `open`, so they emit the
-        // abort without tearing down an open session.
+        // ── session: handshake refusals ───────────────────────────────
         error.CaptpVersionMismatch => .{ .domain = .session, .abort = .{
             .kind = .version_mismatch,
             .message = "op:start-session captp-version does not match this session's profile",
-            .disposition = .keep_negotiating,
         } },
         error.InvalidStartSessionSignature => .{ .domain = .session, .abort = .{
             .kind = .invalid_start_session_signature,
             .message = "op:start-session location signature failed to verify",
-            .disposition = .keep_negotiating,
         } },
         // The durable-identity claim check (ADR-0097): the hello claimed an
         // identity this session did not expect — a key-designator dial that
         // reached someone else, or a remote naming what it never proved.
-        // Handshake-time refusal, so the session never reached `open`.
+        // Handshake-time refusal: the session never reached `open`, but the
+        // abort is still terminal for this CapTP session.
         error.PartnerDesignatorMismatch => .{ .domain = .session, .abort = .{
             .kind = .invalid_start_session_signature,
             .message = "op:start-session claims a key designator this session did not expect",
-            .disposition = .keep_negotiating,
-        } },
-        error.PartnerAttestationMissing => .{ .domain = .session, .abort = .{
-            .kind = .invalid_start_session_signature,
-            .message = "op:start-session key-designator location carries no session-key-attestation hint",
-            .disposition = .keep_negotiating,
-        } },
-        error.PartnerAttestationInvalid => .{ .domain = .session, .abort = .{
-            .kind = .invalid_start_session_signature,
-            .message = "op:start-session session-key-attestation hint failed to verify",
-            .disposition = .keep_negotiating,
         } },
         error.QueueCapExceeded => .{ .domain = .session, .abort = .{
             .kind = .queue_cap_exceeded,
             .message = "pipelined-call queue cap exceeded on a pending answer",
-            .disposition = .close,
         } },
         error.HandoffReplay => .{ .domain = .session, .abort = .{
             .kind = .handoff_replay,
             .message = "handoff-receive replayed or out-of-order handoff-count",
-            .disposition = .close,
         } },
         // The receive's own names disagree with the ones derived from the
         // gifter-signed give and this node's session key, so it does not belong
-        // to the conversation it claims. Same disposition as a replay: the
+        // to the conversation it claims. Like a replay, the
         // partner is not speaking the protocol, and the counter it was reaching
         // for is not its own.
         error.InvalidHandoffSession => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "handoff-receive names the wrong receiving session or side",
-            .disposition = .close,
         } },
         // ── resource bounds to resource_exhausted (ADR-0025) ──────────
         // The session table caps plus the parse-stage nesting and stream
@@ -161,7 +133,6 @@ pub fn classify(err: anyerror) Classification {
         => .{ .domain = .session, .abort = .{
             .kind = .resource_exhausted,
             .message = "inbound message would push a session resource past its cap",
-            .disposition = .close,
         } },
         // ── generic partner protocol violations to protocol_error ─────
         error.DuplicateSetElement,
@@ -178,7 +149,6 @@ pub fn classify(err: anyerror) Classification {
         => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "inbound message violated the session state machine",
-            .disposition = .close,
         } },
         // A `field` pipeline step has no Syrup wire shape
         // (`pipeline.decomposeOutboundDeliver`). The deliver is refused at send
@@ -191,6 +161,10 @@ pub fn classify(err: anyerror) Classification {
         // durable namespace (ADR-0098). This is an API refusal on the send
         // side, never an inbound frame's fault, so no abort is emitted.
         error.ReservedDurableNamespace => .{ .domain = .session, .abort = null },
+        // Host configuration failures happen before an inbound frame is
+        // applied. They have no wire meaning and must never emit an abort.
+        error.MissingAdvertisedLocator,
+        => .{ .domain = .foreign, .abort = null },
         // Host-internal (OutOfMemory, …): no abort, no protocol meaning.
         else => .{ .domain = .foreign, .abort = null },
     };

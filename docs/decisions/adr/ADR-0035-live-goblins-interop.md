@@ -3,7 +3,7 @@ id: ADR-0035
 status: accepted
 date: 2026-06-06
 tags: [conformance, goblins, interop, netlayer, handshake]
-decision: "A native pancake peer holds a real OCapN conversation with a live Spritely Goblins vat over TCP, proven by `zig build goblins-interop`: keyed op:start-session (verify Goblins' Ed25519 signature), bootstrap fetch, deliver/resolve, arbitrary-precision integer round-trip, pipelined op:index / op:get, sturdyref enliven + dedup, inbound pipelined enliven-and-call, bootstrap miss→break with Goblins-readable ['break, reason-symbol], and the reverse listener bracket: a Goblins client enlivens and calls a pancake-hosted actor, subscribes with `listen` on a live pancake object export, and writes canonical op:get / op:index at pancake's responders. The TCP transport symbol is `tcp` to match Goblins' netlayer. Goblins version is whatever the devcontainer / host install provides (see pins.sh); the driver does not pin a version string at runtime."
+decision: "A native pancake peer holds a real OCapN conversation with a live Spritely Goblins vat over TCP, proven by `zig build goblins-interop`: keyed op:start-session (verify Goblins' Ed25519 signature), bootstrap fetch, deliver/resolve, arbitrary-precision integer round-trip, pipelined op:index / op:get, sturdyref enliven + dedup, inbound pipelined enliven-and-call, bootstrap miss→break with Goblins-readable ['break, reason-symbol], and the reverse listener bracket: a Goblins client enlivens and calls a pancake-hosted actor, subscribes with `listen` on a live pancake object export, and writes canonical op:get / op:index at pancake's responders, then observes resolver-callback fulfillments for both projected answers. The TCP transport symbol is `tcp` to match Goblins' netlayer. Goblins version is whatever the devcontainer / host install provides (see pins.sh); the driver does not pin a version string at runtime."
 supersedes: []
 superseded_by: []
 ---
@@ -57,7 +57,8 @@ an export-side `op:listen` where Goblins subscribes on a live pancake object
 export and hears the settlement
 ([`pancake-export-listen.rkt`](../../../conformance/goblins-peer/racket/pancake-export-listen.rkt)),
 and a projection asker that writes canonical `op:get` / `op:index` at
-pancake's ADR-0050 responders, arrival-asserted in the inbound answer table
+pancake's ADR-0050 responders, subscribes with `op:listen` on each projected
+answer, and observes pancake's resolver-callback fulfillments
 ([`pancake-projection-asker.rkt`](../../../conformance/goblins-peer/racket/pancake-projection-asker.rkt)).
 That is live proof of the actor layer against a non-pancake peer. The asker
 `op:index` / `op:get` legs of the client bracket exercise engine-synthesized
@@ -71,9 +72,10 @@ bignum round-trip, asker-side `op:index` / `op:get` (and the synthesized listen
 those projections imply), sturdyref enliven + dedup, inbound pipelined
 enliven-and-call, a published actor a Goblins client enlivens and calls,
 Goblins listening on a live pancake object export, and pancake accepting
-canonical `op:get` / `op:index` frames a Goblins netlayer wrote. It does not
-prove a Goblins client vow *settling* `op:get` / `op:index` against pancake,
-live `op:untag`, or Goblins over iroh. Sibling `zig build goblins-handoff`
+canonical `op:get` / `op:index` frames a Goblins netlayer wrote and answering
+them through the V1.0 resolver-callback form. It does not prove a public
+Goblins application API for outbound projections, live `op:untag`, or Goblins
+over iroh. Sibling `zig build goblins-handoff`
 proves recipient-side three-party handoff; `zig build goblins-gift` proves
 gifter-vs-Goblins (binding `*-goblins-gift` twins that path over the C ABI).
 Crossed hellos and wait-before-deposit stay with the upstream suite, not this

@@ -241,6 +241,10 @@ pub(crate) async fn dial_parsed_locator(
 				designator,
 				stream,
 				handshake_timeout,
+				// A caller-supplied byte channel: this layer did not open it and
+				// so has nothing to say about its far end. The iroh path, which
+				// did open its own, testifies there.
+				None,
 			)
 			.await
 		}
@@ -268,6 +272,9 @@ pub(crate) async fn dial_parsed_locator(
 					designator,
 					stream,
 					handshake_timeout,
+					// Through a relay the byte channel's far end is the relay,
+					// not the partner, and this layer proved neither.
+					None,
 				)
 				.await
 			}

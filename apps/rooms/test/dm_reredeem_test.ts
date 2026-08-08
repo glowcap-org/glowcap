@@ -17,13 +17,13 @@
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/test/dm_reredeem_test.ts
 
 import process from "node:process";
-import { formatPeerUri, Host, listen, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
+import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
 import { serveDirectory } from "../server/main.ts";
-import { dial, loopbackTcpDesignator } from "../lib/locator.ts";
+import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
-import { Directory, Room } from "../lib/room_client.ts";
+import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
 import { waitUntil } from "../lib/dm_handoff.ts";
 import { DM } from "../lib/protocol.ts";
 
@@ -41,12 +41,12 @@ async function main(): Promise<void> {
 	const bobInbox: string[] = [];
 	const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got: ${text}`);
 
-	const room = listen("127.0.0.1", 0);
+	const room = roomsListen("127.0.0.1", 0);
 	const roomLocator = loopbackTcpDesignator(await room.ready());
 	const roomServe = serveDirectory(room);
 
-	const bobHost = new Host();
-	const bob = listen("127.0.0.1", 0, bobHost);
+	const bobHost = roomsHost();
+	const bob = roomsListen("127.0.0.1", 0, bobHost);
 	const bobLocator = loopbackTcpDesignator(await bob.ready());
 	let bobAccepts = 0;
 	(async () => {
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 
 	// Carol never listens. She registers to claim a name, then redeems an
 	// introduction to Bob twice.
-	const carolHost = new Host();
+	const carolHost = roomsHost();
 	const carol = await Directory.connect(roomLocator, (l) => dial(l, carolHost));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const first = await carol.introduceVia("bob");
@@ -101,10 +101,38 @@ async function main(): Promise<void> {
 		"Bob's reply over the reused exporter",
 	);
 
+	// Two lines to one member share one connection, so closing one must not
+	// hang up the other. `ownsSession` used to be "a route came back", which is
+	// a different question from "this line opened it": the second line resolves
+	// the exporter the first already dialed, so both claimed it and whichever
+	// closed first took the connection down with it.
+	const firstLine = await DirectMessage.open(carol, "bob");
+	const secondReplies: string[] = [];
+	const secondLine = await DirectMessage.open(carol, "bob", (text) => {
+		secondReplies.push(text);
+	});
+	firstLine.close();
+	await secondLine.say("after the sibling closed");
+	await waitUntil(
+		() => bobInbox.includes("after the sibling closed"),
+		10_000,
+		"the surviving line to reach Bob after its sibling closed",
+	);
+	await waitUntil(
+		() => secondReplies.includes("got: after the sibling closed"),
+		10_000,
+		"the surviving line's reply over the still-open connection",
+	);
+	// Closing the last line is what hangs up, and closing a spent line again is
+	// not a second decrement against whoever holds the connection next.
+	secondLine.close();
+	secondLine.close();
+
 	console.log("rooms-dm-reredeem test OK:");
 	console.log("  • sendRedeeming resolves the direct exporter from the reply's route");
 	console.log("  • a re-redeem to an already-dialed exporter resolves the same live session");
 	console.log("  • no second dial ran (Bob accepted 1 connection), and the reply round-tripped");
+	console.log("  • closing one of two lines sharing that connection left the other talking");
 
 	await carol.close();
 	await bobDir.close();

@@ -137,3 +137,36 @@ test "host allocator balances a TCP handle family and owned frame" {
     try std.testing.expect(host.alloc_calls > 0);
     try std.testing.expect(host.balanced());
 }
+
+test "tcp connect and accept reject the unknown codec selector" {
+    var ctx: ?*c.PancakeContext = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new(&ctx));
+    const ctx_ptr = ctx.?;
+    defer c.pancake_context_release(ctx_ptr);
+
+    var netlayer: ?*ct.PancakeTcpNetlayer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_netlayer_new_in(ctx_ptr, &netlayer));
+    const netlayer_ptr = netlayer.?;
+    defer ct.pancake_tcp_netlayer_release(netlayer_ptr);
+
+    const host_addr = "127.0.0.1";
+    var listener: ?*ct.PancakeTcpListener = null;
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        ct.pancake_tcp_listen(netlayer_ptr, host_addr.ptr, host_addr.len, 0, &listener),
+    );
+    const listener_ptr = listener.?;
+    defer ct.pancake_tcp_listener_release(listener_ptr);
+
+    var conn: ?*ct.PancakeTcpConn = null;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, 1, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn),
+    );
+    try std.testing.expect(conn == null);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ct.pancake_tcp_accept(listener_ptr, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn),
+    );
+    try std.testing.expect(conn == null);
+}

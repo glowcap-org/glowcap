@@ -120,6 +120,26 @@ test "raw-open fixture records v1.0 resolver callback imports" {
     try std.testing.expect(std.mem.indexOf(u8, out.storage, "fulfill") != null);
 }
 
+test "malformed V1.0 deliver cannot install its advertised resolver" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initRawOpenFixture(allocator);
+    defer peer.deinit();
+
+    // Export 404 was never granted to the partner. The resolver descriptor is
+    // otherwise valid, but no authority from this refused deliver may survive.
+    const wire = "<10'op:deliver<11'desc:export404+>[]f<19'desc:import-promise99+>>";
+    try std.testing.expectError(
+        session.Error.InvalidReference,
+        peer.recvBorrowed(.{ .bytes = wire, .shape = .byte }),
+    );
+
+    try std.testing.expect(!peer.session_state.hasImport(.from(99)));
+    try std.testing.expectEqual(
+        @as(?model.AnswerPosition, null),
+        peer.session_state.answerForResolverImport(.from(99)),
+    );
+}
+
 test "settled-answer encode OOM leaves its carrier queued and emits exactly once" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var peer = engine.Peer.initRawOpenFixture(failing.allocator());
@@ -262,7 +282,7 @@ test "peer step encodes pending outbound message" {
 
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[5:hello]42+f>",
+        "<10'op:deliver<11'desc:export7+>[5:hello]42+>",
         outbound.bytes(),
     );
 }
@@ -294,6 +314,82 @@ test "peer step uses session CapTP version for outbound encoding" {
         "<10'op:deliver<11'desc:export7+>[5:hello]42+<18'desc:import-object99+>>",
         outbound.bytes(),
     );
+}
+
+test "a rejected next answer reuse preserves the original resolver" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(7));
+
+    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+    } });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    try std.testing.expectError(session.Error.UnexpectedMessage, peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+    } }));
+    try std.testing.expectEqual(
+        @as(?model.AnswerPosition, .from(42)),
+        peer.session_state.answerForResolverExport(resolver),
+    );
+
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver.int()) },
+        .args = &.{ .{ .symbol = "fulfill" }, .{ .integer = 17 } },
+    } });
+    defer callback.deinit();
+    try peer.recvBorrowed(callback.view());
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
+    const resolved = try event.view();
+    try std.testing.expectEqual(@as(u64, 42), resolved.resolve.answer.int());
+}
+
+test "a next answered operation publishes no partial pair on OOM" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = peer_fixture.openPeer(failing.allocator());
+    defer peer.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+    try peer.session_state.registerImport(.from(7));
+
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{.{ .bytes = "answer me" }},
+        .answer = .from(42),
+    } });
+
+    // Let the operation frame allocate, then fail before the pair can be
+    // published. The retry must still own and emit both messages.
+    failing.fail_index = failing.alloc_index + 1;
+    try std.testing.expectError(error.OutOfMemory, peer.step());
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    failing.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var operation = peer.takeOutbound().?;
+    defer operation.deinit();
+    var listener = peer.takeOutbound().?;
+    defer listener.deinit();
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    const operation_body = try codec.syrup.decodeBodyForProfile(.next, operation.view());
+    const listener_body = try codec.syrup.decodeBodyForProfile(.next, listener.view());
+    try std.testing.expect(operation_body == .deliver);
+    try std.testing.expect(listener_body == .listen);
+    try std.testing.expectEqual(@as(u64, 42), operation_body.deliver.answer.?.int());
+    try std.testing.expectEqual(@as(u64, 42), listener_body.listen.target.promise.answer_position.int());
 }
 
 test "V1_0 runtime translation synthesizes resolve-me-desc for answered deliver" {
@@ -434,7 +530,7 @@ test "peer sendCopying owns queued argument bytes before caller mutation" {
 
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[5:hello]42+f>",
+        "<10'op:deliver<11'desc:export7+>[5:hello]42+>",
         outbound.bytes(),
     );
 }
@@ -472,7 +568,7 @@ test "peer sendCopying deep-copies rich argument payloads" {
 
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[<2'kw4'name><11'user-record5'point[1+2+]>#1+2+3+$]42+f>",
+        "<10'op:deliver<11'desc:export7+>[<2'kw4'name><11'user-record5'point[1+2+]>#1+2+3+$]42+>",
         outbound.bytes(),
     );
 }
@@ -627,7 +723,7 @@ test "feedOwned step does not advance session state when event allocation fails"
     try std.testing.expect(peer.pollEvent() == null);
 }
 
-test "recvBorrowed surfaces inbound get index listen and resolve events" {
+test "recvBorrowed surfaces inbound get, index, and listen events" {
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
@@ -652,12 +748,12 @@ test "recvBorrowed surfaces inbound get index listen and resolve events" {
         var event = peer.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.index, event.kind());
-        try std.testing.expectEqual(@as(i64, 5), (try event.view()).index.index);
+        try std.testing.expectEqual(@as(i64, 5), (try event.view()).index.index.integer);
     }
     // Likewise op:index is surfaced and its projected answer exported.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
-    try peer.recvBorrowed(.{ .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>3+>", .shape = .byte });
     {
         var event = peer.pollEvent().?;
         defer event.deinit();
@@ -674,21 +770,25 @@ test "recvBorrowed surfaces inbound get index listen and resolve events" {
         try std.testing.expect(std.mem.indexOf(u8, out, "fulfill") != null);
         try std.testing.expect(std.mem.indexOf(u8, out, "desc:import-object") != null or std.mem.indexOf(u8, out, "desc:export") != null);
     }
+}
 
-    try peer.session_state.recordSend(.{
-        .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(99) } },
-            .args = &.{},
-            .answer = .from(42),
-        },
-    });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:resolve42+<15'resolve:fulfill<4'void>>>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-        try std.testing.expectEqual(@as(u64, 42), (try event.view()).resolve.answer.int());
-    }
+test "next refuses wire op:resolve" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(99));
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(99) } },
+        .args = &.{},
+        .answer = .from(42),
+    } });
+
+    try std.testing.expectError(
+        codec.syrup.Error.UnsupportedMessage,
+        peer.recvBorrowed(.{ .bytes = "<10'op:resolve42+<15'resolve:fulfill<4'void>>>", .shape = .byte }),
+    );
+    try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.outboundAnswer(.from(42)).?.status);
+    try std.testing.expect(peer.pollEvent() == null);
 }
 
 test "two peers exchange deliver, resolve, and gc-export frames" {
@@ -876,6 +976,18 @@ test "a multi-hop pipelined deliver decomposes into a chain of single-hop frames
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
+
+    // Open question 42 through the normal send path. A pipeline target is an
+    // answer we actually hold, not merely an integer with answer syntax.
+    try peer.session_state.registerImport(.from(7));
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var opening_frame = peer.takeOutbound().?;
+    opening_frame.deinit();
 
     // Pipeline a 2-hop call: promise{42}.call(["a"]).call(["b"]) with outer
     // args ["c"], answer 100. Syrup has no path operand on `desc:answer`, so this
@@ -1574,7 +1686,7 @@ test "a V1.0 break carrying a tagged record resolves to the tag name" {
 test "inbound op:listen export matrix: refuse, fire live object, refuse bare promise" {
     // One table for the export-side listen chokepoint (validate → installExportListener).
     const allocator = std.testing.allocator;
-    const wire = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>";
+    const wire = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>3+>";
 
     {
         var features = model.FeatureSet.full();
@@ -1629,7 +1741,7 @@ test "inbound op:listen export matrix: refuse, fire live object, refuse bare pro
         try peer.session_state.registerExport(promise_export);
         const listen_bytes = try std.fmt.allocPrint(
             allocator,
-            "<9'op:listen<11'desc:export{d}+><18'desc:import-object9+>>",
+            "<9'op:listen<11'desc:export{d}+><18'desc:import-object9+>3+>",
             .{promise_export.int()},
         );
         defer allocator.free(listen_bytes);
@@ -1654,7 +1766,7 @@ test "live object export listen: OOM during enqueue does not leak" {
             continue;
         };
         const listen = peer.recvBorrowed(.{
-            .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>",
+            .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>3+>",
             .shape = .byte,
         });
         if (listen) |_| {
@@ -1721,4 +1833,926 @@ test "view and decodeOwned agree on a V1.0 resolver-callback deliver" {
     try std.testing.expectEqual(@as(u64, 42), owned.resolve.answer.int());
     try std.testing.expect(owned.resolve.resolution == .fulfill);
     try std.testing.expectEqual(@as(i64, 17), owned.resolve.resolution.fulfill.integer);
+}
+
+test "a private shortening callback rewrites future sends and subscribes to the returned promise" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const callback_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver.int()) },
+        .args = &callback_args,
+    } });
+    defer callback.deinit();
+    try peer.recvBorrowed(callback.view());
+    try std.testing.expect(peer.pollEvent() == null);
+    try std.testing.expect(peer.session_state.holdsImport(.from(6)));
+
+    while ((try peer.step()) != .idle) {}
+    var recursive = peer.takeOutbound().?;
+    defer recursive.deinit();
+    const recursive_body = try codec.syrup.decodeBodyForProfile(.next, recursive.view());
+    try std.testing.expect(recursive_body == .listen);
+    try std.testing.expectEqual(@as(u64, 6), recursive_body.listen.target.near.export_position.int());
+    try std.testing.expectEqual(model.ListenMode.shortening_only, recursive_body.listen.mode);
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .args = &.{.{ .integer = 1 }},
+    } });
+    while ((try peer.step()) != .idle) {}
+    var forwarded = peer.takeOutbound().?;
+    defer forwarded.deinit();
+    const forwarded_body = try codec.syrup.decodeBodyForProfile(.next, forwarded.view());
+    try std.testing.expect(forwarded_body == .deliver);
+    try std.testing.expectEqual(@as(u64, 6), forwarded_body.deliver.target.near.export_position.int());
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    try std.testing.expectError(session.Error.UnexpectedMessage, peer.recvBorrowed(callback.view()));
+}
+
+test "an application settling listener follows a remote promise shortening" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    const settling_resolver = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer,
+    }).?;
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const shortening_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_resolver.int()) },
+        .args = &shortening_args,
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+
+    while ((try peer.step()) != .idle) {}
+    var private = peer.takeOutbound().?;
+    defer private.deinit();
+    var rearmed = peer.takeOutbound().?;
+    defer rearmed.deinit();
+    const private_body = try codec.syrup.decodeBodyForProfile(.next, private.view());
+    const rearmed_body = try codec.syrup.decodeBodyForProfile(.next, rearmed.view());
+    try std.testing.expectEqual(model.ListenMode.shortening_only, private_body.listen.mode);
+    try std.testing.expectEqual(model.ListenMode.settling_only, rearmed_body.listen.mode);
+    try std.testing.expectEqual(@as(u64, 6), rearmed_body.listen.target.near.export_position.int());
+    try std.testing.expectEqual(settling_resolver.int(), rearmed_body.listen.listener.far.import_position.int());
+
+    const settlement_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .integer = 17 },
+    };
+    var settlement = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(settling_resolver.int()) },
+        .args = &settlement_args,
+    } });
+    defer settlement.deinit();
+    try peer.recvBorrowed(settlement.view());
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    const resolved = try event.view();
+    try std.testing.expectEqual(answer, resolved.resolve.answer);
+}
+
+test "converging remote promises share one settling callback across local answers" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+    try peer.session_state.registerImport(.from(6));
+
+    const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    const shortening_six = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(6));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const answer_five = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    const resolver_five = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_five,
+    }).?;
+    const answer_six = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
+    const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_six,
+    }).?;
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const shortening_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_five.int()) },
+        .args = &shortening_args,
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+    try std.testing.expect(peer.pollEvent() == null);
+    while ((try peer.step()) != .idle) {}
+    // Promise 6 already owns both permitted wire listeners. Convergence is a
+    // local fan-out change and emits no second settling listener.
+    try std.testing.expect(peer.takeOutbound() == null);
+    try std.testing.expect(peer.session_state.sourceForShorteningResolver(shortening_six) != null);
+    try std.testing.expect(peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_five,
+    }) == null);
+    try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_six,
+    }).?);
+    try std.testing.expect(peer.session_state.exportSlot(resolver_five) != null);
+
+    const settlement_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .integer = 17 },
+    };
+    var settlement = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver_six.int()) },
+        .args = &settlement_args,
+    } });
+    defer settlement.deinit();
+    try peer.recvBorrowed(settlement.view());
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    const resolved = try event.view();
+    try std.testing.expectEqual(answer_six, resolved.resolve.answer);
+    try std.testing.expectEqualSlices(model.AnswerPosition, &.{answer_five}, event.resolveAliases());
+    try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(answer_five).?.status);
+    try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(answer_six).?.status);
+    try std.testing.expect(peer.pollEvent() == null);
+}
+
+test "converged settling callback promotes or removes a released local answer" {
+    const allocator = std.testing.allocator;
+    for ([_]bool{ false, true }) |release_primary| {
+        var peer = peer_fixture.openPeer(allocator);
+        defer peer.deinit();
+        try peer.session_state.registerImport(.from(5));
+        try peer.session_state.registerImport(.from(6));
+
+        const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+        try engine.listen.ensureShorteningListener(&peer, .from(5));
+        try engine.listen.ensureShorteningListener(&peer, .from(6));
+        while ((try peer.step()) != .idle) {}
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+        }
+
+        const answer_five = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+        const answer_six = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
+        const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
+            .application_answer = answer_six,
+        }).?;
+        while ((try peer.step()) != .idle) {}
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+        }
+
+        var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(shortening_five.int()) },
+            .args = &.{
+                .{ .symbol = "fulfill" },
+                .{ .reference = .{ .near = model.NearRef.promise(6) } },
+            },
+        } });
+        defer shortening.deinit();
+        try peer.recvBorrowed(shortening.view());
+        while ((try peer.step()) != .idle) {}
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+        }
+
+        const released = if (release_primary) answer_six else answer_five;
+        const survivor = if (release_primary) answer_five else answer_six;
+        try peer.sendCopying(.{ .gc_answer = .{ .positions = &.{released.int()} } });
+        while ((try peer.step()) != .idle) {}
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+        }
+        try std.testing.expect(peer.session_state.outboundAnswer(released) == null);
+        try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
+            .application_answer = survivor,
+        }).?);
+
+        var settlement = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(resolver_six.int()) },
+            .args = &.{ .{ .symbol = "fulfill" }, .{ .integer = 17 } },
+        } });
+        defer settlement.deinit();
+        try peer.recvBorrowed(settlement.view());
+        var event = peer.pollEvent().?;
+        defer event.deinit();
+        const resolved = try event.view();
+        try std.testing.expectEqual(survivor, resolved.resolve.answer);
+        try std.testing.expectEqual(@as(usize, 0), event.resolveAliases().len);
+    }
+}
+
+test "a settling callback racing answer release is consumed and its imports are released" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    const resolver = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer,
+    }).?;
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    try peer.sendCopying(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try std.testing.expectEqual(session.RetiredResolverState.pending, peer.session_state.retiredResolverState(resolver).?);
+
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver.int()) },
+        .args = &.{
+            .{ .symbol = "fulfill" },
+            .{ .reference = .{ .near = model.NearRef.object(77) } },
+        },
+    } });
+    defer callback.deinit();
+    try peer.recvBorrowed(callback.view());
+    try std.testing.expect(peer.pollEvent() == null);
+    try std.testing.expectEqual(session.RetiredResolverState.complete, peer.session_state.retiredResolverState(resolver).?);
+    while ((try peer.step()) != .idle) {}
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
+    const release_body = try codec.syrup.decodeBodyForProfile(.next, release.view());
+    try std.testing.expectEqual(@as(usize, 1), try release_body.gc_export.positions.len());
+    try std.testing.expectEqual(@as(u64, 77), try release_body.gc_export.positions.at(0));
+    try std.testing.expectEqual(@as(usize, 1), try release_body.gc_export.deltas.len());
+    try std.testing.expectEqual(@as(u64, 1), try release_body.gc_export.deltas.at(0));
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    try std.testing.expectError(session.Error.UnexpectedMessage, peer.recvBorrowed(callback.view()));
+}
+
+test "settling convergence OOM leaves both subscriptions retryable" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = peer_fixture.openPeer(failing.allocator());
+    defer peer.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+    try peer.session_state.registerImport(.from(5));
+    try peer.session_state.registerImport(.from(6));
+
+    const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    try engine.listen.ensureShorteningListener(&peer, .from(6));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    const answer_five = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    const resolver_five = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_five,
+    }).?;
+    const answer_six = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
+    const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_six,
+    }).?;
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const shortening_message: model.Message = .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_five.int()) },
+        .args = &.{
+            .{ .symbol = "fulfill" },
+            .{ .reference = .{ .near = model.NearRef.promise(6) } },
+        },
+    } };
+    var failed_frame = try codec.syrup.encodeMessageForProfile(std.testing.allocator, .next, shortening_message);
+    defer failed_frame.deinit();
+    // The borrowed-frame ownership copy succeeds; the next allocation belongs
+    // to callback validation or the precommitted merged follower list.
+    failing.fail_index = failing.alloc_index + 1;
+    try std.testing.expectError(error.OutOfMemory, peer.recvBorrowed(failed_frame.view()));
+    failing.fail_index = std.math.maxInt(usize);
+
+    try std.testing.expectEqual(resolver_five, peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_five,
+    }).?);
+    try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_six,
+    }).?);
+    try std.testing.expectEqual(
+        model.ImportPosition.from(5),
+        peer.session_state.shortenedPromiseTarget(.from(5)),
+    );
+
+    try peer.recvBorrowed(failed_frame.view());
+    try std.testing.expect(peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_five,
+    }) == null);
+    try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_six,
+    }).?);
+}
+
+test "an application settling listener starts at an already-shortened promise" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const shortening_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_resolver.int()) },
+        .args = &shortening_args,
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    _ = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    while ((try peer.step()) != .idle) {}
+    var settling = peer.takeOutbound().?;
+    defer settling.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.next, settling.view());
+    try std.testing.expectEqual(model.ListenMode.settling_only, body.listen.mode);
+    try std.testing.expectEqual(@as(u64, 6), body.listen.target.near.export_position.int());
+}
+
+test "a shortened deliver moves to the new position and stays on one wire" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const before_args = [_]model.Argument{.{ .symbol = "before" }};
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .args = &before_args,
+    } });
+    while ((try peer.step()) != .idle) {}
+    var before = peer.takeOutbound() orelse return error.MissingDeliverBeforeShortening;
+    defer before.deinit();
+
+    // The partner shortens promise 5 onto promise 6.
+    const shortening_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_resolver.int()) },
+        .args = &shortening_args,
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try std.testing.expectEqual(
+        model.ImportPosition.from(6),
+        peer.session_state.shortenedPromiseTarget(.from(5)),
+    );
+
+    const after_args = [_]model.Argument{.{ .symbol = "after" }};
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .args = &after_args,
+    } });
+    while ((try peer.step()) != .idle) {}
+    var after = peer.takeOutbound() orelse return error.MissingDeliverAfterShortening;
+    defer after.deinit();
+
+    // The send chokepoint retargets the later deliver onto the shortened
+    // position, and that position is an import of this same session. Both
+    // frames therefore leave on one wire in send order, the local half of the
+    // end-to-end reference FIFO order OCapN PR 281 asks to survive shortening.
+    // An edge naming another session would split the pair across two wires.
+    const before_body = try codec.syrup.decodeBodyForProfile(.next, before.view());
+    const after_body = try codec.syrup.decodeBodyForProfile(.next, after.view());
+    try std.testing.expectEqual(@as(u64, 5), before_body.deliver.target.near.export_position.int());
+    try std.testing.expectEqual(@as(u64, 6), after_body.deliver.target.near.export_position.int());
+    try std.testing.expect(peer.session_state.holdsImport(.from(6)));
+    try std.testing.expect(std.mem.indexOf(u8, before.storage, "before") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after.storage, "after") != null);
+}
+
+test "a delayed shortening callback cannot rewrite a reused import position" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const stale_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const positions = [_]u64{5};
+    const deltas = [_]u64{1};
+    try peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
+
+    // The partner may now reuse position 5 for a distinct promise. Its private
+    // listener carries a fresh row stamp even though the wire integer is the
+    // same.
+    try peer.session_state.registerImport(.from(5));
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const callback_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(stale_resolver.int()) },
+        .args = &callback_args,
+    } });
+    defer callback.deinit();
+    try peer.recvBorrowed(callback.view());
+    try std.testing.expect(peer.pollEvent() == null);
+    try std.testing.expect(peer.session_state.holdsImport(.from(5)));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .args = &.{},
+    } });
+    while ((try peer.step()) != .idle) {}
+    var sent = peer.takeOutbound().?;
+    defer sent.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.next, sent.view());
+    try std.testing.expectEqual(@as(u64, 5), body.deliver.target.near.export_position.int());
+}
+
+test "shortening callback OOM leaves protocol maintenance uncommitted" {
+    const allocator = std.testing.allocator;
+    const callback_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &callback_args,
+    } });
+    defer callback.deinit();
+
+    var saw_callback_oom = false;
+    var reached_success = false;
+    var fail_index: usize = 0;
+    while (fail_index < 128 and !reached_success) : (fail_index += 1) {
+        var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = fail_index });
+        var peer = peer_fixture.openPeer(failing.allocator());
+        defer peer.deinit();
+        // Teardown may allocate after an injected failure leaves the counter
+        // parked, so disarm before the peer's defer runs.
+        defer failing.fail_index = std.math.maxInt(usize);
+
+        peer.session_state.registerImport(.from(5)) catch continue;
+        engine.listen.ensureShorteningListener(&peer, .from(5)) catch continue;
+        while (true) {
+            const outcome = peer.step() catch break;
+            if (outcome == .idle) break;
+        }
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+        }
+        if (peer.session_state.sourceForShorteningResolver(.from(1)) == null) continue;
+
+        if (peer.recvBorrowed(callback.view())) |_| {
+            reached_success = true;
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            saw_callback_oom = true;
+            try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+            switch (peer.session_state.sourceForShorteningResolver(.from(1)).?) {
+                .pending => |source| try std.testing.expectEqual(model.ImportPosition.from(5), source.position),
+                .complete => return error.TestExpectedPendingShortening,
+            }
+            try std.testing.expect(peer.session_state.findImportedPromise(.from(6)) == null);
+        }
+    }
+    try std.testing.expect(saw_callback_oom);
+    try std.testing.expect(reached_success);
+}
+
+test "late shortening callback OOM does not retain its introduced promise" {
+    const allocator = std.testing.allocator;
+    const callback_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &callback_args,
+    } });
+    defer callback.deinit();
+
+    var saw_callback_oom = false;
+    var reached_success = false;
+    var fail_index: usize = 0;
+    while (fail_index < 128 and !reached_success) : (fail_index += 1) {
+        var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = fail_index });
+        var peer = peer_fixture.openPeer(failing.allocator());
+        defer peer.deinit();
+        defer failing.fail_index = std.math.maxInt(usize);
+
+        peer.session_state.registerImport(.from(5)) catch continue;
+        engine.listen.ensureShorteningListener(&peer, .from(5)) catch continue;
+        while (true) {
+            const outcome = peer.step() catch break;
+            if (outcome == .idle) break;
+        }
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            frame.deinit();
+        }
+        if (peer.session_state.sourceForShorteningResolver(.from(1)) == null) continue;
+
+        const positions = [_]u64{5};
+        const deltas = [_]u64{1};
+        peer.session_state.recordSend(.{ .gc_export = .{
+            .positions = @constCast(&positions),
+            .deltas = @constCast(&deltas),
+        } }) catch continue;
+        try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
+
+        if (peer.recvBorrowed(callback.view())) |_| {
+            reached_success = true;
+            try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            saw_callback_oom = true;
+            try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+            switch (peer.session_state.sourceForShorteningResolver(.from(1)).?) {
+                .pending => |source| try std.testing.expectEqual(model.ImportPosition.from(5), source.position),
+                .complete => return error.TestExpectedPendingShortening,
+            }
+        }
+    }
+    try std.testing.expect(saw_callback_oom);
+    try std.testing.expect(reached_success);
+}
+
+test "a shortening callback crossing source release returns its introduced promise" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const source_positions = [_]u64{5};
+    const source_deltas = [_]u64{1};
+    try peer.sendCopying(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
+
+    const callback_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver.int()) },
+        .args = &callback_args,
+    } });
+    defer callback.deinit();
+    try peer.recvBorrowed(callback.view());
+    try std.testing.expect(peer.pollEvent() == null);
+    try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+
+    while ((try peer.step()) != .idle) {}
+    var released_target = peer.takeOutbound().?;
+    defer released_target.deinit();
+    const released_body = try codec.syrup.decodeBodyForProfile(.next, released_target.view());
+    try std.testing.expect(released_body == .gc_export);
+    try std.testing.expectEqual(@as(usize, 1), try released_body.gc_export.positions.len());
+    try std.testing.expectEqual(@as(u64, 6), try released_body.gc_export.positions.at(0));
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    const resolver_positions = [_]u64{resolver.int()};
+    const resolver_deltas = [_]u64{1};
+    var release_resolver = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .gc_export = .{
+        .positions = &resolver_positions,
+        .deltas = &resolver_deltas,
+    } });
+    defer release_resolver.deinit();
+    try peer.recvBorrowed(release_resolver.view());
+    var gc_event = peer.pollEvent().?;
+    gc_event.deinit();
+    try std.testing.expect(peer.session_state.exportSlot(resolver) == null);
+    try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver) == null);
+    try std.testing.expect(peer.session_state.findImportedPromise(.from(5)) == null);
+}
+
+test "a settling listener follows shortening after its source import is released" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    const settling_resolver = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer,
+    }).?;
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    try peer.sendCopying(.{ .gc_export = .{
+        .positions = &.{5},
+        .deltas = &.{1},
+    } });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
+
+    var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_resolver.int()) },
+        .args = &.{
+            .{ .symbol = "fulfill" },
+            .{ .reference = .{ .near = model.NearRef.promise(6) } },
+        },
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+    try std.testing.expect(peer.pollEvent() == null);
+    while ((try peer.step()) != .idle) {}
+
+    var shortening_listen = peer.takeOutbound().?;
+    defer shortening_listen.deinit();
+    var settling_listen = peer.takeOutbound().?;
+    defer settling_listen.deinit();
+    var release_target = peer.takeOutbound().?;
+    defer release_target.deinit();
+    const shortening_body = try codec.syrup.decodeBodyForProfile(.next, shortening_listen.view());
+    const settling_body = try codec.syrup.decodeBodyForProfile(.next, settling_listen.view());
+    const release_body = try codec.syrup.decodeBodyForProfile(.next, release_target.view());
+    try std.testing.expectEqual(model.ListenMode.shortening_only, shortening_body.listen.mode);
+    try std.testing.expectEqual(model.ListenMode.settling_only, settling_body.listen.mode);
+    try std.testing.expectEqual(settling_resolver.int(), settling_body.listen.listener.far.import_position.int());
+    try std.testing.expectEqual(@as(u64, 6), try release_body.gc_export.positions.at(0));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    var settlement = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(settling_resolver.int()) },
+        .args = &.{ .{ .symbol = "fulfill" }, .{ .integer = 17 } },
+    } });
+    defer settlement.deinit();
+    try peer.recvBorrowed(settlement.view());
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    const resolved = try event.view();
+    try std.testing.expectEqual(answer, resolved.resolve.answer);
+    try std.testing.expectEqual(@as(i64, 17), resolved.resolve.resolution.fulfill.integer);
+}
+
+test "shortening does not rearm a settling listener after its answer is released" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    const settling_resolver = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer,
+    }).?;
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    try peer.sendCopying(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+    try std.testing.expectEqual(session.RetiredResolverState.pending, peer.session_state.retiredResolverState(settling_resolver).?);
+
+    var shortening = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_resolver.int()) },
+        .args = &.{
+            .{ .symbol = "fulfill" },
+            .{ .reference = .{ .near = model.NearRef.promise(6) } },
+        },
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+    while ((try peer.step()) != .idle) {}
+
+    var only_shortening = peer.takeOutbound().?;
+    defer only_shortening.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.next, only_shortening.view());
+    try std.testing.expectEqual(model.ListenMode.shortening_only, body.listen.mode);
+    try std.testing.expect(peer.takeOutbound() == null);
+    try std.testing.expectEqual(session.RetiredResolverState.complete, peer.session_state.retiredResolverState(settling_resolver).?);
+}
+
+test "releasing a shortened source also releases the callback-introduced target" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const callback_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var callback = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver.int()) },
+        .args = &callback_args,
+    } });
+    defer callback.deinit();
+    try peer.recvBorrowed(callback.view());
+    try std.testing.expect(peer.session_state.holdsImport(.from(6)));
+
+    // Drain the recursive shortening subscription before observing the GC.
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const source_positions = [_]u64{5};
+    const source_deltas = [_]u64{1};
+    try peer.sendCopying(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
+    try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
+
+    while ((try peer.step()) != .idle) {}
+    var release = peer.takeOutbound().?;
+    defer release.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.next, release.view());
+    try std.testing.expect(body == .gc_export);
+    try std.testing.expectEqual(@as(usize, 2), try body.gc_export.positions.len());
+    try std.testing.expectEqual(@as(u64, 5), try body.gc_export.positions.at(0));
+    try std.testing.expectEqual(@as(u64, 6), try body.gc_export.positions.at(1));
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "a discarded shortening listener remains deduplicated until source release" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(5));
+
+    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const resolver_positions = [_]u64{resolver.int()};
+    const resolver_deltas = [_]u64{1};
+    var release_resolver = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .gc_export = .{
+        .positions = &resolver_positions,
+        .deltas = &resolver_deltas,
+    } });
+    defer release_resolver.deinit();
+    try peer.recvBorrowed(release_resolver.view());
+    var gc_event = peer.pollEvent().?;
+    gc_event.deinit();
+    try std.testing.expect(peer.session_state.exportSlot(resolver) == null);
+    try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver).? == .complete);
+
+    try engine.listen.ensureShorteningListener(&peer, .from(5));
+    try std.testing.expect((try peer.step()) == .idle);
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    const source_positions = [_]u64{5};
+    const source_deltas = [_]u64{1};
+    try peer.sendCopying(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
+    try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver) == null);
 }

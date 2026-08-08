@@ -7,8 +7,6 @@ const std = @import("std");
 const model = @import("model");
 const codec = @import("codec");
 const crypto = @import("foundation").crypto;
-const session_mod = @import("session");
-const bootstrap = @import("bootstrap.zig");
 const handoff_names = @import("handoff_names.zig");
 
 /// The side and session naming both handoff ends derive from session keys. The
@@ -61,13 +59,13 @@ pub const SignedReceive = struct {
 /// `pancake_build_handoff_give` built); it is parsed once here into a typed,
 /// codec-neutral give. `secret` is the recipient's session key — the one the
 /// gifter named as the give's recipient key — so the exporter verifies the
-/// receive against it. The `handoff_count` is minted from this
-/// recipient-to-exporter session's `registry`, so its monotonic replay counter
-/// dies with the session (ADR-0100).
+/// receive against it. `handoff_count` is supplied by the owner of issuance.
+/// Ordinary peers mint it from their recipient-to-exporter session registry. A
+/// Node's V1 compatibility path may supply its host-lifetime cursor for Goblins
+/// reconnect interop; this changes emitted values, never replay authority.
 pub fn signedReceiveFromGiveBytes(
     allocator: std.mem.Allocator,
-    limits: session_mod.SessionLimits,
-    registry: *bootstrap.GiftRegistry,
+    handoff_count: u64,
     secret: crypto.SecretKey,
     our_pubkey: crypto.PeerKey,
     exporter_partner_key: []const u8,
@@ -78,8 +76,6 @@ pub fn signedReceiveFromGiveBytes(
     const our_side = try sideName(our_pubkey.asBytes());
     const exporter_side = try sideName(exporter_partner_key);
     const receiving_session = sessionName(our_side, exporter_side);
-    _ = limits;
-    const handoff_count = try registry.nextEmittedCount();
     var result: SignedReceive = .{
         .receiving_session = receiving_session,
         .receiving_side = our_side,
@@ -111,12 +107,7 @@ fn reconstructSignedHandoffGive(
 /// Project a give's exporter peer into the dialable `ocapn://…` URI a
 /// recipient hands its dialer, through the one core URI grammar. Materialize
 /// hints only when the lazy arm requires it; transport/designator stay
-/// borrowed for `writePeer`. The `session-key-attestation` credential is
-/// dropped during that same materialization (ADR-0097): it is session
-/// metadata the signed descriptor already carried, a stale credential must
-/// never enter a dial URI, and the URI grammar has no spelling for its binary
-/// value — while routing hints such as `direct-addresses` are preserved. The
-/// caller owns the returned bytes.
+/// borrowed for `writePeer`. The caller owns the returned bytes.
 pub const LocatorUriError = error{ OutOfMemory, MalformedLocatorRecord };
 pub fn exporterLocatorUri(
     allocator: std.mem.Allocator,
@@ -124,17 +115,13 @@ pub fn exporterLocatorUri(
 ) LocatorUriError![]u8 {
     var owned_hints: ?model.Hints = null;
     defer if (owned_hints) |h| model.freeHints(allocator, h);
-    var filtered_storage: ?[]model.HintEntry = null;
-    defer if (filtered_storage) |s| allocator.free(s);
-
-    const raw_hints: model.Hints = if (location.hints.stackUriHints()) |h| h else blk: {
+    const hints: model.Hints = if (location.hints.stackUriHints()) |h| h else blk: {
         owned_hints = location.hints.toOwned(allocator) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.MalformedView => return error.MalformedLocatorRecord,
         };
         break :blk owned_hints.?;
     };
-    const hints = try uriHintsWithoutCredential(allocator, raw_hints, &filtered_storage);
     const peer: model.PeerLocator = .{
         .transport = location.transport,
         .designator = location.designator,
@@ -145,33 +132,6 @@ pub fn exporterLocatorUri(
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.MalformedLocatorRecord,
     };
-}
-
-/// Drop the `session-key-attestation` entry from `hints`, keeping every
-/// routing hint. Credential-free hints pass through untouched (no walk beyond
-/// the one scan, no allocation); a filtered set shallow-copies the surviving
-/// entry structs into `storage` (values stay borrowed), and filtering to
-/// empty yields the `#f` spelling a dialable URI wants.
-fn uriHintsWithoutCredential(
-    allocator: std.mem.Allocator,
-    hints: model.Hints,
-    storage: *?[]model.HintEntry,
-) error{OutOfMemory}!model.Hints {
-    var keep: usize = 0;
-    for (hints.entries) |entry| {
-        if (!std.mem.eql(u8, entry.name, model.transport.hint_session_key_attestation)) keep += 1;
-    }
-    if (keep == hints.entries.len) return hints;
-    if (keep == 0) return model.Hints.emptyFalse();
-    const filtered = try allocator.alloc(model.HintEntry, keep);
-    var at: usize = 0;
-    for (hints.entries) |entry| {
-        if (std.mem.eql(u8, entry.name, model.transport.hint_session_key_attestation)) continue;
-        filtered[at] = entry;
-        at += 1;
-    }
-    storage.* = filtered;
-    return .{ .entries = filtered, .wire_form = hints.wire_form };
 }
 
 /// Signed give + dial URI for a fulfill that carries a handoff give.

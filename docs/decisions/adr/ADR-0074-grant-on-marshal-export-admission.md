@@ -102,7 +102,7 @@ A partner probing a reserved position gets the same `InvalidReference` abort
 as a nonexistent one; nothing distinguishes the two from outside. Hand-wired
 consumers that share positions out-of-band (paired-peer tests, examples that
 wire both ends by hand) now say so with an explicit `exportObject` /
-`register_export` grant, which is the honest spelling of what they were
+`register_export` grant, which is the accurate name for what they were
 already doing. `ExportTable.retain` asserts the row exists, so a baseline-less
 count cannot be minted by accident. Pinned by the admission and GC-floor
 scenarios in `test/session/session_test.zig` and the end-to-end

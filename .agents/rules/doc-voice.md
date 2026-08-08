@@ -27,6 +27,10 @@ function bodies are not bound by this rule. Module `//!` headers on examples,
 apps, interop drivers, benches, and tests are bound: they are how a human finds
 the scenario. Keep them speech-readable.
 
+**Live humans stay out of docs.** Do not put a living person's personal name
+into human docs or READMEs; use generic example nicks. Copyright attribution
+lines are fine.
+
 **Completion bar.** Every human surface above must meet this rule (or better).
 Unfinished voice on a touched surface is unfinished work, not taste.
 `zig build meta-check` (`checkHumanDocVoice`) bans high-signal regressions on
@@ -111,6 +115,9 @@ These are the tells that prose has drifted into a private notation:
   unless the exact technical sense is the point. Some terms — capability, vat,
   sturdyref — are the precise word and stay. The test is whether a first-time
   reader gains anything from the harder word; if not, the plain one wins.
+- Using `spelling` for a representation, identifier, variant, or repeated
+  fact. Reserve it for orthography; write form, encoding, name, symbol, or
+  declaration for the engineering concept.
 - Arrows used as connective tissue in a sentence, such as "malformed frame →
   typed abort." Write "a malformed frame becomes a typed abort." An arrow is
   fine inside an actual flow diagram like `Frame -> Codec -> Session` when it
@@ -125,7 +132,7 @@ These are the tells that prose has drifted into a private notation:
   ". " reads the same, and three facts strung behind dashes in one breath. The
   test is simple: if a comma, period, colon, or parentheses would carry the
   sentence as well, the dash has not earned its place. `zig build meta-check`
-  (`banHabitualEmDash`) rejects the two spellings habit reaches for most,
+  (`banHabitualEmDash`) rejects the two patterns habit reaches for most,
   `— which` and `— and then`, across `src/`, `cli/`, `docs/`, `site/content`,
   and `README.md`. The rest of this bullet is still yours to hold.
 - Telegraphic fragments with the verb cut out: "Bounded recursion. Depth-capped.

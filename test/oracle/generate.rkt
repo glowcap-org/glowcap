@@ -328,7 +328,7 @@
            (make-bytes 32 #x01))) ; gift-id
 
 ;; <desc:sig-envelope <desc:handoff-give …> <sig-val …>>.
-(define (op-handoff-give)
+(define (signed-handoff-give)
   (record* 'desc:sig-envelope
            (handoff-give-record)
            (signature-sexp (make-bytes 64 #xAA))))
@@ -338,10 +338,10 @@
 ;;
 ;; The inner signed-give slot nests the same desc:sig-envelope
 ;; wrapping the 5-field desc:handoff-give certificate as the
-;; op_handoff_give fixture above, but with a Gifter-signature
+;; signed handoff-give fixture above, but with a Gifter signature
 ;; byte pattern of #xAA. The outer (Receiver) signature pattern
 ;; is #xBB.
-(define (op-handoff-receive)
+(define (signed-handoff-receive)
   (define nested-signed-give
     (record* 'desc:sig-envelope
              (handoff-give-record)
@@ -369,7 +369,7 @@
 ;; desc:handoff-receive certificate as the second op:deliver arg.
 ;; The argument is pancake's `Argument::Handoff` variant; on the
 ;; wire it is the spec-canonical envelope itself (no extra
-;; wrapper). Inner field bytes match `op-handoff-receive` so a
+;; wrapper). Inner field bytes match `signed-handoff-receive` so a
 ;; single parity assertion covers both shapes' cross-impl bytes;
 ;; only the outer op:deliver envelope differs.
 (define (op-deliver-withdraw-gift)
@@ -390,52 +390,6 @@
   (define target (record* 'desc:export 0))
   (define args (list 'withdraw-gift signed-receive))
   (record* 'op:deliver target args 99 #f))
-
-;; ── ADR-0097 provisional session-key-attestation credential ───────
-;;
-;; The durable-key credential's canonical signing-domain record and the
-;; keyed-tcp locator that carries its signature as a hint entry. The
-;; shape is provisional (no upstream OCapN convention yet); these bytes
-;; are the committed vectors ADR-0097's migration step 1 requires
-;; before any implementation ships. Deterministic keys: the durable
-;; Ed25519 seed is 32 bytes of #x0D and the session seed 32 bytes of
-;; #x5E; the signature is the durable key's RFC 8032 Ed25519 signature
-;; over the exact bytes of the sibling record fixture, so the constant
-;; below reproduces from the seeds alone.
-;; `test/oracle/attestation_vector_test.zig` derives and verifies it.
-
-(define (hex->bytes s)
-  (define n (quotient (string-length s) 2))
-  (define out (make-bytes n))
-  (for ([i (in-range n)])
-    (bytes-set! out i (string->number (substring s (* 2 i) (+ 2 (* 2 i))) 16)))
-  out)
-
-;; 64-hex keyed-tcp designator: the durable public key's canonical spelling.
-(define ATTESTATION-DESIGNATOR
-  "91a28a0b74381593a4d9469579208926afc8ad82c8839b7644359b9eba9a4b3a")
-(define ATTESTATION-SESSION-PUB
-  (hex->bytes "8146640f02493af4fbc54fe33388e75dc2c937ae0b7727cc2b2afb1b75199a3e"))
-(define ATTESTATION-SIG
-  (hex->bytes
-   (string-append
-    "49347b25281df79dec07ead42a609b08dd238efa0e9151c83b203d053b422ffa"
-    "8b94a9086fa26725f6e2e895ae97409ebc829c02ffa61c20c38eec692be4e707")))
-
-;; <session-key-attestation-v1 keyed-tcp "designator" session-pubkey>
-(define (cred-session-key-attestation-v1)
-  (record* 'session-key-attestation-v1
-           'keyed-tcp
-           ATTESTATION-DESIGNATOR
-           ATTESTATION-SESSION-PUB))
-
-;; <ocapn-peer keyed-tcp "designator" {"session-key-attestation" sig}>:
-;; the credential rides the hint dict as a 64-byte signature value.
-(define (cred-locator-keyed-tcp-hint)
-  (record* 'ocapn-peer
-           'keyed-tcp
-           ATTESTATION-DESIGNATOR
-           (hash "session-key-attestation" ATTESTATION-SIG)))
 
 ;; ── ADR-0007 / op:get + op:index fixtures ─────────────────────────
 ;;
@@ -546,12 +500,9 @@
         (cons "op_deliver_listen_break_notification.bin"       op-deliver-listen-break-notification)
         (cons "op_gc_exports.bin"                              op-gc-exports)
         (cons "op_gc_answers.bin"                              op-gc-answers)
-        (cons "op_handoff_give.bin"                            op-handoff-give)
-        (cons "op_handoff_receive.bin"                         op-handoff-receive)
+        (cons "desc_handoff_give_signed.bin"                   signed-handoff-give)
+        (cons "desc_handoff_receive_signed.bin"                signed-handoff-receive)
         (cons "op_deliver_withdraw_gift.bin"                   op-deliver-withdraw-gift)
-        ;; ADR-0097 provisional credential vectors (migration step 1)
-        (cons "cred_session_key_attestation_v1.bin"            cred-session-key-attestation-v1)
-        (cons "cred_locator_keyed_tcp_hint.bin"                cred-locator-keyed-tcp-hint)
         ;; ADR-0025 typed-abort wire kind
         (cons "op_abort_resource_exhausted.bin"                op-abort-resource-exhausted)
         ;; ADR-0008 adapter-projected typed-abort wire kinds

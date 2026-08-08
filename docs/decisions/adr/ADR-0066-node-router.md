@@ -147,10 +147,11 @@ So routing sinks; the vat does not.
   local turns and needs a cross-FFI async suspend/resume bridge whose payoff is
   workload-dependent and unproven; it is left to a future measured spike, not
   built here.
-- The completion/iroh loop-hosts (`src/net/completion/loop.zig`,
-  `src/net/transport/iroh.zig`) are not yet wired *under* the node. The
-  500k-connection scale path behind the same ABI is a recorded follow-on
-  ([ADR-0057](ADR-0057-iroh-completion-loop-bridge.md) owns the loop-host).
+- The completion, iroh, and WebRTC loop-hosts are not wired *under* the sans-io
+  `engine.Node`. The scale path sits beside it: `driver.Bridge` over
+  `completion.Loop`
+  ([ADR-0057](ADR-0057-iroh-completion-loop-bridge.md) owns the loop-host;
+  ADR-0089 covers WebRTC).
 - The per-connection `engine.Peer` and the `pancake_peer_*` ABI stay as the
   single-connection primitive; the node is a tier above, so a one-connection
   client pays no node tax.

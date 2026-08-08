@@ -1,17 +1,26 @@
-# ADR-0086: Byte-Transparent Relay for Browser Peers
-
-**Status:** Decided
-**Date:** 2026-07-19
-**Decision:** A browser peer reaches a native CapTP server through a
-byte-transparent relay: an intermediary that forwards the raw session bytes
-without parsing them, so the keyed handshake and session authority run end to
-end unchanged. The relay is a first-class pancake capability, assembled in each
-runtime from the pieces named below and governed by the contract in this ADR.
-Its consistency across runtimes is enforced by a per-binding conformance test,
-not by shared code, because one leg of the relay is always the host runtime's
-own WebSocket server.
-
 ---
+id: ADR-0086
+status: accepted
+date: 2026-07-19
+tags: [relay, browser, transport, websocket, bindings]
+decision: "A browser peer reaches a native CapTP server through a byte-transparent relay: an intermediary that forwards the raw session bytes without parsing them, so the keyed handshake and session authority run end to end unchanged. The relay is a first-class pancake capability, assembled in each runtime from the pieces named below and governed by the contract in this ADR. Its consistency across runtimes is enforced by a per-binding contract test, not by shared code, because one leg of the relay is always the host runtime's own WebSocket server."
+supersedes: []
+superseded_by: []
+amends: []
+amended_by: []
+---
+
+# ADR-0086 Byte-transparent relay for browser peers
+
+## Decision
+
+A browser peer reaches a native CapTP server through a byte-transparent relay:
+an intermediary that forwards the raw session bytes without parsing them, so the
+keyed handshake and session authority run end to end unchanged. The relay is a
+first-class pancake capability, assembled in each runtime from the pieces named
+below and governed by the contract in this ADR. Its consistency across runtimes
+is enforced by a per-binding contract test, not by shared code, because one
+leg of the relay is always the host runtime's own WebSocket server.
 
 ## Problem
 
@@ -108,7 +117,7 @@ can block their producer.
   `send`, Rust `SinkExt::poll_ready`) falls below a high-water. **This gate is
   not optional.** A runtime whose WebSocket `write` returns before its send
   buffer drains has no browser-bound flow control and will grow server memory
-  until the byte cap or idle timeout fires. The conformance harness asserts a
+  until the byte cap or idle timeout fires. The relay contract harness asserts a
   stalled reader stalls the far sender, precisely to catch a runtime that skipped
   this gate: it floods a stalled reader through the relay under test and fails if
   the sender is not backpressured. The matrix runs it against every runtime's
@@ -259,17 +268,17 @@ packaged. A native pump would export a cross-ABI high-water signal the runtime
 consults before every read, which is strictly more work than the runtime's own
 awaited write (or its `bufferedAmount` poll, since a WebSocket has no drain
 event). The pump also holds no capability and parses nothing, so writing it once
-protects no invariant the shared conformance harness does not already pin. And a
+protects no invariant the shared relay harness does not already pin. And a
 native pump with real backpressure would have to own a far leg to reuse the
 completion loop's high-water parking, linking a transport archive into every
 relay and dragging the iroh sidecar into a TCP-only one, the à-la-carte split
 (ADR-0059) this ADR rejects elsewhere. The pump stays a per-runtime contract
-pinned by conformance; the byte channel it pumps over is named as a set of calls
+pinned by the relay matrix; the byte channel it pumps over is named as a set of calls
 in the iroh header, not as a C object (the alternative below).
 
 **A named `PancakeRelayChannel` C-ABI shape.** Rejected, whether as a struct of
 per-transport function pointers, an opaque handle with its own verb family, or a
-typedef plus per-transport adapters. Three facts defeat all three spellings.
+typedef plus per-transport adapters. Three facts defeat all three variants.
 
 First, readiness cannot cross the ABI as a call. A channel is usable only once
 its owner can *wait* on it, and that wait is the runtime's own reactor. So every

@@ -53,7 +53,13 @@ pub use session_shared::Caretaker;
 #[cfg(feature = "async")]
 mod host;
 #[cfg(feature = "async")]
+mod trace;
+#[cfg(feature = "async")]
 pub use host::{Host, HostOptions, Resolver};
+#[cfg(feature = "async")]
+pub use trace::{
+	annotate_session, enable_trace, PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink,
+};
 #[cfg(feature = "async")]
 mod trampoline;
 // Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).
@@ -95,7 +101,7 @@ mod host_action_gen;
 #[cfg(feature = "async")]
 pub use dial::{connect, connect_with_timeout, Reachability};
 #[cfg(feature = "iroh")]
-pub use iroh::{listen_iroh, listen_iroh_with_seed, IrohServer};
+pub use iroh::{listen_iroh, listen_iroh_with_seed, IrohConfig, IrohServer};
 
 // Every pancake archive keeps its own thread-local last-error slot (ADR-0059);
 // this macro mints each family's checker/reader pair over its archive's extern
@@ -130,7 +136,8 @@ pub use uri::{
 
 /// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
 pub use abi_constants::{
-	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_TCP, TRANSPORT_TCP,
+	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
 
 mod sys;
@@ -880,6 +887,82 @@ impl Codec {
 	}
 }
 
+/// The CapTP profile a session speaks (ADR-0003). `V1_0` is the interop floor a
+/// Goblins vat and the upstream suite speak; `Next` is the pancake-to-pancake
+/// track that `Offer::native` prefers together with Cap'n Proto. A Host states
+/// its preference in signed locator hints; each session settles the pair with
+/// its partner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CaptpVersion {
+	#[default]
+	V1_0,
+	Next,
+}
+
+impl CaptpVersion {
+	#[cfg(feature = "async")]
+	pub(crate) fn to_c(self) -> u32 {
+		match self {
+			CaptpVersion::V1_0 => sys::CAPTP_V1_0,
+			CaptpVersion::Next => sys::CAPTP_NEXT,
+		}
+	}
+}
+
+/// Optional CapTP features a Host advertises during profile negotiation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeatureSet(u32);
+
+impl FeatureSet {
+	pub const MINIMUM: FeatureSet = FeatureSet(sys::FEATURE_MINIMUM);
+	pub const PIPELINING: FeatureSet = FeatureSet(sys::FEATURE_PIPELINING);
+	pub const HANDOFF: FeatureSet = FeatureSet(sys::FEATURE_HANDOFF);
+	pub const WIRE_DELTA: FeatureSet = FeatureSet(sys::FEATURE_WIRE_DELTA);
+	pub const STURDYREF: FeatureSet = FeatureSet(sys::FEATURE_STURDYREF);
+	pub const FULL: FeatureSet = FeatureSet(sys::FEATURE_FULL);
+
+	pub const fn from_bits(bits: u32) -> Option<FeatureSet> {
+		if bits & !sys::FEATURE_FULL == 0 {
+			Some(FeatureSet(bits))
+		} else {
+			None
+		}
+	}
+
+	pub const fn bits(self) -> u32 {
+		self.0
+	}
+
+	pub const fn contains(self, feature: FeatureSet) -> bool {
+		(self.0 & feature.0) == feature.0
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) const fn to_c(self) -> u32 {
+		self.0
+	}
+}
+
+impl core::ops::BitOr for FeatureSet {
+	type Output = FeatureSet;
+
+	fn bitor(self, rhs: FeatureSet) -> FeatureSet {
+		FeatureSet(self.0 | rhs.0)
+	}
+}
+
+impl core::ops::BitOrAssign for FeatureSet {
+	fn bitor_assign(&mut self, rhs: FeatureSet) {
+		self.0 |= rhs.0;
+	}
+}
+
+impl Default for FeatureSet {
+	fn default() -> Self {
+		FeatureSet::FULL
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -942,6 +1025,22 @@ mod tests {
 	fn reports_a_nonzero_abi_version() {
 		let (major, minor, patch) = abi_version();
 		assert!(major + minor + patch > 0);
+	}
+
+	#[test]
+	fn feature_sets_compose_as_masks() {
+		let mut features = FeatureSet::PIPELINING | FeatureSet::HANDOFF;
+		assert!(features.contains(FeatureSet::PIPELINING));
+		assert!(features.contains(FeatureSet::HANDOFF));
+		assert!(!features.contains(FeatureSet::STURDYREF));
+
+		features |= FeatureSet::WIRE_DELTA;
+		assert_eq!(
+			features.bits(),
+			(sys::FEATURE_PIPELINING | sys::FEATURE_HANDOFF | sys::FEATURE_WIRE_DELTA)
+		);
+		assert_eq!(FeatureSet::from_bits(features.bits()), Some(features));
+		assert_eq!(FeatureSet::from_bits(sys::FEATURE_FULL | 0x100), None);
 	}
 
 	// A marshalled argument round-trips through the C layout: the send arena

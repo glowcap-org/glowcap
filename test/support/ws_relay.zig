@@ -15,6 +15,7 @@ const pancake = @import("pancake");
 
 const keyed_relay = pancake.net.keyed_relay;
 const Io = std.Io;
+const ip = Io.net;
 
 /// The relay never re-frames more than this per frame; a test frame larger
 /// than the cap is a test bug, refused loudly.
@@ -158,15 +159,19 @@ pub fn writeServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const 
 }
 
 /// Pump frames from `src` to `dst` until `src` closes (a close frame or EOF),
-/// then close-frame `dst`. Data frames re-frame unmasked; pings are answered
-/// on `src` itself, as the relay runtime would.
+/// then close-frame `dst`. Data frames re-frame unmasked and are followed by a
+/// ping, exercising the client's byte-stream behavior across buffered control
+/// frames. Pings from `src` are answered in place, as the relay runtime would.
 pub fn bridgeDirection(src: *Leg, dst: *Leg, allocator: std.mem.Allocator) !void {
     const payload_buf = try allocator.alloc(u8, max_frame_payload);
     defer allocator.free(payload_buf);
     while (true) {
         const frame = readClientFrame(src, payload_buf) catch break;
         switch (frame.opcode) {
-            .binary, .continuation => writeServerFrame(dst, .binary, frame.payload) catch break,
+            .binary, .continuation => {
+                writeServerFrame(dst, .binary, frame.payload) catch break;
+                writeServerFrame(dst, .ping, "hb") catch break;
+            },
             .ping => writeServerFrame(src, .pong, frame.payload) catch break,
             .pong => {},
             .close => break,
@@ -174,4 +179,35 @@ pub fn bridgeDirection(src: *Leg, dst: *Leg, allocator: std.mem.Allocator) !void
         }
     }
     writeServerFrame(dst, .close, &.{}) catch {};
+}
+
+/// Accept one registration leg and one rendezvous leg, assert they name the
+/// same key, then bridge bytes between them until either side closes.
+pub fn bridgeOneRendezvous(io: Io, server: *ip.Server, allocator: std.mem.Allocator) !void {
+    var reg: Leg = .{ .stream = try server.accept(io), .io = io };
+    reg.wire();
+    defer reg.close();
+    try serveUpgrade(&reg);
+    try std.testing.expect(std.mem.startsWith(u8, reg.target, "/register?id="));
+    const reg_id = reg.target["/register?id=".len..];
+
+    // Ping the parked registration; a proper keyed-relay listener answers
+    // control frames while waiting for a dialer's bytes.
+    try writeServerFrame(&reg, .ping, "hb");
+    var pong_buf: [16]u8 = undefined;
+    const pong = try readClientFrame(&reg, &pong_buf);
+    try std.testing.expectEqual(keyed_relay.Opcode.pong, pong.opcode);
+    try std.testing.expectEqualStrings("hb", pong.payload);
+
+    var dial: Leg = .{ .stream = try server.accept(io), .io = io };
+    dial.wire();
+    defer dial.close();
+    try serveUpgrade(&dial);
+    try std.testing.expect(std.mem.startsWith(u8, dial.target, "/relay?rendezvous="));
+    try std.testing.expectEqualStrings(reg_id, dial.target["/relay?rendezvous=".len..]);
+
+    var to_reg = try io.concurrent(bridgeDirection, .{ &dial, &reg, allocator });
+    var to_dial = try io.concurrent(bridgeDirection, .{ &reg, &dial, allocator });
+    to_reg.await(io) catch {};
+    to_dial.await(io) catch {};
 }

@@ -32,7 +32,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 insert_bindings_path()
 
 from pancake import TRANSPORT_IROH, connect, format_peer_uri  # noqa: E402
-from pancake.iroh import Reachability, listen_iroh  # noqa: E402
+from pancake.iroh import IrohConfig, Reachability, listen_iroh  # noqa: E402
 
 # Concurrent connections, each served on the one server loop; calls each makes
 # before closing, several turns per connection so the proof is sustained
@@ -77,7 +77,7 @@ async def _client_once(server_id: str) -> None:
 
 
 async def main() -> None:
-    server = listen_iroh(Reachability.LOCAL_DISCOVERY)
+    server = listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
     server_id = server.node_id
     print(f"python-iroh-loop: server endpoint id {server_id}")
 

@@ -2,21 +2,27 @@
 
 Most applications use `driver.Session`, a view onto one connection owned by a
 `driver.PollHost`. It presents fetch, call, publish, and handoff as ordinary
-operations. The runtime ownership and protocol layers are separate views:
+operations. A process may own many Hosts. Each Host is an independent CapTP
+endpoint with one Node and one Vat:
 
 ```text
-Host: identity, routing, sessions
-├── one Vat: actors, state, turns
-└── sessions
+process
+└── Hosts
+    ├── one Node: identity, routing, advertised locators
+    ├── one Vat: actors, state, turns
+    └── sessions
     └── Port: that session's projection and ingress
         └── Peer: that session's CapTP state
 ```
 
-A Host and a Vat are not aliases. The Host owns network identity and routing;
-the Vat it owns supplies one actor graph and scheduler. Each session's Port
-projects that graph into session-local export positions and attributes inbound
-work to its own ingress. `engine.Peer` remains the protocol state for one
-session.
+A Host is the runtime and application facade around those parts. Its Node owns
+protocol-wide identity, cross-session routing, and one advertised locator per
+transport, with one selected as the acceptable location independently of the
+current session transport. Its Vat supplies one actor graph and scheduler.
+Each session's Port projects that graph into session-local export positions and
+attributes inbound work to its own ingress. `engine.Peer` remains the protocol
+state for one session. Creating another Host creates another Node and Vat, so
+one process can serve multiple independent endpoints.
 
 The layers below separate protocol decisions from encoding, I/O, and
 application scheduling.
@@ -71,7 +77,7 @@ embedding pancake behind another runtime. Most Zig programs start higher.
 | `driver.Session` | You want one owned connection and blocking application calls. Handoffs are redeemed before a call returns. |
 | `driver.PollHost` | You want one identity across several file-descriptor-backed sessions. |
 | `driver.BlockingSession` | You own the connection and buffers and want the lower-level blocking path, or your transport has no pollable descriptor (an in-process pipe, a WebRTC peer) so `PollHost` cannot wait on it. Values are the actor layer's own references and messages rather than opaque host capabilities, and a call may return a handoff for you to redeem. |
-| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own its I/O. This is the core exposed to bindings. |
+| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own its I/O. This is the core exposed to bindings. Inside the library it is one type implemented across responsibility-named files (sessions, vows, enlivenment, handoff, publication, the action queue), so each concern reads on its own. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
 The actor layer sits between the protocol peer and these application APIs.
@@ -94,9 +100,13 @@ identity but does not own a queue
 
 ## Transports and connection loops
 
-The `net` layer turns a byte stream into complete frames. Its transport
-implementations are plain TCP, keyed TCP, in-process pipes, iroh, and WebRTC.
-The protocol above sees the same `Connection` contract for each one.
+The `net` layer turns a byte stream into complete frames. Each byte-stream
+message is a bare negotiated-codec frame inside one outer Syrup byte string;
+the outer length supplies the boundary and the inner codec must consume the
+body exactly. A transport that already preserves message boundaries hands bare
+frames to the whole-frame API instead. The transport implementations are plain
+TCP, keyed TCP, keyed relay, in-process pipes, iroh, and WebRTC
+([ADR-0110](decisions/adr/ADR-0110-byte-stream-message-envelope.md)).
 
 Inbound frames have a size limit. A frame larger than the current read buffer
 uses one bounded spill buffer rather than forcing every connection to retain a
@@ -109,10 +119,14 @@ owns one sidecar runtime and readiness fd shared by stable endpoint-scoped peer
 ids. Peer creation and SDP/ICE submissions are synchronous control operations;
 after submission, channel establishment, candidates, byte I/O, and closure are
 readiness events with non-blocking try-I/O. The explicit blocking connection is
-the `BlockingSession` tier, not the scale path. The generic Host adapter which
-binds those peer events to sessions is not built. Crossed connections, where
-both peers dial at once, are resolved by the host because the choice depends on
-peer identity rather than transport mechanics.
+the `BlockingSession` tier. The scale path is
+`completion.Loop(webrtc.Backend)` under `driver.Bridge`: it adopts signaled
+peers and dials through a configured `SignalingAuthority`
+(`zig build webrtc-loop`; three-party redeem is
+`zig build webrtc-bridge-redeem`). A bare locator without that authority still
+refuses. Crossed connections, where both peers dial at once, are resolved by
+the host because the choice depends on peer identity rather than transport
+mechanics.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.

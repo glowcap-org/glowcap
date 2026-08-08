@@ -8,11 +8,16 @@
 // render — so a remount, StrictMode's double pass, or an error boundary catching
 // a crash never disturbs a live conversation. Nothing below reaches into the
 // tree, and nothing in the tree reaches into the session.
+//
+// One thing ends here. The screen page.html has been holding up since the first
+// parse is handed over by `boot.ts`, and that call comes last, because reaching
+// it is also how this module reports that the bundle arrived at all.
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
+import { handOffWhenReady } from "./boot.ts";
 import * as net from "./net.ts";
 import * as store from "./store.ts";
 import { type Peer, PeerProvider } from "./peer.ts";
@@ -66,3 +71,5 @@ createRoot(mount, {
 );
 
 net.connect();
+
+handOffWhenReady();

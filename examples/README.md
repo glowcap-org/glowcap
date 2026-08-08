@@ -41,8 +41,8 @@ The demos start their own server on an available port. Pass `-Dport=9099` to
 choose one. Rooms, tasks, and tools also accept `-Dattach=true` when you want
 their clients to join a server you started separately.
 
-Optional language runtimes are used when present and reported as skipped when
-absent. Each application's README has its standalone commands.
+Missing optional language runtimes are reported as skipped. Each application's
+README has its standalone commands.
 
 ## Small mechanics
 
@@ -55,15 +55,10 @@ absent. Each application's README has its standalone commands.
 
 ## C examples
 
-If you are using the C ABI, begin with
-[`host_embedder_pump.c`](c/host_embedder_pump.c). It drives the sole C CapTP
-application surface, `PancakeHost`, through a complete in-memory conversation.
-
-The other program isolates frame ownership:
-
-- [`frame_view.c`](c/frame_view.c) covers owned frames and borrowed views;
-- [`host_embedder_pump.c`](c/host_embedder_pump.c) shows the feed, drain,
-  refusal, and EOF sequence used by language bindings.
+- [`host_embedder_pump.c`](c/host_embedder_pump.c) drives the sole C CapTP
+  application surface, `PancakeHost`, through a complete in-memory conversation:
+  feed, drain, refusal, and EOF, as language bindings do.
+- [`frame_view.c`](c/frame_view.c) covers owned frames and borrowed views.
 
 The [C guide](../docs/consuming-from-c.md) explains which API and libraries to
 choose before you adapt one of these programs.

@@ -19,6 +19,20 @@
     }
   },
   "remoteUser": "vscode",
+  // Ports the rooms workflow needs reachable from the host, because the viewer
+  // usually runs there while the server runs in here. Declared rather than left
+  // to auto-detection: a forward the editor guessed at disappears when it stops
+  // noticing the listener, and `apps/rooms/developing.md` tells a reader to point
+  // ocapnviz at `ws://127.0.0.1:9300/`, which is an instruction that has to keep
+  // working. `onAutoForward: "silent"` because a browser opening itself on a
+  // WebSocket endpoint is noise.
+  "forwardPorts": [8000, 9099, 9200, 9300],
+  "portsAttributes": {
+    "8000": { "label": "rooms web page", "onAutoForward": "notify" },
+    "9099": { "label": "rooms CapTP (clients dial this)", "onAutoForward": "silent" },
+    "9200": { "label": "rooms relay TCP peer", "onAutoForward": "silent" },
+    "9300": { "label": "rooms live trace (ocapnviz Live feed)", "onAutoForward": "silent" }
+  },
   "containerEnv": {
     "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
     "CARGO_HOME": "/home/vscode/.cargo",
@@ -26,6 +40,7 @@
     "DENO_DIR": "/home/vscode/.cache/deno",
     "npm_config_cache": "/home/vscode/.cache/npm",
     "PIP_CACHE_DIR": "/home/vscode/.cache/pip",
+    "PLAYWRIGHT_BROWSERS_PATH": "/usr/local/share/ms-playwright",
     "PLTUSERHOME": "/opt/pancake-racket-userhome",
     "RUSTUP_HOME": "/usr/local/rustup",
     "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/zig"

@@ -10,7 +10,7 @@ more ways to reach a peer.
 | 2. Performance at scale | In progress. Memory and latency budgets run on every push; 500,000 live socket sessions have not been measured. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. Four bindings consume the generated C ABI and talk to Goblins. |
-| 5. Transport reachability | In progress. Five transports exist; platform, WebRTC, and cold-dial work remains. |
+| 5. Transport reachability | In progress. Six transports exist; platform and cold-dial work remains. |
 
 [The vision](vision.md) defines the destination. [What ships](shipped.md) is
 the current inventory, and the [roadmap](roadmap.md) lists the unfinished work.
@@ -37,10 +37,13 @@ answer release have in-tree coverage. Each language binding also acts as a
 Goblins client, recipient, and gifter.
 
 This milestone remains open because some implemented behavior has only in-tree
-evidence. Goblins does not exercise pancake's projection responders in every
-direction, send a live one-way `tell`, or speak over iroh. Null and live
-`op:untag` also wait on upstream support. [Community review](community-review.md)
-has the exact matrix.
+or on-demand evidence. Goblins-written `op:get` / `op:index` frames reach
+pancake's projection responders, and the Goblins-side netlayer probe observes
+pancake fulfilling both projected answers with the expected payloads. Live
+Goblins-over-iroh covers sessions both ways (`goblins-iroh`) and one
+exporter-role rooms handoff (`goblins-rooms-dm-iroh`); the other two handoff
+roles stay TCP-only. Null and live `op:untag` also wait on upstream support.
+[Community review](community-review.md) has the exact matrix.
 
 ## 2. Performance at scale
 
@@ -52,7 +55,7 @@ explicitly:
 
 | Cost | Checked limit |
 | --- | --- |
-| `engine.Peer` inline state | at most 1104 bytes |
+| `engine.Peer` inline state | at most 1112 bytes |
 | Warm protocol state | at most 2 KiB |
 | Completion-loop slot beyond its embedded peer | exactly 128 bytes |
 | Host session shell | at most 496 bytes |
@@ -100,18 +103,17 @@ Goblins currently dials only the TypeScript binding in CI.
 
 ## 5. Transport reachability
 
-The transport contract supports plain TCP, keyed TCP, in-process pipes, iroh,
-and WebRTC. TCP, iroh, and WebRTC have Host completion-loop integrations; the
-WebRTC one adopts signaled peers and dials through a configured signaling
-authority (`zig build webrtc-loop` is its live check).
+The transport contract supports plain TCP, keyed TCP, keyed relay, in-process
+pipes, iroh, and WebRTC. TCP, iroh, and WebRTC have Host completion-loop
+integrations. The WebRTC one adopts signaled peers and dials through a
+configured signaling authority (`zig build webrtc-loop`). Native three-party
+redeem over a bare `webrtc` give is proved by `zig build webrtc-bridge-redeem`.
 
 The remaining work is about reach and operating systems rather than another
 protocol core:
 
 - run the macOS backend instead of only compiling it;
 - add a Windows completion backend;
-- prove the native three-party redeem over WebRTC (the loop adapter and dial
-  arm exist; the live give-redeem check does not);
 - let native peers find browsers and let browsers cross relay boundaries;
 - complete the live 500,000-session measurement.
 

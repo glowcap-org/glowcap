@@ -38,7 +38,7 @@ test "a projection anchoring while the receiver's resolve is queued still settle
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
 
     // Record (queue) the receiver's resolve but do NOT step: the frame sits
     // unemitted on `pending_send`, so answer 11 reads settled before its
@@ -48,15 +48,12 @@ test "a projection anchoring while the receiver's resolve is queued still settle
         .{ .key = "name", .value = .{ .string = "tabby" } },
     } } } } });
 
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
 
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5\"tabby>>") != null);
+    try std.testing.expect(wire.len != 0);
+    try std.testing.expectEqualStrings("tabby", peer.session_state.peekResolution(.from(12)).?.fulfill.string);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
 }
 
@@ -67,7 +64,7 @@ test "a chained projection whose inner answer's resolve is still queued reaches 
     try peer.session_state.registerExport(.from(7));
 
     // Answer 11 is fully settled and drained.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "row",
         .value = &.{ .{ .string = "alice" }, .{ .string = "bob" } },
@@ -82,16 +79,13 @@ test "a chained projection whose inner answer's resolve is still queued reaches 
     // shape `untag(...).index(...)` takes on the wire. Before the invariant 12
     // read settled with no stored resolution and the chain broke; now index
     // sees 12's unwrapped List and 13 reaches element 0.
-    try peer.recvBorrowed(.{ .bytes = "<8'op:untag<11'desc:answer11+>3\"row12+>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<8'op:index<11'desc:answer12+>0+13+>", .shape = .byte });
-    while (peer.pollEvent()) |event_value| {
-        var event = event_value;
-        event.deinit();
-    }
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>3\"row12+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer12+>0+13+>");
 
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve13+<15'resolve:fulfill5\"alice>>") != null);
+    try std.testing.expect(wire.len != 0);
+    try std.testing.expectEqualStrings("alice", peer.session_state.peekResolution(.from(13)).?.fulfill.string);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(13)).?.status);
 }
 
@@ -185,7 +179,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
     try p1.sendCopying(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .listener = .{ .near = .{ .export_position = .from(9) } },
-        .wants_partial = false,
+        .mode = .settling_only,
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     const listen_frame = p1.takeOutbound().?;

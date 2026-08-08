@@ -28,7 +28,8 @@
          goblins/actor-lib/sync-pr
          goblins/ocapn/structs-urls
          (submod goblins/ocapn/structs-urls marshall)
-         goblins/ocapn/netlayer/utils/read-write-procs
+         "captp-message-procs.rkt"
+         "session-trace.rkt"
          racket/async-channel
          racket/match
          racket/tcp
@@ -69,6 +70,28 @@
 ;; draft's mapping shape; an advertised mapping hint must be exactly what a
 ;; decoded hello would hold, so the hinted location is built through the
 ;; unmarshaller's own constructor.
+;;
+;; Optional `#:session-trace sink` — a `(lambda (event handle info) ...)` called
+;; with the CapTP session facts this netlayer observes at the wire:
+;;
+;;   (sink 'open handle info)
+;;       — a session finished its handshake. `info` is an immutable hash
+;;         carrying `'transport`, `'our-designator`, `'partner-designator`,
+;;         `'session-id`, `'captp-version`, `'codec` and
+;;         `'durable-provenance`.
+;;   (sink 'close handle #f)
+;;       — that session ended. Only sessions whose open was reported.
+;;
+;; `handle` is this netlayer's own name for the session and is meaningful to
+;; nobody else; a sink that publishes correlates on the Session ID in `info`,
+;; which both ends of the session derive alike. The default is #f, and with no
+;; sink the wire path is untouched.
+;;
+;; Optional `#:interop-message-sink sink` — test-only observation of decoded
+;; inbound CapTP records before this netlayer hands them to Goblins. This is not
+;; an application API; it exists so pancake's interop probes can prove a
+;; canonical Goblins-written frame caused the partner's semantic response even
+;; where the pinned Goblins release has no public API for creating that request.
 (define make-wire-ocapn-node (cdr unmarshall::ocapn-node))
 
 (define (^tcp-netlayer _bcom
@@ -76,30 +99,47 @@
                        listen-port
                        [announce-host listen-host]
                        #:trace [trace-fn void]
-                       #:location-hints [location-hints #f])
+                       #:location-hints [location-hints #f]
+                       #:session-trace [session-trace #f]
+                       #:interop-message-sink [interop-message-sink #f])
+  ;; The bind happens here, on the caller's thread, so returning from the
+  ;; constructor means the port is listening and a dial lands in its backlog.
+  ;; Anything later — `setup`, the accept thread below — leaves a window where a
+  ;; host has printed `vat-ready` and a peer has been handed a locator naming
+  ;; this vat while nothing is bound, and the dial fails with connection
+  ;; refused. It is also the only place the ephemeral port below can be read.
+  (define listener (tcp-listen listen-port 5 #t listen-host))
+
+  ;; The port the OS bound. `listen-port` may be 0, which asks for an ephemeral
+  ;; one, and the announced location has to name the port a dialer can reach.
+  (define bound-port
+    (let-values ([(_host port _remote-host _remote-port) (tcp-addresses listener #t)])
+      port))
+
+  ;; What this netlayer calls itself. A `tcp` locator's designator is the
+  ;; address a peer dials to reach it, and this netlayer carries one peer per
+  ;; socket, so the designator names the peer as much as the route: a session
+  ;; trace reports it as this vat's own endpoint, and a partner reaching this
+  ;; vat reaches it by the same string. It is a claim rather than a proof. An
+  ;; address is not a key, and nothing on this path authenticates a durable
+  ;; name, which is why a session opened over it reports its provenance as
+  ;; unauthenticated.
+  (define our-designator (format "~a:~a" announce-host bound-port))
   (define our-location
     (if location-hints
-        (make-wire-ocapn-node 'tcp (format "~a:~a" announce-host listen-port) location-hints)
-        (ocapn-node 'tcp (format "~a:~a" announce-host listen-port) #f)))
+        (make-wire-ocapn-node 'tcp our-designator location-hints)
+        (ocapn-node 'tcp our-designator #f)))
 
-  ;; Channel that the listener thread pushes new (input-port . output-port)
+  ;; Channel that the accept thread pushes new (input-port . output-port)
   ;; pairs onto. The Goblins netlayer body reads from it via sync/pr.
   (define new-conn-ch (make-async-channel))
 
-  ;; Background listener thread. Spritely's fake-intarwebs gets new
-  ;; connections from a `network` actor; we get them from the OS via
-  ;; `tcp-listen`/`tcp-accept`. The thread runs once `setup` is called
-  ;; and lives for the netlayer's lifetime.
-  ;;
-  ;; `tcp-listen` runs here, on the caller's thread, not inside the thread
-  ;; below: returning from `setup` then means the port is accepting. Binding
-  ;; inside the thread made readiness a lie — a host could print `vat-ready`,
-  ;; and a peer could be handed a locator naming this vat, before anything was
-  ;; listening, so a dial raced the bind and failed with connection refused.
-  ;; That is the whole of the intermittent handoff failure: a give named an
-  ;; exporter whose listener had not bound yet.
+  ;; Background accept thread. Spritely's fake-intarwebs gets new connections
+  ;; from a `network` actor; we take them from the OS with `tcp-accept` on the
+  ;; listener the constructor already bound. The thread starts when `setup` is
+  ;; called and lives for the netlayer's lifetime; until then a dialer waits in
+  ;; the backlog rather than being refused.
   (define (start-tcp-listener)
-    (define listener (tcp-listen listen-port 5 #t listen-host))
     (thread
      (lambda ()
        (let loop ()
@@ -107,6 +147,24 @@
          (trace-fn 'accept our-location)
          (async-channel-put new-conn-ch (vector in out))
          (loop)))))
+
+  ;; The message procs one connection runs on, traced when a sink was given.
+  ;; A `tcp` locator designates a socket address rather than a key, and nothing
+  ;; on this path authenticates a durable name, so every session over it reports
+  ;; its provenance as unauthenticated whatever the partner claims.
+  (define (connection-procs in out)
+    (define-values (read-message write-message) (captp-message-procs in out))
+    (define (observed-read-message unmarshallers)
+      (define msg (read-message unmarshallers))
+      (when (and interop-message-sink (not (eof-object? msg)))
+        (interop-message-sink msg))
+      msg)
+    (if session-trace
+        (traced-message-procs observed-read-message write-message session-trace
+                              #:transport "tcp"
+                              #:our-designator our-designator
+                              #:provenance (lambda (_claimed) provenance-unauthenticated))
+        (values observed-read-message write-message)))
 
   (define (register-captp-writer write-message)
     (set-box! interop-captp-writer write-message))
@@ -117,7 +175,7 @@
           (match-lambda
             [(list (vector ip op))
              (define-values (read-message write-message)
-               (read-write-procs ip op))
+               (connection-procs ip op))
              (register-captp-writer write-message)
              (<- conn-establisher read-message write-message #f)])
           #:finally listen-loop)))
@@ -134,7 +192,7 @@
        [(netlayer-name) 'tcp]
        [(our-location) our-location]))
 
-    ;; Pre-setup: waits for `setup` to start the listener thread and
+    ;; Pre-setup: waits for `setup` to start the accept thread and
     ;; transition into the ready behavior.
     (define pre-setup-beh
       (methods
@@ -163,7 +221,7 @@
            (define-values (host port) (split-host-port designator))
            (define-values (in out) (tcp-connect host port))
            (define-values (read-message write-message)
-             (read-write-procs in out))
+             (connection-procs in out))
            (register-captp-writer write-message)
            (<- conn-establisher read-message write-message remote-node)])]
        ;; Interop-only: write a CapTP record on the active session. Used when

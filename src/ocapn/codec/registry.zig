@@ -7,9 +7,13 @@
 //! no runtime indirection — a third codec costs nothing the two built-ins
 //! didn't (ADR-0026).
 //!
+//! `framePrefix` is the profile-less structural parser: it returns only a frame
+//! boundary. `decodePrefixForProfile` returns the projected body once a session
+//! knows which CapTP semantics apply.
+//!
 //! A codec is identified on the wire by its `model.CodecId` (a stable `u16`).
 //! A `Spec` binds that id to the codec's frame shape and its implementation
-//! module — any type exposing `decodeBody`, `decodePrefix`,
+//! module — any type exposing `decodeBody`, `decodePrefix`, `framePrefix`,
 //! `encodeMessageForProfile`, and an `Error` set, exactly the shape `syrup` and
 //! `capnp` already have.
 //!
@@ -38,7 +42,7 @@ pub const Spec = struct {
     id: model.CodecId,
     /// `.byte` for a self-delimiting byte stream, `.word` for 8-byte-aligned.
     frame_shape: foundation.FrameShape,
-    /// The implementation: a type with `decodeBody` / `decodePrefix` /
+    /// The implementation: a type with `decodeBody` / `decodePrefix` / `framePrefix` /
     /// `encodeMessageForProfile` / `Error`, and optionally `scanStream` (see
     /// the module header — omit it only if frame length is computable up front).
     module: type,
@@ -79,7 +83,7 @@ comptime {
     for (active) |spec| {
         const M = spec.module;
         const name = @typeName(M);
-        for ([_][]const u8{ "decodeBody", "decodePrefix", "encodeMessageForProfile", "Error", "self_delimiting" }) |member| {
+        for ([_][]const u8{ "decodeBody", "decodeBodyForProfile", "decodePrefix", "decodePrefixForProfile", "framePrefix", "encodeMessageForProfile", "Error", "self_delimiting" }) |member| {
             if (!@hasDecl(M, member))
                 @compileError("codec module " ++ name ++ " is missing `" ++ member ++ "` (see registry.Spec.module)");
         }

@@ -65,3 +65,12 @@ goes red on work you are landing:
 
 Reporting the defect honestly instead of fixing it is not an exception to this.
 An accurate description of an unfixed thing is still an unfixed thing.
+
+Neither is handing the decision to the human. A question whose answer these
+rules already give is a deferral with a second signature on it, and it is the
+easiest one to mistake for diligence, because asking feels like respect. "It
+would touch a shared type," "its ADR would need re-deriving," and "another
+session is working in this tree" are the waived costs above and a tooling
+problem, not grounds to ask. Ask when the answer turns on something only they
+know: a product call, a priority, an outside commitment. Otherwise re-derive it,
+do it, and say what you decided and why.

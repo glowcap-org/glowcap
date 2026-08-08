@@ -25,7 +25,7 @@
 //
 // Needs deno, the probe binary (`zig build webrtc-lib`, or `cargo build
 // --release` in transports/webrtc), and a Playwright Chromium
-// (`npx playwright install chromium && sudo npx playwright install-deps`). Run
+// (the devcontainer image ships one). Run
 // directly: `deno run --allow-all transports/webrtc/test/datachannel_roundtrip_test.ts`.
 
 import { chromium } from "playwright";

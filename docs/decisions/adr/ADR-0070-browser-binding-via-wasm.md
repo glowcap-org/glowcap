@@ -11,12 +11,11 @@ superseded_by: []
 # ADR-0070 Browser binding via WebAssembly
 
 > **Current standing.** The WebAssembly Host, WebSocket channel, browser and
-> native WebRTC DataChannel arms, and capability-carried signaling scenarios
-> have landed. ADR-0072 and ADR-0079 replaced the `Peer` / `Node` binding names
-> below with `Host` / `Session`. ADR-0089 supplies Milestone 2's transport, but
-> generic Host adoption and three-party redemption over that transport remain
-> open. Signaling through a capability is one prerequisite for redemption; it
-> is not itself a completed handoff.
+> native WebRTC DataChannel arms, capability-carried signaling, generic Host
+> adoption, and three-party redemption over WebRTC have landed (ADR-0089;
+> `webrtc-loop`, `webrtc-bridge-redeem`, `rooms-web-dm-webrtc`). ADR-0072 and
+> ADR-0079 replaced the `Peer` / `Node` binding names below with `Host` /
+> `Session`.
 
 ## Context
 
@@ -75,8 +74,11 @@ proved end to end by `zig build web-peer-test`.
 ADR-0089's DataChannel and signaling portions of Milestone 2 have also landed.
 The browser and native arms establish direct channels after signaling, and a
 shared native endpoint reports peer events through one readiness descriptor.
-Standalone rendezvous, generic Host adoption, and handoff redemption remain in
-[`docs/roadmap.md`](../../roadmap.md).
+Generic Host adoption and three-party redeem over WebRTC ship with that ADR
+(`webrtc-loop`, `webrtc-bridge-redeem`); cross-relay cold dial and bare-locator
+dial without configured signaling remain documented boundaries in
+[`docs/roadmap.md`](../../roadmap.md) and
+[`docs/boundaries.md`](../../boundaries.md).
 
 The Decision above predates the byte-fed Host consolidation (ADR-0072,
 ADR-0079): the wasm target is now `libpancake_driver` rather than the
@@ -111,8 +113,8 @@ is unchanged — one FFI boundary swapped for a WebAssembly instance.
   (Milestone 2), added as `net.netlayer.Netlayer` residents the way iroh was
   (ADR-0055), with no core or session edit.
 - At Milestone 1 the rooms `serve.ts` bridge retires. Milestone 2 supplies the
-  direct keyed browser-to-browser session and signaling capability; composing
-  those with generic Host handoff redemption remains separate work in ADR-0089.
+  direct keyed browser-to-browser session, signaling capability, and generic
+  Host handoff redemption (ADR-0089).
 
 ## Forward compatibility
 

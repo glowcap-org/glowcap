@@ -37,7 +37,6 @@ pub fn freeMessage(allocator: std.mem.Allocator, message: model.Message) void {
             allocator.free(gc_export.deltas);
         },
         .gc_answer => |gc_answer| allocator.free(gc_answer.positions),
-        .handoff => |handoff| freeHandoff(allocator, handoff),
         .start_session => |start_session| {
             allocator.free(start_session.session_pubkey.bytes);
             freePeerLocator(allocator, start_session.acceptable_location);
@@ -53,6 +52,10 @@ pub fn freeMessage(allocator: std.mem.Allocator, message: model.Message) void {
         },
         .index => |index| {
             freeReference(allocator, index.receiver);
+            switch (index.index) {
+                .integer => {},
+                .big_integer => |big| allocator.free(big.digits),
+            }
         },
         .untag => |untag| {
             freeReference(allocator, untag.receiver);

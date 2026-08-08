@@ -52,6 +52,52 @@ const ALPN: &[u8] = b"ocapn/pancake/1";
 /// failed dial from hanging a gate or a caller.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The connection-level idle timeout when the caller names none. What the
+/// setting is for is documented once, on the C ABI's `PancakeIrohConfig`; this
+/// is why the default is what it is.
+///
+/// iroh sends keep-alives and bounds an individual *path* at fifteen seconds,
+/// but leaves the connection-level timeout to its own default, which measured
+/// at about thirty-three seconds end to end. Fifteen matches the path bound
+/// iroh itself chose rather than inventing a number.
+const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// How often iroh sends a keep-alive by default, mirrored here because the
+/// heartbeat has to be chosen against the idle timeout and the two live in
+/// different crates. Reading it wrong costs a keep-alive that is too slow for
+/// the timeout beside it, so it is stated rather than assumed.
+const IROH_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Worker threads for one endpoint's runtime when the caller names none. It is a
+/// per-endpoint cost, so a process holding many endpoints, or one endpoint
+/// holding many connections, should say what it wants instead.
+const WORKER_THREADS: usize = 2;
+
+/// One endpoint's configuration, passed by pointer rather than spread across
+/// positional arguments.
+///
+/// Every layer above this one already carries a config object: the Zig
+/// resident's `Resident.Config` and the C ABI's `PancakeIrohConfig`. This is
+/// the layer that was still counting arguments, and each new endpoint knob was
+/// widening a signature that four call sites and an `extern fn` declaration had
+/// to agree on. A struct means the next one is a field.
+///
+/// Zero means "no opinion" for both timeouts, which is what a caller that fills
+/// only `reachability` gets from a zeroed struct.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeIrohEndpointConfig {
+	/// One of `PANCAKE_IROH_REACH_*`. Mandatory; an unknown value is refused.
+	pub reachability: u32,
+	/// Stream-establishment deadline in milliseconds, 0 for the default.
+	pub connect_timeout_ms: u64,
+	/// How long a connection survives with nothing arriving on it, in
+	/// milliseconds, 0 for the default. See `IDLE_TIMEOUT`.
+	pub idle_timeout_ms: u64,
+	/// Worker threads for this endpoint's runtime; 0 takes `WORKER_THREADS`.
+	pub worker_threads: u32,
+}
+
 /// Reachability postures, chosen explicitly by the caller, with no default. A
 /// pancake peer never enables relays or a discovery service as a
 /// hidden implementation detail; the host decides, in the open, how this
@@ -450,12 +496,25 @@ struct Outbound {
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 	secret_seed32: *const u8,
-	reachability: u32,
-	connect_timeout_ms: u64,
+	config: *const PancakeIrohEndpointConfig,
 ) -> *mut PancakeIrohEndpoint {
+	if config.is_null() {
+		return std::ptr::null_mut();
+	}
+	// Safety: the contract requires a readable config when non-null.
+	let PancakeIrohEndpointConfig {
+		reachability,
+		connect_timeout_ms,
+		idle_timeout_ms,
+		worker_threads,
+	} = unsafe { *config };
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let rt = tokio::runtime::Builder::new_multi_thread()
-			.worker_threads(2)
+			.worker_threads(if worker_threads == 0 {
+				WORKER_THREADS
+			} else {
+				worker_threads as usize
+			})
 			.thread_name("pancake-iroh")
 			.enable_all()
 			.build()
@@ -474,6 +533,36 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 			_ => return None,
 		};
 		builder = builder.alpns(vec![ALPN.to_vec()]);
+		// The connection-level idle timeout, which nothing else sets: iroh's own
+		// defaults cover keep-alives and the per-path bound, and leave this one
+		// to the QUIC stack. It is what decides how long a peer that vanished
+		// keeps its place. 0 is the caller declining to choose.
+		let idle = if idle_timeout_ms == 0 {
+			IDLE_TIMEOUT
+		} else {
+			std::time::Duration::from_millis(idle_timeout_ms)
+		};
+		if let Ok(timeout) = iroh::endpoint::IdleTimeout::try_from(idle) {
+			// Keep-alives are not a second knob, because the two are one
+			// decision. An idle timeout is only honest if packets are still
+			// expected to arrive on a connection nobody is using, and that is
+			// what a keep-alive provides. Exposing both would let a caller set
+			// a timeout shorter than its own heartbeat and drop connections
+			// whose peers are alive and answering.
+			//
+			// So the caller states the one thing it means — how fast a dead
+			// peer should be noticed — and the heartbeat follows it: iroh's
+			// five-second default, or a third of the timeout when the caller
+			// asked for something tighter. A third leaves two heartbeats free
+			// to go missing before a live connection is wrongly declared dead.
+			let heartbeat = std::cmp::min(IROH_HEARTBEAT, idle / 3);
+			builder = builder.transport_config(
+				iroh::endpoint::QuicTransportConfig::builder()
+					.max_idle_timeout(Some(timeout))
+					.keep_alive_interval(heartbeat)
+					.build(),
+			);
+		}
 		if !secret_seed32.is_null() {
 			let mut seed = [0u8; 32];
 			// Safety: the contract requires 32 readable bytes when non-null.
@@ -1469,6 +1558,16 @@ mod tests {
 	use std::net::UdpSocket;
 	use std::time::{Duration, Instant};
 
+	fn direct_endpoint(connect_timeout_ms: u64) -> *mut PancakeIrohEndpoint {
+		let config = PancakeIrohEndpointConfig {
+			reachability: REACH_DIRECT,
+			connect_timeout_ms,
+			idle_timeout_ms: 0,
+			worker_threads: 0,
+		};
+		pancake_iroh_sidecar_endpoint_new(std::ptr::null(), &config)
+	}
+
 	#[test]
 	fn a_full_self_pipe_is_already_a_readable_wakeup() {
 		let readiness = Readiness::new().unwrap();
@@ -1514,7 +1613,7 @@ mod tests {
 
 	#[test]
 	fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
-		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 200);
+		let ep = direct_endpoint(200);
 		assert!(!ep.is_null(), "endpoint_new");
 		let started = Instant::now();
 		let conn = pancake_iroh_sidecar_accept_timeout(ep, 20);
@@ -1565,7 +1664,7 @@ mod tests {
 		let (_black_hole, unreachable_id, hint) = black_hole_target();
 		// 200ms per-endpoint deadline; direct reachability so the dial uses only
 		// our hint (no discovery, no relays), leaving the black hole the sole route.
-		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 200);
+		let ep = direct_endpoint(200);
 		assert!(!ep.is_null(), "endpoint_new");
 
 		let started = Instant::now();
@@ -1613,7 +1712,7 @@ mod tests {
 
 	#[test]
 	fn rejected_connect_owes_no_event() {
-		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 200);
+		let ep = direct_endpoint(200);
 		assert!(!ep.is_null(), "endpoint_new");
 		let invalid = b"not-an-endpoint-id";
 		assert_eq!(
@@ -1641,7 +1740,7 @@ mod tests {
 	#[test]
 	fn canceled_connect_finishes_once() {
 		let (_black_hole, unreachable_id, hint) = black_hole_target();
-		let ep = pancake_iroh_sidecar_endpoint_new(std::ptr::null(), REACH_DIRECT, 5_000);
+		let ep = direct_endpoint(5_000);
 		assert!(!ep.is_null(), "endpoint_new");
 		assert_eq!(
 			pancake_iroh_sidecar_endpoint_start_connect(

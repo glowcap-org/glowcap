@@ -7,7 +7,7 @@
 .draft = false,
 ---
 
-pancake gates the costs it can measure deterministically: allocations, copies,
+The build pins the costs it can measure deterministically: allocations, copies,
 and core state size. The charts are a dated run from one machine, not a
 leaderboard or a promise about your hardware.
 

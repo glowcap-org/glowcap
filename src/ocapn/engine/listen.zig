@@ -1,5 +1,5 @@
-//! Listening on a promise we hold: our side of CapTP `op:listen`, the half
-//! that does no I/O.
+//! Listening on a far reference we hold: our side of CapTP `op:listen`, the
+//! half that does no I/O.
 //!
 //! A partner can hand us a promise, usually a `desc:import-promise` in a
 //! fulfill that an introducing session is proxying for a third party
@@ -17,7 +17,7 @@ const session = @import("session");
 const engine = @import("mod.zig");
 const Peer = engine.Peer;
 
-/// Ask the partner to tell us how the promise at `target` settles, and return
+/// Ask the partner to tell us how `target` settles, and return
 /// the outbound answer its settlement arrives on. Register a listener on that
 /// answer (the vat's far vow, a host vow) to observe it.
 ///
@@ -37,25 +37,60 @@ const Peer = engine.Peer;
 /// otherwise at session teardown; a failed send rolls all three back. The send
 /// itself adds no per-message heap: `sendCopying` clones an `op:listen`'s two
 /// references, and both are position-only.
-pub fn listenOnPromise(peer: *Peer, target: model.Reference) !model.AnswerPosition {
+pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
     const far = switch (target) {
         .far => |far| far,
         .near, .promise, .sturdy, .broken => return session.Error.InvalidReference,
     };
     if (!peer.session_state.holdsImport(far.import_position)) return session.Error.InvalidReference;
+    const is_next_promise = peer.session_state.captp_version == .next;
+    if (is_next_promise and far.kind != .promise) return session.Error.InvalidReference;
 
     const nomination = try peer.session_state.nominateResolverExport();
     errdefer peer.session_state.abandonResolverNomination(nomination);
+    const settling_target = if (is_next_promise)
+        peer.session_state.shortenedPromiseTarget(far.import_position)
+    else
+        far.import_position;
+    if (is_next_promise and !(try peer.session_state.claimPromiseSettlingListener(
+        settling_target,
+        nomination.resolver_export,
+        nomination.answer,
+    )))
+        return session.Error.UnexpectedMessage;
+    errdefer if (is_next_promise)
+        peer.session_state.abandonPromiseSettlingListener(settling_target);
 
     try peer.sendCopying(.{
         .listen = .{
-            .target = target,
+            .target = .{ .far = if (is_next_promise)
+                model.FarRef.promise(settling_target.int())
+            else
+                far },
             // Project the mention from the authoritative slot rather than
             // hand-typing the kind (ADR-0080): the nomination reserved an object
             // row, and the render path reads that row.
             .listener = session.slot.toReference(peer.session_state.exportSlot(nomination.resolver_export).?).?,
-            .wants_partial = false,
+            // Next already installed the one protocol-required shortening
+            // listener when this remote promise arrived. This application
+            // question adds only the one settling listener PR 282 permits.
+            .mode = .settling_only,
         },
     });
     return nomination.answer;
+}
+
+/// Install the protocol-required shortening-only listener for one imported
+/// remote promise. Its resolver is private session maintenance: callbacks are
+/// consumed by inbound dispatch and never mint an application answer.
+pub fn ensureShorteningListener(peer: *Peer, source: model.ImportPosition) !void {
+    if (peer.session_state.captp_version != .next) return;
+    const nomination = (try peer.session_state.nominateShorteningResolver(source)) orelse return;
+    errdefer peer.session_state.abandonShorteningResolver(nomination);
+
+    try peer.send(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(source.int()) },
+        .listener = session.slot.toReference(peer.session_state.exportSlot(nomination.resolver_export).?).?,
+        .mode = .shortening_only,
+    } });
 }

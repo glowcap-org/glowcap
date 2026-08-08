@@ -162,24 +162,27 @@ export class Server extends AcceptLoopServer {
 export function listen(
 	bindHost: string,
 	port: number,
-	host: Host = new Host(),
+	host?: Host,
 	codec?: Codec,
 ): Server {
-	if (codec !== undefined && codec !== host.codec) {
+	if (host != null && codec != null && codec != host.codec) {
 		throw new PancakeError(
 			INVALID_ARGUMENT,
 			`codec "${codec}" conflicts with the host's "${host.codec}"; mint the host with it instead`,
 		);
 	}
+	const listenHost = host ?? new Host(undefined, { codec });
 	const pending = net.listen(bindHost, port).then((listener) => {
 		// This host also dials (the gifter side of a handoff), and its dials sign
 		// the listener's own address so a partner's crossed-hellos table can
 		// recognize it. Prefer the kernel-bound address (IPv6-safe brackets).
 		const la = listener.localAddr();
-		host.setSelfDesignator(socketAddrDesignator(la.hostname, la.port));
+		const designator = socketAddrDesignator(la.hostname, la.port);
+		listenHost.setSelfDesignator(designator);
+		listenHost.setAdvertisedLocator(TRANSPORT_TCP, designator);
 		return listener;
 	});
-	return new Server(pending, host);
+	return new Server(pending, listenHost);
 }
 
 /** A keyed-tcp listening server: TCP sockets under a durable key designator
@@ -223,13 +226,19 @@ export function listenKeyedTcp(
 	seed?: Uint8Array,
 	codec?: Codec,
 ): KeyedTcpServer {
-	if (seed !== undefined && seed.length !== 32) {
+	if (seed != null && seed.length !== 32) {
 		throw new PancakeError(INVALID_ARGUMENT, "listenKeyedTcp: seed must be 32 bytes");
 	}
-	const host = new Host(seed, { codec });
+	const host = new Host(seed ?? undefined, { codec });
 	const designator = host.designator();
 	const pending = net.listen(bindHost, port).then((listener) => {
 		host.setSelfDesignator(designator);
+		const la = listener.localAddr();
+		host.setAdvertisedLocator(
+			TRANSPORT_KEYED_TCP,
+			designator,
+			socketAddrDesignator(la.hostname, la.port),
+		);
 		return listener;
 	});
 	return new KeyedTcpServer(pending, host, designator);

@@ -11,7 +11,7 @@
 //!
 //! ## Usage sequence
 //!
-//! 1. Call `Resident.init()`, register `Resident.readinessFd`, then create a peer
+//! 1. Call `Resident.init`, register `Resident.readinessFd`, then create a peer
 //!    in one signaling role with `resident.newPeer(is_offerer)`.
 //! 2. Submit offers, answers, and remote candidates outside the reactor turn;
 //!    peer creation and signaling submissions are synchronous control calls.
@@ -64,11 +64,6 @@ pub const transport_name = model.transport.webrtc;
 /// resident intentionally exposes no address-based `Netlayer` vtable.
 pub const designator_scheme: net.netlayer.DesignatorScheme = .key;
 
-/// The DataChannel's DTLS handshake, brought up through capability-authorized
-/// signaling, is the layer that proves the peer (ADR-0097): an authenticated
-/// transport, like iroh, never the hello-credential posture.
-pub const authentication: net.netlayer.AuthenticationMechanism = .authenticated_transport;
-
 /// The peer's Ed25519 designator length, the same key width keyed-tcp and iroh
 /// name their peers by.
 pub const designator_len = foundation.crypto.PeerKey.designator_len;
@@ -80,7 +75,17 @@ pub const designator_len = foundation.crypto.PeerKey.designator_len;
 const CPeer = opaque {};
 const CEndpoint = opaque {};
 
-extern fn pancake_webrtc_sidecar_endpoint_new() ?*CEndpoint;
+/// The sidecar's endpoint config, field-for-field with its `#[repr(C)]`
+/// counterpart. Passed by pointer so a new setting is a field here rather than a
+/// wider signature every caller has to agree on.
+const CEndpointConfig = extern struct {
+    ice_servers: ?[*]const u8,
+    ice_servers_len: usize,
+    include_loopback_candidates: u32,
+    worker_threads: u32,
+};
+
+extern fn pancake_webrtc_sidecar_endpoint_new(config: *const CEndpointConfig) ?*CEndpoint;
 extern fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const CEndpoint) i32;
 extern fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
 extern fn pancake_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) void;
@@ -172,7 +177,7 @@ pub const SignalError = error{ SignalFailed, BufferTooSmall };
 /// the channel up, then uses try-I/O or turns it into a blocking `Connection`.
 pub const Peer = struct {
     peer: *CPeer,
-    /// The capability-authorized remote identity (ADR-0097): the Ed25519 key
+    /// The capability-authorized remote identity (ADR-0105): the Ed25519 key
     /// the signaling exchange was scoped to, recorded by `authorizeRemote`
     /// before the channel carries CapTP bytes. Null when the signaling layer
     /// named no peer identity.
@@ -198,16 +203,17 @@ pub const Peer = struct {
     }
 
     /// Record the peer identity this channel's signaling was authorized for
-    /// (ADR-0097). WebRTC's DTLS handshake binds the channel to the SDP
+    /// (ADR-0105). WebRTC's DTLS handshake binds the channel to the SDP
     /// fingerprints the signaling capability ferried, so the identity that
-    /// capability was scoped to is the durable claim this channel may carry;
-    /// `connection` installs it as the pre-feed hello binding
-    /// (`engine.Peer.expectPartnerDurableKey`), on offer and answer legs
-    /// alike. Call before `connection`. A cryptographic
-    /// fingerprint-to-identity attestation surfaced from the sidecar is
-    /// ADR-0097's remaining WebRTC adapter work; until it lands, the
-    /// authorization is the signaling capability's scope, not a sidecar
-    /// proof, and callers that cannot name a peer leave this unset.
+    /// capability was scoped to is the durable claim this channel may carry.
+    /// `connection` hands it to the engine as this realizer's assertion
+    /// (`engine.Peer.bindVerifiedChannelKey`), on offer and answer legs alike.
+    /// Call before `connection`.
+    ///
+    /// What the resident asserts here is the signaling capability's scope, not
+    /// a sidecar proof: binding a cryptographic fingerprint directly to the
+    /// durable identity remains adapter work. A caller that cannot name a peer
+    /// leaves this unset, and the session reports no authenticated identity.
     pub fn authorizeRemote(self: *Peer, key: foundation.crypto.PeerKey) void {
         self.authorized_remote = key;
     }
@@ -295,11 +301,16 @@ pub const Peer = struct {
     /// reading and writing through `io`, with `bufs` sizing its reader and
     /// writer. Call after `checkOpen` succeeds. The connection borrows this
     /// peer's handle and must close before `deinit`.
-    pub fn connection(self: *Peer, io: Io, engine_peer: *engine.Peer, bufs: Buffers) std.mem.Allocator.Error!Connection {
-        // The capability-authorized binding (ADR-0097): installed before any
-        // byte feeds, so the far end's hello may claim the authorized
-        // identity or an address — never someone else's key.
-        if (self.authorized_remote) |key| engine_peer.expectPartnerDurableKey(key, .transport_verified);
+    pub fn connection(
+        self: *Peer,
+        io: Io,
+        engine_peer: *engine.Peer,
+        bufs: Buffers,
+    ) std.mem.Allocator.Error!Connection {
+        // The capability-authorized proof (ADR-0105), installed before any
+        // byte feeds. Only the signaling owner's named identity is evidence,
+        // so a leg whose signaling named nobody asserts nothing here.
+        if (self.authorized_remote) |key| engine_peer.bindVerifiedChannelKey(key);
         const stream = try WebrtcStream.create(
             engine_peer.allocator,
             .{ .peer = self.peer },
@@ -343,9 +354,29 @@ pub const Resident = struct {
 
     pub const InitError = error{EndpointCreateFailed};
 
-    pub fn init() InitError!Resident {
+    /// One endpoint's configuration; the C ABI's `PancakeWebrtcConfig` is the
+    /// authority on what each setting means. A single config so a future
+    /// endpoint setting rides it without growing the constructor's arity.
+    ///
+    /// `include_loopback_candidates` defaults to false, so a peer offers
+    /// loopback only where a caller says it wants it. Two peers in one process
+    /// or on one host need it and say so; a deployment neither needs it nor
+    /// wants to advertise addresses a partner can never use.
+    pub const Config = struct {
+        ice_servers: []const u8 = "",
+        include_loopback_candidates: bool = false,
+        worker_threads: u32 = 0,
+    };
+
+    pub fn init(config: Config) InitError!Resident {
+        const c_config: CEndpointConfig = .{
+            .ice_servers = if (config.ice_servers.len == 0) null else config.ice_servers.ptr,
+            .ice_servers_len = config.ice_servers.len,
+            .include_loopback_candidates = @intFromBool(config.include_loopback_candidates),
+            .worker_threads = config.worker_threads,
+        };
         return .{
-            .endpoint = pancake_webrtc_sidecar_endpoint_new() orelse return error.EndpointCreateFailed,
+            .endpoint = pancake_webrtc_sidecar_endpoint_new(&c_config) orelse return error.EndpointCreateFailed,
         };
     }
 
@@ -626,8 +657,8 @@ pub const Backend = struct {
         var peer = self.resident.newPeer(true) catch return error.ConnectFailed;
         errdefer peer.deinit();
         // The dialed designator is the identity this channel's signaling is
-        // scoped to (ADR-0097): the authenticated-transport binding the bridge
-        // reads back through `remotePartnerKey`.
+        // scoped to (ADR-0105), which is what the bridge reads back through
+        // `verifiedChannelKey` and asserts to the engine.
         peer.authorizeRemote(crypto.PeerKey.fromDesignator(target.designator) orelse
             return error.ConnectFailed);
         var sdp_buf: [signal_frame_cap]u8 = undefined;
@@ -705,10 +736,10 @@ pub const Backend = struct {
     }
 
     /// The signaling-authorized remote identity for `fd`'s connection
-    /// (ADR-0097): the key the exchange was scoped to — the dialed designator
-    /// on the offer leg, the adopted peer's `authorizeRemote` on the answer
-    /// leg. Null when the signaling owner named no identity.
-    pub fn remotePartnerKey(self: *Backend, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+    /// (ADR-0105): the key the exchange was scoped to, which is the dialed
+    /// designator on the offer leg and the adopted peer's `authorizeRemote` on
+    /// the answer leg. Null when the signaling owner named no identity.
+    pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
         const entry = self.conns.getPtr(fd) orelse return null;
         const key = entry.peer.authorized_remote orelse return null;
         return key.bytes;

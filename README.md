@@ -22,9 +22,12 @@ where the name comes from: you can't have pancakes without syrup.
 
 It is a library, not a framework. You link it and manage its memory. The
 protocol core is synchronous and does no I/O of its own; sockets, scheduling,
-and encryption belong to the transport adapters. Plain TCP is cleartext, and
+and encryption belong to the transport adapters. The plain TCP transport below
+is cleartext and authenticates nobody, so use it to learn the API and to talk to
+[Spritely Goblins](https://spritely.institute/goblins/), not to deploy.
 [iroh](https://www.iroh.computer/) carries the same sessions over encrypted
-QUIC. Every place a frame is copied, allocated, or borrowed is visible in the
+QUIC, and [`docs/boundaries.md`](docs/boundaries.md) says what each transport
+proves. Every place a frame is copied, allocated, or borrowed is visible in the
 API.
 
 If capabilities are new to you,
@@ -138,8 +141,7 @@ workflow.
 ## Documentation
 
 Start with [capabilities](docs/capabilities.md) for the concepts or the
-[architecture](docs/architecture.md) for the implementation. The current
-project status is split by question:
+[architecture](docs/architecture.md) for the implementation.
 
 - [What ships](docs/shipped.md) lists the usable surfaces.
 - [Known limitations](docs/boundaries.md) lists deployment and API constraints.

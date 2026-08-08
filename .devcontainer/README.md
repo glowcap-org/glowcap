@@ -1,8 +1,9 @@
 # pancake devcontainer
 
 This is the supported ready-to-build environment for VS Code and Cursor. It
-installs Zig, conformance tools, binding runtimes, and debugging utilities.
-The project check remains `zig build check`.
+installs Zig, conformance tools, binding runtimes, the Chromium the browser
+proofs drive, and debugging utilities. The project check remains
+`zig build check`.
 
 Open the repository with **Dev Containers: Reopen in Container**, then run:
 
@@ -30,12 +31,15 @@ in [`checksums.sh`](checksums.sh).
 | Zig | Zig and ZLS at matching versions | `install-zig.sh`, `install-zls.sh` |
 | Conformance | Racket and Goblins | `install-racket-goblins.sh` |
 | Bindings | Rust, Deno, Node, npm, and Bun | `install-rust.sh`, `install-js-toolchains.sh` |
+| Browsers | Playwright's Chromium and the libraries it needs | `install-playwright.sh` |
 | Agents | uv, Serena, Claude Code, and opencode | their `install-*.sh` scripts |
 | Debugging | gdb, lldb, strace, valgrind, perf, hyperfine | `Dockerfile` |
 
 To update a tool:
 
-1. Change its version in `pins.sh` and its hash in `checksums.sh`.
+1. Change its version in `pins.sh`, and its hash in `checksums.sh` if it is one
+   of the direct downloads listed there. Tools installed through npm or uv are
+   pinned by version alone.
 2. Keep the `Dockerfile` environment and `devcontainer.json` `containerEnv`
    aligned with `pins.sh`; `check-env-sync.sh` enforces this.
 3. Rebuild the container and rerun `post-create.sh`.
@@ -46,12 +50,21 @@ To update a tool:
 | --- | --- | --- |
 | `CARGO_HOME` | `/usr/local/cargo` | `/home/vscode/.cargo` volume |
 | `RUSTUP_HOME` | `/usr/local/rustup` | unchanged |
+| `PLAYWRIGHT_BROWSERS_PATH` | `/usr/local/share/ms-playwright` | unchanged |
 | `PLTUSERHOME` | `/opt/pancake-racket-userhome` | unchanged |
 | `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/zig` | same volume |
 
 Rustup seeds the image under `/usr/local/cargo`; open containers persist
 downloaded crates in the user volume. `post-create.sh` also makes the ZLS cache
 writable.
+
+Playwright's default download directory is `~/.cache/ms-playwright`, which is
+neither a volume nor a bind mount here, so a browser landing there would have to
+be reinstalled by hand every time the container is rebuilt.
+`PLAYWRIGHT_BROWSERS_PATH` moves it to a shared system directory that the image
+build fills once. Root installs the browsers and every user reads them, so the
+browser proofs (`zig build rooms-web-page` and its siblings) run in a fresh
+container with no setup step.
 
 Ptrace is enabled in [`docker-compose.yml`](docker-compose.yml). `perf` may
 still depend on host kernel policy. Racket's package tool has no version flag;
@@ -65,6 +78,23 @@ Two detailed guides cover the parts that vary by machine:
   network, and how the rooms peer reaches the deployed app.
 - [Host configuration](host-configuration.md): Git, SSH, tool logins, bind
   mounts, keyrings, and commit signing.
+
+### Ports the container forwards
+
+`devcontainer.json` declares the four ports the rooms workflow needs, so they
+reach the host without anyone forwarding them by hand: the web page on 8000, the
+CapTP server clients dial on 9099, the relay peer on 9200, and the live trace
+ocapnviz reads on 9300.
+
+They are declared rather than left to the editor noticing a listener, because a
+guessed forward goes away again when it stops noticing, and
+[`apps/rooms/developing.md`](../apps/rooms/developing.md) tells a reader to point
+the viewer at `ws://127.0.0.1:9300/`. If you run the viewer on the host and the
+server in here, that address is the whole interface between them.
+
+A port the editor is not forwarding shows in the Ports view of the *container*
+window, next to the terminal. There is nothing to forward from a host window,
+which is the usual reason the panel looks empty.
 
 ## Files
 

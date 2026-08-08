@@ -63,7 +63,7 @@
          (loop))))))
 
 ;; ── Exporter: a node-giftable greeter on its own endpoint ─────────────────────
-(define exporter (listen-iroh IROH-REACH-DIRECT))
+(define exporter (listen-iroh (make-iroh-config IROH-REACH-DIRECT)))
 (host-publish-giftable (iroh-server-host exporter) "greeter"
                           (methods [(greet who) (format "hello ~a over iroh handoff" who)]))
 (define-values (exporter-id exporter-addrs) (dialable exporter))
@@ -72,7 +72,7 @@
 (printf "racket-iroh-handoff: exporter published greeter on ~a\n" exporter-id)
 
 ;; ── Gifter: dials the exporter under one identity, re-gifts the greeter ────────
-(define gifter (listen-iroh IROH-REACH-DIRECT))
+(define gifter (listen-iroh (make-iroh-config IROH-REACH-DIRECT)))
 (define-values (gifter-id gifter-addrs) (dialable gifter))
 (define exporter-uri
   (format-peer-uri TRANSPORT-IROH exporter-id (hash HINT-DIRECT-ADDRESSES exporter-addrs)))

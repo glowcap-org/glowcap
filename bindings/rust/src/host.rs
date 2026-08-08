@@ -124,6 +124,7 @@ pub(crate) fn drain_pending_releases() {
 			// HostRaw has no surviving owner to hold such state.
 			PendingRelease::HostShared(host) => host.release_native(),
 			PendingRelease::HostRaw(host) => {
+				crate::trace::detach_host(host);
 				let _ = unsafe { ffi::pancake_host_release(host) };
 			}
 		}
@@ -218,6 +219,8 @@ impl HostShared {
 	fn new(
 		seed: [u8; 32],
 		codec: Codec,
+		captp_version: crate::CaptpVersion,
+		features: crate::FeatureSet,
 		local_turn_budget: u32,
 		context: Option<&Context>,
 	) -> Result<Rc<HostShared>> {
@@ -241,6 +244,8 @@ impl HostShared {
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
+					captp_version.to_c(),
+					features.to_c(),
 					local_turn_budget,
 					&mut raw,
 				)
@@ -252,11 +257,26 @@ impl HostShared {
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
+					captp_version.to_c(),
+					features.to_c(),
 					local_turn_budget,
 					&mut raw,
 				)
 			},
 		})?;
+		// The host's own key designator, which is what a partner names it by:
+		// the live trace reports it as this host's endpoint so one peer stays
+		// one node in a feed several producers share.
+		let mut designator = [0u8; 64];
+		check_host(unsafe {
+			ffi::pancake_host_designator_from_seed(
+				seed.as_ptr(),
+				seed.len(),
+				designator.as_mut_ptr(),
+				designator.len(),
+			)
+		})?;
+		crate::trace::attach_host(raw, String::from_utf8_lossy(&designator).into_owned());
 		Ok(Rc::new(HostShared {
 			raw: Cell::new(raw),
 			state: Cell::new(HostState::Open),
@@ -319,6 +339,42 @@ impl HostShared {
 				self.raw.get(),
 				designator.as_ptr(),
 				designator.len(),
+			)
+		})
+	}
+
+	pub(crate) fn set_advertised_locator_record(&self, locator: &[u8]) -> Result<()> {
+		self.guard_open()?;
+		check_host(unsafe {
+			ffi::pancake_host_set_advertised_locator(
+				self.raw.get(),
+				locator.as_ptr(),
+				locator.len(),
+			)
+		})
+	}
+
+	pub(crate) fn set_advertised_locator(
+		&self,
+		transport: &str,
+		designator: &str,
+		direct_addresses: &str,
+	) -> Result<()> {
+		let locator = crate::uri::encode_peer_locator_bytes(
+			transport.as_bytes(),
+			designator.as_bytes(),
+			direct_addresses.as_bytes(),
+		)?;
+		self.set_advertised_locator_record(&locator)
+	}
+
+	pub(crate) fn remove_advertised_locator(&self, transport: &str) -> Result<()> {
+		self.guard_open()?;
+		check_host(unsafe {
+			ffi::pancake_host_remove_advertised_locator(
+				self.raw.get(),
+				transport.as_ptr(),
+				transport.len(),
 			)
 		})
 	}
@@ -441,6 +497,7 @@ impl HostShared {
 		}
 		self.drain_parked_sessions();
 		self.close_sessions();
+		crate::trace::detach_host(raw);
 		let rc = unsafe { ffi::pancake_host_release(raw) };
 		if rc != sys::OK {
 			self.state.set(HostState::Failed(rc));
@@ -636,6 +693,7 @@ impl Drop for HostShared {
 			self.raw.set(core::ptr::null_mut());
 			PENDING_RELEASES.with(|list| list.borrow_mut().push(PendingRelease::HostRaw(raw)));
 		} else {
+			crate::trace::detach_host(raw);
 			let rc = unsafe { ffi::pancake_host_release(raw) };
 			if rc == sys::OK {
 				self.raw.set(core::ptr::null_mut());
@@ -658,11 +716,19 @@ pub struct Host {
 	shared: Rc<HostShared>,
 }
 
-/// Construction knobs for [`Host`]. Codec and local-turn budget are mint-time;
-/// selective session limits stay on [`Host::set_session_limits`] (ADR-0082).
+/// Construction knobs for [`Host`]. Codec, CapTP profile, feature offer, and
+/// local-turn budget are mint-time; each session settles version and codec with
+/// its partner, falling back to v1.0/Syrup when needed, and runs only the
+/// intersection of the two offered feature sets. Selective session limits stay
+/// on [`Host::set_session_limits`] (ADR-0082).
 #[derive(Debug, Clone, Copy)]
 pub struct HostOptions {
 	pub codec: Codec,
+	/// The CapTP profile this Host prefers; see
+	/// [`CaptpVersion`](crate::CaptpVersion).
+	pub captp_version: crate::CaptpVersion,
+	/// Optional CapTP features this Host advertises.
+	pub features: crate::FeatureSet,
 	/// `0` = unbounded (default); nonzero caps local-turn amplification per drive
 	/// (ADR-0076).
 	pub local_turn_budget: u32,
@@ -672,6 +738,8 @@ impl Default for HostOptions {
 	fn default() -> Self {
 		Self {
 			codec: Codec::Syrup,
+			captp_version: crate::CaptpVersion::V1_0,
+			features: crate::FeatureSet::FULL,
 			local_turn_budget: 0,
 		}
 	}
@@ -724,10 +792,10 @@ impl Host {
 		Host::from_seed_with_options(seed, options).expect("the allocator provides a Host")
 	}
 
-	/// A Host whose retained Ed25519 identity is reconstructed from `seed` —
-	/// the restart-stable posture a keyed-tcp listener needs so designator,
-	/// session key, and Host identity stay one value across a rebind
-	/// (ADR-0075). `Codec::Syrup` is the default wire grammar.
+	/// A Host whose retained Ed25519 identity is reconstructed from `seed`.
+	/// This keeps a keyed-TCP designator stable across a rebind while each
+	/// connection still receives a fresh session key (ADR-0075, ADR-0097).
+	/// `Codec::Syrup` is the default wire grammar.
 	pub fn from_seed(seed: [u8; 32]) -> Result<Host> {
 		Host::from_seed_with_codec(seed, Codec::Syrup)
 	}
@@ -740,7 +808,14 @@ impl Host {
 	/// [`from_seed`] with full [`HostOptions`] (codec + local-turn budget).
 	pub fn from_seed_with_options(seed: [u8; 32], options: HostOptions) -> Result<Host> {
 		Ok(Host {
-			shared: HostShared::new(seed, options.codec, options.local_turn_budget, None)?,
+			shared: HostShared::new(
+				seed,
+				options.codec,
+				options.captp_version,
+				options.features,
+				options.local_turn_budget,
+				None,
+			)?,
 		})
 	}
 
@@ -748,6 +823,24 @@ impl Host {
 	/// unchanged. Affects peers minted after this call.
 	pub fn set_session_limits(&self, max_frame_bytes: usize, queue_cap: usize) -> Result<()> {
 		self.shared.set_session_limits(max_frame_bytes, queue_cap)
+	}
+
+	/// Retain and select this Host's complete acceptable location. Later
+	/// sessions advertise it regardless of their transport; existing sessions
+	/// retain the locator their hello signed.
+	pub fn set_advertised_locator(
+		&self,
+		transport: &str,
+		designator: &str,
+		direct_addresses: &str,
+	) -> Result<()> {
+		self.shared
+			.set_advertised_locator(transport, designator, direct_addresses)
+	}
+
+	/// Remove this Host's retained locator for `transport`.
+	pub fn remove_advertised_locator(&self, transport: &str) -> Result<()> {
+		self.shared.remove_advertised_locator(transport)
 	}
 
 	/// The canonical key designator (64 lowercase hex digits) for this host's
@@ -773,7 +866,14 @@ impl Host {
 		getrandom::fill(&mut seed)
 			.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;
 		Ok(Host {
-			shared: HostShared::new(seed, codec, 0, Some(context))?,
+			shared: HostShared::new(
+				seed,
+				codec,
+				crate::CaptpVersion::V1_0,
+				crate::FeatureSet::FULL,
+				0,
+				Some(context),
+			)?,
 		})
 	}
 
@@ -1072,10 +1172,20 @@ mod tests {
 	}
 
 	#[test]
+	fn advertised_locator_lifecycle_is_callable_on_host() {
+		let host = Host::new_host();
+		host.set_advertised_locator("tcp", "127.0.0.1:7441", "")
+			.expect("a complete locator is accepted");
+		host.remove_advertised_locator("tcp")
+			.expect("the published locator is removed");
+	}
+
+	#[test]
 	fn host_options_carry_local_turn_budget() {
 		let host = Host::with_options(HostOptions {
 			codec: Codec::Syrup,
 			local_turn_budget: 64,
+			..Default::default()
 		});
 		host.set_session_limits(0, 0)
 			.expect("minted host answers limits");

@@ -23,7 +23,9 @@
 
 import { init, type RendezvousHandle, serveRendezvous } from "@pancake/web";
 import {
+	annotateSession,
 	currentSession,
+	enableTrace,
 	formatPeerUri,
 	Host,
 	Ref,
@@ -31,13 +33,14 @@ import {
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_WEBRTC,
 } from "@pancake/stack";
+import { publishViz, type VizPublisher } from "../../lib/viz_publish.ts";
 import { directorySignalingAuthority, serveWebrtcSignaling } from "../../lib/signaling.ts";
 import { MAX_LINE, MAX_NICK, TYPING_CLEAR_MS } from "../../lib/limits.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room_client.ts";
 import { type InboxOfferer, inboxOfferer } from "../../lib/dm_inbox.ts";
-import { DM } from "../../lib/protocol.ts";
+import { DM, TYPING } from "../../lib/protocol.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
-import { dial } from "../../lib/locator.ts";
+import { dial, roomsHost } from "../../lib/locator.ts";
 import { NICK_TAKEN, PEER_OFFLINE, roomErrorOf } from "../../lib/errors.ts";
 import type { DmConv } from "./types.ts";
 import * as store from "./store.ts";
@@ -72,6 +75,8 @@ interface Live {
 	backChannels: Map<string, { session: Session; reply: Ref }>;
 	/** Our own room lines painted and awaiting the room's echo. */
 	echoes: { key: string; id: number; text: string }[];
+	/** Attempts left to re-advertise a registration this session lost. */
+	advertiseRetries: number;
 	/** The nick this session advertised a locator for, so we register once per
 	 * name rather than on every room switch. */
 	advertised: string | null;
@@ -132,7 +137,53 @@ const DM_TRANSPORT: typeof TRANSPORT_KEYED_RELAY | typeof TRANSPORT_WEBRTC =
 	new URLSearchParams(location.search).get("dm") === "webrtc"
 		? TRANSPORT_WEBRTC
 		: TRANSPORT_KEYED_RELAY;
+// The live timeline endpoint this tab publishes its own trace to. The page
+// asks its own server for one (`/viz`, answered when the room was started with
+// ROOMS_VIZ_PORT), and `?viz=ws://host:port/` on the page URL overrides that
+// for a run where the endpoint is somewhere else. Off by default: with no
+// endpoint the tap is never installed and the host's emit sites are one null
+// check.
+//
+// This is the only way a direct message becomes visible. A DM is a session
+// between two members, held on the members' own hosts, so the room server sees
+// none of it and must not start seeing it. What travels to the endpoint is
+// telemetry on a one-way socket; the conversation stays direct.
+const VIZ_OVERRIDE = new URLSearchParams(location.search).get("viz");
 let inboxHost: Host | null = null;
+let vizPublisher: VizPublisher | null = null;
+
+// Ask the page's own server where the live timeline endpoint is. A run without
+// one answers 404, and this tab then publishes nothing.
+async function vizEndpoint(): Promise<string | null> {
+	if (VIZ_OVERRIDE !== null) return VIZ_OVERRIDE;
+	try {
+		const res = await fetch("/viz");
+		if (!res.ok) {
+			await res.body?.cancel();
+			return null;
+		}
+		const port = (await res.text()).trim();
+		if (!/^[0-9]+$/.test(port)) return null;
+		const proto = location.protocol === "https:" ? "wss://" : "ws://";
+		return `${proto}${location.hostname}:${port}/`;
+	} catch {
+		return null;
+	}
+}
+
+// Install the tap, once, before the first host exists so its very first
+// session open is captured. A run with no endpoint answers 404 and this is
+// asked again on the next reconnect, so a room that gains one is picked up
+// rather than decided against for the tab's life.
+async function ensureVizPublisher(): Promise<void> {
+	if (vizPublisher !== null) return;
+	const url = await vizEndpoint();
+	if (url === null) return;
+	vizPublisher = publishViz(url, {
+		onError: (err) => console.error("rooms: viz publish error:", reason(err)),
+	});
+	enableTrace(vizPublisher.sink);
+}
 let rendezvous: RendezvousHandle | null = null;
 // Reply back-channels a peer handed us with an incoming DM: the connection the
 // message arrived on plus the reply capability it carried. Our own reply rides
@@ -150,6 +201,12 @@ let rendezvous: RendezvousHandle | null = null;
 // inbox to that peer alone and the message names nobody.
 function inboxFor(peer: string): (verb: string, args: unknown[]) => null {
 	return (verb: string, args: unknown[]): null => {
+		// The ephemeral sibling of a message: the peer's typing flag,
+		// same auto-clear rule as a room's.
+		if (verb === TYPING) {
+			applyTyping(store.ensureDm(peer).key, peer, args[0] === true);
+			return null;
+		}
 		if (verb !== DM) throw new Error(`dm inbox has no method ${verb}`);
 		const text = typeof args[0] === "string" ? args[0] : "";
 		const reply = args[1];
@@ -157,6 +214,11 @@ function inboxFor(peer: string): (verb: string, args: unknown[]) => null {
 		// the turn returns, and our reply sends on a later one.
 		const key = store.ensureDm(peer).key;
 		const session = currentSession();
+		// Name the arriving direct connection for whoever is watching the live
+		// timeline. The dialer names it too, from the other end; either end's
+		// annotation is enough, and a watcher only ever hears the one whose
+		// view of this wire it is being shown.
+		if (session !== null) annotateSession(session, { label: peer });
 		if (live !== null && session !== null && reply instanceof Ref) {
 			const held = live.backChannels.get(key);
 			// A working route is not displaced: this peer may open a second
@@ -214,7 +276,10 @@ function flushDeferredOffers(): void {
 // lines survive a room-server respawn.
 function ensureInbox(): Host {
 	if (inboxHost) return inboxHost;
-	const host = new Host();
+	const host = roomsHost();
+	// This Host owns the locator advertised in handoff gives. The directory
+	// relays that signed claim; it does not replace it with registration input.
+	host.setAdvertisedLocator(DM_TRANSPORT, host.designator());
 	// Reaching other members is this host's deployment configuration, whatever
 	// we advertise ourselves: a `keyed-relay` identity bridges through
 	// `/relay?rendezvous=` (ADR-0088), and a `webrtc` identity is signaled
@@ -264,10 +329,40 @@ function advertisePresence(): void {
 			flushDeferredOffers();
 		})
 		.catch(() => {
-			// Let a later join retry the introduction if this registration was lost.
-			if (live === session && session.advertised === nick) session.advertised = null;
+			if (live !== session || session.advertised !== nick) return;
+			session.advertised = null;
+			// Retry rather than wait for a later join. The usual failure is a
+			// name the room still holds for a session it has not reaped, which
+			// clears on its own in a moment — and until this, nothing tried
+			// again unless the member happened to change rooms. A registration
+			// lost that way leaves them in everyone else's roster with no way
+			// to be reached, permanently, and nothing anywhere says so.
+			//
+			// Bounded, because a name somebody else genuinely holds is not
+			// transient and retrying at it forever would be a busy wait against
+			// a fact that is not going to change.
+			if (session.advertiseRetries <= 0) {
+				console.error(
+					"rooms: could not advertise for direct messages; others cannot reach you",
+				);
+				return;
+			}
+			session.advertiseRetries -= 1;
+			globalThis.setTimeout(() => {
+				if (live !== session) return;
+				advertisePresence();
+			}, ADVERTISE_RETRY_MS);
 		});
 }
+
+/** How long to wait before re-advertising a lost registration. Long enough for
+ * the room to reap the session still holding the name, short enough that a
+ * member is not sitting unreachable while they read the roster. */
+const ADVERTISE_RETRY_MS = 1_500;
+
+/** How many times to try. The transient case clears within a few seconds; past
+ * that the name is somebody else's and waiting will not change it. */
+const ADVERTISE_RETRY_LIMIT = 4;
 
 // Same-origin ws(s) URL for a relay endpoint, matching the page's scheme: an
 // https page (a forwarded or deployed origin) must use `wss://`, or the browser
@@ -414,12 +509,33 @@ function confirmRoomEcho(text: string): boolean {
 	return true;
 }
 
-/** Set our typing flag in the joined room (room-only; a DM has no typing channel). */
+/** Set our typing flag in the active conversation — the room's own
+ * channel for a room, the peer's inbox for a direct line. The one
+ * failure here that is genuinely nothing: a typing flag is ephemeral
+ * and self-correcting, because a reader clears an unrefreshed one
+ * after `TYPING_CLEAR_MS` whatever we manage to send. */
 export function setTyping(on: boolean): void {
-	// The one failure here that is genuinely nothing: a typing flag is ephemeral
-	// and self-correcting, because a reader clears an unrefreshed one after
-	// `TYPING_CLEAR_MS` whatever we manage to send.
+	const s = store.get();
+	const conv = s.activeKey !== null ? store.getConv(s.activeKey) : undefined;
+	if (conv?.type === "dm") {
+		sendDmTyping(conv.key, on);
+		return;
+	}
 	live?.room?.setTyping(on).catch(() => {});
+}
+
+/** A typing flag rides only a route that already exists — the reply
+ * capability the peer handed us, or an introduced line already open
+ * (or opening). An ephemeral signal must never cause a dial. */
+function sendDmTyping(key: string, on: boolean): void {
+	const session = live;
+	if (session === null) return;
+	const back = session.backChannels.get(key);
+	if (back !== undefined && back.session.sessionOpen) {
+		back.session.tell(back.reply, TYPING, [on]).catch(() => {});
+		return;
+	}
+	session.lines.get(key)?.then((line) => line.typing(on)).catch(() => {});
 }
 
 // ── Rooms: picking, creating, joining ─────────────────────────────────────
@@ -528,11 +644,10 @@ export function endConversation(): void {
 
 /** Close a direct conversation and go back to whatever is behind it.
  *
- * A direct line is not a room: there is no membership to hand back, so closing
- * one only drops what this tab was holding for it — the line itself, the reply
- * back-channel, and the history, all of which are local. The person stays
- * reachable, and messaging them again opens a fresh line through a fresh
- * introduction.
+ * A direct line is not a room: there is no membership to hand back. Closing one
+ * ends the connections this conversation runs on, in both directions, and drops
+ * the history. The person stays reachable, and messaging them again opens a
+ * fresh line through a fresh introduction.
  *
  * What is behind it is the room you are still in, if you are still in one, and
  * the join card if you are not.
@@ -547,9 +662,23 @@ export function closeDm(conv: DmConv): void {
 	// standing with nothing on this side referring to them.
 	if (live) dropLine(live, key);
 	// The back-channel is the other direction: a connection the member opened to
-	// us, captured as it arrived. It is not ours to hang up — dropping our end of
-	// it is the whole of our part.
+	// us, captured as it arrived. It carries this conversation and nothing else
+	// (a cold dial is per-peer), so closing the conversation closes it. Dropping
+	// only the map entry left the session up with nothing on this side referring
+	// to it, and the far end holding a line to a conversation that no longer
+	// exists here.
+	const back = live?.backChannels.get(key);
 	live?.backChannels.delete(key);
+	if (back !== undefined) {
+		try {
+			back.session.close();
+		} catch (err) {
+			console.error(
+				"rooms: an arriving direct connection would not close, so it stays up:",
+				reason(err),
+			);
+		}
+	}
 	// Only the conversation you are looking at needs somewhere to go. Closing one
 	// from the rail while reading something else should leave you reading it, the
 	// same as leaving a room you are not currently in.
@@ -788,10 +917,16 @@ function sendDm(key: string, id: number, text: string): void {
 			store.setDmLine(key, "live");
 		})
 		.catch((err) => {
-			// Drop the dead line so the next send retries: a stale back-channel
+			// Let the dead line go so the next send retries: a stale back-channel
 			// falls back to a fresh introduction, a stale introduction re-redeems.
+			// The line is handed back rather than merely forgotten. A line is
+			// counted onto the connection it rides, and a forgotten one keeps its
+			// count for good, so the last conversation to close never hangs up and
+			// the next redeem resolves to the connection that close was supposed
+			// to end. The back-channel is the other direction, a connection the
+			// peer owns, so there only the route is dropped.
 			if (back) session.backChannels.delete(key);
-			else session.lines.delete(key);
+			else dropLine(session, key);
 			markSend(key, id, "failed");
 			store.deliver(key, store.sysItem(dmFailureText(peer, err)));
 		});
@@ -823,8 +958,9 @@ function openDm(conv: DmConv): Promise<DirectMessage> {
 		// one visibly failed message. Checking here spends no message at all.
 		const reopen = () => {
 			// Only if it is still the entry we looked at; a concurrent send may
-			// already have replaced it.
-			if (session.lines.get(key) === existing) session.lines.delete(key);
+			// already have replaced it. Handed back rather than forgotten, for the
+			// same reason the failed send above hands its line back.
+			if (session.lines.get(key) === existing) dropLine(session, key);
 			return openDm(conv);
 		};
 		return existing.then((line) => (line.live ? line : reopen()), reopen);
@@ -868,25 +1004,31 @@ function receiveDm(key: string, peer: string, text: string): void {
 	if (store.get().activeKey !== key) maybeNotify(peer, text);
 }
 
-// Another member's typing flag in the joined room, tracked per-room with an
-// auto-clear timer so a dropped "off" still fades.
+// Another peer's typing flag — one auto-clear rule for rooms and
+// direct lines alike, so a dropped "off" still fades. Timers key on
+// (conversation, peer): the same nick may type in the room and a DM
+// at once, and neither flag may clear the other.
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
-function setRoomTyping(from: string, on: boolean): void {
-	const s = store.get();
-	if (!s.joinedRoom || from === s.nick) return;
-	const conv = store.ensureRoom(s.joinedRoom);
-	const running = typingTimers.get(from);
+function applyTyping(key: string, from: string, on: boolean): void {
+	const timerKey = `${key}\u0000${from}`;
+	const running = typingTimers.get(timerKey);
 	if (running) clearTimeout(running);
 	if (on) {
 		typingTimers.set(
-			from,
+			timerKey,
 			setTimeout(() => {
-				typingTimers.delete(from);
-				store.setTyper(conv.key, from, false);
+				typingTimers.delete(timerKey);
+				store.setTyper(key, from, false);
 			}, TYPING_CLEAR_MS),
 		);
-	} else typingTimers.delete(from);
-	store.setTyper(conv.key, from, on);
+	} else typingTimers.delete(timerKey);
+	store.setTyper(key, from, on);
+}
+
+function setRoomTyping(from: string, on: boolean): void {
+	const s = store.get();
+	if (!s.joinedRoom || from === s.nick) return;
+	applyTyping(store.ensureRoom(s.joinedRoom).key, from, on);
 }
 
 /** Turn desktop notifications on or off, asking the browser the first time. */
@@ -914,6 +1056,12 @@ function reason(err: unknown): string {
 }
 
 // ── Connection ────────────────────────────────────────────────────────────
+/** What a reader is told when an attempt to reach the room server did not get
+ * there. Two surfaces say it — the join card, which was waiting on a join, and
+ * the status line, which is waiting on nothing — and they say the same thing
+ * because it is one fact. */
+const UNREACHABLE = "could not reach the room server; retrying…";
+
 export function connect(): void {
 	store.setSession(everConnected ? "reconnecting" : "connecting");
 	store.setStatus(everConnected ? "reconnecting…" : "connecting…");
@@ -941,6 +1089,9 @@ async function openSession(): Promise<void> {
 			stackReady = attempt;
 		}
 		await stackReady;
+		// The live timeline tap goes in before the host, so the directory
+		// session's own open is captured rather than missed.
+		await ensureVizPublisher();
 		// The inbox host both dials the directory and accepts cold-dials, so start
 		// it before the dial: the directory session must be present in the same
 		// host's live-session directory when a later cold-dial withdraws from that
@@ -963,6 +1114,7 @@ async function openSession(): Promise<void> {
 			backChannels: new Map(),
 			echoes: [],
 			advertised: null,
+			advertiseRetries: ADVERTISE_RETRY_LIMIT,
 			registered: false,
 			deferredOffers: new Set(),
 			stable: null,
@@ -1052,7 +1204,14 @@ async function openSession(): Promise<void> {
 		// A staged join is not lost on a failed attempt: the retry below opens
 		// another session, which replays it. The card is told so it can offer the
 		// button back, in case the reader would rather change their mind.
-		settleStaged("could not reach the room server; retrying…");
+		settleStaged(UNREACHABLE);
+		// The attempt is over and it failed. Left on "connecting", the dot in the
+		// foot of the rail would go on claiming an attempt that is no longer
+		// running, and the opening screen would go on waiting for an answer that
+		// has already come back. The retry sets it to "connecting" again itself,
+		// so each attempt reads as the attempt it is.
+		store.setSession("disconnected");
+		store.setStatus(UNREACHABLE);
 		scheduleReconnect();
 	}
 }

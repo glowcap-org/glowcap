@@ -25,6 +25,20 @@ test "intersect with minimum yields minimum" {
     try std.testing.expectEqual(model.FeatureSet.minimum(), intersected);
 }
 
+test "FeatureSet wire hint round-trips and rejects ambiguous spellings" {
+    var buf: [64]u8 = undefined;
+
+    try std.testing.expectEqualStrings("", try model.FeatureSet.minimum().toWireString(&buf));
+    const full = try model.FeatureSet.full().toWireString(&buf);
+    try std.testing.expectEqualStrings("pipelining,handoff,wire_delta,sturdyref", full);
+    try std.testing.expectEqual(model.FeatureSet.full(), model.FeatureSet.fromWireString(full).?);
+    try std.testing.expectEqual(model.FeatureSet.minimum(), model.FeatureSet.fromWireString("").?);
+
+    try std.testing.expect(model.FeatureSet.fromWireString("pipelining,pipelining") == null);
+    try std.testing.expect(model.FeatureSet.fromWireString("pipelining,") == null);
+    try std.testing.expect(model.FeatureSet.fromWireString("sturdy") == null);
+}
+
 test "negotiate picks the most-preferred shared codec and intersects features" {
     const local = negotiation.Offer.native(model.FeatureSet.full());
     const remote: negotiation.Offer = .{

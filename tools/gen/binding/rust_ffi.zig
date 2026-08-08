@@ -13,12 +13,6 @@
 
 const std = @import("std");
 
-// Force sidecar stubs so reflecting the iroh and webrtc archives stays cargo-free.
-comptime {
-    _ = @import("iroh_sidecar_stub");
-    _ = @import("webrtc_sidecar_stub");
-}
-
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
@@ -236,12 +230,13 @@ fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
         "use super::host::{\n" ++
         "\tPancakeAcceptPlan, PancakeDialPlan, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree,\n" ++
         "\tPancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity,\n" ++
-        "\tPancakePendingDial,\n" ++
+        "\tPancakePendingDial, PancakeTraceCallback,\n" ++
         "};\n" ++
         "use crate::sys::{\n" ++
         "\tPancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference,\n" ++
         "};\n", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "PancakeHostBehavior" },
+        .{ .T = cd.PancakeTraceCallback, .spelling = "PancakeTraceCallback" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "PancakeHostCtxFree" },
     });
 }

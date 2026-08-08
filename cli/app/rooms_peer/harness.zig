@@ -37,9 +37,28 @@ pub fn removeFile(io: Io, dir: []const u8, leaf: []const u8) void {
     Io.Dir.cwd().deleteFile(io, path) catch {};
 }
 
-/// Append a line to DIR/leaf. There is no seek in std.Io.File, so this is
-/// read-modify-write — fine for the small, session-bounded harness files.
+/// Append a line to DIR/leaf under an exclusive sidecar lock.
+///
+/// std.Io.File has no append/seek, so the body is still read-modify-write.
+/// Without the lock, two concurrent `reply` processes each read the same
+/// prefix and the later write drops the earlier line — and when the dropped
+/// write was longer, `outbox.offset` can land mid-line and the drain stalls
+/// on garbage forever. Lock lives on `leaf.lock` so `overwriteFile` can
+/// replace the body inode without dropping the advisory lock.
 pub fn appendLine(io: Io, gpa: Allocator, dir: []const u8, leaf: []const u8, bytes: []const u8) !void {
+    var lock_leaf_buf: [160]u8 = undefined;
+    const lock_leaf = std.fmt.bufPrint(&lock_leaf_buf, "{s}.lock", .{leaf}) catch unreachable;
+    var lock_path_buf: [512]u8 = undefined;
+    const lock_path = pathIn(&lock_path_buf, dir, lock_leaf);
+    const lock_file = try Io.Dir.cwd().createFile(io, lock_path, .{
+        .read = true,
+        .truncate = false,
+        .lock = .exclusive,
+    });
+    defer {
+        lock_file.unlock(io);
+        lock_file.close(io);
+    }
     const old = try readFile(io, gpa, dir, leaf);
     defer gpa.free(old);
     var list: std.ArrayList(u8) = .empty;
@@ -105,11 +124,16 @@ pub fn parseOutboxLine(gpa: Allocator, line: []const u8) ?OutboxLine {
 pub const writeJsonString = argv.writeJsonString;
 
 /// Append one inbound/outbound record to inbox.jsonl. `channel` is "room" or
-/// "dm"; `peer` names the dm partner (empty on the room arm).
+/// "dm"; `peer` names the dm partner (empty on the room arm). Each line carries
+/// `ts` (monotonic ms) so wake-loop latency is measurable without peer.out.
 pub fn recordInbox(io: Io, gpa: Allocator, dir: []const u8, kind: []const u8, channel: []const u8, author: []const u8, text: []const u8, peer: []const u8) !void {
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(gpa);
-    try list.appendSlice(gpa, "{\"kind\":");
+    var ts_buf: [24]u8 = undefined;
+    const ts = std.fmt.bufPrint(&ts_buf, "{d}", .{common.net.clock.nowMs(io)}) catch "0";
+    try list.appendSlice(gpa, "{\"ts\":");
+    try list.appendSlice(gpa, ts);
+    try list.appendSlice(gpa, ",\"kind\":");
     try writeJsonString(&list, gpa, kind);
     try list.appendSlice(gpa, ",\"channel\":");
     try writeJsonString(&list, gpa, channel);
@@ -159,6 +183,102 @@ pub fn outboxBacklogBytes(io: Io, gpa: Allocator, dir: []const u8) usize {
     defer gpa.free(contents);
     const offset = clampOutboxOffset(loadOutboxOffset(io, gpa, dir), contents.len);
     return contents.len - offset;
+}
+
+/// Leaf name for the peer-written map of nicks with an ADR-0088 reply-cap
+/// (`dm_back`). `reply --dm` reads this so a bot-first DM cannot look locally
+/// sent when introduce would be the only route (browser false-sent class).
+pub const dm_backchannels_leaf = "dm_backchannels.json";
+
+/// Persist the set of nicks that currently hold a reply-cap back-channel.
+/// Shape: `{"armed":["Jim","Bob"]}`. Best-effort — a failed write leaves the
+/// previous file; `reply --dm` then fails closed until the next persist.
+pub fn persistDmBackchannels(io: Io, gpa: Allocator, dir: []const u8, armed: []const []const u8) void {
+    var list: std.ArrayList(u8) = .empty;
+    defer list.deinit(gpa);
+    list.appendSlice(gpa, "{\"armed\":[") catch return;
+    for (armed, 0..) |nick, i| {
+        if (i > 0) list.append(gpa, ',') catch return;
+        writeJsonString(&list, gpa, nick) catch return;
+    }
+    list.appendSlice(gpa, "]}\n") catch return;
+    overwriteFile(io, dir, dm_backchannels_leaf, list.items) catch {};
+}
+
+/// True when `peer` appears in DIR/dm_backchannels.json's `armed` list.
+/// Missing or corrupt file → false (fail closed: no false-sent --dm).
+pub fn dmBackchannelArmed(io: Io, gpa: Allocator, dir: []const u8, peer: []const u8) bool {
+    if (peer.len == 0) return false;
+    const raw = readFile(io, gpa, dir, dm_backchannels_leaf) catch return false;
+    defer gpa.free(raw);
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return false;
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, trimmed, .{}) catch return false;
+    defer parsed.deinit();
+    const root = parsed.value;
+    if (root != .object) return false;
+    const armed_val = root.object.get("armed") orelse return false;
+    if (armed_val != .array) return false;
+    for (armed_val.array.items) |item| {
+        if (item == .string and std.mem.eql(u8, item.string, peer)) return true;
+    }
+    return false;
+}
+
+/// Leaf name for optional team roster used to distinguish human room lines from
+/// peer chatter. Shape: `{"nicks":["agentic-lead","fresh-eyes"]}`. Missing file
+/// → `human_room_pending` stays false (no false-positive stuck_human_room).
+pub const roster_leaf = "roster.json";
+
+/// Load roster nicks from DIR/roster.json into `arena`. Empty slice if missing
+/// or corrupt — callers then treat every non-self room author as unknown, and
+/// `humanRoomPending` returns false rather than claiming humans.
+pub fn loadRosterNicks(arena: Allocator, io: Io, gpa: Allocator, dir: []const u8) []const []const u8 {
+    const raw = readFile(io, gpa, dir, roster_leaf) catch return &.{};
+    defer gpa.free(raw);
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return &.{};
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, trimmed, .{}) catch return &.{};
+    defer parsed.deinit();
+    if (parsed.value != .object) return &.{};
+    const nicks_val = parsed.value.object.get("nicks") orelse return &.{};
+    if (nicks_val != .array) return &.{};
+    var out: std.ArrayList([]const u8) = .empty;
+    for (nicks_val.array.items) |item| {
+        if (item != .string or item.string.len == 0) continue;
+        const dup = arena.dupe(u8, item.string) catch continue;
+        out.append(arena, dup) catch {};
+    }
+    return out.items;
+}
+
+fn nickEqualsIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |ac, bc| {
+        if (std.ascii.toLower(ac) != std.ascii.toLower(bc)) return false;
+    }
+    return true;
+}
+
+/// True when `author` is listed in the team roster (case-insensitive).
+pub fn authorOnRoster(roster: []const []const u8, author: []const u8) bool {
+    for (roster) |nick| {
+        if (nickEqualsIgnoreCase(nick, author)) return true;
+    }
+    return false;
+}
+
+/// Room lines from authors not on the roster (and not already filtered as self
+/// by scanInbox). Requires a roster file; without one, returns false so health
+/// never classifies peer chatter as stuck_human_room.
+pub fn humanRoomPending(pending: []const Pending, roster: []const []const u8) bool {
+    if (roster.len == 0) return false;
+    for (pending) |item| {
+        if (!std.mem.eql(u8, item.channel, "room")) continue;
+        if (authorOnRoster(roster, item.author)) continue;
+        return true;
+    }
+    return false;
 }
 
 /// Byte offset into inbox.jsonl: lines before this are already considered
@@ -268,6 +388,26 @@ pub const Pending = struct {
     peer: []const u8,
     mention: bool,
 };
+
+fn pendingRank(p: Pending) u8 {
+    if (std.mem.eql(u8, p.channel, "dm")) return 0;
+    return if (p.mention) 1 else 2;
+}
+
+fn pendingLess(_: void, a: Pending, b: Pending) bool {
+    const ra = pendingRank(a);
+    const rb = pendingRank(b);
+    if (ra != rb) return ra < rb;
+    return std.mem.order(u8, a.id, b.id) == .lt;
+}
+
+/// Sort unanswered lines the way a present person answers: DMs first, then
+/// `@you` mentions, then the rest of the room. Shared by `tick` and hermetic
+/// one-wake goldens so the order cannot drift from the skill's multi-surface
+/// drain rule.
+pub fn sortPending(pending: []Pending) void {
+    std.mem.sort(Pending, pending, {}, pendingLess);
+}
 
 /// Scan inbox.jsonl for inbound lines from someone else (`kind == "msg"`),
 /// tagging each with its stable id. Our own `sent` echoes and `system` lines

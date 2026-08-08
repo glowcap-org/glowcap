@@ -267,7 +267,10 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
             actor.sendCopying(.{ .listen = .{
                 .target = .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer) } },
                 .listener = .{ .far = model.FarRef.object(0) },
-                .wants_partial = smith.valueRangeAtMost(u8, 0, 1) == 1,
+                .mode = if (smith.valueRangeAtMost(u8, 0, 1) == 1)
+                    .shortening_or_settling
+                else
+                    .settling_only,
             } }) catch {};
         },
         // Publish an object, so there is something live to deliver to.

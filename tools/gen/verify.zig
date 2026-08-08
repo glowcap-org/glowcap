@@ -7,6 +7,14 @@
 const std = @import("std");
 const generator = @import("generator");
 
+// Force-link the transport sidecar stubs here, in the executable root, so a
+// generator that reflects a sidecar-linked archive stays cargo-free and no
+// generator has to remember to force them itself.
+comptime {
+    _ = @import("iroh_sidecar_stub");
+    _ = @import("webrtc_sidecar_stub");
+}
+
 pub fn main() !void {
     const a = std.heap.page_allocator;
     var threaded = std.Io.Threaded.init(a, .{});

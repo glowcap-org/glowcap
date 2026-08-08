@@ -6,7 +6,7 @@ session, § Crossed Hellos Resolution.
 ## SL-1: Session state machine
 
 The lifecycle is one-way: a session moves from `Negotiating` to `Open` to
-`Closed`, with one self-loop where a refused handshake stays negotiating. No
+`Closed`; a refused handshake is terminal like every other abort. No
 transition reverses; a closed session never reopens.
 
 ```mermaid
@@ -39,13 +39,9 @@ sequenceDiagram
 ## SL-3: Handshake refusal
 
 A version mismatch or a location signature that fails verification refuses the
-handshake: the offended side emits the typed `op:abort` and stays negotiating.
-Staying negotiating is ADR-0083's named exception, spelled out in SL-6;
-severing the transport is the adapter's call, not the session's. The refused
-hello never opens the session; a corrected hello on the same stream still can,
-and it grants nothing a first valid hello would not. A partner that severs
-after aborting, as the spec advises and Goblins does, never uses that retry:
-it is pancake's session-layer accounting, not an interop expectation.
+handshake: the offended side emits the typed `op:abort` and closes the CapTP
+session. The refused hello never opens the session, and no corrected hello is
+admitted on the aborted stream.
 
 ```mermaid
 sequenceDiagram
@@ -54,7 +50,7 @@ sequenceDiagram
     A->>B: op:start-session (captp-version 1.0, ...)
     Note over B: version unsupported, or location-sig invalid
     B->>A: op:abort (reason)
-    Note over A,B: session never Opened, B stays Negotiating (SL-6)
+    Note over A,B: session never Opened, B is Closed (SL-6)
 ```
 
 ## SL-4: Crossed hellos
@@ -83,7 +79,7 @@ sequenceDiagram
 
 What a session admits depends only on its state. While negotiating, only the
 handshake itself (`op:start-session`) and `op:abort` get through; authority-
-bearing traffic (`op:deliver`, `op:resolve`, gc ops, `op:listen`, `op:get`,
+bearing traffic (`op:deliver`, gc ops, `op:listen`, `op:get`,
 `op:index`, handoffs) requires Open.
 
 ```mermaid

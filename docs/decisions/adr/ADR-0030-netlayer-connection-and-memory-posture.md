@@ -6,9 +6,16 @@ tags: [net, runtime, c_abi, resilience, memory, performance]
 decision: "The netlayer is a `net` layer outside the sync no-I/O core: it is the one place `std.Io` enters. A `Connection` folds the one parser (ADR-0029) over a type-erased `std.Io.Reader`/`Writer`; `tcp.zig` is the only `std.Io.net`-to-socket site; the C ABI re-exposes blocking endpoint handles over an explicit caller-owned netlayer handle (no hidden global runtime). Per-connection inbound memory is bounded by `SessionLimits.max_frame_bytes`. Slice-1 sizes the read buffer to that bound (whole-frame), and explicitly defers the small-buffer/bounded-overflow path and full-duplex backpressure."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0110]
 ---
 
 # ADR-0030 Netlayer connection & per-connection memory posture
+
+> **Framing amendment (ADR-0110).** A byte-stream `Connection` now finds
+> message boundaries from an outer Syrup byte string, then requires the active
+> codec to consume that body exactly. The memory bound and layer ownership in
+> this decision remain unchanged.
 
 ## Context
 
@@ -84,7 +91,7 @@ engine/model layer owns only the typed abort projection.
 ## Alternatives Considered
 
 - **Netlayer inside the core.** Rejected: dragging `std.Io` into the core breaks
-  the sync no-I/O invariant and the determinism the conformance harness depends
+  the sync no-I/O invariant and the determinism the in-process scenarios depend
   on.
 - **A generic comptime `Endpoint` abstraction.** Rejected for slice 1: every
   byte-stream transport already funnels through `std.Io.Reader`/`Writer`; a

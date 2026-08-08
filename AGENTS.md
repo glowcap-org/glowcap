@@ -53,6 +53,10 @@ Match depth to the task: do not read the whole tree for a one-line fix.
   destination do not get traded for convenience.
 - Protocol correctness and capability semantics come before implementation
   convenience.
+- Match depth without lowering the bar. Progressive disclosure chooses what to
+  read first; checks, generated inventories, and scripts stand in for repeated
+  reasoning. If correctness depends on a surface you have not read, widen
+  context or run the check that owns it.
 - **Principled moves only. No workarounds, no quick fixes.** Every change fixes
   the root, or it is not the change. A shortcut is a design decision made badly
   and then hidden, and it costs most where it is easiest: the layer stops
@@ -103,3 +107,6 @@ single-file diagnostics in Zig source. The operator notes live at
 For substantial work — scoping, sweeps, architectural moves, or release
 readiness — follow
 [`.agents/skills/work/SKILL.md`](.agents/skills/work/SKILL.md).
+
+Codex loads those project skills directly from [`.agents/skills/`](.agents/skills/);
+[`.codex/README.md`](.codex/README.md) records the thin Codex overlay.

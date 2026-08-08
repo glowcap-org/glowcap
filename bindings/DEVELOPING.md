@@ -22,9 +22,11 @@ Ignoring an action can strand a call or handoff. The shared Zig helper
 `embedder_pump` and the C function `pancake_host_pump_drain` keep this loop in
 one place.
 
-Inbound bytes go through `pancake_host_session_feed_bytes`. The host finds frame
-boundaries, retains a partial tail, and applies the frame limit. A binding
-should not add another scanner or tail buffer.
+Inbound byte streams go through `pancake_host_session_feed_bytes`. The host
+unwraps canonical Syrup byte strings, retains a split prefix or body, and
+applies the declared-body limit. A binding should not add another scanner or
+tail buffer. On output, prefix each bare `take_outbound` frame with its decimal
+byte length and `:`; write the prefix and frame separately.
 
 When a feed fails, read the typed abort, drain again so the abort is written,
 then surface the error. On EOF, call
@@ -77,8 +79,13 @@ binding's promise table immediately. Its result later arrives as a `SETTLE` or
 
 TypeScript's ABI constants, layouts, and function tables are generated. Rust,
 Python, and Racket generate their function bindings but keep some struct
-declarations by hand. Those declarations are checked against documented sizes
-and offsets at compile time or import time.
+declarations by hand. Every one of those declarations is checked against the
+whole shape of the C struct it mirrors: its size, and each field's name, offset,
+and width, reflected off the real Zig types by
+`zig build gen-binding-ffi-layouts`. Rust checks at compile time in a `const`
+block; Python and Racket check the moment the module is imported. A mirror that
+declares no such check fails `zig build meta-check`, so every mirror is
+covered.
 
 A C layout change must update every hand-written mirror in the same change.
 

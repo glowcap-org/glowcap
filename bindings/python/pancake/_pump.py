@@ -152,8 +152,9 @@ def last_abort(session) -> Optional[AbortDetail]:
 
 async def flush_outbound(session) -> None:
     """Drain every encoded outbound frame on this CapTP session and write it
-    to the transport — how a FLUSH action lands. Writes are serialized, so
-    frames stay whole and in submission order. Binding-internal."""
+    to the byte-stream transport as a canonical Syrup byte string — how a
+    FLUSH action lands. Writes are serialized, so each prefix/body pair stays
+    in submission order. Binding-internal."""
     async with session.write_lock:
         while True:
             if session.released:
@@ -167,4 +168,5 @@ async def flush_outbound(session) -> None:
             # The managed frame is the shared core vocabulary, released
             # through the core archive.
             _lib.pancake_managed_frame_release(ctypes.byref(mf))
+            await session.transport.write(str(len(frame)).encode("ascii") + b":")
             await session.transport.write(frame)

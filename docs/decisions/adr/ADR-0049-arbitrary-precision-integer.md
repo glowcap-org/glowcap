@@ -34,7 +34,7 @@ zero-copy borrowed-view path and drags bignum arithmetic into the tree.
 - **The arm split is canonical, so equality is bytewise.** Decode produces
   `integer` for every value in the `i64` range (including both exact bounds;
   `minInt`'s magnitude is the one asymmetry) and `big_integer` only outside it.
-  Two arms never spell one arithmetic value, so Pass Invariant Equality over big
+  Two arms never represent one arithmetic value, so Pass Invariant Equality over big
   integers is sign + digit bytes, with no cross-arm case.
 - **Refusal is symmetric (ADR-0003).** A non-canonical big integer: leading
   zeros, non-digits, or a magnitude that belongs to the `integer` arm: is a

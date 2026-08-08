@@ -18,7 +18,7 @@
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server is native), and a Playwright Chromium
-// (`npx playwright install chromium && sudo npx playwright install-deps`).
+// (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web_dm_webrtc_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";

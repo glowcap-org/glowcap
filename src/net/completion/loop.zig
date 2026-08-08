@@ -147,7 +147,7 @@ fn validateBackend(comptime Backend: type) void {
         "submitClose",
         "recycleRecv",
         "poll",
-        "remotePartnerKey",
+        "verifiedChannelKey",
     };
     inline for (required) |name| {
         if (!@hasDecl(Backend, name)) {
@@ -1153,7 +1153,16 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 // owning thread, and re-arm. No slot belongs to it.
                 .wake => {
                     if (comp.recv_bytes != null) self.recycleRecvBuffer(comp);
-                    self.onWakeCompletion(comp.result);
+                    // A momentarily empty buffer pool completes a recv with
+                    // no data and a negative result, which is transient
+                    // pressure and not a closed channel. The connection arm
+                    // parks and re-arms for exactly this; the wake must too,
+                    // or one starved poll deafens it for the loop's life.
+                    if (comp.recv_no_buffer) {
+                        self.wake_rearm_pending = true;
+                    } else {
+                        self.onWakeCompletion(comp.result);
+                    }
                 },
                 // The only handler that may fail the loop: a dead accept re-arm
                 // is loop-global. Every per-connection handler resolves its own
@@ -1333,17 +1342,20 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             self.driveOut(slot, c) catch self.failConn(slot, c);
         }
 
-        /// The transport-verified remote partner key (32-byte Ed25519) for
-        /// `slot`'s live connection, when the backend authenticates one — the
-        /// iroh backend reads it off the QUIC handshake (ADR-0097). Socket
-        /// backends carry no lower-layer peer identity and answer null; the
-        /// member is part of the total Backend contract (`validateBackend`).
-        /// A `MakeConnCtx` hook calls this at adoption, before the
-        /// connection's first byte feeds, to bind the CapTP hello to the
-        /// transport identity.
-        pub fn remotePartnerKey(self: *Self, slot: usize) ?[32]u8 {
+        /// The durable key (32-byte Ed25519) this connection's realizer proved
+        /// its far end holds, when the backend proves one. The iroh backend
+        /// reads it off the QUIC handshake (ADR-0105). Socket backends carry no
+        /// lower-layer identity and answer null; the member is part of the
+        /// total Backend contract (`validateBackend`). A `MakeConnCtx` hook
+        /// calls this at adoption, before the connection's first byte feeds,
+        /// and asserts what it returns to the engine.
+        ///
+        /// The *channel's* far end, never the CapTP partner: a byte-transparent
+        /// relay makes those two different parties, and the engine keeps them
+        /// in two fields for that reason (`engine.DurablePin`).
+        pub fn verifiedChannelKey(self: *Self, slot: usize) ?[32]u8 {
             const c = self.liveConn(slot) orelse return null;
-            return self.backend.remotePartnerKey(c.fd);
+            return self.backend.verifiedChannelKey(c.fd);
         }
 
         /// Close the connection at `slot` after a best-effort flush of
@@ -2190,7 +2202,13 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         ) !void {
             std.debug.assert(self.wake == null); // one wake channel per loop
             self.wake = .{ .fd = fd, .ctx = ctx, .handler = handler };
-            try self.backend.submitRecv(userData(.wake, 0), fd);
+            // A submit the backend cannot admit right now is ring pressure,
+            // not a bad fd. Leave the channel armed-pending so the bounded
+            // retry before the next wait picks it up, rather than reporting
+            // a failure whose only honest recovery is that same retry.
+            self.backend.submitRecv(userData(.wake, 0), fd) catch {
+                self.wake_rearm_pending = true;
+            };
         }
 
         /// A wake recv completed: run the handler and re-arm. A closed or

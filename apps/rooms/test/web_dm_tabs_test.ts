@@ -15,13 +15,21 @@
 // relay, so the redeemer reaches it only through the relay its host is
 // configured for (`Host.setRendezvousUrl`). That honest scope is ADR-0088's.
 //
+// Then Alice closes the conversation and starts a second one with the same
+// person. Closing a direct line ends a connection and drops a history; it says
+// nothing about who is reachable, so the members list must still offer her a
+// direct line to Bob afterwards, and taking it must reach him. The two facts go
+// together on purpose: an interface that keeps the button but cannot open a
+// second line, and one that opens a second line but hides the way in, are the
+// same broken promise from a reader's side.
+//
 // The room and both tabs run over plain TCP-through-relay (no iroh, no cargo):
 // the tabs reach the room over `/relay?target=…` and reach each other over the
 // relay's rendezvous WebSocket, so this whole proof is deno-only.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server is native), and a Playwright Chromium
-// (`npx playwright install chromium && sudo npx playwright install-deps`).
+// (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web_dm_tabs_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
@@ -31,6 +39,8 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from one browser tab to another";
 const REPLY_TEXT = "got it Alice, replying over the same connection";
+const SECOND_TEXT = "hi again Bob, on a second line after I closed the first";
+const SECOND_REPLY = "still here Alice, on the new connection";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -68,6 +78,11 @@ async function joinAs(browser: Browser, port: number, nick: string): Promise<{
 	const context = await browser.newContext();
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
+	tab.on("console", (msg) => {
+		if (msg.type() === "error" || msg.type() === "warning") {
+			console.error(`  [${nick} console.${msg.type()}]`, msg.text());
+		}
+	});
 	await tab.goto(`http://127.0.0.1:${port}/`);
 	await tab.fill("#nick", nick);
 	await tab.fill("#room", ROOM);
@@ -107,7 +122,7 @@ async function awaitBubble(tab: Page, text: string, who: string): Promise<void> 
 	});
 }
 
-const deadline = setTimeout(() => fail("web-dm-tabs scenario timed out after 120s"), 120_000);
+const deadline = setTimeout(() => fail("web-dm-tabs scenario timed out after 180s"), 180_000);
 
 const httpPort = freePort();
 const roomPort = freePort();
@@ -164,11 +179,46 @@ try {
 	// completion of a cold-dial between two peers that both refuse a listener.
 	await awaitBubble(alice.tab, REPLY_TEXT, "Alice");
 
+	// Alice ends the conversation with the mark in its title. The line's
+	// connection goes with it and the thread leaves her rail, which is what
+	// closing means here.
+	await alice.tab.click("#leaveBtn");
+	await alice.tab.waitForFunction(
+		() => document.querySelectorAll("#dmList .dm-open").length === 0,
+		undefined,
+		{ timeout: 20_000 },
+	).catch(() => fail("Alice closed the direct message but its thread stayed in her rail"));
+
+	// The person is still there. Who can be reached directly is the room's
+	// answer, not this conversation's, so the members list still offers Alice a
+	// direct line to Bob — the way back in, and the only one she has once the
+	// thread is gone.
+	const again = alice.tab.locator(`#members li:has-text("web-bob") button.dm-btn`);
+	await again.waitFor({ state: "visible", timeout: 30_000 }).catch(() =>
+		fail("after closing the conversation, the members list no longer offered a line to web-bob")
+	);
+
+	// Taking it opens a second conversation, and it reaches him: a fresh
+	// introduction, redeemed by a fresh cold dial, because the first line's
+	// connection is gone.
+	await again.click();
+	await alice.tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
+	await send(alice.tab, SECOND_TEXT);
+	await awaitBubble(bob.tab, SECOND_TEXT, "Bob");
+
+	// And Bob answers on the new connection, so the second conversation is as
+	// bidirectional as the first: his old reply route died with the line Alice
+	// closed, and the one her second message arrived on replaced it.
+	await send(bob.tab, SECOND_REPLY);
+	await awaitBubble(alice.tab, SECOND_REPLY, "Alice");
+
 	console.log(
 		"PASS: two browser tabs direct-messaged each other by cold-dial rendezvous — one " +
 			"registered its identity at the relay, the other redeemed a room introduction by " +
 			"cold-dialing it, the keyed session opened tab-to-tab through the relay off-room, and " +
-			"the reply rode back over the same arriving connection to a tab that never listens",
+			"the reply rode back over the same arriving connection to a tab that never listens; " +
+			"then closing the conversation left the member reachable in the list and a second " +
+			"line to the same person opened, carried a message, and carried a reply back",
 	);
 } finally {
 	clearTimeout(deadline);

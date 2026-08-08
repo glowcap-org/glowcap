@@ -105,6 +105,39 @@ pub const PancakeContext = shared.PancakeContext;
 /// A byte-fed multi-session CapTP host: one identity, one routing/redeem
 /// authority, many sessions. Created with `pancake_host_new`; released with
 /// `pancake_host_release`.
+/// The structs the wasm32 layout descriptor reports and the TypeScript
+/// mirror's `WASM_LAYOUT_STRUCTS` manifest names, in one canonical order.
+/// This table is the single authority both consumers read — the wasm
+/// module's `pancake_wasm_abi_layout` walks it to emit offsets, and
+/// `tools/gen/binding/ts_abi.zig` walks it to emit the manifest — so a
+/// struct added to the ABI cannot reach one mirror and miss the other
+/// (the drift that once shipped a page demanding a layout the wasm
+/// module didn't carry). Append-only: a new struct is one new row at
+/// the end; it never renumbers an earlier index a JS decoder holds.
+pub const WasmLayoutSpec = struct {
+    /// Constant prefix in the mirrors (`<prefix>_SIZE`,
+    /// `<prefix>_<FIELD>_OFF`) and the string the descriptor's
+    /// name-hash word is computed from.
+    prefix: []const u8,
+    T: type,
+};
+
+pub const wasm_layout_manifest = [_]WasmLayoutSpec{
+    .{ .prefix = "MANAGED_FRAME", .T = shared.PancakeManagedFrame },
+    .{ .prefix = "REF", .T = shared.PancakeReference },
+    .{ .prefix = "ARG", .T = shared.PancakeArgument },
+    .{ .prefix = "FRAME", .T = shared.PancakeFrame },
+    .{ .prefix = "LAST_ABORT", .T = shared.PancakeLastAbort },
+    .{ .prefix = "ALLOCATOR", .T = shared.PancakeAllocator },
+    .{ .prefix = "HOST_ACTION", .T = PancakeHostAction },
+    .{ .prefix = "HOST_PUMP_HOOKS", .T = PancakeHostPumpHooks },
+    .{ .prefix = "DIAL_PLAN", .T = PancakeDialPlan },
+    .{ .prefix = "ACCEPT_PLAN", .T = PancakeAcceptPlan },
+    .{ .prefix = "PENDING_DIAL", .T = PancakePendingDial },
+    .{ .prefix = "PARTNER_IDENTITY", .T = PancakePartnerIdentity },
+    .{ .prefix = "TRACE_EVENT", .T = PancakeTraceEvent },
+};
+
 pub const PancakeHost = opaque {};
 
 /// One byte-fed CapTP session a host minted (`pancake_host_session_open_dialed_locator` /
@@ -136,16 +169,26 @@ pub const PANCAKE_HOST_ACTION_SETTLE: u32 = 3;
 /// `PancakeHostAction.kind`: the vow `ticket` names settled broken with
 /// `message`; route the outcome to whatever awaits that vow.
 pub const PANCAKE_HOST_ACTION_FAIL: u32 = 4;
-/// `PancakeHostAction.kind`: the host condemned `session` mid-pump (its local
-/// turns amplified past the configured budget). Drain and write its queued
-/// outbound — the typed `resource_exhausted` abort — then close its transport
-/// and release the connection.
+/// `PancakeHostAction.kind`: the host retired `session`. Drain and write any
+/// queued terminal frame, then close its transport and release the connection.
+/// A condemned session carries an abort; redeem-only cleanup closes quietly.
 pub const PANCAKE_HOST_ACTION_CLOSE: u32 = 5;
 
 /// Default maximum admissible frame for a host connection, mirroring
 /// `session.SessionLimits.max_frame_bytes` (1 MiB). Bindings pass this to
 /// `pancake_host_new` / `pancake_host_new_in` unless the embedder overrides.
 pub const PANCAKE_DEFAULT_FRAME_CAP: usize = (engine.SessionLimits{}).max_frame_bytes;
+
+/// How long a binding's establish waits for a partner's `op:start-session`
+/// before abandoning the half-built connection.
+///
+/// It lives here because it is one product decision, not four. A peer that
+/// opens a byte channel and then says nothing is the case no failure check
+/// catches: nothing fails, the handshake simply waits, so unbounded it parks
+/// the dialer forever and, on an accepting side, every later connection behind
+/// it. Each binding used to carry its own copy of this number, which is a
+/// promise about how long a caller waits made in four places at once.
+pub const PANCAKE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
 
 /// Discovery-posture dial retry interval (ms). Keep lockstep with
 /// `driver.discovery_retry_ms` (ADR-0082); `test/driver` pins the pair.
@@ -231,6 +274,97 @@ pub const PancakeHostBehavior = *const fn (
 /// the consumer keeps ownership of `ctx`. Must call no `pancake_host_*`
 /// function.
 pub const PancakeHostCtxFree = *const fn (ctx: ?*anyopaque) callconv(.c) void;
+
+// ── Live trace vocabulary ─────────────────────────────────────────────────────
+
+/// One reported trace fact (`pancake_host_set_trace`). The kind selects the
+/// live fields; string views are borrowed for the callback only.
+pub const PANCAKE_TRACE_SESSION_OPEN: u32 = 0;
+pub const PANCAKE_TRACE_MESSAGE: u32 = 1;
+pub const PANCAKE_TRACE_SESSION_CLOSE: u32 = 2;
+
+pub const PancakeTraceEvent = extern struct {
+    /// A `PANCAKE_TRACE_*` value.
+    kind: u32,
+    /// The session the fact is about, stable for the session's life.
+    session: u64,
+    /// `PANCAKE_TRACE_MESSAGE`: nonzero when the message left this host.
+    outbound: u8,
+    /// `PANCAKE_TRACE_SESSION_OPEN`: what proved the partner's durable name,
+    /// as a `PANCAKE_DURABLE_PROVENANCE_*` value — the same fact
+    /// `pancake_host_session_partner_identity` reports, not a second
+    /// spelling of it. A consumer that only asked "was it proved" cannot
+    /// tell a partner claiming no durable name from one whose claim nothing
+    /// on its path was able to prove.
+    provenance: u32,
+    /// `PANCAKE_TRACE_SESSION_OPEN`: the negotiated `PANCAKE_CODEC_*`, or
+    /// `PANCAKE_CODEC_UNKNOWN` when the session uses a codec this C ABI family
+    /// does not name.
+    codec: u32,
+    /// `PANCAKE_TRACE_SESSION_OPEN`: the negotiated `PANCAKE_CAPTP_*`.
+    captp_version: u32,
+    /// `PANCAKE_TRACE_SESSION_OPEN`: the partner's OCapN Designator —
+    /// dialed, or claimed by its hello. Borrowed.
+    ///
+    /// Half a name on its own. OCapN requires a designator and a transport
+    /// together to tell two locations apart, so the same key reached over
+    /// `iroh` and over `keyed-relay` is two locators — and which one
+    /// carried the session decides how the name could have been proved.
+    designator: ?[*]const u8,
+    designator_len: usize,
+    /// `PANCAKE_TRACE_SESSION_OPEN`: the netlayer transport symbol this
+    /// session runs over (`tcp`, `keyed-tcp`, `keyed-relay`, `iroh`,
+    /// `webrtc`, `inproc`). Borrowed.
+    transport: ?[*]const u8,
+    transport_len: usize,
+    /// `PANCAKE_TRACE_SESSION_OPEN`: the OCapN Session ID, 64 lowercase hex
+    /// digits, which BOTH peers of this session derive to the same value.
+    /// Empty when the partner sent no session key. Borrowed.
+    ///
+    /// Not `session` above: that is this host's own handle and means
+    /// nothing to anyone else, while this is the name the two ends agree
+    /// on and the only one that merges two producers' feeds.
+    session_id: ?[*]const u8,
+    session_id_len: usize,
+    /// `PANCAKE_TRACE_MESSAGE`: the deliver's verb. Borrowed.
+    verb: ?[*]const u8,
+    verb_len: usize,
+    /// `PANCAKE_TRACE_MESSAGE`: the message's wire frame, borrowed. Both
+    /// directions carry it — the fact sites sit at the wire boundary
+    /// (inbound dispatch, the outbound drain).
+    frame: ?[*]const u8,
+    frame_len: usize,
+    /// `PANCAKE_TRACE_MESSAGE`: how long the frame really was. Equal to
+    /// `frame_len` on the callback seam, which borrows the frame where it
+    /// sits; larger when a queued record clipped the frame to its payload
+    /// window (`pancake_host_set_trace_queue`).
+    frame_total_len: usize,
+    /// Records the host dropped between the previous record and this one.
+    /// Always zero on the callback seam, which drops nothing; a queued
+    /// record reports the gap its ring could not hold.
+    dropped: u64,
+    /// `PANCAKE_TRACE_MESSAGE`: a tag over the frame's bytes, naming this one
+    /// message across the two peers that carried it. One frame crosses one
+    /// wire, so both ends derive the same tag from the bytes they hold,
+    /// without coordinating and without either of them retaining anything.
+    /// A consumer merging two observers of one session folds their two
+    /// sightings of a message into one on this. Zero on the other kinds.
+    digest: [PANCAKE_TRACE_DIGEST_BYTES]u8,
+};
+
+/// Width of `PancakeTraceEvent.digest`. 128 bits: the tag separates the
+/// messages of one session from each other, so the birthday bound that
+/// matters is over one session's own traffic rather than over every message
+/// a consumer ever sees.
+pub const PANCAKE_TRACE_DIGEST_BYTES: usize = 16;
+
+/// The trace callback: called synchronously at the fact site, on the host's
+/// one thread, with `event` and its views borrowed for the call. Must call no
+/// host-driving verb.
+pub const PancakeTraceCallback = *const fn (
+    ctx: ?*anyopaque,
+    event: *const PancakeTraceEvent,
+) callconv(.c) void;
 
 // ── Dial / accept planning vocabulary ─────────────────────────────────────────
 
@@ -322,27 +456,25 @@ pub const PancakePartnerIdentity = extern struct {
     locator_record: ?[*]const u8,
     locator_record_len: usize,
     /// How the durable identity in `designator` was authenticated, one of the
-    /// `PANCAKE_DURABLE_PROVENANCE_*` values. Session identity, durable
-    /// identity, and this provenance are three separate facts (ADR-0097): a
-    /// caller that requires a proved durable peer reads this, never a
-    /// comparison of `designator` against `session_key`, which is a
-    /// coincidence of today's key reuse and stops holding when each connection
-    /// draws a fresh session key.
+    /// `PANCAKE_DURABLE_PROVENANCE_*` values. It is derived from the evidence
+    /// this one session holds, never from its transport's name (ADR-0105), so
+    /// two sessions on the same transport can answer differently.
+    ///
+    /// Session identity, durable identity, and this provenance are three
+    /// separate facts: a caller that requires a proved durable peer reads
+    /// this, never a comparison of `designator` against `session_key`. Each
+    /// connection draws its own session key, so a session key is not an
+    /// identity and the two never match.
     provenance: u32,
 };
 
-/// The transport layer proved the partner's durable key: iroh's QUIC
-/// handshake, or WebRTC's DTLS binding under capability-authorized signaling.
+/// A lower layer proved the partner holds the durable key it claims, and that
+/// key names the far end of the byte channel this session runs over, so the
+/// partner and the endpoint this session is encrypted to are one node.
 pub const PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT: u32 = 0;
-/// The hello carried a `session-key-attestation` signed by the durable key its
-/// designator names, and it verified (`keyed-tcp`, `keyed-relay`). Static
-/// authorization: it proves the durable key authorized this session key, not
-/// that the signer is live on this connection.
-pub const PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION: u32 = 1;
-/// No durable identity was proved. An address transport designates a socket
-/// address rather than a key, and a partner that advertised an address on a
-/// key transport claimed no durable identity to authenticate.
-pub const PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED: u32 = 2;
+/// Nothing proved the name. A partner that claimed no durable identity at all
+/// lands here too, having no identity to have authenticated.
+pub const PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED: u32 = 1;
 
 /// What an accepted session signs as its own locator: the designator a
 /// partner names it by, and the direct-addresses hint. Views borrow the caller's
@@ -368,6 +500,9 @@ pub const pancake_host_new_in = host.pancake_host_new_in;
 pub const pancake_host_release = host.pancake_host_release;
 pub const pancake_host_designator_from_seed = host.pancake_host_designator_from_seed;
 pub const pancake_host_set_self_designator = host.pancake_host_set_self_designator;
+pub const pancake_host_set_advertised_locator = host.pancake_host_set_advertised_locator;
+pub const pancake_host_ensure_advertised_locator = host.pancake_host_ensure_advertised_locator;
+pub const pancake_host_remove_advertised_locator = host.pancake_host_remove_advertised_locator;
 pub const pancake_host_set_session_limits = host.pancake_host_set_session_limits;
 pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
 pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
@@ -389,6 +524,7 @@ pub const pancake_host_session_open_dialed_locator = session.pancake_host_sessio
 pub const pancake_host_session_open_accepted = session.pancake_host_session_open_accepted;
 pub const pancake_host_session_release = session.pancake_host_session_release;
 pub const pancake_host_session_is_open = session.pancake_host_session_is_open;
+pub const pancake_host_session_trace_id = session.pancake_host_session_trace_id;
 pub const pancake_host_session_feed = session.pancake_host_session_feed;
 pub const pancake_host_session_feed_bytes = session.pancake_host_session_feed_bytes;
 pub const pancake_host_session_take_outbound = session.pancake_host_session_take_outbound;
@@ -397,6 +533,9 @@ pub const pancake_host_session_spawn = session.pancake_host_session_spawn;
 pub const pancake_host_session_fetch = session.pancake_host_session_fetch;
 pub const pancake_host_session_enliven = session.pancake_host_session_enliven;
 pub const pancake_host_enliven = host.pancake_host_enliven;
+pub const pancake_host_set_trace = host.pancake_host_set_trace;
+pub const pancake_host_set_trace_queue = host.pancake_host_set_trace_queue;
+pub const pancake_host_next_trace = host.pancake_host_next_trace;
 pub const pancake_host_spawn_resolver = host.pancake_host_spawn_resolver;
 pub const pancake_host_resolver_fulfill = host.pancake_host_resolver_fulfill;
 pub const pancake_host_resolver_break = host.pancake_host_resolver_break;
@@ -413,6 +552,7 @@ pub const pancake_host_session_set_exporter_location = session.pancake_host_sess
 pub const pancake_host_session_last_abort = session.pancake_host_session_last_abort;
 pub const pancake_host_session_partner_abort = session.pancake_host_session_partner_abort;
 pub const pancake_host_session_partner_identity = session.pancake_host_session_partner_identity;
+pub const pancake_host_session_bind_verified_channel_key = session.pancake_host_session_bind_verified_channel_key;
 
 pub const pancake_host_turn_forward = turn.pancake_host_turn_forward;
 pub const pancake_host_turn_forward_vow = turn.pancake_host_turn_forward_vow;

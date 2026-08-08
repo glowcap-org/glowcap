@@ -30,11 +30,11 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
         .gc_answer => |x| std.mem.eql(u64, x.positions, b.gc_answer.positions),
         .abort => |x| x.kind == b.abort.kind and std.mem.eql(u8, x.message, b.abort.message),
         .listen => |x| model.referencesStructurallyEqual(x.target, b.listen.target) and
-            model.referencesStructurallyEqual(x.listener, b.listen.listener) and x.wants_partial == b.listen.wants_partial,
+            model.referencesStructurallyEqual(x.listener, b.listen.listener) and x.mode == b.listen.mode,
         .get => |x| model.referencesStructurallyEqual(x.receiver, b.get.receiver) and
             std.mem.eql(u8, x.field, b.get.field) and x.answer == b.get.answer,
         .index => |x| model.referencesStructurallyEqual(x.receiver, b.index.receiver) and
-            x.index == b.index.index and x.answer == b.index.answer,
+            x.index.eql(b.index.index) and x.answer == b.index.answer,
         .untag => |x| model.referencesStructurallyEqual(x.receiver, b.untag.receiver) and
             std.mem.eql(u8, x.tag, b.untag.tag) and x.answer == b.untag.answer,
         .start_session => |x| blk: {
@@ -44,7 +44,6 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
                 model.peerLocatorsEqual(x.acceptable_location, y.acceptable_location) and
                 std.mem.eql(u8, x.acceptable_location_sig.bytes, y.acceptable_location_sig.bytes);
         },
-        .handoff => |x| model.handoffsEqual(x, b.handoff),
     };
 }
 

@@ -27,10 +27,11 @@
 //! (`pancake-export-listen.rkt`), where Goblins subscribes on a live pancake
 //! object export and hears the settlement, and a projection asker
 //! (`pancake-projection-asker.rkt`), where Goblins writes canonical `op:get`
-//! and `op:index` at pancake's responders — proving acceptance of the frames
-//! (each expected answer is latched as it appears in the inbound answer
-//! table), not a Goblins-observed settlement. Together the brackets prove the bidirectional capability:
-//! pancake drives Goblins, and Goblins drives a pancake actor.
+//! and `op:index` at pancake's responders, then observes pancake's
+//! resolver-callback fulfillments for those projected answers. Together the
+//! brackets prove the
+//! bidirectional capability: pancake drives Goblins, and Goblins drives a
+//! pancake actor.
 //!
 //! This is not part of the hermetic `zig build check`: it needs `racket` + the
 //! `goblins` collection on PATH, so it runs as the sibling step
@@ -87,27 +88,16 @@ const projection_swiss = "pancakeProjectionSwissnumABCDEF1234";
 // like the listener scenarios' actor swiss-num — so the echo readiness line
 // stays the first `swiss` line every interop client parses.
 const record_swiss = "pancakeRecordSwissnumABCDEF12345";
+/// The stateful cap the one-way-deliver leg drives (`goblins-host.rkt`'s
+/// `^tally`). A `tell` carries no answer, so proving it arrived means
+/// changing something and reading it back.
+const tally_swiss = "pancakeTallySwissnumABCDEF123456";
 // Deliberately never registered on the pancake side: fetching it makes the
 // bootstrap auto-serve break the answer with "unknown swissnum".
 const unregistered_swiss = "pancakeUnknownSwissnumZZZZZZ9999";
 
-/// A pancake actor that a live Goblins peer calls over the wire. Goblins invokes
-/// a cap positionally — `(<- actor "world")` — so the call arrives with no method
-/// symbol: the first argument is the name. The reply is freshly built from
-/// `turn.arena`, the per-turn allocator the vat reclaims, so the handler allocates
-/// without leaking (ADR-0036).
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        const name: []const u8 = switch (try msg.arg(0)) {
-            .string => |s| s,
-            .bytes => |b| b,
-            else => "stranger",
-        };
-        const reply = try std.fmt.allocPrint(turn.arena, "Hello {s}, from a pancake actor!", .{name});
-        return .{ .string = reply };
-    }
-};
+/// The actor the listener scenarios publish for a live Goblins peer to call.
+const Greeter = harness.PositionalReplyActor("Hello {s}, from a pancake actor!");
 
 /// Returns an OCapN Struct or List so inbound `op:get` / `op:index` can project
 /// (ADR-0050).
@@ -248,11 +238,10 @@ pub fn main(init: std.process.Init) !void {
 
     // Sixth bracket: Goblins-as-asker sends canonical `op:get` / `op:index`
     // frames through its own netlayer against pancake's ADR-0050 responders.
-    // The Racket asker writes the frames and returns without observing the
-    // projection settlements (its raw send path bypasses Goblins' answer
-    // table), so this bracket proves acceptance of Goblins-written projection
-    // ops, not settlement; the settlement matrix stays pinned by the in-tree
-    // Zig scenarios (docs/boundaries.md names the edge).
+    // The pinned Goblins release has inbound projection support but no public
+    // outbound app API for those ops, so the Racket asker uses Goblins'
+    // canonical records and test-only netlayer writer, then observes pancake's
+    // V1.0 resolver-callback settlements on the live Goblins TCP netlayer.
     try runListenerScenario(init, .{
         .dialer = projection_asker_script,
         .swiss = projection_swiss,
@@ -260,10 +249,11 @@ pub fn main(init: std.process.Init) !void {
         .serves_actor = true,
         .kind = "projection asker",
         .actor = .projection,
-        // The asker's deliver answers are 1–2; its raw op:get / op:index mint
-        // 3–4. All four must be in the inbound answer table, so "accepted the
-        // frames" is arrival-proven, not assumed.
-        .expect_inbound_answers = &.{ 1, 2, 3, 4 },
+        // `PROJECTION OK` now means the Goblins-side probe observed fulfill
+        // resolver callbacks for both projection answer positions, with the
+        // expected payloads. The kind latches stay as a guard that the
+        // canonical projection frames themselves reached pancake.
+        .expect_inbound_ops = &.{ .get, .index },
     });
     std.debug.print("goblins-interop: OK, pancake accepted canonical op:get/op:index frames a Goblins netlayer wrote\n", .{});
 }
@@ -287,13 +277,17 @@ const ListenerScenario = struct {
     kind: []const u8,
     /// Which actor type to publish when `serves_actor` is true.
     actor: enum { greeter, projection } = .greeter,
-    /// Partner-minted answer positions that must appear in the session's
-    /// inbound answer table at some point while the client runs — the arrival
-    /// proof for frames the client writes fire-and-forget (the projection
-    /// asker's `op:get` / `op:index`). Latched per pump, because a partner
-    /// that has resolved its question may release the row before hanging up.
-    /// Empty for scenarios whose success needle already implies delivery.
-    expect_inbound_answers: []const u64 = &.{},
+    /// Inbound frame kinds this run must see arrive — the arrival proof for
+    /// frames the client writes fire-and-forget (the projection asker's
+    /// `op:get` / `op:index`), whose success needle says only that the client
+    /// was satisfied, not that the frames reached this peer.
+    ///
+    /// Kinds and not answer positions. A position is a name in the PARTNER's
+    /// namespace: Goblins mints them from its own counter, and a released
+    /// position is legally reused. Pinning one here made this bracket assert a
+    /// number neither side owns, which held only while the partner's send
+    /// order held, and broke under the load that reorders it.
+    expect_inbound_ops: []const engine.EventKind = &.{},
 };
 
 /// The reverse direction: a pancake peer listens on an ephemeral port, and a
@@ -386,13 +380,16 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     // 6. Drive until Goblins has what it came for and hangs up. Some scenarios
     //    exit before the TCP session closes; a wall-clock cap prevents wedging.
     var served = false;
-    // Arrival is latched as it happens, never read off the table at the end: a
-    // partner that has resolved its question may legally release the row with
-    // `op:gc-answers` before it hangs up, and Goblins does. Sampling each pump
-    // proves what this bracket claims — the frames arrived and minted their
-    // answers — instead of racing the partner's release.
-    var seen_answers = [_]bool{false} ** 8;
-    std.debug.assert(scenario.expect_inbound_answers.len <= seen_answers.len);
+    // Arrival is latched off the frame that mints it, never read out of the
+    // session's answer table: a partner that has resolved its question may
+    // legally release the row with `op:gc-answers` before it hangs up, and
+    // Goblins does. One `pump` consumes every byte that has arrived, so the
+    // deliver and the release are both applied before the loop could look, and
+    // under load they routinely land together. `latchInboundAnswer` reads the
+    // position off the deliver itself, which is the one place it is still
+    // visible.
+    var seen_ops = [_]bool{false} ** 8;
+    std.debug.assert(scenario.expect_inbound_ops.len <= seen_ops.len);
     const pump_deadline = harness.deadlineAfter(io, deadline_ms);
     while (true) {
         if (harness.expired(io, pump_deadline)) break;
@@ -400,12 +397,12 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
+            for (scenario.expect_inbound_ops, 0..) |kind, i| {
+                if (event.tag == kind) seen_ops[i] = true;
+            }
             if (vat) |*v| {
                 if (port.?.serve(v, &event) catch false) served = true;
             }
-        }
-        for (scenario.expect_inbound_answers, 0..) |position, i| {
-            if (peer.session_state.hasInboundAnswer(.from(position))) seen_answers[i] = true;
         }
         if (progress == .closed) break;
     }
@@ -441,11 +438,11 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     //    expected partner-minted answer position must have landed in the
     //    session's inbound answer table, or the "accepted the frames" claim
     //    rode a teardown race instead of the wire.
-    for (scenario.expect_inbound_answers, 0..) |position, i| {
-        if (!seen_answers[i]) {
+    for (scenario.expect_inbound_ops, 0..) |kind, i| {
+        if (!seen_ops[i]) {
             std.debug.print(
-                "goblins-interop: expected inbound answer {d} never arrived ({s} scenario)\n",
-                .{ position, scenario.kind },
+                "goblins-interop: expected inbound {s} never arrived ({s} scenario)\n",
+                .{ @tagName(kind), scenario.kind },
             );
             goblins_child.dumpChildStderr(io, "goblins-interop", &child);
             return error.ExpectedAnswerNeverArrived;
@@ -552,7 +549,7 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u
     const index_answer: u64 = 4343;
     try peer.sendCopying(.{ .index = .{
         .receiver = .{ .promise = .{ .answer_position = model.AnswerPosition.from(echo_answer) } },
-        .index = 0,
+        .index = .{ .integer = 0 },
         .answer = model.AnswerPosition.from(index_answer),
     } });
 
@@ -631,7 +628,71 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u
     if (!got) return error.GetProjectionNeverResolved;
     std.debug.print("goblins-interop: op:get pipelined against the pending record answer; goblins resolved the projected field\n", .{});
 
-    // 6. Enliven the echo cap by its swiss-num through the engine's ADR-0012
+    // 6. One-way deliver (`tell`): the frame pancake sends for a
+    //    fire-and-forget send is an `op:deliver` with no answer and no
+    //    resolver, which is what the pinned draft folds one-way delivery
+    //    into. Nothing comes back by construction, so the proof is a state
+    //    change: bump the tally twice with no answer, then call `read` with
+    //    one and assert live Goblins counted both.
+    const tally = try goblins_child.fetchCap(allocator, peer, &conn, tally_swiss);
+    defer model.freeReference(allocator, tally);
+    std.debug.print("goblins-interop: fetched goblins tally cap, sending two one-way delivers\n", .{});
+
+    try peer.sendCopying(.{ .deliver = .{
+        .target = tally,
+        .args = &.{.{ .symbol = "bump" }},
+        .answer = null,
+    } });
+    try peer.sendCopying(.{ .deliver = .{
+        .target = tally,
+        .args = &.{.{ .symbol = "bump" }},
+        .answer = null,
+    } });
+
+    // Distinct from every other answer this conversation opens: the driver
+    // numbers them by hand, so a reused position is a collision, not a reuse.
+    const tally_answer: u64 = 4747;
+    try peer.sendCopying(.{ .deliver = .{
+        .target = tally,
+        .args = &.{.{ .symbol = "read" }},
+        .answer = model.AnswerPosition.from(tally_answer),
+    } });
+
+    var tallied = false;
+    while (!tallied) {
+        const progress = try conn.pump();
+        while (peer.pollEvent()) |event_value| {
+            var event = event_value;
+            defer event.deinit();
+            const body = event.view() catch continue;
+            if (body == .resolve and body.resolve.answer.int() == tally_answer) {
+                switch (body.resolve.resolution) {
+                    .fulfill => |payload| {
+                        const count = switch (payload) {
+                            .integer => |n| n,
+                            else => return error.TallyWrongPayload,
+                        };
+                        // Both one-way delivers landed, in order, ahead of the
+                        // answered call that read them.
+                        if (count != 2) {
+                            std.debug.print("goblins-interop: tally read {d}, wanted 2\n", .{count});
+                            return error.TallyWrongCount;
+                        }
+                        tallied = true;
+                    },
+                    .@"break" => |err| {
+                        std.debug.print("goblins-interop: tally read broke: {s}\n", .{err.message});
+                        return error.TallyBroke;
+                    },
+                }
+            }
+        }
+        if (progress == .closed) break;
+    }
+    if (!tallied) return error.TallyNeverResolved;
+    std.debug.print("goblins-interop: two one-way delivers counted by live goblins\n", .{});
+
+    // 7. Enliven the echo cap by its swiss-num through the engine's ADR-0012
     //    dedup-cache API (the same surface every binding's `enliven` rides), not a
     //    bare bootstrap fetch. The first enliven runs a real bootstrap-fetch to
     //    Goblins and caches the resolved far reference; calling the enlivened cap

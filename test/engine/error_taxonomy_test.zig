@@ -41,10 +41,10 @@ test "prior cross-surface drift now classifies consistently" {
     try std.testing.expectEqual(abort.Domain.codec, view.domain);
     try std.testing.expectEqual(pancake.ocapn.model.AbortKind.malformed_frame, view.abort.?.kind);
 
-    // A handshake version mismatch is the one protocol error that does not close.
+    // A handshake version mismatch is a session-domain terminal abort.
     const mismatch = abort.classify(error.CaptpVersionMismatch);
     try std.testing.expectEqual(abort.Domain.session, mismatch.domain);
-    try std.testing.expectEqual(abort.AbortDisposition.keep_negotiating, mismatch.abort.?.disposition);
+    try std.testing.expectEqual(pancake.ocapn.model.AbortKind.version_mismatch, mismatch.abort.?.kind);
 
     // Host-internal failures stay foreign with no abort.
     const oom = abort.classify(error.OutOfMemory);
@@ -56,5 +56,4 @@ test "prior cross-surface drift now classifies consistently" {
     const cap = abort.classify(error.LocalDeliveryCapExceeded);
     try std.testing.expectEqual(abort.Domain.session, cap.domain);
     try std.testing.expectEqual(pancake.ocapn.model.AbortKind.resource_exhausted, cap.abort.?.kind);
-    try std.testing.expectEqual(abort.AbortDisposition.close, cap.abort.?.disposition);
 }

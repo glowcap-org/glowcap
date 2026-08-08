@@ -1,20 +1,25 @@
-# ADR-0091: Reserved Position Bands
-
-**Status:** Accepted, implemented. Both sums ship in `model/position.zig`:
-`ImportName` over `RedeemedToken`, and `AnswerName` over `VirtualAnswer`, each
-with `classify` as the one seam. The refusal seams in `session/validate.zig`
-and `session/v1_0.zig` switch exhaustively, the virtual-answer mint returns
-the typed arm and crosses back through the named `answerPosition` seat, and
-`test/model/model_test.zig` pins both band boundaries at classify.
-**Date:** 2026-07-29 (accepted 2026-08-02)
-**Decision:** An import position is one of two things, and it should say so.
-Either the partner named it on the wire, or this node minted it above
-`REDEEMED_TOKEN_BASE` as a handoff token. That is a sum, not two types living
-beside each other, so the fix is to name the sum and classify once at the one
-seam where an integer becomes a name. The same holds for the answer space and
-its engine-synthesized band.
-
 ---
+id: ADR-0091
+status: accepted
+date: 2026-08-02
+tags: [model, position, handoff, session, naming]
+decision: "An import position is one of two things, and it should say so. Either the partner named it on the wire, or this node minted it above `REDEEMED_TOKEN_BASE` as a handoff token. That is a sum, not two types living beside each other, so the fix is to name the sum and classify once at the one seam where an integer becomes a name. The same holds for the answer space and its engine-synthesized band."
+supersedes: []
+superseded_by: []
+amends: []
+amended_by: []
+---
+
+# ADR-0091 Reserved position bands
+
+> **Implementation standing.** Both sums ship in `model/position.zig`:
+> `ImportName` over `RedeemedToken`, and `AnswerName` over `VirtualAnswer`, each
+> with `classify` as the one seam. The refusal seams in `session/validate.zig`
+> and `session/v1_0.zig` switch exhaustively, the virtual-answer mint returns the
+> typed arm and crosses back through the named `answerPosition` seat, and
+> [`test/model/model_test.zig`](../../../test/model/model_test.zig) pins both
+> band boundaries at classify. This record was drafted on 2026-07-29 and
+> accepted on 2026-08-02.
 
 ## What changed, and why this ADR was rewritten
 
@@ -193,7 +198,7 @@ reason `model/position.zig` already gives.
   modules (`Node.next_token`, the `redeemed`/`foreign_imports` maps,
   `Session.next_virtual_inbound_answer`). The sum's job is the consumer seam,
   where an integer of unknown provenance becomes a name; the mint *is* the
-  provenance, and typing its private counter would re-spell the same fact with
+  provenance, and typing its private counter would restate the same fact with
   no reader protected.
 - The refusals in `session/validate.zig` stay, with their tests. A type that
   makes the mistake unrepresentable in pancake's own code does not make it

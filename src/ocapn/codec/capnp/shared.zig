@@ -37,7 +37,6 @@ pub const Kind = enum(u16) {
     resolve = 1,
     gc_export = 2,
     gc_answer = 3,
-    handoff = 4,
     start_session = 5,
     abort = 6,
     listen = 7,
@@ -87,6 +86,10 @@ pub const data0_flag: u64 = 1 << 16;
 /// Deliver data word 0 flag bits.
 pub const deliver_has_answer: u64 = 1;
 pub const deliver_has_resolve_me: u64 = 2;
+/// `op:index` data word 2 flags. Old compact-index frames omit this word and
+/// therefore read as zero.
+pub const index_big_integer: u64 = 1;
+pub const index_negative: u64 = 2;
 
 pub const ResolutionKind = enum(u16) { fulfill = 0, @"break" = 1 };
 pub const PipelineOpKind = enum(u16) { field = 0, call = 1 };
@@ -254,6 +257,12 @@ pub const Reader = struct {
     fn ptrWordRaw(self: Reader, loc: StructLoc, i: u16) Error!u64 {
         if (i >= loc.ptr_words) return 0;
         return self.word(loc.data_idx + loc.data_words + i);
+    }
+
+    /// Whether pointer field `i` is absent. Used when a larger replacement
+    /// layout must reject data in a field the selected compact arm does not own.
+    pub fn pointerIsNull(self: Reader, loc: StructLoc, i: u16) Error!bool {
+        return try self.ptrWordRaw(loc, i) == 0;
     }
 
     /// Follow pointer field `i` to a struct, or null if the slot is a null

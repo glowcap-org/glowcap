@@ -7,13 +7,9 @@
 .draft = false,
 ---
 
-This is where pancake stands: what runs today, where the edges are, and where the
-project is going. The code is the truth about the present; the documents linked
-below argue the direction without pretending unfinished work is done.
-
-The short version: nothing here is frozen, and nothing here has been reviewed
-for security. pancake is not audited, not hardened, and not ready to carry
-anything you would mind losing.
+The code is the truth about the present; the documents linked below argue the
+direction without pretending unfinished work is done. pancake is not audited,
+not hardened, and not ready to carry anything you would mind losing.
 [SECURITY.md](https://github.com/jimisaacs/pancake/blob/main/SECURITY.md)
 says that in full, and says how to report a vulnerability privately.
 [What you can depend on]($link.page('stability')) says what evidence runs for

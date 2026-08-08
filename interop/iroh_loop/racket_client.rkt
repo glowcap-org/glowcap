@@ -37,7 +37,7 @@
 (define (greeter bcom)
   (methods [(greet who) GREETING]))
 
-(define server (listen-iroh IROH-REACH-LOCAL-DISCOVERY))
+(define server (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
 (define server-id (iroh-server-node-id server))
 (printf "racket-iroh-loop: server endpoint id ~a\n" server-id)
 

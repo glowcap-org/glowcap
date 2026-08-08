@@ -3,9 +3,11 @@ id: ADR-0003
 status: accepted
 date: 2026-04-30
 tags: [codec, syrup, capnp, wire-profile, goblins-interop, captp-version]
-decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is pancake's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim; `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.native`) and `negotiate` settle the pair out of band. `op:start-session` carries only the chosen version string.
-  supersedes: []
-  superseded_by: []
+decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is pancake's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim; `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.native`) and `negotiate` settle the pair; ADR-0103 moved the production handshake offer from out-of-band configuration into signed locator hints while keeping `op:start-session`'s own shape at the baseline.
+supersedes: []
+superseded_by: []
+amends: []
+amended_by: [ADR-0103]
 ---
 
 # ADR-0003 Codec and interoperability posture
@@ -70,10 +72,10 @@ session state machine staying codec-neutral.
 [`engine.negotiation`](../../../src/ocapn/engine/negotiation.zig) exposes
 `Offer.goblins()` (since renamed `Offer.v1_0Syrup()`) / `Offer.native()` and a
 pure `negotiate(Offer, Offer)`.
-`op:start-session` carries only the chosen captp-version string, not codec or
-feature lists: so both peers must arrive at the same `(version, codec,
-features)` out of band (shared config, in-process pairing, or a locator hint an
-adapter reads). In-process pairing runs `negotiate` on those offers; the C ABI
+`op:start-session` carries the baseline version string and no new operands.
+ADR-0103 amends the production path: a peer states its preferred version, codec,
+and feature set in the signed locator hints, and both sides run `negotiate` over
+those offers. In-process pairing runs the same negotiation directly; the C ABI
 entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
 
 ## Scope (what this does not decide)
@@ -84,7 +86,7 @@ entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
   [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 - The `op:start-session` substrate and bootstrap-fetch shape,
   [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
-- Hint-/discovery-carried offers across the network (named present boundary).
+- Discovery-carried offers outside the signed hello locator.
 
 ## Alternatives Considered
 

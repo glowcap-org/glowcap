@@ -47,6 +47,18 @@ export {
 export { Context, type ContextAllocator } from "./context.ts";
 export { Host, type SignalingAuthority } from "./host.ts";
 export { RemotePromise } from "./promise.ts";
+// The live timeline producer (opt-in): a sink over the versioned timeline
+// schema ocapnviz's Live mode consumes, fed by this Host's own session opens,
+// closes, and message traffic. The rooms server serves it at `/viz`.
+export {
+	annotateSession,
+	CAPTP_VERSION_WIRE,
+	enableTrace,
+	type TraceCaptpVersion,
+	type TraceCodec,
+	type TraceEvent,
+	type TraceSink,
+} from "./trace.ts";
 // The handshake bound is applied inside `Session`'s establish spine, which
 // every dial and every accept path reaches; the constant is exported so a
 // caller choosing its own budget can say how it relates to the default.

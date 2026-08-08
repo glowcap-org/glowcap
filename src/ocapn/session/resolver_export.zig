@@ -11,9 +11,9 @@
 //! (ADR-0010), and the listener export an outbound `op:listen` nominates
 //! (ADR-0095). So this table is version-neutral rather than a V1.0
 //! compatibility layer, and ADR-0095 argues that from the spec text. How an
-//! *answer* settles stays profile-distinct and lives elsewhere: the V1.0 half
-//! in `v1_0.zig`, the next profile's `op:resolve` fold in the engine's
-//! outbound path.
+//! *answer* asks for that callback stays profile-distinct: V1.0 advertises a
+//! resolver in the deliver, while next follows the answered operation with a
+//! mandatory `op:listen`.
 //!
 //! The link is authoritative session state, so the field
 //! (`outbound_resolver_link`, a `BiMap` holding both directions) stays on
@@ -67,6 +67,32 @@ pub fn bindFreshResolverExport(
     return resolver_export;
 }
 
+/// Mint a resolver export whose mention will ride a message recorded outside
+/// the ordinary send apply walk. This is the shared accounting seam for V1.0's
+/// inline resolver and next's mandatory answer listener: bind the export to the
+/// answer and take exactly one wire retain for the resolver mention.
+pub fn mintMentionedResolverExport(
+    self: *Session,
+    answer: model.AnswerPosition,
+    kind: model.RefKind,
+) !model.ExportPosition {
+    // This preparation runs before the answered operation is validated and
+    // recorded. Replacing a live link here would corrupt the original answer
+    // if recordSend later rejects the new operation for reusing its position.
+    if (self.outbound_resolver_link.getByValue(.{ .application_answer = answer }) != null)
+        return session.Error.UnexpectedMessage;
+    const resolver_export = try bindFreshResolverExport(self, answer, kind);
+    errdefer abandonResolverExport(self, resolver_export);
+    try self.retainSentExportRef(session.slot.toReference(self.exportSlot(resolver_export).?).?);
+    return resolver_export;
+}
+
+/// Undo `mintMentionedResolverExport` before its mention reaches the wire.
+pub fn abandonMentionedResolverExport(self: *Session, resolver_export: model.ExportPosition) void {
+    self.exports.decrement(resolver_export, 1) catch unreachable;
+    abandonResolverExport(self, resolver_export);
+}
+
 /// Undo a `bindFreshResolverExport` whose export never reached the partner.
 /// Only valid while the export is still at its count-1 reservation, which is
 /// what the single-decrement `releaseUnsharedExport` needs to remove the row.
@@ -95,7 +121,7 @@ pub fn installOutboundResolver(self: *Session, answer: model.AnswerPosition, res
     // The `BiMap` keeps both directions in lockstep and evicts any prior export
     // that shared this answer, so re-installing an answer's resolver replaces
     // the whole link with no half-installed row surviving a failure.
-    try self.outbound_resolver_link.put(self.allocator, resolver_export, answer);
+    try self.outbound_resolver_link.put(self.allocator, resolver_export, .{ .application_answer = answer });
 }
 
 /// Drop the link keyed on `resolver_export`, returning whether one was there.
@@ -109,5 +135,198 @@ pub fn removeOutboundResolver(self: *Session, resolver_export: model.ExportPosit
 /// that export is a resolver, the signal to translate the inbound deliver into
 /// a semantic `Resolve`.
 pub fn answerForResolverExport(self: *const Session, resolver_export: model.ExportPosition) ?model.AnswerPosition {
-    return self.outbound_resolver_link.getByKey(resolver_export);
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return null;
+    return switch (purpose) {
+        .application_answer => |answer| answer,
+        .node_settling, .retired, .shortening_pending, .shortening_complete => null,
+    };
+}
+
+pub fn isNodeSettlingResolver(
+    self: *const Session,
+    resolver_export: model.ExportPosition,
+) bool {
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return false;
+    return switch (purpose) {
+        .node_settling => true,
+        else => false,
+    };
+}
+
+pub fn installNodeSettlingResolver(
+    self: *Session,
+    resolver_export: model.ExportPosition,
+) !void {
+    try self.outbound_resolver_link.put(self.allocator, resolver_export, .{
+        .node_settling = .{ .resolver_export = resolver_export },
+    });
+}
+
+/// Conclude a Node-only settling callback before its deliver event is surfaced
+/// to the Host composition hook. The Node still owns the event payload; session
+/// authority only retires the one-shot resolver and its promise claim.
+pub fn completeNodeSettlingResolverCallback(
+    self: *Session,
+    resolver_export: model.ExportPosition,
+) void {
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse unreachable;
+    const node = switch (purpose) {
+        .node_settling => |node| node,
+        else => unreachable,
+    };
+    if (node.settling_source) |source| {
+        const entry = self.findImportedPromise(source.position) orelse unreachable;
+        std.debug.assert(entry.cell.row_id == source.row_id);
+        std.debug.assert(entry.settling_listener_claimed);
+        std.debug.assert(entry.settling_listener_export == resolver_export);
+        std.debug.assert(entry.settling_answer == null);
+        std.debug.assert(entry.settling_followers.items.len == 0);
+        std.debug.assert(entry.settling_node_claimed);
+        entry.settling_listener_claimed = false;
+        entry.settling_listener_export = .from(0);
+        entry.settling_node_claimed = false;
+    }
+    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
+        .retired = .{
+            .resolver_export = resolver_export,
+            .state = .complete,
+        },
+    });
+    releaseRetiredResolverIfUnmentioned(self, resolver_export);
+    if (node.settling_source) |source| {
+        if (!self.hasImport(source.position)) self.releaseShorteningSourceAuthority(source);
+    }
+}
+
+/// Drop one Node consumer. An application sharing the callback keeps the wire
+/// listener. A Node-only listener becomes a pending retired resolver so one
+/// callback already in flight is consumed rather than surfaced.
+pub fn retireNodeSettlingResolver(
+    self: *Session,
+    resolver_export: model.ExportPosition,
+) void {
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return;
+    switch (purpose) {
+        .node_settling => |node| {
+            if (node.settling_source) |source| {
+                if (self.findImportedPromise(source.position)) |entry| {
+                    if (entry.cell.row_id == source.row_id and
+                        entry.settling_listener_claimed and
+                        entry.settling_listener_export == resolver_export and
+                        entry.settling_node_claimed)
+                    {
+                        entry.settling_node_claimed = false;
+                        if (entry.settling_answer != null) return;
+                        std.debug.assert(entry.settling_followers.items.len == 0);
+                    }
+                }
+            }
+            self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
+                .retired = .{
+                    .resolver_export = resolver_export,
+                    .settling_source = node.settling_source,
+                    .state = .pending,
+                },
+            });
+            releaseRetiredResolverIfUnmentioned(self, resolver_export);
+        },
+        else => {},
+    }
+}
+
+/// Retire the resolver for a released application answer without deleting the
+/// export while the partner still holds its wire mention. A pending callback
+/// remains legal and is consumed by the engine; a completed tombstone rejects
+/// duplicates until the partner releases the export mention.
+pub fn retireApplicationResolver(
+    self: *Session,
+    answer: model.AnswerPosition,
+    state: session.RetiredResolverState,
+    settling_source: ?session.PromiseIncarnation,
+) void {
+    const resolver_export = self.outbound_resolver_link.getByValue(.{
+        .application_answer = answer,
+    }) orelse return;
+    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
+        .retired = .{
+            .resolver_export = resolver_export,
+            .settling_source = settling_source,
+            .state = state,
+        },
+    });
+    releaseRetiredResolverIfUnmentioned(self, resolver_export);
+}
+
+pub fn retiredResolverState(
+    self: *const Session,
+    resolver_export: model.ExportPosition,
+) ?session.RetiredResolverState {
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return null;
+    return switch (purpose) {
+        .retired => |retired| retired.state,
+        else => null,
+    };
+}
+
+/// Record the one legal callback that raced with answer release. The listener
+/// claim is concluded without needing the removed answer row.
+pub fn completeRetiredResolverCallback(
+    self: *Session,
+    resolver_export: model.ExportPosition,
+) void {
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse unreachable;
+    const retired = switch (purpose) {
+        .retired => |retired| retired,
+        else => unreachable,
+    };
+    std.debug.assert(retired.state == .pending);
+    clearRetiredSettlingClaim(self, resolver_export, retired.settling_source);
+    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
+        .retired = .{
+            .resolver_export = resolver_export,
+            .settling_source = retired.settling_source,
+            .state = .complete,
+        },
+    });
+}
+
+/// Release a retired resolver's local baseline once no partner wire mention
+/// remains, then remove its purpose tombstone.
+pub fn releaseRetiredResolverIfUnmentioned(
+    self: *Session,
+    resolver_export: model.ExportPosition,
+) void {
+    const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return;
+    const retired = switch (purpose) {
+        .retired => |retired| retired,
+        else => return,
+    };
+    if (!self.exports.contains(resolver_export)) {
+        clearRetiredSettlingClaim(self, resolver_export, retired.settling_source);
+        std.debug.assert(self.outbound_resolver_link.removeByKey(resolver_export));
+        return;
+    }
+    if (self.exports.wireHeld(resolver_export) != 0) return;
+    clearRetiredSettlingClaim(self, resolver_export, retired.settling_source);
+    self.releaseUnsharedExport(resolver_export);
+    std.debug.assert(self.outbound_resolver_link.removeByKey(resolver_export));
+}
+
+fn clearRetiredSettlingClaim(
+    self: *Session,
+    resolver_export: model.ExportPosition,
+    source_in: ?session.PromiseIncarnation,
+) void {
+    const source = source_in orelse return;
+    const entry = self.findImportedPromise(source.position) orelse return;
+    if (entry.cell.row_id != source.row_id or
+        !entry.settling_listener_claimed or
+        entry.settling_listener_export != resolver_export)
+        return;
+    std.debug.assert(entry.settling_answer == null);
+    std.debug.assert(entry.settling_followers.items.len == 0);
+    std.debug.assert(!entry.settling_node_claimed);
+    entry.settling_listener_claimed = false;
+    entry.settling_listener_export = .from(0);
+    if (!self.hasImport(source.position)) self.releaseShorteningSourceAuthority(source);
 }

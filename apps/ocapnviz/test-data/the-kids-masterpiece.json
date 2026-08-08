@@ -1,0 +1,3250 @@
+{
+  "id": "the-kids-masterpiece",
+  "metadata": {
+    "dct:title": "The kids' masterpiece",
+    "dct:description": "Built by two kids let loose in ocapnviz Build mode, and kept because nobody designed it to be reasonable.",
+    "dct:created": "2026-08-05T13:55:44Z",
+    "dct:creator": "Two kids, playing in ocapnviz Build mode"
+  },
+  "provenance": {
+    "prov:wasGeneratedBy": "ocapnviz Build mode",
+    "prov:wasAttributedTo": "Two kids, playing in ocapnviz Build mode"
+  },
+  "duration": 1406.8232920522269,
+  "entities": {
+    "peers": {
+      "peer-1": {
+        "profile": "goblins",
+        "label": "peer-1",
+        "position": {
+          "x": -330.1015625,
+          "y": -233.9921875
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-2": {
+        "profile": "other",
+        "label": "peer-2",
+        "position": {
+          "x": 1073.256375985904,
+          "y": 6.701951621614398
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-3": {
+        "profile": "pancake",
+        "label": "peer-3",
+        "position": {
+          "x": 702.982938485904,
+          "y": 938.8113266216144
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-4": {
+        "profile": "pancake",
+        "label": "peer-4",
+        "position": {
+          "x": 231.81106348590401,
+          "y": 416.9949203716144
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-5": {
+        "profile": "pancake",
+        "label": "peer-5",
+        "position": {
+          "x": -168.78353261406437,
+          "y": 755.1338994930877
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-6": {
+        "profile": "pancake",
+        "label": "peer-6",
+        "position": {
+          "x": -559.681717408524,
+          "y": 1581.3249327365054
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-7": {
+        "profile": "goblins",
+        "label": "peer-7",
+        "position": {
+          "x": -1482.5195405411248,
+          "y": 501.7075288715089
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-8": {
+        "profile": "pancake",
+        "label": "peer-8",
+        "position": {
+          "x": -1170.7555651152538,
+          "y": 34.603861515293374
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-9": {
+        "profile": "pancake",
+        "label": "peer-9",
+        "position": {
+          "x": -1355.3231297417742,
+          "y": -874.4708686522499
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-10": {
+        "profile": "pancake",
+        "label": "peer-10",
+        "position": {
+          "x": 565.6568308852306,
+          "y": -866.2242327859585
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-11": {
+        "profile": "pancake",
+        "label": "peer-11",
+        "position": {
+          "x": -200.02741442353272,
+          "y": -486.63588482712044
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-12": {
+        "profile": "pancake",
+        "label": "peer-12",
+        "position": {
+          "x": 1292.8006759209184,
+          "y": -671.4278477085056
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-13": {
+        "profile": "pancake",
+        "label": "peer-13",
+        "position": {
+          "x": 1783.4100604742498,
+          "y": 264.01367740568344
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-14": {
+        "profile": "pancake",
+        "label": "peer-14",
+        "position": {
+          "x": 2163.0732078513765,
+          "y": 1015.7104314945243
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-15": {
+        "profile": "pancake",
+        "label": "peer-15",
+        "position": {
+          "x": 1267.742870794319,
+          "y": 734.5955177123076
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-16": {
+        "profile": "goblins",
+        "label": "peer-16",
+        "position": {
+          "x": 1215.4580774107571,
+          "y": 1518.9422178840157
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-17": {
+        "profile": "pancake",
+        "label": "peer-17",
+        "position": {
+          "x": 461.9848371375683,
+          "y": 1821.7676628244278
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-18": {
+        "profile": "pancake",
+        "label": "peer-18",
+        "position": {
+          "x": -1009.9742155044314,
+          "y": 1946.3273941291138
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-19": {
+        "profile": "pancake",
+        "label": "peer-19",
+        "position": {
+          "x": -2087.7029340576464,
+          "y": 1928.1137357758992
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-20": {
+        "profile": "pancake",
+        "label": "peer-20",
+        "position": {
+          "x": -1403.0077589006014,
+          "y": 1356.1225841248354
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-21": {
+        "profile": "pancake",
+        "label": "peer-21",
+        "position": {
+          "x": -936.8764839821347,
+          "y": 854.2184874099619
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-22": {
+        "profile": "pancake",
+        "label": "peer-22",
+        "position": {
+          "x": -1875.0190671018086,
+          "y": 863.6470660052089
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-23": {
+        "profile": "pancake",
+        "label": "peer-23",
+        "position": {
+          "x": -1985.835366094474,
+          "y": -643.9159702682948
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-24": {
+        "profile": "pancake",
+        "label": "peer-24",
+        "position": {
+          "x": -1687.1146494143525,
+          "y": -312.44673948810964
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-25": {
+        "profile": "pancake",
+        "label": "peer-25",
+        "position": {
+          "x": 4.732867157013061,
+          "y": -1176.6373021192617
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-26": {
+        "profile": "pancake",
+        "label": "peer-26",
+        "position": {
+          "x": -662.026021481568,
+          "y": -760.2521569259293
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-27": {
+        "profile": "pancake",
+        "label": "peer-27",
+        "position": {
+          "x": -483.554609445549,
+          "y": -1222.8304594756992
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-28": {
+        "profile": "pancake",
+        "label": "peer-28",
+        "position": {
+          "x": 2423.019886257988,
+          "y": -1116.6526852153768
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-29": {
+        "profile": "pancake",
+        "label": "peer-29",
+        "position": {
+          "x": 2329.707611943263,
+          "y": 52.761420304791955
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-30": {
+        "profile": "pancake",
+        "label": "peer-30",
+        "position": {
+          "x": 2014.3507964234914,
+          "y": 1664.0596026423493
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "peer-31": {
+        "profile": "pancake",
+        "label": "peer-31",
+        "position": {
+          "x": 1881.285099304565,
+          "y": -860.0158810680249
+        },
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      }
+    },
+    "sessions": {
+      "session-32": {
+        "a": {
+          "peer": "peer-25"
+        },
+        "b": {
+          "peer": "peer-24"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-33": {
+        "a": {
+          "peer": "peer-24"
+        },
+        "b": {
+          "peer": "peer-8"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-34": {
+        "a": {
+          "peer": "peer-8"
+        },
+        "b": {
+          "peer": "peer-1"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-35": {
+        "a": {
+          "peer": "peer-1"
+        },
+        "b": {
+          "peer": "peer-11"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-36": {
+        "a": {
+          "peer": "peer-11"
+        },
+        "b": {
+          "peer": "peer-26"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-37": {
+        "a": {
+          "peer": "peer-26"
+        },
+        "b": {
+          "peer": "peer-25"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-38": {
+        "a": {
+          "peer": "peer-9"
+        },
+        "b": {
+          "peer": "peer-27"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-39": {
+        "a": {
+          "peer": "peer-9"
+        },
+        "b": {
+          "peer": "peer-8"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-40": {
+        "a": {
+          "peer": "peer-27"
+        },
+        "b": {
+          "peer": "peer-10"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-41": {
+        "a": {
+          "peer": "peer-10"
+        },
+        "b": {
+          "peer": "peer-18"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-42": {
+        "a": {
+          "peer": "peer-18"
+        },
+        "b": {
+          "peer": "peer-14"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-43": {
+        "a": {
+          "peer": "peer-14"
+        },
+        "b": {
+          "peer": "peer-23"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-44": {
+        "a": {
+          "peer": "peer-23"
+        },
+        "b": {
+          "peer": "peer-28"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-45": {
+        "a": {
+          "peer": "peer-31"
+        },
+        "b": {
+          "peer": "peer-17"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-46": {
+        "a": {
+          "peer": "peer-31"
+        },
+        "b": {
+          "peer": "peer-28"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-47": {
+        "a": {
+          "peer": "peer-12"
+        },
+        "b": {
+          "peer": "peer-2"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-48": {
+        "a": {
+          "peer": "peer-2"
+        },
+        "b": {
+          "peer": "peer-17"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-49": {
+        "a": {
+          "peer": "peer-12"
+        },
+        "b": {
+          "peer": "peer-31"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-50": {
+        "a": {
+          "peer": "peer-12"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-51": {
+        "a": {
+          "peer": "peer-4"
+        },
+        "b": {
+          "peer": "peer-5"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-52": {
+        "a": {
+          "peer": "peer-5"
+        },
+        "b": {
+          "peer": "peer-19"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-53": {
+        "a": {
+          "peer": "peer-22"
+        },
+        "b": {
+          "peer": "peer-7"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-54": {
+        "a": {
+          "peer": "peer-23"
+        },
+        "b": {
+          "peer": "peer-21"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-55": {
+        "a": {
+          "peer": "peer-21"
+        },
+        "b": {
+          "peer": "peer-7"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-56": {
+        "a": {
+          "peer": "peer-7"
+        },
+        "b": {
+          "peer": "peer-8"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-57": {
+        "a": {
+          "peer": "peer-5"
+        },
+        "b": {
+          "peer": "peer-6"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-58": {
+        "a": {
+          "peer": "peer-6"
+        },
+        "b": {
+          "peer": "peer-17"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-59": {
+        "a": {
+          "peer": "peer-17"
+        },
+        "b": {
+          "peer": "peer-28"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-60": {
+        "a": {
+          "peer": "peer-31"
+        },
+        "b": {
+          "peer": "peer-29"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-62": {
+        "a": {
+          "peer": "peer-29"
+        },
+        "b": {
+          "peer": "peer-30"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-63": {
+        "a": {
+          "peer": "peer-30"
+        },
+        "b": {
+          "peer": "peer-16"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-64": {
+        "a": {
+          "peer": "peer-16"
+        },
+        "b": {
+          "peer": "peer-14"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-65": {
+        "a": {
+          "peer": "peer-14"
+        },
+        "b": {
+          "peer": "peer-19"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-66": {
+        "a": {
+          "peer": "peer-19"
+        },
+        "b": {
+          "peer": "peer-22"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-67": {
+        "a": {
+          "peer": "peer-22"
+        },
+        "b": {
+          "peer": "peer-21"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-68": {
+        "a": {
+          "peer": "peer-21"
+        },
+        "b": {
+          "peer": "peer-1"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-69": {
+        "a": {
+          "peer": "peer-8"
+        },
+        "b": {
+          "peer": "peer-16"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-70": {
+        "a": {
+          "peer": "peer-17"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-71": {
+        "a": {
+          "peer": "peer-4"
+        },
+        "b": {
+          "peer": "peer-18"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-72": {
+        "a": {
+          "peer": "peer-2"
+        },
+        "b": {
+          "peer": "peer-1"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-73": {
+        "a": {
+          "peer": "peer-1"
+        },
+        "b": {
+          "peer": "peer-7"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-74": {
+        "a": {
+          "peer": "peer-7"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-75": {
+        "a": {
+          "peer": "peer-2"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-76": {
+        "a": {
+          "peer": "peer-2"
+        },
+        "b": {
+          "peer": "peer-15"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-77": {
+        "a": {
+          "peer": "peer-15"
+        },
+        "b": {
+          "peer": "peer-13"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-78": {
+        "a": {
+          "peer": "peer-13"
+        },
+        "b": {
+          "peer": "peer-29"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-80": {
+        "a": {
+          "peer": "peer-13"
+        },
+        "b": {
+          "peer": "peer-16"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-81": {
+        "a": {
+          "peer": "peer-14"
+        },
+        "b": {
+          "peer": "peer-25"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 0,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-82": {
+        "a": {
+          "peer": "peer-20"
+        },
+        "b": {
+          "peer": "peer-21"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-83": {
+        "a": {
+          "peer": "peer-20"
+        },
+        "b": {
+          "peer": "peer-19"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-84": {
+        "a": {
+          "peer": "peer-18"
+        },
+        "b": {
+          "peer": "peer-20"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-85": {
+        "a": {
+          "peer": "peer-20"
+        },
+        "b": {
+          "peer": "peer-22"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-86": {
+        "a": {
+          "peer": "peer-19"
+        },
+        "b": {
+          "peer": "peer-18"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-87": {
+        "a": {
+          "peer": "peer-4"
+        },
+        "b": {
+          "peer": "peer-11"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-89": {
+        "a": {
+          "peer": "peer-1"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-95": {
+        "a": {
+          "peer": "peer-13"
+        },
+        "b": {
+          "peer": "peer-14"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-97": {
+        "a": {
+          "peer": "peer-14"
+        },
+        "b": {
+          "peer": "peer-29"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-100": {
+        "a": {
+          "peer": "peer-6"
+        },
+        "b": {
+          "peer": "peer-21"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 102.48016756103583,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-102": {
+        "a": {
+          "peer": "peer-21"
+        },
+        "b": {
+          "peer": "peer-5"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 102.48016756103583,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-104": {
+        "a": {
+          "peer": "peer-21"
+        },
+        "b": {
+          "peer": "peer-8"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 102.48016756103583,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-107": {
+        "a": {
+          "peer": "peer-20"
+        },
+        "b": {
+          "peer": "peer-7"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-109": {
+        "a": {
+          "peer": "peer-7"
+        },
+        "b": {
+          "peer": "peer-23"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-111": {
+        "a": {
+          "peer": "peer-23"
+        },
+        "b": {
+          "peer": "peer-9"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-113": {
+        "a": {
+          "peer": "peer-9"
+        },
+        "b": {
+          "peer": "peer-19"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-116": {
+        "a": {
+          "peer": "peer-22"
+        },
+        "b": {
+          "peer": "peer-28"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-118": {
+        "a": {
+          "peer": "peer-28"
+        },
+        "b": {
+          "peer": "peer-18"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-120": {
+        "a": {
+          "peer": "peer-18"
+        },
+        "b": {
+          "peer": "peer-25"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-122": {
+        "a": {
+          "peer": "peer-25"
+        },
+        "b": {
+          "peer": "peer-10"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-124": {
+        "a": {
+          "peer": "peer-10"
+        },
+        "b": {
+          "peer": "peer-11"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-126": {
+        "a": {
+          "peer": "peer-17"
+        },
+        "b": {
+          "peer": "peer-11"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-129": {
+        "a": {
+          "peer": "peer-26"
+        },
+        "b": {
+          "peer": "peer-27"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-131": {
+        "a": {
+          "peer": "peer-27"
+        },
+        "b": {
+          "peer": "peer-5"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-133": {
+        "a": {
+          "peer": "peer-17"
+        },
+        "b": {
+          "peer": "peer-16"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 440.0819348435488,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-135": {
+        "a": {
+          "peer": "peer-16"
+        },
+        "b": {
+          "peer": "peer-2"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 440.0819348435488,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-140": {
+        "a": {
+          "peer": "peer-3"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-144": {
+        "a": {
+          "peer": "peer-15"
+        },
+        "b": {
+          "peer": "peer-16"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-146": {
+        "a": {
+          "peer": "peer-16"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 622.2033721301464,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-149": {
+        "a": {
+          "peer": "peer-5"
+        },
+        "b": {
+          "peer": "peer-17"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 622.2033721301464,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-151": {
+        "a": {
+          "peer": "peer-30"
+        },
+        "b": {
+          "peer": "peer-12"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-153": {
+        "a": {
+          "peer": "peer-12"
+        },
+        "b": {
+          "peer": "peer-10"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-155": {
+        "a": {
+          "peer": "peer-27"
+        },
+        "b": {
+          "peer": "peer-28"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-157": {
+        "a": {
+          "peer": "peer-28"
+        },
+        "b": {
+          "peer": "peer-29"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-159": {
+        "a": {
+          "peer": "peer-30"
+        },
+        "b": {
+          "peer": "peer-17"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 834.3761835694671,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-161": {
+        "a": {
+          "peer": "peer-17"
+        },
+        "b": {
+          "peer": "peer-18"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 834.3761835694671,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-163": {
+        "a": {
+          "peer": "peer-18"
+        },
+        "b": {
+          "peer": "peer-21"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 834.3761835694671,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-166": {
+        "a": {
+          "peer": "peer-22"
+        },
+        "b": {
+          "peer": "peer-23"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-168": {
+        "a": {
+          "peer": "peer-23"
+        },
+        "b": {
+          "peer": "peer-3"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-170": {
+        "a": {
+          "peer": "peer-3"
+        },
+        "b": {
+          "peer": "peer-2"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-172": {
+        "a": {
+          "peer": "peer-2"
+        },
+        "b": {
+          "peer": "peer-10"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      },
+      "session-174": {
+        "a": {
+          "peer": "peer-10"
+        },
+        "b": {
+          "peer": "peer-4"
+        },
+        "codec": "capnp",
+        "captpVersion": "v1_0",
+        "initialState": "open",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 0,
+            "explicit": false
+          }
+        }
+      }
+    },
+    "messages": {
+      "msg-88": {
+        "sessionId": "session-35",
+        "from": "peer-11",
+        "to": "peer-1",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-90": {
+        "sessionId": "session-89",
+        "from": "peer-1",
+        "to": "peer-4",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-91": {
+        "sessionId": "session-50",
+        "from": "peer-4",
+        "to": "peer-12",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-92": {
+        "sessionId": "session-47",
+        "from": "peer-12",
+        "to": "peer-2",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-93": {
+        "sessionId": "session-76",
+        "from": "peer-2",
+        "to": "peer-15",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-94": {
+        "sessionId": "session-77",
+        "from": "peer-15",
+        "to": "peer-13",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-96": {
+        "sessionId": "session-95",
+        "from": "peer-13",
+        "to": "peer-14",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-98": {
+        "sessionId": "session-97",
+        "from": "peer-14",
+        "to": "peer-29",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-99": {
+        "sessionId": "session-60",
+        "from": "peer-29",
+        "to": "peer-31",
+        "timing": {
+          "start": {
+            "value": 3.7765683509821613,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-101": {
+        "sessionId": "session-100",
+        "from": "peer-6",
+        "to": "peer-21",
+        "timing": {
+          "start": {
+            "value": 102.48016756103583,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-103": {
+        "sessionId": "session-102",
+        "from": "peer-21",
+        "to": "peer-5",
+        "timing": {
+          "start": {
+            "value": 102.48016756103583,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-105": {
+        "sessionId": "session-104",
+        "from": "peer-21",
+        "to": "peer-8",
+        "timing": {
+          "start": {
+            "value": 102.48016756103583,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-106": {
+        "sessionId": "session-84",
+        "from": "peer-18",
+        "to": "peer-20",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-108": {
+        "sessionId": "session-107",
+        "from": "peer-20",
+        "to": "peer-7",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-110": {
+        "sessionId": "session-109",
+        "from": "peer-7",
+        "to": "peer-23",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-112": {
+        "sessionId": "session-111",
+        "from": "peer-23",
+        "to": "peer-9",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-114": {
+        "sessionId": "session-113",
+        "from": "peer-9",
+        "to": "peer-19",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-115": {
+        "sessionId": "session-66",
+        "from": "peer-19",
+        "to": "peer-22",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-117": {
+        "sessionId": "session-116",
+        "from": "peer-22",
+        "to": "peer-28",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-119": {
+        "sessionId": "session-118",
+        "from": "peer-28",
+        "to": "peer-18",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-121": {
+        "sessionId": "session-120",
+        "from": "peer-18",
+        "to": "peer-25",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-123": {
+        "sessionId": "session-122",
+        "from": "peer-25",
+        "to": "peer-10",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-125": {
+        "sessionId": "session-124",
+        "from": "peer-10",
+        "to": "peer-11",
+        "timing": {
+          "start": {
+            "value": 232.103275452603,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-127": {
+        "sessionId": "session-126",
+        "from": "peer-17",
+        "to": "peer-11",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-128": {
+        "sessionId": "session-36",
+        "from": "peer-11",
+        "to": "peer-26",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-130": {
+        "sessionId": "session-129",
+        "from": "peer-26",
+        "to": "peer-27",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-132": {
+        "sessionId": "session-131",
+        "from": "peer-27",
+        "to": "peer-5",
+        "timing": {
+          "start": {
+            "value": 323.839820342998,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-134": {
+        "sessionId": "session-133",
+        "from": "peer-17",
+        "to": "peer-16",
+        "timing": {
+          "start": {
+            "value": 440.0819348435488,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-136": {
+        "sessionId": "session-135",
+        "from": "peer-16",
+        "to": "peer-2",
+        "timing": {
+          "start": {
+            "value": 440.0819348435488,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-137": {
+        "sessionId": "session-95",
+        "from": "peer-14",
+        "to": "peer-13",
+        "timing": {
+          "start": {
+            "value": 440.0819348435488,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-138": {
+        "sessionId": "session-78",
+        "from": "peer-13",
+        "to": "peer-29",
+        "timing": {
+          "start": {
+            "value": 440.0819348435488,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-139": {
+        "sessionId": "session-135",
+        "from": "peer-16",
+        "to": "peer-2",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-141": {
+        "sessionId": "session-140",
+        "from": "peer-3",
+        "to": "peer-4",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-142": {
+        "sessionId": "session-75",
+        "from": "peer-4",
+        "to": "peer-2",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-143": {
+        "sessionId": "session-76",
+        "from": "peer-2",
+        "to": "peer-15",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-145": {
+        "sessionId": "session-144",
+        "from": "peer-15",
+        "to": "peer-16",
+        "timing": {
+          "start": {
+            "value": 519.6279661819859,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-147": {
+        "sessionId": "session-146",
+        "from": "peer-16",
+        "to": "peer-4",
+        "timing": {
+          "start": {
+            "value": 622.2033721301464,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-148": {
+        "sessionId": "session-51",
+        "from": "peer-4",
+        "to": "peer-5",
+        "timing": {
+          "start": {
+            "value": 622.2033721301464,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-150": {
+        "sessionId": "session-149",
+        "from": "peer-5",
+        "to": "peer-17",
+        "timing": {
+          "start": {
+            "value": 622.2033721301464,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-152": {
+        "sessionId": "session-151",
+        "from": "peer-30",
+        "to": "peer-12",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-154": {
+        "sessionId": "session-153",
+        "from": "peer-12",
+        "to": "peer-10",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-156": {
+        "sessionId": "session-155",
+        "from": "peer-27",
+        "to": "peer-28",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-158": {
+        "sessionId": "session-157",
+        "from": "peer-28",
+        "to": "peer-29",
+        "timing": {
+          "start": {
+            "value": 728.2769572976939,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-160": {
+        "sessionId": "session-159",
+        "from": "peer-30",
+        "to": "peer-17",
+        "timing": {
+          "start": {
+            "value": 834.3761835694671,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-162": {
+        "sessionId": "session-161",
+        "from": "peer-17",
+        "to": "peer-18",
+        "timing": {
+          "start": {
+            "value": 834.3761835694671,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-164": {
+        "sessionId": "session-163",
+        "from": "peer-18",
+        "to": "peer-21",
+        "timing": {
+          "start": {
+            "value": 834.3761835694671,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-165": {
+        "sessionId": "session-66",
+        "from": "peer-19",
+        "to": "peer-22",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-167": {
+        "sessionId": "session-166",
+        "from": "peer-22",
+        "to": "peer-23",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-169": {
+        "sessionId": "session-168",
+        "from": "peer-23",
+        "to": "peer-3",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-171": {
+        "sessionId": "session-170",
+        "from": "peer-3",
+        "to": "peer-2",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-173": {
+        "sessionId": "session-172",
+        "from": "peer-2",
+        "to": "peer-10",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      },
+      "msg-175": {
+        "sessionId": "session-174",
+        "from": "peer-10",
+        "to": "peer-4",
+        "timing": {
+          "start": {
+            "value": 906.8232920522267,
+            "explicit": true
+          },
+          "duration": {
+            "value": 500,
+            "explicit": true
+          }
+        }
+      }
+    }
+  }
+}

@@ -65,11 +65,25 @@ pub const PANCAKE_ERR_NOT_FOUND = abi.PANCAKE_ERR_NOT_FOUND;
 pub const PANCAKE_ERR_BUFFER_TOO_SMALL = abi.PANCAKE_ERR_BUFFER_TOO_SMALL;
 pub const PANCAKE_ERR_TIMEOUT = abi.PANCAKE_ERR_TIMEOUT;
 
+pub const PANCAKE_CAPTP_V1_0 = abi.PANCAKE_CAPTP_V1_0;
+pub const PANCAKE_CAPTP_NEXT = abi.PANCAKE_CAPTP_NEXT;
+pub const PANCAKE_CODEC_UNKNOWN = abi.PANCAKE_CODEC_UNKNOWN;
 pub const PANCAKE_CODEC_SYRUP = abi.PANCAKE_CODEC_SYRUP;
 pub const PANCAKE_CODEC_CAPNP = abi.PANCAKE_CODEC_CAPNP;
+pub const PANCAKE_FEATURE_PIPELINING = abi.PANCAKE_FEATURE_PIPELINING;
+pub const PANCAKE_FEATURE_HANDOFF = abi.PANCAKE_FEATURE_HANDOFF;
+pub const PANCAKE_FEATURE_WIRE_DELTA = abi.PANCAKE_FEATURE_WIRE_DELTA;
+pub const PANCAKE_FEATURE_STURDYREF = abi.PANCAKE_FEATURE_STURDYREF;
+pub const PANCAKE_FEATURE_MINIMUM = abi.PANCAKE_FEATURE_MINIMUM;
+pub const PANCAKE_FEATURE_FULL = abi.PANCAKE_FEATURE_FULL;
 
 /// Decode a `PANCAKE_CODEC_*` value, or null for anything outside the family.
 pub const codecFromC = abi.codecFromC;
+/// Encode a Zig codec id as a C built-in selector, or UNKNOWN for non-built-ins.
+pub const codecToC = abi.codecToC;
+/// Encode/decode the `PANCAKE_FEATURE_*` bitmask for Zig tests and generators.
+pub const featureSetToC = abi.featureSetToC;
+pub const featureSetFromC = abi.featureSetFromC;
 
 pub const PANCAKE_FRAME_SHAPE_BYTE = abi.PANCAKE_FRAME_SHAPE_BYTE;
 pub const PANCAKE_FRAME_SHAPE_WORD = abi.PANCAKE_FRAME_SHAPE_WORD;

@@ -42,7 +42,6 @@ const ip = std.Io.net;
 
 const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
 const frame_cap = affordance.frame_cap;
-const data_root = affordance.data_root;
 
 const HostArgs = struct {
     listener: *tcp.Listener,
@@ -135,6 +134,7 @@ fn bail(
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
+    const data_root = affordance.dataRoot(init);
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -158,9 +158,13 @@ pub fn main(init: std.process.Init) !void {
     const rot_said = try caller_id.rotate(io);
     std.debug.print("      caller rotated; new key-event SAID: {s}\n", .{&rot_said});
 
-    var host_store = try accountable.Store.init(allocator, io, &host_id, data_root ++ "/host");
+    const host_data_dir = try std.fmt.allocPrint(allocator, "{s}/host", .{data_root});
+    defer allocator.free(host_data_dir);
+    var host_store = try accountable.Store.init(allocator, io, &host_id, host_data_dir);
     defer host_store.deinit();
-    var caller_store = try accountable.Store.init(allocator, io, &caller_id, data_root ++ "/caller");
+    const caller_data_dir = try std.fmt.allocPrint(allocator, "{s}/caller", .{data_root});
+    defer allocator.free(caller_data_dir);
+    var caller_store = try accountable.Store.init(allocator, io, &caller_id, caller_data_dir);
     defer caller_store.deinit();
 
     // ---- The capability wire (pancake) ----------------------------------------

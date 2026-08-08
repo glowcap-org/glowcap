@@ -31,6 +31,15 @@
 ;; bare `host:port` over TCP. The room's wire is identical either way; only how a
 ;; member reaches it differs. A URI carrying direct-addresses dials those directly
 ;; (relay-less Direct); a node-id-only URI resolves the peer through discovery.
+;; Every rooms peer is a pancake peer, so the room speaks pancake's own
+;; profile rather than the interop floor: the `pancake-next` CapTP version
+;; over the word-aligned Cap'n Proto codec. The two are named together
+;; because they are one decision, agreed out of band by every peer reading
+;; the same configuration. This is the Racket spelling of the pair
+;; `apps/rooms/lib/protocol.ts` carries for the TypeScript peers.
+(define ROOMS-CODEC 'capnp)
+(define ROOMS-CAPTP-VERSION 'next)
+
 (define (dial locator)
   (cond
     [(string-contains? locator "://")
@@ -40,10 +49,10 @@
                             (locator-transport loc) locator)))
      (define hints (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
      (define reach (if (> (string-length hints) 0) IROH-REACH-DIRECT IROH-REACH-DISCOVERY))
-     (connect locator reach)]
+     (connect locator reach #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION)]
     [else
      (define-values (host port) (designator-host-port locator))
-     (connect (tcp-locator host port))]))
+     (connect (tcp-locator host port) #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION)]))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
 ;; member joining, your welcome); otherwise `sender` is who said it. `presence` is

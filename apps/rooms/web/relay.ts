@@ -78,17 +78,61 @@ const maxRegistrations = envCap("PANCAKE_RELAY_MAX_REGISTRATIONS") ??
 // pair-atomic teardown finishes (dial failures included).
 let activeRelaySessions = 0;
 
-/** Whether the relay may dial `target`. An iroh target is allowed to any node:
- * node ids are key-verified and the keyed handshake carries session authority end
- * to end. That open-destination policy is deliberate for the demo, and it is named
- * attack surface: it makes the relay a bandwidth amplifier to any iroh peer,
- * bounded only by capacity and per-session backpressure. A TCP target is pinned to
- * the room server itself, `127.0.0.1:<roomPort>`, so a locator that classifies to
- * a TCP dial (a bare `host:port`, or a `tcp`/`keyed-tcp` URI whose hint names an
- * address) can only ever reach the room, never an arbitrary host. */
-export function relayAllowed(target: RelayTarget, roomPort: number): boolean {
-	return target.kind === "iroh" ||
-		(target.hostname === "127.0.0.1" && target.port === roomPort);
+/** A cleartext-TCP address the relay may dial, besides the room server. */
+export interface TcpPeer {
+	hostname: string;
+	port: number;
+}
+
+/** Whether the relay may dial `target`.
+ *
+ * An iroh target is allowed to any node: node ids are key-verified and the keyed
+ * handshake carries session authority end to end. That open-destination policy is
+ * deliberate for the demo, and it is named attack surface: it makes the relay a
+ * bandwidth amplifier to any iroh peer, bounded only by capacity and per-session
+ * backpressure.
+ *
+ * A TCP target has to be named, because a TCP address can be anything: the room
+ * server itself at `127.0.0.1:<roomPort>`, or one of `tcpPeers`, which an
+ * operator sets. Where iroh's destination has to be an OCapN peer holding a key,
+ * a TCP destination could as easily be a database or an SSH daemon on the same
+ * host, so a page cannot be allowed to choose one. Whose address a member claims
+ * does not change that: a member registers whatever locator it likes and the
+ * directory says so plainly, which is exactly why a registration is not grounds
+ * to open a socket.
+ *
+ * The cost of naming them is real and worth stating. A member reachable only over
+ * cleartext TCP — a Goblins vat on a TCP netlayer is the ordinary one — cannot be
+ * direct-messaged from a browser until the operator lists it. A member on iroh
+ * needs no such listing, which is one more reason `docs/boundaries.md` calls
+ * cleartext TCP a testing and interop transport rather than a deployment one. */
+export function relayAllowed(
+	target: RelayTarget,
+	roomPort: number,
+	tcpPeers: readonly TcpPeer[] = [],
+): boolean {
+	if (target.kind === "iroh") return true;
+	if (target.hostname === "127.0.0.1" && target.port === roomPort) return true;
+	return tcpPeers.some((peer) => peer.hostname === target.hostname && peer.port === target.port);
+}
+
+/** Read a `host:port,host:port` list of extra TCP relay destinations, dropping
+ * anything that is not one. An entry that cannot be read is dropped rather than
+ * refused wholesale, so one typo does not take the rest of the list with it; a
+ * destination that never appears fails visibly at the dial instead. */
+export function parseTcpPeers(raw: string | null | undefined): TcpPeer[] {
+	if (!raw) return [];
+	const peers: TcpPeer[] = [];
+	for (const entry of raw.split(",")) {
+		const text = entry.trim();
+		if (text.length === 0) continue;
+		const cut = text.lastIndexOf(":");
+		if (cut <= 0) continue;
+		const port = Number(text.slice(cut + 1));
+		if (!Number.isInteger(port) || port < 1 || port > 65535) continue;
+		peers.push({ hostname: text.slice(0, cut), port });
+	}
+	return peers;
 }
 
 /** Whether a browser `Origin` header may drive the relay: absent (non-browser

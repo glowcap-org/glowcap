@@ -300,15 +300,16 @@ pub const Served = struct {
         );
     }
 
-    /// Ask the partner how the promise at `target` settles, returning a vow
-    /// for that settlement (CapTP `op:listen`, ADR-0095). This is how a
-    /// capability received as a promise — an introducing session's proxy for a
-    /// third party's promise (ADR-0009) — is waited on: the notification comes
-    /// back as a resolve on the vow's answer, so a give arriving in it is
-    /// redeemed by the same path a call's reply takes. `target` must be a far
-    /// this session holds.
+    /// Ask the partner how `target` settles, returning a vow for that
+    /// settlement (CapTP `op:listen`, ADR-0095). In 1.0, `target` may be a far
+    /// promise or live far object; a live object answers immediately. In
+    /// pancake-next, `target` must be a far promise because shortening and
+    /// settling are promise-only. This is how an introducing session's proxy
+    /// for a third party's promise (ADR-0009) is waited on: the notification
+    /// comes back as a resolve on the vow's answer, so a give arriving in it is
+    /// redeemed by the same path a call's reply takes.
     pub fn listenTo(self: *Served, target: model.Reference) !actors.Vow {
-        return .{ .far = try engine.listen.listenOnPromise(self.port.peer, target) };
+        return .{ .far = try engine.listen.listenOnFar(self.port.peer, target) };
     }
 
     /// Eventual-send `msg` to `target` (`<-`), returning a vow to observe with

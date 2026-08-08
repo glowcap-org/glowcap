@@ -19,11 +19,39 @@
 
 ;; The ABI spelling of a codec symbol, for the transport endpoints that take a
 ;; PANCAKE_CODEC_* selector.
+;; The `PANCAKE-CAPTP-*` id for a CapTP profile (ADR-0003): `v1_0` is the
+;; interop floor a Goblins vat speaks, `next` the pancake-to-pancake track
+;; `Offer.native` prefers with Cap'n Proto.
+(define (captp-version-id version)
+  (case version
+    [(v1_0) CAPTP-V1-0]
+    [(next) CAPTP-NEXT]
+    [else (error 'captp-version-id "unknown CapTP version: ~a" version)]))
+
 (define (codec-id codec)
   (case codec
     [(syrup) CODEC-SYRUP]
     [(capnp) CODEC-CAPNP]
     [else (error 'codec-id "unknown OCapN codec: ~a" codec)]))
+
+(define (feature-mask features)
+  (cond
+    [(eq? features 'full) FEATURE-FULL]
+    [(eq? features 'minimum) FEATURE-MINIMUM]
+    [(exact-nonnegative-integer? features)
+     (unless (zero? (bitwise-and features (bitwise-not FEATURE-FULL)))
+       (error 'feature-mask "unknown OCapN feature mask: ~a" features))
+     features]
+    [else
+     (for/fold ([mask 0]) ([feature (in-list features)])
+       (bitwise-ior
+        mask
+        (case feature
+          [(pipelining) FEATURE-PIPELINING]
+          [(handoff) FEATURE-HANDOFF]
+          [(wire_delta) FEATURE-WIRE-DELTA]
+          [(sturdyref) FEATURE-STURDYREF]
+          [else (error 'feature-mask "unknown OCapN feature: ~a" feature)])))]))
 
 ;; ── Marshalling (encode) ─────────────────────────────────────────────────────
 (define (ref->c ref)

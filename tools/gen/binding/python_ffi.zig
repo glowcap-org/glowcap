@@ -14,12 +14,6 @@
 
 const std = @import("std");
 
-// Force sidecar stubs so reflecting the iroh archive stays cargo-free.
-comptime {
-    _ = @import("iroh_sidecar_stub");
-    _ = @import("webrtc_sidecar_stub");
-}
-
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
@@ -250,12 +244,13 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try renderArchive(gpa, &out, c, "ocapn_sigs", &.{ "_Allocator", "_ManagedFrame" }, "``libpancake_ocapn`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
-        "_Argument",     "_Reference",       "_ManagedFrame", "_LastAbort",
-        "_DialPlan",     "_AcceptPlan",      "_PendingDial",  "_HostPumpHooks",
-        "_HostBehavior", "_PartnerIdentity",
+        "_Argument",     "_Reference",       "_ManagedFrame",  "_LastAbort",
+        "_DialPlan",     "_AcceptPlan",      "_PendingDial",   "_HostPumpHooks",
+        "_HostBehavior", "_PartnerIdentity", "_TraceCallback",
     }, "``libpancake_host`` signatures, in the inventory's order.", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "_HostBehavior" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "P" },
+        .{ .T = cd.PancakeTraceCallback, .spelling = "_TraceCallback" },
     });
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, ct, "tcp_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libpancake_net_transport_tcp`` signatures, in the inventory's order.", &.{});
@@ -264,6 +259,6 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig" }, "``libpancake_net_transport_iroh`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{"_WebrtcReadyEvent"}, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig" }, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

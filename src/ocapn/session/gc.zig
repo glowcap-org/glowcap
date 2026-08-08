@@ -145,13 +145,18 @@ pub fn checkGcAnswerDecrement(
     }
 }
 
+/// Enforce the operation's structural wire rules before any table authority is
+/// consulted or mutated: the lists are parallel and every wire delta is positive.
 pub fn validateGcExport(gc_export: model.GcExport) Error!void {
     if (gc_export.positions.len != gc_export.deltas.len) {
         return Error.MalformedMessage;
     }
+    for (gc_export.deltas) |delta| {
+        if (delta == 0) return Error.MalformedMessage;
+    }
 }
 
-pub fn validateHandoffWellFormed(handoff: model.Handoff) Error!void {
+pub fn validateHandoffWellFormed(handoff: anytype) Error!void {
     switch (handoff) {
         .give => |give| {
             if (give.gift_id.len == 0 or give.recipient_key.len == 0) {

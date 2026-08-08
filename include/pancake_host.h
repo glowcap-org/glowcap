@@ -96,6 +96,62 @@ typedef int32_t (*PancakeHostBehavior)(void *ctx, PancakeHostTurn *turn,
    ctx. Runs exactly once per registration that took ownership; must call
    no pancake_host_* function. */
 typedef void (*PancakeHostCtxFree)(void *ctx);
+#define PANCAKE_TRACE_SESSION_OPEN 0
+#define PANCAKE_TRACE_MESSAGE 1
+#define PANCAKE_TRACE_SESSION_CLOSE 2
+#define PANCAKE_TRACE_DIGEST_BYTES 16
+
+/* One live-trace fact (pancake_host_set_trace). kind selects the live
+   fields; string views are borrowed for the callback only. SESSION_OPEN
+   carries session, partner, verified, and the negotiated PANCAKE_CODEC_*,
+   using PANCAKE_CODEC_UNKNOWN only when this C ABI cannot name it;
+   MESSAGE carries session, outbound, and the deliver's verb;
+   SESSION_CLOSE carries session. Unused fields are zeroed. */
+typedef struct PancakeTraceEvent {
+    /* A PANCAKE_TRACE_* value. */
+    uint32_t kind;
+    /* The session the fact is about, stable for the session's life. */
+    uint64_t session;
+    /* MESSAGE: nonzero when the message left this host. */
+    uint8_t outbound;
+    /* SESSION_OPEN: whether the realized channel proved the partner's durable name, as a PANCAKE_DURABLE_PROVENANCE_* value. */
+    uint32_t provenance;
+    /* SESSION_OPEN: the negotiated PANCAKE_CODEC_*, or PANCAKE_CODEC_UNKNOWN when this C ABI cannot name it. */
+    uint32_t codec;
+    /* SESSION_OPEN: the negotiated PANCAKE_CAPTP_* profile. */
+    uint32_t captp_version;
+    /* SESSION_OPEN: the partner's OCapN Designator (dialed, or claimed by its hello). Borrowed. Half a name on its own: OCapN requires a designator and a transport together to tell two locations apart. */
+    const uint8_t *designator;
+    /* Length of designator. */
+    size_t designator_len;
+    /* SESSION_OPEN: the locator's OCapN Transport, the netlayer symbol this session runs over (tcp, keyed-tcp, keyed-relay, iroh, webrtc, inproc). Borrowed. */
+    const uint8_t *transport;
+    /* Length of transport. */
+    size_t transport_len;
+    /* SESSION_OPEN: the OCapN Session ID, 64 lowercase hex digits, which BOTH peers of this session derive to the same value; empty when the partner sent no session key. Borrowed. Not session above, which is this host's own handle and means nothing to anyone else. */
+    const uint8_t *session_id;
+    /* Length of session_id. */
+    size_t session_id_len;
+    /* MESSAGE: the deliver's verb. Borrowed. */
+    const uint8_t *verb;
+    /* Length of verb. */
+    size_t verb_len;
+    /* MESSAGE: the message's wire frame, borrowed; both directions carry it (the fact sites sit at the wire boundary). */
+    const uint8_t *frame;
+    /* Length of frame, as readable here. */
+    size_t frame_len;
+    /* MESSAGE: how long the frame really was; equal to frame_len on the callback seam, larger when a queued record clipped it to its payload window. */
+    size_t frame_total_len;
+    /* Records the host dropped between the previous record and this one; always zero on the callback seam. */
+    uint64_t dropped;
+    /* MESSAGE: a tag over the frame's bytes, naming this one message across the two peers that carried it, so a consumer merging two observers of one session folds their sightings into one. Zero on the other kinds. */
+    uint8_t digest[16];
+} PancakeTraceEvent;
+/* The trace callback: called synchronously at the fact site, on the host's
+   one thread, with event and its views borrowed for the call. Must call no
+   host-driving verb; stamp, copy, and return. */
+typedef void (*PancakeTraceCallback)(void *ctx, const PancakeTraceEvent *event);
+
 /* PancakeHostAction.kind: dial the exporter named by ticket (borrow the pending view with pancake_host_pending_dial), then report pancake_host_dialed / pancake_host_dial_failed. */
 #define PANCAKE_HOST_ACTION_DIAL 0
 /* PancakeHostAction.kind: drain pancake_host_session_take_outbound on session until WOULD_BLOCK and write the frames. */
@@ -106,7 +162,7 @@ typedef void (*PancakeHostCtxFree)(void *ctx);
 #define PANCAKE_HOST_ACTION_SETTLE 3
 /* PancakeHostAction.kind: the vow named by ticket settled broken with message; route the outcome to whatever awaits it. */
 #define PANCAKE_HOST_ACTION_FAIL 4
-/* PancakeHostAction.kind: the host condemned session mid-pump (local turn budget exceeded); write its queued abort, close its transport, and release the session. */
+/* PancakeHostAction.kind: the host retired this session; write any queued terminal frame, close its transport, and release the session. */
 #define PANCAKE_HOST_ACTION_CLOSE 5
 /* Default maximum admissible frame for pancake_host_new / pancake_host_new_in (bytes): mirrors session.SessionLimits.max_frame_bytes (1 MiB). */
 #define PANCAKE_DEFAULT_FRAME_CAP 1048576
@@ -116,12 +172,10 @@ typedef void (*PancakeHostCtxFree)(void *ctx);
 #define PANCAKE_DISCOVERY_DIAL_RETRY_MS 3000
 /* Discovery-posture dial attempt budget (ADR-0082). Keep lockstep with driver.discovery_max_attempts. */
 #define PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS 24
-/* PancakePartnerIdentity.provenance: the transport layer proved the partner's durable key (iroh's QUIC handshake, or WebRTC's DTLS binding under capability-authorized signaling). */
+/* PancakePartnerIdentity.provenance: a lower layer proved the partner holds the durable key it claims, and that key names the far end of the byte channel this session runs over, so the partner and the endpoint this session is encrypted to are one node. */
 #define PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT 0
-/* PancakePartnerIdentity.provenance: the hello carried a session-key-attestation signed by the durable key its designator names, and it verified (keyed-tcp, keyed-relay). Static authorization, not proof the signer is live on this connection. */
-#define PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION 1
-/* PancakePartnerIdentity.provenance: no durable identity was proved. An address transport designates a socket address rather than a key, and a partner that advertised an address on a key transport claimed no durable identity to authenticate. */
-#define PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED 2
+/* PancakePartnerIdentity.provenance: nothing proved the name. A partner that claimed no durable identity at all lands here too, having no identity to have authenticated. */
+#define PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED 1
 
 /* One embedder effect popped from pancake_host_next_action. kind selects the
    live fields: DIAL carries only ticket (borrow the pending view with
@@ -185,16 +239,23 @@ typedef struct PancakeHostPumpHooks {
 
    frame_cap sizes every session's maximum admissible frame; a
    nonzero verify_partner keeps partner-signature verification on (the secure
-   default); codec is the PANCAKE_CODEC_* wire grammar (pancake_ocapn.h) every
-   session this host mints negotiates in — both ends of a session must
-   carry the same value, as on the peer tier's _negotiated constructors;
+   default); codec is PANCAKE_CODEC_SYRUP or PANCAKE_CODEC_CAPNP.
+   PANCAKE_CODEC_UNKNOWN is an output sentinel and is refused here.
+   captp_version is the PANCAKE_CAPTP_* profile this host prefers, and features is
+   the PANCAKE_FEATURE_* bitmask this host offers. The signed hello carries those
+   preferences as locator hints; each session settles version and codec with its
+   partner, falling back to v1.0/Syrup when needed, and runs only the intersection
+   of the two offered feature sets. An absent feature hint means PANCAKE_FEATURE_FULL.
+   PANCAKE_CAPTP_V1_0 with PANCAKE_CODEC_SYRUP and PANCAKE_FEATURE_FULL is the
+   interop floor a Goblins vat speaks; a pancake-to-pancake fleet normally names
+   PANCAKE_CAPTP_NEXT with PANCAKE_CODEC_CAPNP and PANCAKE_FEATURE_FULL.
    local_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);
    nonzero caps local-turn amplification per drive (ADR-0076).
    *out_host receives the handle; release with pancake_host_release. */
-int32_t pancake_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t local_turn_budget, PancakeHost **out_host);
+int32_t pancake_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, PancakeHost **out_host);
 /* pancake_host_new allocating every byte the host owns through context's host
    allocator (pancake_context_new_with_allocator). */
-int32_t pancake_host_new_in(PancakeContext *context, const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t local_turn_budget, PancakeHost **out_host);
+int32_t pancake_host_new_in(PancakeContext *context, const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, PancakeHost **out_host);
 /* Release the host and everything it owns: every still-open session (each
    still-parked vow breaks inside this call, its undrained completion freed
    with the rest of the action queue), the vow map, parked actions, the node,
@@ -214,6 +275,23 @@ int32_t pancake_host_designator_from_seed(const uint8_t *seed, size_t seed_len, 
    PANCAKE_ERR_INVALID_ARGUMENT, and empty resets to the unreachable-client
    placeholder. */
 int32_t pancake_host_set_self_designator(PancakeHost *host, const uint8_t *designator, size_t len);
+/* Retain and select this host's complete acceptable location. locator is a
+   borrowed Syrup ocapn-peer record; the Host parses and deep-copies it. Later
+   dialed and accepted sessions sign this selection regardless of the transport
+   carrying them. Invalid or trailing bytes are refused with
+   PANCAKE_ERR_INVALID_ARGUMENT. */
+int32_t pancake_host_set_advertised_locator(PancakeHost *host, const uint8_t *locator, size_t locator_len);
+/* Retain a dial fallback for transport unless one already exists. It becomes the
+   acceptable location only when the Host has no selection; it never displaces a
+   route selected for another transport. Key-designator transports use this Host's
+   public key; address transports use the caller-set self designator or the
+   unreachable-client placeholder. */
+int32_t pancake_host_ensure_advertised_locator(PancakeHost *host, const uint8_t *transport, size_t transport_len);
+/* Remove the retained locator for transport. Removing the selected route leaves
+   no acceptable location until one is set or ensured; another retained route is
+   never chosen implicitly. Existing sessions retain the signed hello snapshot
+   they already sent. */
+int32_t pancake_host_remove_advertised_locator(PancakeHost *host, const uint8_t *transport, size_t transport_len);
 /* Selective session-limit knobs (ADR-0082): override max_frame_bytes and/or
    queue_cap on a host before minting sessions. Pass 0 for a field to leave it
    unchanged. Already-open peers keep the limits they were minted with. */
@@ -229,16 +307,12 @@ int32_t pancake_host_set_session_limits(PancakeHost *host, size_t max_frame_byte
    hello does not consume a direct-addresses hint. *out_session is host-owned;
    release with pancake_host_session_release. */
 int32_t pancake_host_session_open_dialed_locator(PancakeHost *host, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, PancakeHostSession **out_session);
-/* Mint the accepting half of a connection your own listener produced: the keyed
-   op:start-session signs the listener's own transport/designator — the key
-   designator for keyed-tcp, the address designator for tcp — and the locator a
-   give made on this host names as the exporter location. On keyed-tcp,
-   direct_addresses_hint is the bound host:port riding the signed locator
-   (borrowed; NULL/0 = none, refused for keyed-tcp because TCP has no discovery);
-   an address-designator transport ignores it. Host-wide aliases remain lazily
+/* Mint the accepting half of a connection your listener produced. The Host must
+   already have a selected acceptable location; this session signs that exact
+   snapshot even when it names another transport. Host-wide aliases remain lazily
    discoverable, with the same flush and release contract as
    pancake_host_session_open_dialed_locator. */
-int32_t pancake_host_session_open_accepted(PancakeHost *host, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *direct_addresses_hint, size_t direct_addresses_hint_len, PancakeHostSession **out_session);
+int32_t pancake_host_session_open_accepted(PancakeHost *host, const uint8_t *transport, size_t transport_len, PancakeHostSession **out_session);
 
 /* PancakeDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp). */
 #define PANCAKE_DIAL_SHAPE_HOST_PORT 0
@@ -341,13 +415,13 @@ int32_t pancake_host_reference_exporter(PancakeHost *host, const PancakeReferenc
    carries which). Open the channel the plan names, then feed it to
    pancake_host_session_open_dialed_locator. */
 int32_t pancake_host_plan_dial(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *direct_addresses_hint, size_t direct_addresses_hint_len, uint32_t posture_policy, uint32_t posture_value, PancakeDialPlan *out_plan);
-/* Resolve what an accepted session signs, without a socket. transport is the
-   accepted transport; server_designator is the listener's own signing designator
-   (its key for a key transport, unused for an address transport);
-   accepted_local_addr is what the accept reported (NULL/0 when unavailable). On
-   PANCAKE_OK *out_plan is filled with views borrowing the caller's input, except
-   the address-transport empty-address fallback (the static unreachable-client
-   placeholder). Feed the result to pancake_host_session_open_accepted. */
+/* Resolve the listener facts used to publish a complete advertised locator.
+   transport is the accepted transport; server_designator is the listener's own
+   designator (its key for a key transport); accepted_local_addr is the route the
+   listener reported (NULL/0 when unavailable). On PANCAKE_OK *out_plan is filled
+   with views borrowing the caller's input, except the address-transport fallback.
+   Encode that plan as a locator and pass it to
+   pancake_host_set_advertised_locator before opening accepted sessions. */
 int32_t pancake_host_plan_accept(const uint8_t *transport, size_t transport_len, const uint8_t *server_designator, size_t server_designator_len, const uint8_t *accepted_local_addr, size_t accepted_local_addr_len, PancakeAcceptPlan *out_plan);
 
 /* Release one session: its still-parked far vows break (their FAIL
@@ -358,6 +432,8 @@ int32_t pancake_host_plan_accept(const uint8_t *transport, size_t transport_len,
 int32_t pancake_host_session_release(PancakeHostSession *session);
 /* Nonzero once the keyed handshake has completed and the session is open. */
 int32_t pancake_host_session_is_open(PancakeHostSession *session);
+/* The id the live trace names this session's rows by (PancakeTraceEvent's session), so an embedder can annotate the same session a trace consumer is watching. Stable for the session's life and never reused by this host. */
+int32_t pancake_host_session_trace_id(PancakeHostSession *session, uint64_t *out_id);
 /* Feed one inbound frame you read from your own transport (borrowed for the
    call): behavior callbacks fire and vow completions queue inside, then the
    node actions the dispatch queued pump and every touched session's
@@ -368,24 +444,24 @@ int32_t pancake_host_session_is_open(PancakeHostSession *session);
    pancake_host_session_last_abort for the typed cause. */
 int32_t pancake_host_session_feed(PancakeHostSession *session, const PancakeFrame *frame_in);
 /* Feed a byte-stream chunk you read from your own transport (borrowed for the
-   call). The library owns framing and the tail: the session's codec delimits
-   each complete frame at the front of bytes — both codecs, both frame shapes
-   — and dispatches it exactly as pancake_host_session_feed, while a partial
-   frame straddling two reads stays buffered in the session, so on success
-   every byte was consumed and you just read and feed. Dispatch also pauses at
-   the frame that completes the keyed handshake: frames coalesced behind the
-   hello wait in the session's tail while you act on the fresh session
-   (publish, fetch), and your next call — an empty chunk (len 0, bytes may be
-   NULL) works — feeds them. A frame exceeding the session's frame cap is
-   refused PANCAKE_ERR_FRAME_TOO_LARGE; any other failure classifies as
-   pancake_host_session_feed's do. After any failure the session is closing:
-   drain take_outbound (a typed op:abort is queued for the partner) and
-   release the session. */
+   call). The library owns outer framing and the tail: each bare codec frame is
+   one canonical Syrup byte string (decimal length, colon, body). Split prefixes
+   and bodies stay buffered in the session; coalesced byte strings dispatch in
+   order, each body exactly as pancake_host_session_feed. Dispatch pauses at the
+   frame that completes the keyed handshake: frames coalesced behind the hello
+   wait in the session's tail while you act on the fresh session (publish, fetch),
+   and your next call — an empty chunk (len 0, bytes may be NULL) works — feeds
+   them. A declared body exceeding the session's frame cap is refused
+   PANCAKE_ERR_FRAME_TOO_LARGE; malformed or non-canonical outer syntax is a
+   codec error. After any failure the session is closing: drain take_outbound (a
+   typed op:abort is queued for the partner) and release the session. */
 int32_t pancake_host_session_feed_bytes(PancakeHostSession *session, const uint8_t *bytes, size_t len);
-/* Drain one encoded outbound frame as an *owned* managed frame you write to
-   your transport and free through pancake_managed_frame_release. Returns
-   PANCAKE_OK with *out_frame set, or PANCAKE_ERR_WOULD_BLOCK (with *out_frame
-   untouched) when the queue is empty. Refused inside a callback. */
+/* Drain one bare encoded outbound frame as an *owned* managed frame. A
+   byte-stream caller writes its canonical decimal length and colon, then these
+   bytes; an intrinsically message-framed caller sends these bytes directly. Free
+   through pancake_managed_frame_release. Returns PANCAKE_OK with *out_frame set,
+   or PANCAKE_ERR_WOULD_BLOCK (with *out_frame untouched) when the queue is empty.
+   Refused inside a callback. */
 int32_t pancake_host_session_take_outbound(PancakeHostSession *session, PancakeManagedFrame *out_frame);
 /* Pop the next embedder action into *out_action, or return
    PANCAKE_ERR_WOULD_BLOCK when none is pending. A DIAL carries only ticket
@@ -485,13 +561,14 @@ int32_t pancake_host_session_enliven(PancakeHostSession *session, const uint8_t 
    pancake_host_dial_failed exactly as a handoff redeem's — so a parked vow's
    id has no session and no row until it settles. Refused inside a callback. */
 int32_t pancake_host_enliven(PancakeHost *host, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
-/* Listen on a promise capability this session holds (CapTP op:listen), minting
-   a host vow whose id lands in *out_vow; the promise's resolution arrives as
-   that vow's SETTLE or FAIL action. The target must be a far promise; a
-   non-promise far is refused. A re-gifted promise routes to its exporter
-   session transparently, and a give in the settlement auto-redeems exactly as
-   a fetch's would. The vow is plain: a listen makes no claim the result is a
-   capability. Legal inside a callback. */
+/* Listen on a far capability this session holds (CapTP op:listen), minting a
+   host vow whose id lands in *out_vow; the listen notification arrives as that
+   vow's SETTLE or FAIL action. In 1.0, the target may be a far promise or live
+   far object; a live object answers immediately. In pancake-next, the target
+   must be a far promise because shortening and settling are promise-only. A
+   re-gifted promise routes to its exporter session transparently, and a give in
+   the settlement auto-redeems exactly as a fetch's would. The vow is plain: a
+   listen makes no claim the result is a capability. Legal inside a callback. */
 int32_t pancake_host_session_listen(PancakeHostSession *session, const PancakeReference *target, uint64_t *out_vow);
 /* Eventual-send to an opaque Host-scoped target and mint a host vow for the
    answer; the outcome arrives as that vow's SETTLE or FAIL action. The Host
@@ -525,6 +602,25 @@ int32_t pancake_host_vow_untag(PancakeHost *host, uint64_t vow, const uint8_t *t
    the named Struct field. Same local-vow and unknown-vow refusals as
    pancake_host_vow_send; field is borrowed. */
 int32_t pancake_host_vow_get(PancakeHost *host, uint64_t vow, const uint8_t *field, size_t field_len, uint64_t *out_vow);
+/* Install (or clear, with a NULL callback) the live trace: the host reports
+   its own session opens, every message's verb in both directions, and session
+   closes through callback, on the host's one thread. Views in the event are
+   borrowed for the call. The callback must call no host-driving verb. */
+int32_t pancake_host_set_trace(PancakeHost *host, PancakeTraceCallback callback, void *ctx);
+/* Install (or clear, with a zero capacity) the drained live trace: the host
+   captures each fact into a fixed ring of capacity records, each holding up to
+   payload_cap bytes of that record's strings, and the embedder pops them with
+   pancake_host_next_trace. This is the seam for an embedder that cannot hand
+   the library a function pointer. Nothing here grows: a full ring drops the
+   newest record and reports the count on the next one it captures, so tracing
+   never makes the protocol wait. */
+int32_t pancake_host_set_trace_queue(PancakeHost *host, size_t capacity, size_t payload_cap);
+/* Pop the oldest captured trace record into out_event. Its string views point
+   into the queue and stay valid until the next pancake_host_next_trace call,
+   the same borrow pancake_host_next_action carries. Returns
+   PANCAKE_ERR_WOULD_BLOCK when nothing is captured, so an embedder drains in a
+   loop until it sees that code. */
+int32_t pancake_host_next_trace(PancakeHost *host, PancakeTraceEvent *out_event);
 /* Mint a resolver pair (ADR-0102): *out_vow_id is the read side, whose whole
    surface is pancake_host_turn_forward_vow; *out_resolver_id is the settle
    authority for pancake_host_resolver_fulfill / _break. Legal inside a
@@ -640,11 +736,14 @@ typedef struct PancakePartnerIdentity {
     const uint8_t *locator_record;
     size_t locator_record_len;
     /* How the durable identity in designator was authenticated, one of the
-PANCAKE_DURABLE_PROVENANCE_* values. Session identity, durable identity, and
-this provenance are three separate facts: a caller that requires a proved
-durable peer reads this, never a comparison of designator against
-session_key, which is a coincidence of today's key reuse and stops holding
-when each connection draws a fresh session key. */
+PANCAKE_DURABLE_PROVENANCE_* values. It is derived from the evidence this one
+session holds, never from its transport's name, so two sessions on the same
+transport can answer differently.
+
+Session identity, durable identity, and this provenance are three separate
+facts: a caller that requires a proved durable peer reads this, never a
+comparison of designator against session_key. Each connection draws its own
+session key, so a session key is not an identity and the two never match. */
     uint32_t provenance;
 } PancakePartnerIdentity;
 
@@ -660,6 +759,23 @@ when each connection draws a fresh session key. */
    entry point, so you never have to remember to ask whether the bytes were
    checked. */
 int32_t pancake_host_session_partner_identity(PancakeHostSession *session, PancakePartnerIdentity *out);
+/* Testify what the code that realized this connection proved about its far
+   end: designator is the durable key that proof names, as a locator writes it.
+   An iroh listener passes what pancake_iroh_conn_remote_node_id read off the
+   QUIC handshake; a WebRTC peer passes the identity its signaling
+   authorized.
+
+   This library realizes nothing at the byte-fed tier. You own the sockets, so
+   you are the realizer, and this is the only way that proof reaches a session.
+   Without it the session reports unauthenticated durable provenance.
+
+   Call it after opening the session and before feeding the first partner byte.
+   PANCAKE_ERR_SESSION means the partner's op:start-session was already applied,
+   so the proof is too late to weigh. PANCAKE_ERR_INVALID_ARGUMENT means the
+   designator does not spell a durable key, or names a different key from one
+   this connection's realizer already asserted. Asserting the same key twice is
+   the same statement made twice and succeeds. */
+int32_t pancake_host_session_bind_verified_channel_key(PancakeHostSession *session, const uint8_t *designator, size_t designator_len);
 /* Copy the calling thread's last pancake_host_* error into out_buf, the host
    sibling of pancake_last_error, reading this archive's own per-thread slot.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap

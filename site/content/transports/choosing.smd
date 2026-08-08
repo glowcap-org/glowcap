@@ -12,16 +12,17 @@ the peers involved and the channel they can open.
 
 | Situation | Use | Why |
 | --- | --- | --- |
-| Talking to Spritely Goblins | `tcp` | Goblins interoperability uses cleartext TCP |
-| Two native hosts on an ordinary network | `tcp` | Smallest default when encryption is not required |
-| A stable key identity over ordinary TCP | `keyed-tcp` | The designator is the peer's key, not its address |
-| Both peers are in one process | `inproc` | No socket or port |
-| Native peers need encryption, discovery, or NAT traversal | `iroh` | Encrypted QUIC addressed by node key |
+| Two native hosts, anywhere real | `iroh` | Encrypted QUIC addressed by node key, and the only native transport that authenticates the peer and encrypts the channel |
+| A stable key identity on a network you already trust | `keyed-tcp` | The designator is the peer's key, not its address, but the bytes stay cleartext |
+| Talking to Spritely Goblins | `tcp` | Goblins interoperability runs over cleartext TCP, so this is an interoperability choice rather than a deployment one |
+| Both peers are in one process | `inproc` | No socket or port, and it is a test transport |
 | Browsers should talk directly | `webrtc` | Encrypted DataChannel after signaling |
 | A browser must reach a native peer | [relay]($link.page('relay')) | WebSocket on the browser side, TCP or iroh on the native side |
 
-`tcp` and `keyed-tcp` are cleartext. There is no TLS-over-TCP netlayer today.
-If a native channel must be confidential, use iroh.
+Plain `tcp` authenticates nobody and encrypts nothing, so reach for it only to
+talk to a peer that speaks no other transport. `tcp` and `keyed-tcp` are both
+cleartext, and there is no TLS-over-TCP netlayer today. If a native channel must
+be confidential, use iroh.
 
 ## Browser traffic
 
@@ -47,7 +48,7 @@ signaling and NAT infrastructure. Otherwise the relay is simpler to operate.
 - `tcp` and `keyed-tcp` use the same sockets. `tcp` names an address;
   `keyed-tcp` names an identity and carries the address as a hint.
 
-See the [transport inventory]($link.page('transports')) for locator forms, then
-continue with [iroh]($link.page('transports/iroh')),
+See the [transport inventory]($link.page('transports')) for locator forms and
+for what each transport authenticates and encrypts, then continue with [iroh]($link.page('transports/iroh')),
 [WebRTC]($link.page('transports/webrtc')), or the
 [relay]($link.page('relay')) for setup details.

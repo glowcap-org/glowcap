@@ -166,13 +166,13 @@ concern and is not implemented.
   install at id 0; `op:start-session` is the only non-abort traffic the
   negotiating state accepts.
 - `engine.pairing` `paired` / `pairedWithKeys` are the in-process handshake
-  fixtures conformance scenarios and the C-ABI dogfood build on;
+  fixtures the oracle scenarios and the C-ABI dogfood build on;
   `shuttleUntilQuiescent` surfaces a non-terminating dispatcher as an
   iteration-cap error rather than a hang.
 - `engine.fetch` exposes the initiator halves and `engine.bootstrap` the
   responder halves; the session gains a `bootstrap` registry and `Peer` gains
-  `registerBootstrapCap`, so the exporter side is validated end to end by a
-  `runHandshakeThenBootstrapFetch` conformance scenario (the responder
+  `registerBootstrapCap`, so the exporter side is validated end to end by the
+  `runHandshakeThenBootstrapFetch` oracle scenario (the responder
   auto-resolves; the round-trip tests stop hand-rolling the reply).
 
 ## Forward compatibility

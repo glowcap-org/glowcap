@@ -1,4 +1,4 @@
-// The rooms-web browser-peer proof:
+// The rooms browser-peer proof:
 // a wasm browser peer drives the real room-directory capabilities through
 // serve.ts's `/relay` byte pipe, with no native dlopen anywhere in this process.
 //
@@ -17,6 +17,11 @@
 // directory capability itself; the relay only moves bytes.
 
 import { init } from "@pancake/web";
+// The profile constants only — importing `lib/locator.ts` would pull
+// `@pancake/stack` in before `init` installs the wasm adapter, and the stack
+// binds its adapter at load. So the browser peer's Host is minted from the
+// stack `init` returns, wearing the same pair every other rooms peer wears.
+import { CAPTP_VERSION, CODEC } from "../lib/protocol.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -81,7 +86,11 @@ try {
 
 	// A plain tcp locator to the room server, dialed through the relay. The
 	// keyed handshake terminates inside the wasm session.
-	const session = await stack.connect(stack.tcpLocator("127.0.0.1", roomPort));
+	const session = await stack.connect(
+		stack.tcpLocator("127.0.0.1", roomPort),
+		undefined,
+		new stack.Host(undefined, { codec: CODEC, captpVersion: CAPTP_VERSION }),
+	);
 	session.serve().catch(() => {});
 	try {
 		// The real room vocabulary, as a capability call from the wasm peer —

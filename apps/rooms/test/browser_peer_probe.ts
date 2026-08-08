@@ -1,4 +1,4 @@
-// The browser entry the rooms-web browser peer is built on. A real page loads a
+// The browser entry the rooms browser peer is built on. A real page loads a
 // bundle of this — the `@pancake/web` wasm Host,
 // no dlopen — and drives the room directory as a capability, dialing every
 // locator through serve.ts's `/relay` by mapping host:port to a WebSocket URL.

@@ -19,6 +19,7 @@
 //! reactor multiplexes every connection — no thread per connection, no parked
 //! blocking read.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
@@ -81,6 +82,57 @@ impl Drop for NetlayerRaw {
 	}
 }
 
+/// One iroh endpoint's configuration, field-for-field with the header's
+/// `PancakeIrohConfig`, which documents what each setting means. `None` for a
+/// timeout takes the transport's default.
+///
+/// `reachability` is mandatory, which is why this type has no `Default`:
+/// enabling relays or a discovery service is always the caller's visible
+/// choice. `connect_timeout_ms` bounds getting a connection up,
+/// `idle_timeout_ms` bounds keeping one. Set `idle_timeout_ms` if you read a
+/// live session as presence, because it is what ends a connection whose peer
+/// was killed rather than closed.
+#[derive(Clone, Copy, Debug)]
+pub struct IrohConfig {
+	pub reachability: Reachability,
+	pub connect_timeout_ms: Option<u64>,
+	pub idle_timeout_ms: Option<u64>,
+	pub worker_threads: Option<u32>,
+}
+
+impl IrohConfig {
+	/// A configuration with only the mandatory posture set, every timeout left
+	/// to the transport.
+	pub fn new(reachability: Reachability) -> IrohConfig {
+		IrohConfig {
+			reachability,
+			connect_timeout_ms: None,
+			idle_timeout_ms: None,
+			worker_threads: None,
+		}
+	}
+
+	/// How long a connection may go with nothing arriving on it before it is
+	/// declared dead. See the type's own documentation for why this is the knob
+	/// a presence-shaped application sets.
+	pub fn with_idle_timeout_ms(mut self, ms: u64) -> IrohConfig {
+		self.idle_timeout_ms = Some(ms);
+		self
+	}
+
+	/// How long establishing a connection may take before it is abandoned.
+	pub fn with_connect_timeout_ms(mut self, ms: u64) -> IrohConfig {
+		self.connect_timeout_ms = Some(ms);
+		self
+	}
+
+	/// Worker threads for this endpoint's runtime.
+	pub fn with_worker_threads(mut self, threads: u32) -> IrohConfig {
+		self.worker_threads = Some(threads);
+		self
+	}
+}
+
 /// A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
 /// sibling of the TCP `Netlayer`. Dial with
 /// [`IrohNetlayer::connect_owned`] or host with [`IrohServer`]. Released on drop,
@@ -132,29 +184,31 @@ impl IrohNetlayer {
 	/// chosen [`Reachability`], the mandatory posture deciding whether the
 	/// endpoint uses relays or a discovery service. There is no default. Binds
 	/// the endpoint and arms its readiness loop.
-	pub fn new(reachability: Reachability) -> Result<IrohNetlayer> {
+	pub fn new(config: IrohConfig) -> Result<IrohNetlayer> {
 		let mut seed = [0u8; 32];
 		getrandom::fill(&mut seed).expect("the OS RNG provides an iroh endpoint seed");
-		IrohNetlayer::from_seed(reachability, &seed)
+		IrohNetlayer::from_seed(config, &seed)
 	}
 
 	/// Bind an iroh endpoint whose Ed25519 identity is reconstructed from
 	/// `seed` — the same seed a [`Host`](crate::Host) must use so designator,
 	/// session key, and endpoint id stay one value (ADR-0075).
-	pub fn from_seed(reachability: Reachability, seed: &[u8; 32]) -> Result<IrohNetlayer> {
+	pub fn from_seed(config: IrohConfig, seed: &[u8; 32]) -> Result<IrohNetlayer> {
 		let mut raw: *mut PancakeIrohNetlayer = core::ptr::null_mut();
-		// `..Default::default()` zero-fills the rest; `connect_timeout_ms` stays
-		// 0 (the built-in default) — the header's zero-init contract.
-		let config = ffi::PancakeIrohConfig {
-			reachability: reachability as u32,
-			..Default::default()
+		// `..Default::default()` zero-fills the rest, and 0 is the built-in
+		// default for every timeout — the header's zero-init contract.
+		let raw_config = ffi::PancakeIrohConfig {
+			reachability: config.reachability as u32,
+			connect_timeout_ms: config.connect_timeout_ms.unwrap_or(0),
+			idle_timeout_ms: config.idle_timeout_ms.unwrap_or(0),
+			worker_threads: config.worker_threads.unwrap_or(0),
 		};
 		check_iroh(unsafe {
-			ffi::pancake_iroh_netlayer_new(seed.as_ptr(), seed.len(), &config, &mut raw)
+			ffi::pancake_iroh_netlayer_new(seed.as_ptr(), seed.len(), &raw_config, &mut raw)
 		})?;
 		Ok(IrohNetlayer {
 			raw: Arc::new(NetlayerRaw(raw)),
-			reachability,
+			reachability: config.reachability,
 		})
 	}
 
@@ -619,6 +673,31 @@ pub struct IrohStream {
 }
 
 impl IrohStream {
+	/// The far end's node id, as QUIC proved it: this connection completed only
+	/// because the peer held the secret for this key. `None` when the
+	/// connection is gone or the handshake proved nothing.
+	///
+	/// This is the fact a session is otherwise missing. pancake cannot see it —
+	/// it did not open this connection — so whoever did passes it on with
+	/// [`Session::bind_verified_channel_key`], which the accept and dial paths
+	/// below do for every session this module establishes.
+	fn remote_node_id(&self) -> Option<String> {
+		let mut buf = [0u8; 64];
+		let mut len: usize = 0;
+		let code = unsafe {
+			ffi::pancake_iroh_conn_remote_node_id(
+				self.conn.0,
+				buf.as_mut_ptr(),
+				buf.len(),
+				&mut len,
+			)
+		};
+		if code != crate::abi_constants::OK {
+			return None;
+		}
+		Some(String::from_utf8_lossy(&buf[..len]).into_owned())
+	}
+
 	fn new(
 		conn: *mut PancakeIrohConn,
 		iloop: Arc<IrohLoop>,
@@ -644,7 +723,7 @@ impl IrohStream {
 		direct_addresses: &str,
 		reachability: Reachability,
 	) -> Result<IrohStream> {
-		let netlayer = IrohNetlayer::new(reachability)?;
+		let netlayer = IrohNetlayer::new(IrohConfig::new(reachability))?;
 		netlayer.connect_owned(node_id, direct_addresses).await
 	}
 }
@@ -793,6 +872,7 @@ pub struct IrohServer {
 	// re-gifts from under one identity (the gifter half of a three-party handoff,
 	// ADR-0009).
 	host: Host,
+	advertised_direct_addresses: RefCell<Option<String>>,
 }
 
 impl IrohServer {
@@ -800,17 +880,17 @@ impl IrohServer {
 	/// chosen [`Reachability`], the mandatory posture, no default. One seed
 	/// drives both the endpoint and the shared [`Host`], so designator, session
 	/// key, and node id are one value (ADR-0075).
-	pub fn bind(reachability: Reachability) -> Result<IrohServer> {
+	pub fn bind(config: IrohConfig) -> Result<IrohServer> {
 		let mut seed = [0u8; 32];
 		getrandom::fill(&mut seed).expect("the OS RNG provides an iroh identity seed");
-		IrohServer::bind_with_seed(reachability, seed)
+		IrohServer::bind_with_seed(config, seed)
 	}
 
 	/// Bind an iroh endpoint whose identity is reconstructed from `seed` — the
 	/// same seed becomes the [`Host`]'s signing key, so a dialer that pins the
 	/// session to the dialed node id opens cleanly (ADR-0075).
-	pub fn bind_with_seed(reachability: Reachability, seed: [u8; 32]) -> Result<IrohServer> {
-		let netlayer = IrohNetlayer::from_seed(reachability, &seed)?;
+	pub fn bind_with_seed(config: IrohConfig, seed: [u8; 32]) -> Result<IrohServer> {
+		let netlayer = IrohNetlayer::from_seed(config, &seed)?;
 		let node_id = netlayer.node_id()?;
 		let iloop = IrohLoop::start(Arc::clone(&netlayer.raw))?;
 		let host = Host::from_seed(seed)?;
@@ -819,12 +899,15 @@ impl IrohServer {
 		// recognize it. Setting the designator alone is not enough — the
 		// signing key must be the same seed (see `from_seed` above).
 		host.shared().set_self_designator(&node_id)?;
-		Ok(IrohServer {
+		let server = IrohServer {
 			netlayer,
 			node_id,
 			iloop,
 			host,
-		})
+			advertised_direct_addresses: RefCell::new(None),
+		};
+		server.refresh_advertised_locator()?;
+		Ok(server)
 	}
 
 	/// The Host every accepted session shares, including its retained identity
@@ -844,7 +927,20 @@ impl IrohServer {
 
 	/// This endpoint's comma-separated direct-address hints.
 	pub fn direct_addresses(&self) -> Result<String> {
-		self.netlayer.direct_addresses()
+		self.refresh_advertised_locator()
+	}
+
+	fn refresh_advertised_locator(&self) -> Result<String> {
+		let direct_addresses = self.netlayer.direct_addresses()?;
+		if self.advertised_direct_addresses.borrow().as_deref() != Some(direct_addresses.as_str()) {
+			self.host.shared().set_advertised_locator(
+				crate::abi_constants::TRANSPORT_IROH,
+				&self.node_id,
+				&direct_addresses,
+			)?;
+			*self.advertised_direct_addresses.borrow_mut() = Some(direct_addresses.clone());
+		}
+		Ok(direct_addresses)
 	}
 
 	/// The `ocapn://<nodeid>.iroh?direct-addresses=…` URI a partner dials,
@@ -875,7 +971,12 @@ impl IrohServer {
 	pub async fn accept(&self) -> Result<Session> {
 		let node_id = self.node_id().to_string();
 		loop {
+			let direct_addresses = self.refresh_advertised_locator()?;
 			let stream = self.accept_stream().await?;
+			// This module accepted the connection, so it is the one place that
+			// can say what QUIC proved about the peer that reached it. Read
+			// before the stream moves into establish.
+			let proved = stream.remote_node_id();
 			// A failed or timed-out handshake closes the transport, which
 			// unregisters the connection from this server's loop and releases it.
 			if let Ok(session) = Session::establish_accepted(
@@ -883,8 +984,9 @@ impl IrohServer {
 				crate::abi_constants::TRANSPORT_IROH,
 				&node_id,
 				stream,
-				"",
+				&direct_addresses,
 				Some(HANDSHAKE_TIMEOUT),
+				proved.as_deref(),
 			)
 			.await
 			{
@@ -987,12 +1089,16 @@ impl Session {
 		handshake_timeout: Option<std::time::Duration>,
 	) -> Result<Session> {
 		let stream = IrohStream::connect(node_id, direct_addresses, reachability).await?;
+		// As the accept side: this module opened the connection, so it is the
+		// one place that can say what QUIC proved about the far end.
+		let proved = stream.remote_node_id();
 		Session::establish_dialed_locator(
 			host.shared(),
 			crate::abi_constants::TRANSPORT_IROH,
 			node_id,
 			stream,
 			handshake_timeout,
+			proved.as_deref(),
 		)
 		.await
 	}
@@ -1002,13 +1108,13 @@ impl Session {
 /// iroh sibling of [`listen`](crate::listen). `reachability` is the mandatory
 /// posture (no default). One seed drives both the endpoint and the shared
 /// [`Host`] (ADR-0075). Needs the iroh ABI library (`zig build iroh-abi`).
-pub fn listen_iroh(reachability: Reachability) -> Result<IrohServer> {
-	IrohServer::bind(reachability)
+pub fn listen_iroh(config: IrohConfig) -> Result<IrohServer> {
+	IrohServer::bind(config)
 }
 
 /// [`listen_iroh`] with an explicit identity seed — pass the same seed after a
 /// restart to keep the node id stable, and use it for any [`Host`] that must
 /// share that identity.
-pub fn listen_iroh_with_seed(reachability: Reachability, seed: [u8; 32]) -> Result<IrohServer> {
-	IrohServer::bind_with_seed(reachability, seed)
+pub fn listen_iroh_with_seed(config: IrohConfig, seed: [u8; 32]) -> Result<IrohServer> {
+	IrohServer::bind_with_seed(config, seed)
 }

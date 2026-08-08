@@ -7,6 +7,15 @@
 	--ok: var(--teal);
 	--warn: var(--accent);
 	--hover: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), color-mix(in srgb, #ffffff 7%, transparent));
+	/* The ground the page stands on: warm paper with a little of the accent
+	   poured in at the top. It is named because two surfaces stand on it, the
+	   body and the opening screen that covers the body until the interface is
+	   up. A screen mixed from any other fill would announce itself as it left. */
+	--page-bg:
+		radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--accent)
+		12%, var(--paper))
+		0%, var(--paper) 55%) no-repeat,
+		var(--paper);
 	/* Your own messages, the Send button, and the pill that marks a mention of
 	   you all sit on the same amber fill, so they share one set of tokens. Fill
 	   and ink are chosen together: cream ink reads on a deep amber but washes
@@ -144,11 +153,7 @@ body {
 	font-kerning: normal;
 	-webkit-font-smoothing: antialiased;
 	color: var(--ink);
-	background:
-		radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--accent)
-		12%, var(--paper))
-		0%, var(--paper) 55%) no-repeat,
-		var(--paper);
+	background: var(--page-bg);
 }
 /* The app shell: a fixed two-column grid on desktop (sidebar + main column); the
    mobile media query turns it into a single-screen list/conversation stack. */
@@ -2127,24 +2132,116 @@ button:focus-visible,
 	border-color: var(--accent);
 }
 
-/* What a reader sees when the page cannot draw itself: the script is off, or the
-   bundle did not load. The interface replaces this on mount, so it costs a
-   working page nothing, and it is styled from the same palette so the message
-   lands in whichever theme was stamped before the first paint. */
+/* ── The opening screen ──────────────────────────────────────────────────
+   A page that draws itself has nothing to show until its script has run. This
+   is what stands in, and it lives in the document rather than in the bundle,
+   which is the whole point: it paints on the first parse instead of waiting for
+   the very thing it is covering for.
+
+   It carries two faces and shows one, and which one follows from a single fact
+   the document stamps on itself before anything is laid out: is this page
+   opening under a script at all? Unstamped means no, so the explanation is the
+   face a browser with scripting off gets, and a page that is opening asks for
+   the wait instead. The two situations that mean this page will never draw
+   itself therefore share one pair of rules. A browser that runs the page never
+   lays the message out, so there is no frame in which it could appear.
+
+   Handing over is ui/boot.ts's decision, and it waits for the peer's first
+   answer rather than for the bundle to start: a page whose peer has not
+   answered has no rooms to list and no room to enter. The interface is drawn
+   underneath meanwhile, so the screen leaves a finished page behind it. */
 .boot {
+	position: fixed;
+	inset: 0;
+	/* Over everything. The phone's roster sheet asks for the most of anything
+	   else here, at 40. */
+	z-index: 100;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	/* The ground the body already stands on, so the fade takes away the mark and
+	   the words and leaves the colour exactly where it was. */
+	background: var(--page-bg);
+	/* boot.ts rides the end of this fade to take the element out of the
+	   document, so a transition removed from here is a screen left behind. It
+	   would be an invisible, untouchable one, which is why nothing breaks, but
+	   the browser proof asks for the element to be gone and would say so. */
+	transition: opacity .3s ease;
+}
+/* Handed over: transparent, and out of the way of the interface underneath.
+   boot.ts takes the element out of the document once the fade has run. */
+:root[data-boot="done"] .boot {
+	opacity: 0;
+	pointer-events: none;
+}
+.boot-wait {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	text-align: center;
+}
+/* The product's own mark rather than a spinner, drawn from the same mask the
+   rail and the topbar wear. It breathes, because nothing here knows how far
+   along the wait is and a bar that filled would be making that up. The sheet's
+   reduced-motion rule near the top holds this animation along with every other
+   one, so a reader who asks for stillness gets the mark sitting still. */
+.boot-mark {
+	width: 44px;
+	height: 44px;
+	background: var(--accent);
+	-webkit-mask: var(--mark-stack) center/contain no-repeat;
+	mask: var(--mark-stack) center/contain no-repeat;
+	animation: boot-warm 1.9s ease-in-out infinite;
+}
+@keyframes boot-warm {
+	0%,
+	100% {
+		opacity: .55;
+		transform: translateY(0) scale(1);
+	}
+	45% {
+		opacity: 1;
+		transform: translateY(-3px) scale(1.04);
+	}
+}
+.boot-name {
+	margin: 0;
+	font-weight: 600;
+	letter-spacing: .01em;
+	color: var(--ink);
+}
+.boot-note {
+	margin: 0;
+	font-size: 13.5px;
+	color: var(--ink-soft);
+}
+/* The other face: why there is nothing here to use. A page that is opening
+   hides it. The two ways a page is not opening are named together, once, so
+   neither carries its own copy of what to show: nothing stamped the document,
+   which means scripting is off, or the bundle never arrived and the watcher
+   put the message back. */
+.boot-explain {
+	display: none;
 	max-width: 34rem;
-	margin: 12vh auto;
-	padding: 0 24px;
 	color: var(--ink);
 	font-size: 15px;
 	line-height: 1.55;
 }
-.boot h1 {
+:root:not([data-boot]) .boot-wait,
+:root[data-boot="lost"] .boot-wait {
+	display: none;
+}
+:root:not([data-boot]) .boot-explain,
+:root[data-boot="lost"] .boot-explain {
+	display: block;
+}
+.boot-explain h1 {
 	margin: 0 0 10px;
 	font-size: 19px;
 	letter-spacing: -.01em;
 }
-.boot p {
+.boot-explain p {
 	margin: 0 0 10px;
 	color: var(--ink-soft);
 }

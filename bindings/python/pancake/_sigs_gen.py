@@ -60,6 +60,7 @@ def driver_sigs(
     _HostPumpHooks,
     _HostBehavior,
     _PartnerIdentity,
+    _TraceCallback,
 ):
     """``libpancake_host`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
@@ -70,20 +71,24 @@ def driver_sigs(
     u32_p = ctypes.POINTER(u32)
     u64_p = ctypes.POINTER(u64)
     return {
-        "pancake_host_new": ([P, size, size, u32, u32, u32, ctypes.POINTER(P)], i32),
-        "pancake_host_new_in": ([P, P, size, size, u32, u32, u32, ctypes.POINTER(P)], i32),
+        "pancake_host_new": ([P, size, size, u32, u32, u32, u32, u32, ctypes.POINTER(P)], i32),
+        "pancake_host_new_in": ([P, P, size, size, u32, u32, u32, u32, u32, ctypes.POINTER(P)], i32),
         "pancake_host_release": ([P], i32),
         "pancake_host_designator_from_seed": ([P, size, P, size], i32),
         "pancake_host_set_self_designator": ([P, P, size], i32),
+        "pancake_host_set_advertised_locator": ([P, P, size], i32),
+        "pancake_host_ensure_advertised_locator": ([P, P, size], i32),
+        "pancake_host_remove_advertised_locator": ([P, P, size], i32),
         "pancake_host_set_session_limits": ([P, size, size], i32),
         "pancake_host_session_open_dialed_locator": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
-        "pancake_host_session_open_accepted": ([P, P, size, P, size, P, size, ctypes.POINTER(P)], i32),
+        "pancake_host_session_open_accepted": ([P, P, size, ctypes.POINTER(P)], i32),
         "pancake_host_plan_dial": ([P, size, P, size, P, size, u32, u32, ctypes.POINTER(_DialPlan)], i32),
         "pancake_host_pending_dial": ([P, u64, ctypes.POINTER(_PendingDial)], i32),
         "pancake_host_reference_exporter": ([P, ctypes.POINTER(_Reference), ctypes.POINTER(P)], i32),
         "pancake_host_plan_accept": ([P, size, P, size, P, size, ctypes.POINTER(_AcceptPlan)], i32),
         "pancake_host_session_release": ([P], i32),
         "pancake_host_session_is_open": ([P], i32),
+        "pancake_host_session_trace_id": ([P, u64_p], i32),
         "pancake_host_session_feed_bytes": ([P, P, size], i32),
         "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], i32),
         "pancake_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), u32_p], i32),
@@ -99,6 +104,7 @@ def driver_sigs(
         "pancake_host_session_fetch": ([P, P, size, u64_p], i32),
         "pancake_host_session_enliven": ([P, P, size, u64_p], i32),
         "pancake_host_enliven": ([P, P, size, u64_p], i32),
+        "pancake_host_set_trace": ([P, _TraceCallback, P], i32),
         "pancake_host_spawn_resolver": ([P, u64_p, u64_p], i32),
         "pancake_host_resolver_fulfill": ([P, u64, ctypes.POINTER(_Argument)], i32),
         "pancake_host_resolver_break": ([P, u64, P, size], i32),
@@ -119,6 +125,7 @@ def driver_sigs(
         "pancake_host_session_set_exporter_location": ([P, P, size], i32),
         "pancake_host_session_last_abort": ([P, ctypes.POINTER(_LastAbort)], i32),
         "pancake_host_session_partner_identity": ([P, ctypes.POINTER(_PartnerIdentity)], i32),
+        "pancake_host_session_bind_verified_channel_key": ([P, P, size], i32),
         "pancake_host_last_error": ([P, size], size),
     }
 
@@ -181,6 +188,7 @@ def iroh_sigs(_IrohReadyEvent, _IrohConfig):
         "pancake_iroh_netlayer_direct_addrs": ([P, P, size, size_p], i32),
         "pancake_iroh_conn_release": ([P], None),
         "pancake_iroh_conn_id": ([P], size),
+        "pancake_iroh_conn_remote_node_id": ([P, P, size, size_p], i32),
         "pancake_iroh_netlayer_readiness_fd": ([P], i32),
         "pancake_iroh_netlayer_drain_ready": ([P, ctypes.POINTER(_IrohReadyEvent), size, size_p], i32),
         "pancake_iroh_netlayer_try_accept": ([P, ctypes.POINTER(P)], i32),
@@ -192,7 +200,7 @@ def iroh_sigs(_IrohReadyEvent, _IrohConfig):
     }
 
 
-def webrtc_sigs(_WebrtcReadyEvent):
+def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig):
     """``libpancake_net_transport_webrtc`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
@@ -200,7 +208,7 @@ def webrtc_sigs(_WebrtcReadyEvent):
     size_p = ctypes.POINTER(size)
     return {
         "pancake_webrtc_last_error": ([P, size], size),
-        "pancake_webrtc_netlayer_new": ([ctypes.POINTER(P)], i32),
+        "pancake_webrtc_netlayer_new": ([ctypes.POINTER(_WebrtcConfig), ctypes.POINTER(P)], i32),
         "pancake_webrtc_netlayer_readiness_fd": ([P], i32),
         "pancake_webrtc_netlayer_drain_ready": ([P, ctypes.POINTER(_WebrtcReadyEvent), size, size_p], i32),
         "pancake_webrtc_netlayer_release": ([P], None),

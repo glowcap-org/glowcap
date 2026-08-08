@@ -118,8 +118,21 @@ test "planAccept keyed-tcp: signs the server key, the accepted address is the hi
     try std.testing.expectEqualStrings("127.0.0.1:6000", plan.direct_addresses_hint);
 }
 
-test "planAccept iroh: signs the node id, carries no hint" {
-    const plan = planAccept(transport.iroh, key_designator, "127.0.0.1:7000");
+test "planAccept iroh: signs the node id and publishes the endpoint's direct addresses" {
+    // A key designator says who this peer is, not where. A third party handed
+    // this locator in a handoff has never spoken to the peer and still has to
+    // dial it, so an accept publishes the addresses it knows. This is the arm
+    // that used to drop them, leaving a give nobody could dial without a relay.
+    const plan = planAccept(transport.iroh, key_designator, "127.0.0.1:7000,[::1]:7001");
+    try std.testing.expectEqualStrings(key_designator, plan.designator);
+    try std.testing.expectEqualStrings("127.0.0.1:7000,[::1]:7001", plan.direct_addresses_hint);
+}
+
+test "planAccept iroh: an endpoint with no addresses yet publishes none" {
+    // Not a refusal: `iroh` is outside `requiresDirectAddressesHint`, so an
+    // empty hint is a dial that falls back to discovery rather than one that
+    // cannot happen.
+    const plan = planAccept(transport.iroh, key_designator, "");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }
@@ -157,8 +170,15 @@ test "planDial keyed-relay: a non-key designator is DesignatorNotPeerKey" {
     try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.keyed_relay, "not-a-key", "", .redeem));
 }
 
-test "planAccept webrtc: signs the server key, carries no hint" {
-    const plan = planAccept(transport.webrtc, key_designator, "127.0.0.1:7000");
+test "planAccept webrtc: signs the server key, and its netlayer offers no address to publish" {
+    // Empty because a `webrtc` peer is reached through a signaling exchange and
+    // has no dialable address to give (ADR-0089), which is what its resident
+    // reports. The planner does not filter by transport: it publishes whatever
+    // the netlayer — or, on the byte-fed path, the embedder that owns the
+    // transport — said this side is reachable at. Which hints a locator carries
+    // is the netlayer's business, so a second table here could only drift from
+    // the vtable that produces the value.
+    const plan = planAccept(transport.webrtc, key_designator, "");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }

@@ -34,7 +34,7 @@ the live `iroh-interop` capstones.
 Ship the restart-stable TCP listening identity as one new netlayer plus one
 shared verification seam:
 
-- **One spelling.** `foundation.crypto.PeerKey.toDesignator` /
+- **One encoding.** `foundation.crypto.PeerKey.toDesignator` /
   `fromDesignator` own the canonical key-designator form: exactly 64 lowercase
   hex digits, strict on parse. iroh's private shape check now delegates to it.
 - **A declared scheme.** `net.netlayer.DesignatorScheme` (`address` | `key`)

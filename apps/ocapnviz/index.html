@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ocapnviz — OCapN network visualizer</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!--
+      Apply persisted theme BEFORE CSS parses so the boot screen and
+      the eventual app share one background. Storage key mirrors
+      src/App.tsx (useTheme) — keep them in sync if either moves.
+    -->
+    <script>
+      (function () {
+        try {
+          let t = localStorage.getItem("ocapnviz:theme");
+          if (t !== "dark" && t !== "light") {
+            t = matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+          }
+          document.documentElement.dataset.theme = t;
+        } catch {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+
+    <!-- Inlined so the skeleton paints on first HTML parse, no
+         stylesheet round-trip. Background matches src/styles.css's
+         --ocv-bg so React's commit doesn't recolor the page. -->
+    <style>
+      :root[data-theme="light"] {
+        --ocv-boot-bg: #e9ebf0;
+        --ocv-boot-text: #667085;
+      }
+      :root[data-theme="dark"] {
+        --ocv-boot-bg: #0a0b0e;
+        --ocv-boot-text: #7c7f88;
+      }
+      html,
+      body,
+      #root {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: var(--ocv-boot-bg);
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        overflow: hidden;
+      }
+      .ocv-boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: var(--ocv-boot-text);
+      }
+      .ocv-boot-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+      }
+      .ocv-boot-mark {
+        width: 56px;
+        height: 56px;
+        color: var(--ocv-boot-text);
+        opacity: 0.9;
+      }
+      .ocv-boot-mark line {
+        stroke: currentColor;
+        stroke-width: 1.4;
+        stroke-linecap: round;
+        fill: none;
+      }
+      /* The dashed edge between the two receivers marches: the
+         handoff in flight, the visualizer's whole reason for being.
+         Slow enough to read as ambient, not anxious. */
+      .ocv-boot-mark-dash {
+        animation: ocv-boot-march 1.4s linear infinite;
+      }
+      @keyframes ocv-boot-march {
+        to {
+          stroke-dashoffset: -4.4;
+        }
+      }
+      /* Each vat pulses in handoff order — gifter (amber), then
+         the two receivers (purple, slate). One full cycle = the
+         three-vat introduction completing. */
+      .ocv-boot-mark circle {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: ocv-boot-pulse 2.1s ease-in-out infinite;
+      }
+      .ocv-boot-mark-d1 {
+        animation-delay: 0s;
+      }
+      .ocv-boot-mark-d2 {
+        animation-delay: 0.7s;
+      }
+      .ocv-boot-mark-d3 {
+        animation-delay: 1.4s;
+      }
+      @keyframes ocv-boot-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        18% {
+          transform: scale(1.35);
+        }
+        36% {
+          transform: scale(1);
+        }
+      }
+      .ocv-boot-name {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: lowercase;
+        opacity: 0.85;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ocv-boot-mark-dash,
+        .ocv-boot-mark circle {
+          animation: none;
+        }
+      }
+    </style>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+      href="https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw.woff2"
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+      href="/fonts/DepartureMono-Regular.woff2"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+  </head>
+  <body>
+    <!-- Skeleton inside #root so React.createRoot replaces it
+         atomically on first commit — single visual transition. -->
+    <div id="root">
+      <div class="ocv-boot" aria-hidden="true">
+        <div class="ocv-boot-card">
+          <svg class="ocv-boot-mark" viewBox="0 0 22 22">
+            <line x1="11" y1="4" x2="4" y2="17" />
+            <line x1="11" y1="4" x2="18" y2="17" />
+            <line
+              class="ocv-boot-mark-dash"
+              x1="4"
+              y1="17"
+              x2="18"
+              y2="17"
+              stroke-dasharray="2 2.4"
+            />
+            <circle
+              class="ocv-boot-mark-d1"
+              cx="11"
+              cy="4"
+              r="2.6"
+              fill="#f59e0b"
+            />
+            <circle
+              class="ocv-boot-mark-d2"
+              cx="4"
+              cy="17"
+              r="2.6"
+              fill="#8b5cf6"
+            />
+            <circle
+              class="ocv-boot-mark-d3"
+              cx="18"
+              cy="17"
+              r="2.6"
+              fill="#94a3b8"
+            />
+          </svg>
+          <div class="ocv-boot-name">ocapnviz</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

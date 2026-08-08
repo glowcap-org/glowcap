@@ -102,7 +102,11 @@ async fn main() -> Result<(), Fail> {
 
 	// The `Session`/`Server` are `!Send`, so the gifter runs on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result = local.run_until(gift(port)).await;
+	let result =
+		match tokio::time::timeout(helpers::INTEROP_TIMEOUT, local.run_until(gift(port))).await {
+			Ok(result) => result,
+			Err(_) => Err("rust-goblins-gift timed out".into()),
+		};
 
 	let _ = bob.kill().await;
 	if result.is_err() {

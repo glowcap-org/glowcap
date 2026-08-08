@@ -26,6 +26,37 @@ const dial_opts: driver.SessionOptions = .{
 const FirstService = support_actors.StaticReplyValueActor("poke", "first service");
 const SecondService = support_actors.StaticReplyValueActor("poke", "second service");
 
+test "durable publication uses the host's selected acceptable location" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        dial_opts,
+    );
+    defer server.close() catch {};
+
+    const selected: model.PeerLocator = .{
+        .transport = "test-proxy",
+        .designator = "public.example:443",
+        .hints = model.Hints.emptyFalse(),
+    };
+    try server.host.core.setAdvertisedLocator(selected);
+
+    const uri = try server.publishDurable(allocator, FirstService, .{});
+    defer allocator.free(uri);
+    const sturdyref = try model.uri.parseSturdyrefForProfile(allocator, .v1_0, uri);
+    defer model.uri.freeSturdyref(allocator, sturdyref);
+    try std.testing.expectEqualStrings(selected.transport, sturdyref.peer.transport);
+    try std.testing.expectEqualStrings(selected.designator, sturdyref.peer.designator);
+}
+
 /// One server fiber: publish the durable service, hand the sturdyref URI to
 /// the test, serve accepted sessions, and honor a removal request — every
 /// host verb on this one thread.

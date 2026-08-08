@@ -9,10 +9,23 @@
 			href="fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
 		<link rel="stylesheet" href="tokens.css" />
 		<script>
-		// Stamp a remembered theme before the first paint. Without this the page
-		// paints once with the default palette and repaints when the module runs,
-		// which on a cold load is a visible flash. ES5 only, so a parse error
-		// cannot take it out.
+		// Two things are stamped here rather than left to the module, and for the
+		// same reason: this runs while the head is being parsed, so it lands
+		// before the body has been laid out and there is no frame in which the
+		// page looks like anything else.
+		//
+		// The first is that this page is opening under a script. Unstamped is
+		// what a browser with scripting off is left holding, and that is the
+		// state the document is written for: the message below, saying why there
+		// is nothing here. Outside the try, because a browser that refuses
+		// storage is still running scripts and must not be told it is not.
+		//
+		// The second is a remembered theme. Without it the page paints once in
+		// the default palette and repaints when the module runs, which on a cold
+		// load is a visible flash.
+		//
+		// ES5 only, so a parse error cannot take either of them out.
+		document.documentElement.dataset.boot = "opening";
 		try {
 			var t = localStorage.getItem("rooms.theme");
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
@@ -22,13 +35,22 @@
 	</head>
 	<body>
 		<!-- The interface is drawn by page.js and lives entirely under this
-		     element; the components own their own structure. What sits here is
-		     what a reader gets when that does not happen — the script disabled,
-		     or the bundle failing to load — because a page that draws itself owes
-		     an explanation when it cannot. React replaces these children on
-		     mount, so a working page never shows them. -->
-		<div id="root">
-			<div class="boot">
+		     element; the components own their own structure. -->
+		<div id="root"></div>
+		<!-- What a reader looks at until then, and what they are told when there
+		     is no "until then". The two are one element with two faces: page.css
+		     decides which face a given state of the document shows, and
+		     ui/boot.ts decides when the whole thing goes. It is written here
+		     rather than in the bundle so that it is on screen from the first
+		     parse, which is the only way something can cover the wait for the
+		     bundle itself. -->
+		<div id="boot" class="boot">
+			<div class="boot-wait">
+				<div class="boot-mark" aria-hidden="true"></div>
+				<p class="boot-name">pancake rooms</p>
+				<p class="boot-note">Opening a peer in your browser…</p>
+			</div>
+			<div class="boot-explain">
 				<h1>pancake rooms needs JavaScript</h1>
 				<p>This page is not a view onto a chat server. It runs a peer in
 					your browser: it holds the room as a capability, and messages
@@ -39,6 +61,25 @@
 					script did not load. Reloading is worth a try.</p>
 			</div>
 		</div>
-		<script type="module" src="page.js"></script>
+		<script id="pageScript" type="module" src="page.js"></script>
+		<script>
+		// A page that draws itself owes a reader an explanation when it cannot,
+		// and there are two ways it cannot: the bundle never arrives, or it
+		// throws on its way up. Both announce themselves — an error on the script
+		// element, an error on the window — so neither is guessed at from elapsed
+		// time, which would eventually accuse a slow network of a failure it had
+		// not committed. Only a page still opening can be declared lost: once
+		// ui/boot.ts marks it running, a later error is the running page's
+		// business and leaves the screen alone. ES5 only, so a parse error cannot
+		// take it out.
+		(function () {
+			function lost() {
+				var root = document.documentElement;
+				if (root.dataset.boot === "opening") root.dataset.boot = "lost";
+			}
+			document.getElementById("pageScript").addEventListener("error", lost);
+			addEventListener("error", lost);
+		})();
+		</script>
 	</body>
 </html>

@@ -20,8 +20,10 @@
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the sidecar-linked
 // answerer (`zig build webrtc-answerer`, needs cargo), and a Playwright Chromium
-// (`npx playwright install chromium && sudo npx playwright install-deps`). Run
-// directly: `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
+// (the devcontainer image ships one; elsewhere
+// `tools/check/playwright-preflight.sh` names the pinned version and how to get
+// it). Run directly:
+// `deno run --allow-all interop/webrtc_browser_peer/browser_peer_test.ts`.
 
 import { chromium } from "playwright";
 

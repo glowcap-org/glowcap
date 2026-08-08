@@ -111,11 +111,54 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             } else if (ss.acceptable_location.designator.len > 0) {
                 self.partner_designator = try self.key_arena.allocator().dupe(u8, ss.acceptable_location.designator);
             }
+            self.partner_preference = partnerPreference(ss);
             if (self.handshake_local_sent) try self.transitionToOpen();
             self.handshake_remote_received = true;
         },
         else => {},
     }
+}
+
+/// What the partner's hello says it prefers. Absent hints mean the baseline: an
+/// implementation that has never heard of these names speaks it, and so does
+/// one that deliberately asks for it.
+fn partnerPreference(ss: anytype) model.Preference {
+    var out: model.Preference = .{};
+    if (hintString(ss, model.transport.hint_captp_version)) |text| {
+        if (model.CaptpVersion.fromWireString(text)) |version| out.captp_version = version;
+    }
+    if (hintString(ss, model.transport.hint_codec)) |text| {
+        if (std.fmt.parseInt(u16, text, 10)) |id| {
+            out.codec = @enumFromInt(id);
+        } else |_| {}
+    }
+    if (hintString(ss, model.transport.hint_features)) |text| {
+        out.features = model.FeatureSet.fromWireString(text) orelse unreachable;
+    }
+    return out;
+}
+
+/// One hint by name, from either start-session shape. An unreadable or
+/// non-string hint reads as absent for legacy advisory hints. The signed
+/// `pancake/features` authority hint is validated before apply reaches here.
+fn hintString(ss: anytype, name: []const u8) ?[]const u8 {
+    const hints = ss.acceptable_location.hints;
+    if (comptime @hasDecl(@TypeOf(hints), "findNamed")) {
+        const found = hints.findNamed(name) catch return null;
+        const value = found orelse return null;
+        return switch (value) {
+            .string => |text| text,
+            else => null,
+        };
+    }
+    for (hints.entries) |entry| {
+        if (!std.mem.eql(u8, entry.name, name)) continue;
+        return switch (entry.value) {
+            .string => |text| text,
+            else => null,
+        };
+    }
+    return null;
 }
 
 /// The partner's session public key as raw bytes, from either start-session
@@ -186,10 +229,8 @@ pub fn applySend(self: *Session, message: model.Message) !void {
                     // count reaches zero the partner may reuse the position,
                     // so every swissnum that named it must enliven afresh.
                     self.forgetSturdyrefEnlivenmentsAt(import_id);
-                    if (self.findImportedPromise(import_id)) |entry| {
-                        session.deinitImportedPromise(self.allocator, entry);
-                        std.debug.assert(self.imported_promises.remove(import_id));
-                    }
+                    if (self.shorteningIncarnationForImport(import_id)) |source|
+                        self.releaseShorteningSourceAuthority(source);
                 }
             }
         },
@@ -212,14 +253,14 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             self.handshake_local_sent = true;
         },
         // No send-side table mutation beyond the `retainSentExports` accounting
-        // above: `op:listen` anchors at the engine seam, `op:handoff` carries
-        // its own gift bookkeeping, and `op:abort` records here without closing
+        // above: `op:listen` anchors at the engine seam, and `op:abort` records
+        // here without closing
         // — CapTP close (when required) is `Peer.commitAbortOutbound` after the
         // frame is on `outbound`, so the partner can still take it. Listing
         // them explicitly (rather
         // than `else`) makes a new `model.Message` kind fail to compile until
         // its apply decision is classified here.
-        .listen, .handoff, .abort => {},
+        .listen, .abort => {},
     }
 }
 
@@ -241,13 +282,20 @@ pub fn applySend(self: *Session, message: model.Message) !void {
 /// is now structural: for every inbound answer, `status != .pending` if and
 /// only if a resolution is stored.
 pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
-    // Account every `near` export the payload puts on the wire (see
-    // `retainSentExports`). On failure the resolution has found no owner, so the
-    // consume contract makes us free it.
-    retainSentExports(self, .{ .resolve = resolve }) catch |err| {
-        model.freeResolution(self.allocator, resolve.resolution);
-        return err;
-    };
+    // Only V1.0 sends this resolution itself. Next stores settlement locally
+    // and accounts an export mention if and when a listener callback carrying
+    // it is queued.
+    if (self.captp_version == .v1_0) {
+        retainSentExports(self, .{ .resolve = resolve }) catch |err| {
+            model.freeResolution(self.allocator, resolve.resolution);
+            return err;
+        };
+    } else if (resolve.resolution == .fulfill) {
+        recordSentExportArg(self, resolve.resolution.fulfill, 0, false) catch |err| {
+            model.freeResolution(self.allocator, resolve.resolution);
+            return err;
+        };
+    }
     // The send validator already proved the answer exists and is pending, so a
     // missing row is not reachable in practice; honour the consume contract
     // defensively rather than strand the resolution.
@@ -264,6 +312,8 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
     switch (message) {
         .gc_export => |gc_export| {
             try session.applyGcExportDecrement(&self.exports, gc_export);
+            for (gc_export.positions) |position|
+                self.releaseShorteningResolverExport(model.ExportPosition.from(position));
         },
         // Inbound `op:gc-answers` releases an answer we created for the
         // partner, decrement our inbound answers and prune the inbound
@@ -276,17 +326,6 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
         .get => |get| try installAnswer(self, .inbound, get.answer),
         .index => |index| try installAnswer(self, .inbound, index.answer),
         .untag => |untag| try installAnswer(self, .inbound, untag.answer),
-        // A handoff certificate that arrives on the generic inbound path moves
-        // no authority: a `desc:handoff-receive` is not a standalone OCapN
-        // message (the spec withdraw is an `op:deliver` to the bootstrap object,
-        // verified in `engine.bootstrap.resolveForWithdraw`), so applying a
-        // withdraw here would let any peer that can reach the socket burn a
-        // deposited gift without an Ed25519 check. Withdrawal authority moves
-        // only through a verified caller (`resolveForWithdraw`, or a host that
-        // verifies both certificates before applying the withdraw against the
-        // gift registry). A top-level handoff frame still surfaces as a
-        // `.handoff` event for observation.
-        .handoff => {},
         // abort / deliver / resolve / start_session share one body with the
         // borrowed-view path.
         else => try applyRecvShared(self, message, introduced),
@@ -360,7 +399,7 @@ fn retainSentExports(self: *Session, message: model.Message) !void {
         // that let `op:get`/`op:index`/`op:untag` ship unaccounted: silence here
         // becomes a partner `op:gc-exports` underflow later. These kinds put no
         // `near` export mention on the wire, so they retain nothing.
-        .gc_export, .gc_answer, .handoff, .start_session, .abort => {},
+        .gc_export, .gc_answer, .start_session, .abort => {},
     }
 }
 
@@ -372,30 +411,7 @@ fn retainSentExports(self: *Session, message: model.Message) !void {
 pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
     switch (reference) {
         .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
-            if (!self.exports.contains(near.export_position)) {
-                // First export of this object rides this marshal (a resolve
-                // fulfill, or a cross-session re-export): the row is absent, so
-                // this mention is the only authority for its kind. Mint the cell
-                // from `near.kind` — object or promise — `registerExport`-shaped
-                // (local baseline first, then the wire mention below), and
-                // advance the allocator past the position so `allocateExport`
-                // can never re-issue the same integer and silently alias a live
-                // object. This is the sole place `retainSentExportRef` reads the
-                // wire kind: it establishes an absent cell, it never re-decides
-                // a live one.
-                // Same door as an explicit grant: the session decides whether
-                // this position is one of its own names before a row exists
-                // for it. Without that, a fulfill naming a position from
-                // another session's range mints a row here for an object this
-                // session does not host, and drags the allocator to a number
-                // past the end of its range, after which it can export nothing.
-                try self.admitExportPositionForMarshal(near.export_position);
-                const cell: slot.Slot = switch (near.kind) {
-                    .object => .{ .local_value = near.export_position.int() },
-                    .promise => .{ .local_unresolved = near.export_position.int() },
-                };
-                try self.exports.registerCell(self.allocator, near.export_position, cell);
-            }
+            try establishSentExportRef(self, near);
             // A live row's cell is authoritative from its establishment — an
             // authoritative promise mint (`allocatePromiseExport`), an object
             // reservation (`allocateExport`), or the first-mention branch above.
@@ -411,19 +427,46 @@ pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
     }
 }
 
+fn establishSentExportRef(self: *Session, near: model.NearRef) !void {
+    if (near.export_position.int() == BOOTSTRAP_POSITION or self.exports.contains(near.export_position)) return;
+    // A resolution may establish an export before next puts it on the wire.
+    // Establish the local baseline separately from wire-delta accounting so a
+    // later listener callback can retain exactly its own mention.
+    try self.admitExportPositionForMarshal(near.export_position);
+    const cell: slot.Slot = switch (near.kind) {
+        .object => .{ .local_value = near.export_position.int() },
+        .promise => .{ .local_unresolved = near.export_position.int() },
+    };
+    try self.exports.registerCell(self.allocator, near.export_position, cell);
+}
+
 fn retainSentExportArgs(self: *Session, args: []const model.Argument, depth: usize) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-    for (args) |arg| try retainSentExportArg(self, arg, depth);
+    return recordSentExportArgs(self, args, depth, true);
 }
 
 fn retainSentExportArg(self: *Session, arg: model.Argument, depth: usize) RecvViewError!void {
+    return recordSentExportArg(self, arg, depth, true);
+}
+
+fn recordSentExportArgs(self: *Session, args: []const model.Argument, depth: usize, wire_mention: bool) RecvViewError!void {
+    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
+    for (args) |arg| try recordSentExportArg(self, arg, depth, wire_mention);
+}
+
+fn recordSentExportArg(self: *Session, arg: model.Argument, depth: usize, wire_mention: bool) RecvViewError!void {
     switch (arg) {
-        .reference => |reference| try retainSentExportRef(self, reference),
-        .list, .set => |items| try retainSentExportArgs(self, items, depth + 1),
-        .tagged => |tagged| try retainSentExportArgs(self, tagged.value, depth + 1),
+        .reference => |reference| switch (reference) {
+            .near => |near| if (wire_mention)
+                try retainSentExportRef(self, reference)
+            else
+                try establishSentExportRef(self, near),
+            else => {},
+        },
+        .list, .set => |items| try recordSentExportArgs(self, items, depth + 1, wire_mention),
+        .tagged => |tagged| try recordSentExportArgs(self, tagged.value, depth + 1, wire_mention),
         .@"struct" => |entries| {
             if (depth + 1 > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-            for (entries) |entry| try retainSentExportArg(self, entry.value, depth + 1);
+            for (entries) |entry| try recordSentExportArg(self, entry.value, depth + 1, wire_mention);
         },
         // Exhaustive on purpose: a new Argument arm must decide here whether it
         // can name an export, see `validate.validateInboundArgument`.
@@ -445,34 +488,28 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!v
     }
 }
 
-/// Apply `op:gc-answers` to our outbound answers. A fully-released answer can
-/// never resolve again, so its resolver-export link (ADR-0010, ADR-0095) is
-/// dropped with the row — both directions together, the forward map keyed by
-/// resolver-export and its answer-keyed inverse, the mirror of
-/// `applyGcAnswerDecrementInbound`. Two O(1) keyed removals per released
-/// answer; a client releasing Q answered delivers pays O(Q), not the O(Q²) a
-/// per-answer scan of the forward map would cost.
+/// Apply `op:gc-answers` to our outbound answers. A fully-released answer is no
+/// longer application-addressable, so its resolver-export link (ADR-0010,
+/// ADR-0095) is retired with the row. The tombstone keeps a callback already in flight from
+/// becoming an ordinary application deliver, and keeps the resolver export's
+/// local baseline until the partner releases its wire mention. Converged
+/// settling followers unlink or promote through answer back-links, so a client
+/// releasing Q answers pays O(Q), not a scan of every imported promise.
 fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
-        if (try decrementAnswer(self, &self.outbound_answers, model.AnswerPosition.from(position))) {
-            // Drop the whole link by its answer side; `fetchRemoveByValue` hands
-            // back the resolver export so the release step below, which the
-            // `BiMap` deliberately does not own — stays explicit here.
-            if (self.outbound_resolver_link.fetchRemoveByValue(model.AnswerPosition.from(position))) |resolver_export| {
-                // Release the resolver export's own reference (the count-1
-                // `allocateExport` gave it, in `mintOutboundResolver` for a
-                // V1.0 callback or in `engine.listen.listenOnPromise` for a
-                // listener; the wire mention retained one more). The answer is
-                // gone, so the resolver can never fire again; the partner's
-                // wire mention is released by its own `op:gc-exports`. Without
-                // this, that base reference floats forever and the export is
-                // reclaimed only at session teardown, so a long session leaks
-                // one export per resolver it mints. `catch` tolerates a partner
-                // that already
-                // over-released the mention (a separate GC protocol violation).
-                self.exports.decrement(resolver_export, 1) catch {};
-            }
-        }
+        const answer = model.AnswerPosition.from(position);
+        const entry = self.outbound_answers.getPtr(answer) orelse return Error.GcUnderflow;
+        const final_release = entry.count == 1;
+        const retired_state: session.RetiredResolverState = if (entry.status() == .pending)
+            .pending
+        else
+            .complete;
+        const settling_source = if (final_release)
+            self.unlinkPromiseSettlingAnswer(answer)
+        else
+            null;
+        if (!try decrementAnswer(self, &self.outbound_answers, answer)) continue;
+        self.retireApplicationResolver(answer, retired_state, settling_source);
     }
 }
 
@@ -495,17 +532,17 @@ fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerPo
 /// are partner-named and capped by `SessionLimits.max_inbound_answers`;
 /// outbound rows are positions we allocate, bounded by our own sends, so the
 /// cap is the direction's policy, not a property of which pointer was passed.
-/// Idempotent for a still-pending row (the engine installs a queued pipelined
-/// call's answer at queue time and again at redirect time). A settled inbound
-/// row must not be quietly reused: that path used to no-op here and then fail
-/// on our outbound resolve with an unprojected `UnexpectedMessage`.
+/// Idempotent only for a still-pending inbound row: the engine installs a
+/// queued pipelined call's answer at queue time and again at redirect time.
+/// Outbound rows are locally chosen question identities and must always be
+/// fresh.
 pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerPosition) !void {
     const table = switch (direction) {
         .inbound => &self.inbound_answers,
         .outbound => &self.outbound_answers,
     };
     if (table.getPtr(position)) |entry| {
-        if (entry.status() != .pending) return Error.UnexpectedMessage;
+        if (direction == .outbound or entry.status() != .pending) return Error.UnexpectedMessage;
         return;
     }
     if (direction == .inbound and table.len() >= self.limits.max_inbound_answers) {

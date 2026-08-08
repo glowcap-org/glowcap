@@ -93,8 +93,16 @@ test "C header return codes match the Zig c_abi source" {
 }
 
 test "C header discriminants match the Zig c_abi source" {
+    try expectConst(c.PANCAKE_CODEC_UNKNOWN, cabi.PANCAKE_CODEC_UNKNOWN);
     try expectConst(c.PANCAKE_CODEC_SYRUP, cabi.PANCAKE_CODEC_SYRUP);
     try expectConst(c.PANCAKE_CODEC_CAPNP, cabi.PANCAKE_CODEC_CAPNP);
+    try expectConst(c.PANCAKE_CODEC_UNKNOWN, 0);
+    try expectConst(c.PANCAKE_CODEC_SYRUP, 1);
+    try expectConst(c.PANCAKE_CODEC_CAPNP, 2);
+    try std.testing.expect(c.PANCAKE_CODEC_SYRUP != c.PANCAKE_CODEC_UNKNOWN);
+    try std.testing.expect(c.PANCAKE_CODEC_CAPNP != c.PANCAKE_CODEC_UNKNOWN);
+    try std.testing.expectEqual(@as(?pancake.ocapn.model.CodecId, null), cabi.codecFromC(cabi.PANCAKE_CODEC_UNKNOWN));
+    try std.testing.expectEqual(cabi.PANCAKE_CODEC_UNKNOWN, cabi.codecToC(@enumFromInt(42)));
     try expectConst(c.PANCAKE_FRAME_SHAPE_BYTE, cabi.PANCAKE_FRAME_SHAPE_BYTE);
     try expectConst(c.PANCAKE_FRAME_SHAPE_WORD, cabi.PANCAKE_FRAME_SHAPE_WORD);
 
@@ -118,4 +126,19 @@ test "C header discriminants match the Zig c_abi source" {
     try expectConst(c.PANCAKE_VERSION_MAJOR, cabi.PANCAKE_VERSION_MAJOR);
     try expectConst(c.PANCAKE_VERSION_MINOR, cabi.PANCAKE_VERSION_MINOR);
     try expectConst(c.PANCAKE_VERSION_PATCH, cabi.PANCAKE_VERSION_PATCH);
+}
+
+test "C feature mask names every model feature exactly once" {
+    const full = pancake.ocapn.model.FeatureSet.full();
+    const minimum = pancake.ocapn.model.FeatureSet.minimum();
+    try expectConst(c.PANCAKE_FEATURE_FULL, cabi.PANCAKE_FEATURE_FULL);
+    try std.testing.expectEqual(cabi.PANCAKE_FEATURE_FULL, cabi.featureSetToC(full));
+    try std.testing.expectEqual(cabi.PANCAKE_FEATURE_MINIMUM, cabi.featureSetToC(minimum));
+    try std.testing.expectEqual(full, cabi.featureSetFromC(cabi.PANCAKE_FEATURE_FULL).?);
+    try std.testing.expectEqual(minimum, cabi.featureSetFromC(cabi.PANCAKE_FEATURE_MINIMUM).?);
+    const unused_feature_bits = ~cabi.PANCAKE_FEATURE_FULL;
+    if (unused_feature_bits != 0) {
+        const invalid_feature_bit = unused_feature_bits & (0 -% unused_feature_bits);
+        try std.testing.expectEqual(@as(?pancake.ocapn.model.FeatureSet, null), cabi.featureSetFromC(cabi.PANCAKE_FEATURE_FULL | invalid_feature_bit));
+    }
 }

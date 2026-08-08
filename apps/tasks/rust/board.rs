@@ -72,7 +72,6 @@ impl Board {
 				}
 				Ok(Argument::Void)
 			})
-			.await
 			.map_err(|e| format!("spawn watcher: {e:?}"))?;
 		session
 			.send(&board, "watch", &[(&watcher).into()])

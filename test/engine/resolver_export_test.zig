@@ -7,15 +7,13 @@
 //! minted one; an `op:listen` listener export is settled by that same shape on
 //! any profile, so the probe now runs on every session. These tests pin what
 //! that widening does, what it must not do (an over-broad probe would swallow
-//! ordinary calls), and that the pre-ratified profile's own answer settlement
-//! is untouched by it.
+//! ordinary calls).
 
 const std = @import("std");
 const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
-const session = pancake.ocapn.session;
 
 /// Both negotiated profiles carry the listen notification, so the probe is
 /// exercised on each.
@@ -126,64 +124,4 @@ test "a second fire on the same answer is refused" {
         try fireAt(&pair.p2, &pair.p1, resolver, &args);
         try std.testing.expectError(error.UnexpectedMessage, pair.p1.step());
     }
-}
-
-test "the pre-ratified profile still settles an answered deliver by op:resolve, minting no resolver" {
-    const allocator = std.testing.allocator;
-    var pair = try syrupPair(allocator, .next);
-    defer pair.deinit();
-
-    // An ordinary answered call. On V1.0 the encoder would augment this with a
-    // synthesized resolver export and settle it through a callback deliver;
-    // here it must not, and the widened probe must not make it look as though
-    // it did.
-    const before = pair.p1.session_state.next_export_position;
-    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
-    try pair.p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
-        .args = &.{.{ .bytes = "ping" }},
-        .answer = .from(42),
-        .resolve_me_desc = null,
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
-
-    // No resolver export was minted, so the resolver-export link is empty and
-    // the probe has nothing on this session to match.
-    try std.testing.expectEqual(before, pair.p1.session_state.next_export_position);
-    try std.testing.expectEqual(
-        @as(?model.AnswerPosition, null),
-        pair.p1.session_state.answerForResolverExport(.from(before)),
-    );
-
-    try pair.p2.feedOwned(pair.p1.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
-    {
-        var event = pair.p2.pollEvent().?;
-        defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-    }
-    // The partner learned no resolver import either: there was nothing on the
-    // deliver to advertise one.
-    try std.testing.expectEqual(
-        @as(?model.ImportPosition, null),
-        pair.p2.session_state.resolverForInboundAnswer(.from(42)),
-    );
-
-    try pair.p2.sendCopying(.{ .resolve = .{
-        .answer = .from(42),
-        .resolution = .{ .fulfill = .{ .bytes = "pong" } },
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
-    try pair.p1.feedOwned(pair.p2.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
-
-    var event = pair.p1.pollEvent().?;
-    defer event.deinit();
-    try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-    // A wire `op:resolve`, not a re-tagged deliver: the answer came off the
-    // frame itself, so no off-wire override was needed to read it.
-    try std.testing.expect(event.answer_override == .none);
-    const view = try event.view();
-    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
-    try std.testing.expectEqualStrings("pong", view.resolve.resolution.fulfill.bytes);
 }

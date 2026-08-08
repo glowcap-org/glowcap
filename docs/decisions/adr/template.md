@@ -24,7 +24,7 @@ scenarios as evidence; do not cite Rust implementation as the oracle.>
 
 <The settled choice, in one paragraph. Mirrors the `decision:` frontmatter line;
 expanded with the why-this-and-not-the-alternatives summary. Cite the Zig
-modules that own it (`src/...`).>
+modules that own it (`src/...`) and the boundary that makes misuse hard.>
 
 ## Scope (what this does not decide)
 
@@ -40,6 +40,11 @@ boundary ("X is not implemented"), not a roadmap.>
 
 <What changes downstream in the Zig tree? Which modules, tests, fixtures, or
 arch-gate rules does this create or constrain?>
+
+## Evidence and gate
+
+<Name the scenario, fixture, budget, generated check, or build step that proves
+the decision.>
 
 ## Forward compatibility
 

@@ -36,9 +36,10 @@ This is also why a bare `webrtc` locator does not dial. pancake's dial
 classifier recognizes the transport and validates its designator (the peer
 name inside the locator, here a public key), but with
 no signaling reference there is nowhere to send an offer. A WebRTC peer is
-reached through a signaling exchange the application arranges. The generic Host
-does not yet turn a handoff give into that exchange; the handoff section below
-separates the channel pancake ships from that missing composition.
+reached through a signaling exchange the application arranges. With a
+configured `SignalingAuthority`, the Host dials that bare locator, adopts the
+DataChannel, and continues handoff redemption on the new session. Without that
+authority the dial refuses.
 
 ## One key, pinned by the handshake
 
@@ -59,8 +60,10 @@ and the base archives stay pure Zig. Building it requires `cargo`. A native
 endpoint gives one readiness descriptor and stable peer ids for many
 DataChannels. Peer creation and signaling are control operations; channel
 events and byte I/O are non-blocking readiness events. The explicit blocking
-connection is still available for one-session use. What is missing is the
-adapter that adopts those readiness-driven peers into the generic Host loop.
+connection is still available for one-session use. The scale path adopts those
+readiness-driven peers into the generic Host loop through
+`completion.Loop(webrtc.Backend)` under `driver.Bridge`, with dials driven by a
+configured signaling authority.
 [What you can depend on]($link.page('stability')) says which WebRTC checks run
 in CI and which are still manual.
 
@@ -89,20 +92,21 @@ deployment configures one, carries bytes only when ICE finds no direct path at
 all. Even then it sits under the DTLS channel, so it sees timing and volume but
 never the keyed session.
 
-## What three-party handoff still needs
+## Three-party handoff over WebRTC
 
 A three-party handoff is this: peer A, already talking to B, hands B a working
 reference to a third peer C that B has never contacted, and B ends up talking to C
 directly ([Concepts]($link.page('concepts')) covers the general shape).
 
-pancake has the pieces on either side of a WebRTC handoff: the engine can redeem
-a signed give once a session to C exists, and the WebRTC packages can open a
-keyed session after an application supplies signaling. It does not yet have the
-generic Host adapter that takes the give, finds signaling authority, adopts the
-new DataChannel, and continues withdrawal on that session. The shipped signaling
-scenarios therefore prove direct channels and keyed sessions, not WebRTC handoff
-redemption. [What you can depend on]($link.page('stability')) owns the current
-evidence boundary.
+pancake redeems that path when the redeeming host has signaling authority
+configured. The engine redeems the signed give once a session to C exists; the
+Host dials the bare `webrtc` designator through `SignalingAuthority`, adopts the
+DataChannel, and continues withdrawal there. Native redeem is proved by
+`zig build webrtc-bridge-redeem`; the rooms browser path is proved by
+`zig build rooms-web-dm-webrtc`. A host with no configured authority still
+refuses a bare locator rather than inventing a route.
+[What you can depend on]($link.page('stability')) owns the current evidence
+boundary.
 
 If you got here wondering whether you actually want
 [iroh]($link.page('transports/iroh')) instead: for native peers you probably

@@ -57,20 +57,8 @@ fn computePending(arena: Allocator, io: Io, dir: []const u8, nick: []const u8) s
         seen.put(arena, item.id, {}) catch {};
         out.append(arena, item) catch {};
     }
-    std.mem.sort(Pending, out.items, {}, pendingLess);
+    harness.sortPending(out.items);
     return out;
-}
-
-fn pendingRank(p: Pending) u8 {
-    if (std.mem.eql(u8, p.channel, "dm")) return 0;
-    return if (p.mention) 1 else 2;
-}
-
-fn pendingLess(_: void, a: Pending, b: Pending) bool {
-    const ra = pendingRank(a);
-    const rb = pendingRank(b);
-    if (ra != rb) return ra < rb;
-    return std.mem.order(u8, a.id, b.id) == .lt;
 }
 
 fn runTick(init: std.process.Init, flags: Flags) !void {
@@ -98,8 +86,8 @@ fn runTick(init: std.process.Init, flags: Flags) !void {
         var waited: u64 = 0;
         const budget = flags.wait * 1000;
         while (waited < budget) {
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(200), .real) catch {};
-            waited += 200;
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(50), .real) catch {};
+            waited += 50;
             const cur = inboxSize(io, gpa, flags.dir);
             if (cur != last) {
                 last = cur;
@@ -111,18 +99,33 @@ fn runTick(init: std.process.Init, flags: Flags) !void {
         }
     }
 
+    const roster_final = harness.loadRosterNicks(arena_state.allocator(), io, gpa, flags.dir);
+
+    // Hints steer agent harnesses: a Task subagent that final-answers after
+    // background-arming tick orphans the wake loop (peer up, Task gone).
     const hint = if (!peer_up)
         (std.fmt.allocPrint(arena_state.allocator(), "peer is down — restart it: {s} {s}start --dir {s} --nick {s}", .{ exe, peerCliPrefix(exe), flags.dir, if (nick.len > 0) nick else "<NICK>" }) catch "peer is down — run `start` again")
     else if (pending.items.len > 0)
-        "answer each one: run its 'reply' command with your words in place of 'YOUR REPLY HERE', then arm the next background tick. dismiss any you don't want to answer."
+        "answer each one: run its 'reply' command with your words in place of 'YOUR REPLY HERE', then run tick again and wait for it to return (do not end the agent Task / final-answer after arming). dismiss any you don't want to answer."
     else
-        "nothing pending — do your own work, then arm the next background tick";
+        "nothing pending — do assigned work if any, then run tick again and wait for it (do not final-answer / complete the Task while the peer is up)";
 
     var doc = Json.init(gpa);
     defer doc.deinit();
-    const bytes = buildTick(&doc, arena_state.allocator(), exe, flags.dir, peer_up, pending.items, hint) catch
+    const bytes = buildTick(&doc, arena_state.allocator(), exe, flags.dir, peer_up, pending.items, hint, roster_final) catch
         return emitInternalError(io);
     emitStdout(io, bytes);
+}
+
+const PendingChannels = struct { dm: usize, room: usize };
+
+fn countPendingChannels(pending: []const Pending) PendingChannels {
+    var dm: usize = 0;
+    var room: usize = 0;
+    for (pending) |item| {
+        if (std.mem.eql(u8, item.channel, "dm")) dm += 1 else room += 1;
+    }
+    return .{ .dm = dm, .room = room };
 }
 
 fn buildTick(
@@ -133,10 +136,19 @@ fn buildTick(
     peer_up: bool,
     pending: []const Pending,
     hint: []const u8,
+    roster: []const []const u8,
 ) ![]const u8 {
+    const ch = countPendingChannels(pending);
     try doc.beginObject();
     try doc.string("peer", if (peer_up) "up" else "down");
     try doc.number("n", pending.len);
+    var by_buf: [64]u8 = undefined;
+    const by = try std.fmt.bufPrint(&by_buf, "{{\"dm\":{d},\"room\":{d}}}", .{ ch.dm, ch.room });
+    try doc.rawValue("by_channel", by);
+    // Honest room-surface flag (includes peer chatter).
+    try doc.boolean("room_pending", ch.room > 0);
+    // Human-only when DIR/roster.json lists bot nicks; else false (no FP).
+    try doc.boolean("human_room_pending", harness.humanRoomPending(pending, roster));
     try doc.arrayMember("pending");
     for (pending) |item| {
         try doc.beginObject();
@@ -180,6 +192,12 @@ fn runReply(io: Io, gpa: Allocator, flags: Flags) !void {
     }
     if (std.mem.eql(u8, flags.text, reply_placeholder)) {
         emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"placeholder\",\"detail\":\"replace 'YOUR REPLY HERE' with your actual message\"}}\n", .{});
+        return error.UsageFailed;
+    }
+    // Fail closed: --dm without an ADR-0088 reply-cap must not queue a line that
+    // looks locally sent while introduce is the only route (browser silence).
+    if (flags.dm.len > 0 and !harness.dmBackchannelArmed(io, gpa, flags.dir, flags.dm)) {
+        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"no_reply_cap\",\"detail\":\"--dm {s}: peer has not DMed us yet (no reply-cap); use room or wait for inbound DM\"}}\n", .{flags.dm});
         return error.UsageFailed;
     }
     var list: std.ArrayList(u8) = .empty;
@@ -265,20 +283,37 @@ fn runStatus(io: Io, gpa: Allocator, flags: Flags) !void {
     const pending = computePending(arena_state.allocator(), io, flags.dir, nick);
 
     const backlog = harness.outboxBacklogBytes(io, gpa, flags.dir);
+    const ch = countPendingChannels(pending.items);
+    const roster = harness.loadRosterNicks(arena_state.allocator(), io, gpa, flags.dir);
+    const human_room = harness.humanRoomPending(pending.items, roster);
 
     var doc = Json.init(gpa);
     defer doc.deinit();
-    const bytes = buildStatus(&doc, up, pid, pending.items.len, backlog, state) catch
+    const bytes = buildStatus(&doc, up, pid, pending.items.len, ch, human_room, backlog, state) catch
         return emitInternalError(io);
     emitStdout(io, bytes);
 }
 
-fn buildStatus(doc: *Json, up: bool, pid: ?i32, pending: usize, backlog: usize, state: []const u8) ![]const u8 {
+fn buildStatus(
+    doc: *Json,
+    up: bool,
+    pid: ?i32,
+    pending: usize,
+    ch: PendingChannels,
+    human_room: bool,
+    backlog: usize,
+    state: []const u8,
+) ![]const u8 {
     try doc.beginObject();
     try doc.boolean("ok", up);
     try doc.string("peer", if (up) "up" else "down");
     if (pid) |p| try doc.number("pid", p) else try doc.rawValue("pid", "null");
     try doc.number("pending", pending);
+    var by_buf: [64]u8 = undefined;
+    const by = try std.fmt.bufPrint(&by_buf, "{{\"dm\":{d},\"room\":{d}}}", .{ ch.dm, ch.room });
+    try doc.rawValue("by_channel", by);
+    try doc.boolean("room_pending", ch.room > 0);
+    try doc.boolean("human_room_pending", human_room);
     try doc.number("outbox_backlog", backlog);
     // state.json is spliced whole: it is already a JSON document.
     try doc.rawValue("state", if (state.len > 0) state else "null");
@@ -302,7 +337,9 @@ const usage_text =
     \\  status  --dir DIR                                             show state
     \\
     \\Identity defaults to DIR/identity (minted on first start). Pass --identity to pin another seed.
-    \\`--dm PEER` sends a direct message via directory introduction (not the room channel).
+    \\`--dm PEER` sends a direct message on the ADR-0088 reply-cap back-channel
+    \\(the peer must have DMed us first). Without a reply-cap, reply refuses with
+    \\`no_reply_cap` rather than queueing an introduce that can look locally sent.
     \\Example:
     \\  pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
     \\

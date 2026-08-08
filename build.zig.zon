@@ -7,8 +7,8 @@
         // depends on pancake as a package must not fetch a terminal UI it
         // never links, so the CLI steps resolve it and library builds do not.
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis.git#d63a23c593c9b82f0b2886840161fa1f1df983e9",
-            .hash = "vaxis-0.6.0-BWNV_DsLCgCcKudOoFkyrSgjxUeLAOSf1LxwezEeVieH",
+            .url = "git+https://github.com/rockorager/libvaxis.git#82cec0db8fc57c32f2ce4c1c3fc377052f4c86ba",
+            .hash = "vaxis-0.6.0-BWNV_KwYCgB-L5MNRY8I8HGbKDE6KOxDPAVSaZ8-3lJ8",
             .lazy = true,
         },
     },

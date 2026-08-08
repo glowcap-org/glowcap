@@ -17,7 +17,19 @@ import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer, outU64 } from "./internal/seam.ts";
 import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT, NOT_FOUND, OK } from "@pancake/abi";
 import { checkHost, hostLastError, PancakeError } from "./errors.ts";
-import { type Argument, type Behavior, type Codec, codecId, Reachability, Ref } from "./value.ts";
+import { traceAttachHost, traceDetachHost, traceDrainHost } from "./trace.ts";
+import {
+	type Argument,
+	type Behavior,
+	type CaptpVersion,
+	captpVersionId,
+	type Codec,
+	codecId,
+	featureMask,
+	type FeatureSet,
+	Reachability,
+	Ref,
+} from "./value.ts";
 import { encodeArgs, refStruct } from "./codec.ts";
 import {
 	insideTurn,
@@ -31,6 +43,7 @@ import { dialExporter as dialExporterFn } from "./dial.ts";
 import { asLiveRef } from "./promise.ts";
 import { parkActions, runAction } from "./action.ts";
 import { HostGc } from "./gc.ts";
+import { encodePeerLocator } from "./locator.ts";
 
 // Every connection's maximum admissible frame; mirrors PANCAKE_DEFAULT_FRAME_CAP.
 const HOST_FRAME_CAP = DEFAULT_FRAME_CAP;
@@ -99,10 +112,12 @@ export interface SignalingAuthority {
 }
 
 export class Host {
-	/** The host's retained identity seed (32 bytes), reused for every dial. */
+	/** The host's retained durable identity seed (32 bytes). */
 	readonly seed: Uint8Array;
 	/** The wire grammar every session this host mints negotiates in. */
 	readonly codec: Codec;
+	readonly captpVersion: CaptpVersion;
+	readonly features: FeatureSet;
 	#raw: Ptr;
 	/** Host-owned finalizer registry and release queue. */
 	readonly #gc: HostGc;
@@ -152,18 +167,28 @@ export class Host {
 	readonly #displacedGiftables: bigint[] = [];
 
 	/** A host with identity `seed` (32 bytes; omitted draws a fresh random one —
-	 * entropy at the binding boundary, never inside the sans-io host). `codec`
-	 * picks the wire grammar every session negotiates in (`"syrup"` by
-	 * default); `context` routes every byte the host owns through a
-	 * caller-supplied allocation scope; `localTurnBudget` is `0` for unbounded
-	 * (the default) or a nonzero cap on local-turn amplification per drive
-	 * (ADR-0076). */
+	 * entropy at the binding boundary, never inside the sans-io host). `codec`,
+	 * `captpVersion`, and `features` are this Host's signed profile offer;
+	 * each session settles version and codec with its partner, falling back to
+	 * v1.0/Syrup when needed, and runs only the intersection of the two offered
+	 * feature sets. Omitted `features` means the full feature set. `context`
+	 * routes every byte the host owns through a caller-supplied allocation scope;
+	 * `localTurnBudget` is `0` for unbounded (the default) or a nonzero cap on
+	 * local-turn amplification per drive (ADR-0076). */
 	constructor(
 		seed?: Uint8Array,
-		opts: { codec?: Codec; context?: Context; localTurnBudget?: number } = {},
+		opts: {
+			codec?: Codec;
+			captpVersion?: CaptpVersion;
+			features?: FeatureSet;
+			context?: Context;
+			localTurnBudget?: number;
+		} = {},
 	) {
 		this.seed = seed ?? crypto.getRandomValues(new Uint8Array(32));
 		this.codec = opts.codec ?? "syrup";
+		this.captpVersion = opts.captpVersion ?? "v1_0";
+		this.features = opts.features ?? "full";
 		// The durable identity followed by a session-key root drawn here, at
 		// this binding's entropy boundary, because the library draws none
 		// (ADR-0097). The root is fresh per process, so every CapTP session
@@ -175,7 +200,7 @@ export class Host {
 		crypto.getRandomValues(seedWithRoot.subarray(32));
 		const out = new Uint8Array(8);
 		const localTurnBudget = opts.localTurnBudget ?? 0;
-		if (opts.context !== undefined) {
+		if (opts.context != null) {
 			checkHost(driverS.pancake_host_new_in(
 				opts.context.pointer,
 				ab(seedWithRoot),
@@ -183,6 +208,8 @@ export class Host {
 				BigInt(HOST_FRAME_CAP),
 				1,
 				codecId(this.codec),
+				captpVersionId(this.captpVersion),
+				featureMask(this.features),
 				localTurnBudget,
 				ab(out),
 			));
@@ -193,11 +220,17 @@ export class Host {
 				BigInt(HOST_FRAME_CAP),
 				1,
 				codecId(this.codec),
+				captpVersionId(this.captpVersion),
+				featureMask(this.features),
 				localTurnBudget,
 				ab(out),
 			));
 		}
 		this.#raw = outPointer(out);
+		// The host's own key designator, which is what a partner names it by:
+		// the live trace reports it as this host's endpoint so one peer stays
+		// one node in a feed several producers share.
+		traceAttachHost(this.#raw, this.designator());
 		this.#gc = new HostGc();
 		// deno-lint-ignore no-this-alias -- GcHandle object closes over Host fields
 		const host = this;
@@ -271,6 +304,10 @@ export class Host {
 
 	release(): void {
 		if (this.#raw === NULL) return;
+		// Whatever the ring still holds reaches the sink before the ring dies
+		// with the host.
+		traceDrainHost(this.#raw);
+		traceDetachHost(this.#raw);
 		hostFinalizer.unregister(this);
 		// Sessions first: each releases its own handle, and a handle outliving
 		// the host it belongs to is a free of freed memory.
@@ -377,6 +414,39 @@ export class Host {
 	setSelfDesignator(designator: string): void {
 		const bytes = utf8Encoder.encode(designator);
 		checkHost(driverS.pancake_host_set_self_designator(
+			this.#raw,
+			ab(bytes),
+			BigInt(bytes.length),
+		));
+	}
+
+	/** Retain and select this Host's complete acceptable location. Later
+	 * sessions advertise it regardless of their transport; existing sessions
+	 * retain the locator their hello signed. */
+	setAdvertisedLocator(transport: string, designator: string, directAddresses = ""): void {
+		const locator = encodePeerLocator({ transport, designator, directAddresses });
+		checkHost(driverS.pancake_host_set_advertised_locator(
+			this.#raw,
+			ab(locator),
+			BigInt(locator.length),
+		));
+	}
+
+	/** Install this Host's dial fallback for `transport` without displacing an
+	 * acceptable location selected for another transport. Binding-internal. */
+	ensureAdvertisedLocator(transport: string): void {
+		const bytes = utf8Encoder.encode(transport);
+		checkHost(driverS.pancake_host_ensure_advertised_locator(
+			this.#raw,
+			ab(bytes),
+			BigInt(bytes.length),
+		));
+	}
+
+	/** Remove this Host's retained locator for `transport`. */
+	removeAdvertisedLocator(transport: string): void {
+		const bytes = utf8Encoder.encode(transport);
+		checkHost(driverS.pancake_host_remove_advertised_locator(
 			this.#raw,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -671,7 +741,7 @@ export class Host {
 	}
 
 	/** Pop and honor every pending embedder action. Reentrant on purpose, the
-	 * async spelling of the Racket binding's reentrant host lock: the DIAL
+	 * async counterpart of the Racket binding's reentrant host lock: the DIAL
 	 * arm's dial executor establishes a whole new session *inside* an action,
 	 * and that establish must itself drain (its start-session FLUSH), so a
 	 * single-flighted drain would await its own completion there. Actions are
@@ -689,6 +759,10 @@ export class Host {
 		// mid-turn Host.release cleared `#raw` while parking the actual free.
 		this.drainParkedReleases();
 		if (this.#raw === NULL) return;
+		// The live trace's capture ring drains on the same unwind as the action
+		// queue: both are host effects the embedder pops, and popping them
+		// together is what keeps a queued fact from waiting on the next verb.
+		traceDrainHost(this.#raw);
 		while (true) {
 			const parked = parkActions(this);
 			if (parked.length === 0) return;

@@ -67,6 +67,6 @@ grep -q 'ffi/unsafe/atomic' "${crypto_ffi}" \
 raco setup --no-docs --pkgs unix-socket-lib goblins crypto-lib crypto
 racket --eval '(require racket/unix-socket)'
 racket --eval '(require crypto)'
-raco pkg show --long goblins | grep -q "#v${GOBLINS_VERSION}"
+raco pkg show --long goblins | grep -q "${GOBLINS_CHECKSUM}"
 
 chmod -R a+rX "${PLTUSERHOME}"

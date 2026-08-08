@@ -45,7 +45,7 @@ const watchdog = setTimeout(() => fail("deno-iroh-redeem-posture", "timed out af
 Deno.unrefTimer(watchdog);
 
 // ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-const exporter = listenIroh(Reachability.LocalDiscovery);
+const exporter = listenIroh({ reachability: Reachability.LocalDiscovery });
 exporter.host.publishGiftable("greeter", (verb, args) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over a configured-posture redeem`;
@@ -55,7 +55,7 @@ const exporterAccept = acceptLoop(exporter);
 console.log(`deno-iroh-redeem-posture: exporter published greeter on ${exporterId}`);
 
 // ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-const gifter = listenIroh(Reachability.LocalDiscovery);
+const gifter = listenIroh({ reachability: Reachability.LocalDiscovery });
 const gifterId = gifter.nodeId;
 const toExporter = await connect(
 	formatPeerUri(TRANSPORT_IROH, exporterId),

@@ -638,8 +638,8 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
     // real handshake does; the whole exchange then runs byte-fed, no socket.
     const loc_s: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
     const loc_c: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
-    try p_server.sendKeyedStartSession(.v1_0, loc_s, crypto.SecretKey.fromSeed([_]u8{0x51} ** crypto.SEED_BYTES));
-    try p_client.sendKeyedStartSession(.v1_0, loc_c, crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES));
+    try p_server.sendKeyedStartSession(loc_s, crypto.SecretKey.fromSeed([_]u8{0x51} ** crypto.SEED_BYTES));
+    try p_client.sendKeyedStartSession(loc_c, crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES));
 
     var server = driver.Served.over(allocator, &p_server);
     var server_vat = actors.Vat.init(allocator);
@@ -873,7 +873,10 @@ test "faultToClosed: a transport truncation during a blocking call breaks far vo
     // then EOF — a mid-frame truncation, surfaced as `error.TruncatedFrame`.
     var whole = try faultStartSessionFrame(allocator);
     defer whole.deinit();
-    const half = whole.bytes()[0 .. whole.bytes().len / 2];
+    var framed: std.ArrayList(u8) = .empty;
+    defer framed.deinit(allocator);
+    _ = try net.appendFrameBytes(&framed, allocator, whole.bytes());
+    const half = framed.items[0 .. framed.items.len / 2];
 
     var h = try FaultHarness.init(allocator, io, half);
     defer h.deinit(allocator);

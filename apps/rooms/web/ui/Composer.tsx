@@ -98,7 +98,7 @@ export function Composer(
 	// Every way of stopping — sending, going idle, blurring, switching away,
 	// closing the tab — is this one condition going false.
 	useTypingSignal(
-		enabled && focused && conv?.type === "room" && draft.trim() !== "",
+		enabled && focused && conv !== null && draft.trim() !== "",
 		draft,
 		peer.setTyping,
 	);
@@ -163,7 +163,7 @@ export function Composer(
 		});
 	};
 
-	const typers = conv?.type === "room" ? [...conv.typers].filter((who) => who !== nick) : [];
+	const typers = conv ? [...conv.typers].filter((who) => who !== nick) : [];
 	const said = typingText(typers);
 	const placeholder = conv
 		? (conv.type === "dm" ? "Message " + conv.id + " directly" : "Message #" + conv.id)

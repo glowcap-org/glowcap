@@ -8,6 +8,7 @@
 pub const id = @import("id.zig");
 pub const frame = @import("frame.zig");
 pub const spill = @import("spill.zig");
+pub const stream_framing = @import("stream_framing.zig");
 pub const crypto = @import("crypto.zig");
 
 pub const Frame = frame.Frame;

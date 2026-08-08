@@ -3,9 +3,9 @@
 // Sibling of `dm_demo.ts` over encrypted QUIC; the handoff choreography is
 // shared in `runDmHandoff`. Run by `zig build demo-rooms-dm-iroh`.
 
-import { Host } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { runDmHandoff, waitUntil } from "../lib/dm_handoff.ts";
+import { roomsHost } from "../lib/locator.ts";
 
 // An iroh endpoint is dialable by direct address only once it has learned one.
 const DIRECT_ADDRESSES_MS = 20_000;
@@ -22,8 +22,8 @@ runDmHandoff({
 	],
 	async startMember(who) {
 		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const host = new Host(seed);
-		const member = listenIroh(Reachability.Direct, seed, host);
+		const host = roomsHost(seed);
+		const member = listenIroh({ reachability: Reachability.Direct }, seed, host);
 		await waitUntil(
 			() => member.directAddresses.length > 0,
 			DIRECT_ADDRESSES_MS,
@@ -33,7 +33,7 @@ runDmHandoff({
 	},
 	async startRoom() {
 		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const room = listenIroh(Reachability.Direct, seed, new Host(seed));
+		const room = listenIroh({ reachability: Reachability.Direct }, seed, roomsHost(seed));
 		await waitUntil(
 			() => room.directAddresses.length > 0,
 			DIRECT_ADDRESSES_MS,

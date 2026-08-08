@@ -101,12 +101,14 @@ moving capability authority into the router.
 
 ### Relayed-resolution forwarding
 
-A handoff can import a promise hosted by a third party. An `op:listen` on that
-import installs a listener against the third-party-hosted import
-(`imported_promises` in the session). CapTP-normal listen uses
-`<desc:export N>` (receiver `.near`); `<desc:import-promise N>` (receiver
-`.far`) is the same row. When the introducing session forwards the host's
-resolution, `Peer.applyRelayedResolution` stores it and fires installed
+A handoff can import a promise hosted by a third party. An inbound `op:listen`
+on that promise must name a near target (`desc:export` / `.near` or
+`.promise`): the session refuses an inbound `.far` listen target as
+`InvalidReference`, because CapTP listen descriptors do not put a far promise
+in the target slot. Outbound `listenOnFar` still addresses the partner with
+a far reference that encodes as their `desc:export`. When a third-party import
+is installed (`imported_promises`) and the introducing session forwards the
+host's resolution, `Peer.applyRelayedResolution` stores it and fires installed
 listeners, so a late `op:listen` fires immediately rather than waiting for a
 resolution that already arrived. A relayed resolution is the promise's one
 settled value: a second relay for an already-settled import is refused

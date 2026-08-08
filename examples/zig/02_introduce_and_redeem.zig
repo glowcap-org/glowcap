@@ -107,6 +107,11 @@ fn serveDirectory(
     defer host.deinit();
     // The directory is dialable, so its gives can name it as their gifter.
     try host.core.setSelfDesignator(bound);
+    try host.core.setAdvertisedLocator(.{
+        .transport = listener.transportName(),
+        .designator = bound,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var widget_loc_buf: [tcp.designator_buf_len]u8 = undefined;
     const to_widget = try host.connectLocator(tcp.locator(
@@ -116,7 +121,7 @@ fn serveDirectory(
     var widget_view = driver.Session.view(&host, to_widget);
     const widget = try widget_view.fetch("widget");
 
-    const accepted = try host.acceptWire(listener, listener.transportName(), bound, bound);
+    const accepted = try host.acceptWire(listener, listener.transportName());
     var client_view = driver.Session.view(&host, accepted);
     _ = try client_view.publish("directory", Directory, .{ .widget = widget });
 

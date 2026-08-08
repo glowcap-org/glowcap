@@ -18,6 +18,7 @@
                      pancake_host_session_open_dialed_locator*
                      pancake_host_session_open_accepted*
                      pancake_host_reference_exporter*
+                     pancake_host_session_trace_id*
                      pancake_host_pump_drain*
                      pancake_host_session_publish*
                      pancake_host_session_spawn*
@@ -39,13 +40,18 @@
 (define-ffi-definer define-driver driver-lib)
 
 (define-driver pancake_host_new*
-  (_fun _pointer _size _size _uint32 _uint32 _uint32 _pointer -> _int32)
+  (_fun _pointer _size _size _uint32 _uint32 _uint32 _uint32 _uint32 _pointer -> _int32)
   #:c-id pancake_host_new)
 (define pancake_host_new (wrap-out1 pancake_host_new* _pointer #f))
 (define-driver pancake_host_release (_fun _pointer -> _int32))
 (define-driver pancake_host_designator_from_seed
   (_fun _pointer _size _pointer _size -> _int32))
 (define-driver pancake_host_set_self_designator (_fun _pointer _pointer _size -> _int32))
+(define-driver pancake_host_set_advertised_locator (_fun _pointer _pointer _size -> _int32))
+(define-driver pancake_host_ensure_advertised_locator
+  (_fun _pointer _pointer _size -> _int32))
+(define-driver pancake_host_remove_advertised_locator
+  (_fun _pointer _pointer _size -> _int32))
 (define-driver pancake_host_set_session_limits (_fun _pointer _size _size -> _int32))
 (define-driver pancake_host_session_open_dialed_locator*
   (_fun _pointer _pointer _size _pointer _size _pointer -> _int32)
@@ -53,7 +59,7 @@
 (define pancake_host_session_open_dialed_locator
   (wrap-out1 pancake_host_session_open_dialed_locator* _pointer #f))
 (define-driver pancake_host_session_open_accepted*
-  (_fun _pointer _pointer _size _pointer _size _pointer _size _pointer -> _int32)
+  (_fun _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_host_session_open_accepted)
 (define pancake_host_session_open_accepted
   (wrap-out1 pancake_host_session_open_accepted* _pointer #f))
@@ -70,6 +76,10 @@
   (_fun _pointer _size _pointer _size _pointer _size _PancakeAcceptPlan-pointer -> _int32))
 (define-driver pancake_host_session_release (_fun _pointer -> _int32))
 (define-driver pancake_host_session_is_open (_fun _pointer -> _int32))
+(define-driver pancake_host_session_trace_id*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_host_session_trace_id)
+(define pancake_host_session_trace_id (wrap-out1 pancake_host_session_trace_id* _uint64 0))
 (define-driver pancake_host_session_feed_bytes (_fun _pointer _pointer _size -> _int32))
 (define-driver pancake_host_session_take_outbound
   (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
@@ -108,6 +118,8 @@
   (_fun _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_host_enliven)
 (define pancake_host_enliven (wrap-out1 pancake_host_enliven* _uint64 0))
+(define-driver pancake_host_set_trace
+  (_fun _pointer _PancakeTraceCallback _pointer -> _int32))
 (define-driver pancake_host_spawn_resolver*
   (_fun _pointer _pointer _pointer -> _int32)
   #:c-id pancake_host_spawn_resolver)
@@ -167,4 +179,6 @@
   (_fun _pointer _PancakeLastAbort-pointer -> _int32))
 (define-driver pancake_host_session_partner_identity
   (_fun _pointer _PancakePartnerIdentity-pointer -> _int32))
+(define-driver pancake_host_session_bind_verified_channel_key
+  (_fun _pointer _pointer _size -> _int32))
 (define-driver pancake_host_last_error (_fun _pointer _size -> _size))

@@ -21,8 +21,8 @@
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_reply_demo.ts
 
 import process from "node:process";
-import { Host, listen } from "@pancake/stack";
-import { dial, loopbackTcpDesignator } from "../lib/locator.ts";
+
+import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { DM } from "../lib/protocol.ts";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { waitUntil } from "../lib/dm_handoff.ts";
@@ -48,9 +48,9 @@ let bobAccepts = 0;
 const dmBehavior = recordingReplyDm(bobInbox, (text) => `re: ${text}`);
 
 async function main(): Promise<void> {
-	const bobHost = new Host();
+	const bobHost = roomsHost();
 	bobHost.publishGiftable("dm", dmBehavior);
-	const bob = listen("127.0.0.1", 0, bobHost);
+	const bob = roomsListen("127.0.0.1", 0, bobHost);
 	const bobLocator = loopbackTcpDesignator(await bob.ready());
 	(async () => {
 		for await (const session of bob) {

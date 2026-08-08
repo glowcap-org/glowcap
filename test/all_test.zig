@@ -69,7 +69,6 @@ comptime {
     _ = @import("engine/gc_churn_test.zig");
     _ = @import("engine/completion_seam_test.zig");
     _ = @import("engine/negotiation_test.zig");
-    _ = @import("engine/attestation_contract_test.zig");
     _ = @import("engine/abort_projection_test.zig");
     _ = @import("engine/error_taxonomy_test.zig");
     _ = @import("engine/pipeline_test.zig");

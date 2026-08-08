@@ -29,9 +29,9 @@ const Counter = struct {
     }
 };
 
-/// Shuttle one peer's pending outbound frame to the other.
+/// Shuttle one complete protocol leg to the other peer.
 fn shuttle(from: *engine.Peer, to: *engine.Peer) !void {
-    try cross_peer.pumpOne(from, to);
+    try cross_peer.pumpAll(from, to);
 }
 
 test "eventual-send to a far ref routes over the wire and resolves the promise" {
@@ -66,11 +66,13 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
 
     // Deliver flows p1 -> p2; the server vat runs the actor and resolves.
     try shuttle(&pair.p1, &pair.p2);
-    {
-        var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
+    var first_served = false;
+    while (pair.p2.pollEvent()) |event_in| {
+        var event = event_in;
         defer event.deinit();
-        try std.testing.expect(try server_port.serve(&server, &event));
+        first_served = (try server_port.serve(&server, &event)) or first_served;
     }
+    try std.testing.expect(first_served);
     // Resolution flows p2 -> p1; the client vat fires the far promise's listener.
     try shuttle(&pair.p2, &pair.p1);
     {
@@ -319,11 +321,13 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     var claimed_result: i64 = 0;
     try client_port.on(&client, claimed_promise, .{ .ctx = &claimed_result, .func = capture.captureInt });
     try shuttle(&pair.p1, &pair.p2);
-    {
-        var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
+    var second_served = false;
+    while (pair.p2.pollEvent()) |event_in| {
+        var event = event_in;
         defer event.deinit();
-        try std.testing.expect(try server_port.serve(&server, &event));
+        second_served = (try server_port.serve(&server, &event)) or second_served;
     }
+    try std.testing.expect(second_served);
     try std.testing.expectEqual(@as(usize, 1), interceptor.claimed);
     _ = try pair.p2.step();
     try std.testing.expect(pair.p2.takeOutbound() == null);

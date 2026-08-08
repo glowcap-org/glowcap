@@ -51,6 +51,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".claude/rules", "../.agents/rules");
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".claude/skills", "../.agents/skills");
     try scaffolding.expectSymlink(io, gpa, root, &violations, ".cursor/skills", "../.agents/skills");
+    try scaffolding.expectAbsent(io, gpa, root, &violations, ".codex/skills", "Codex loads .agents/skills directly");
     // The shared UI core. A tool that writes through one of these turns it
     // into a regular file and the brand forks silently; see checkUiCore for
     // the rest of that contract.
@@ -65,6 +66,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.checkAgentPersonas(io, gpa, root, &violations);
     try scaffolding.checkAgentsRouting(io, gpa, root, &violations);
     try docs.checkMarkdownLinks(io, gpa, root, &violations);
+    try docs.checkAdrFrontmatter(io, gpa, root, &violations);
     try docs.checkAdrRelations(io, gpa, root, &violations);
     try docs.checkAdrEvidenceLinks(io, gpa, root, &violations);
     try docs.checkSiteContentLinks(io, gpa, root, &violations);
@@ -81,6 +83,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try ui.checkUiThemeParity(io, gpa, root, &violations);
     try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
     try rooms_ui.checkRoomsLayerBans(io, gpa, root, &violations);
+    try rooms_ui.checkRoomsBootStates(io, gpa, root, &violations);
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try project_shape.checkDocumentedBuildSteps(io, gpa, root, &violations);
     try c_abi.checkAbiVersionLockstep(io, gpa, root, &violations);
@@ -88,6 +91,8 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try c_abi.checkAbiReturnShape(io, gpa, root, &violations);
     try c_abi.checkCAbiSurfaceShape(io, gpa, root, &violations);
     try c_abi.checkAbiExportsConsumed(io, gpa, root, &violations);
+    try c_abi.checkBindingStructPins(io, gpa, root, &violations);
+    try c_abi.checkTraceVocabulary(io, gpa, root, &violations);
     try binding_spine.checkBindingConstants(io, gpa, root, &violations);
     try binding_spine.checkBindingHostActionDrains(io, gpa, root, &violations);
     try binding_spine.checkBindingHostActionSpine(io, gpa, root, &violations);
@@ -102,6 +107,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try binding_spine.checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try binding_spine.checkBindingReflectedFfiWired(io, gpa, root, &violations);
     try binding_spine.checkPythonSigsFactoryArity(io, gpa, root, &violations);
+    try binding_spine.checkTraceViewerVocabulary(io, gpa, root, &violations);
     try binding_runtime_proof.check(io, gpa, root, &violations);
     try binding_spine.checkIrohSidecarAbi(io, gpa, root, &violations);
     try binding_spine.checkWebrtcSidecarAbi(io, gpa, root, &violations);
@@ -120,9 +126,12 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try bans.runBans(io, gpa, root, &violations, bans.all);
     try captp_product.checkTransportVocabulary(io, gpa, root, &violations);
     try captp_product.checkDesignatorSchemeSync(io, gpa, root, &violations);
-    try captp_product.checkAuthenticationMechanismSync(io, gpa, root, &violations);
+    try captp_product.checkDurablePinWriters(io, gpa, root, &violations);
+    try captp_product.checkHostErrorCodeMap(io, gpa, root, &violations);
     try captp_product.checkReferenceRelayIrohLazy(io, gpa, root, &violations);
     try captp_product.checkProductionRelayClassifierLockstep(io, gpa, root, &violations);
+    try captp_product.checkRoomsWireProfile(io, gpa, root, &violations);
+    try captp_product.checkRoomsPeerMinting(io, gpa, root, &violations);
     try c_abi.checkCAbiResolve(io, gpa, root, &violations);
     try captp_product.checkRacketScriptBalance(io, gpa, root, &violations);
     try binding_spine.checkIrohLoopConvergence(io, gpa, root, &violations);
@@ -138,6 +147,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try project_shape.checkRepositoryUrl(io, gpa, root, &violations, b.build_root.path orelse ".");
     try project_shape.checkPathIoCopies(io, gpa, root, &violations);
     try project_shape.checkFootprintBudgetQuotes(io, gpa, root, &violations);
+    try project_shape.checkPlaywrightPin(io, gpa, root, &violations);
     try fuzz.checkVendoredRunnerLicense(io, gpa, root, &violations);
     try fuzz.checkVendoredTestRunner(io, gpa, root, &violations, b.graph.zig_lib_directory.path orelse ".");
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
@@ -166,6 +176,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try c_abi.checkUnwiredHostPluginApis(io, gpa, root, &violations);
     try c_abi.checkHostActionArmLockstep(io, gpa, root, &violations);
     try zig_docs.checkZigDocSymbolClaims(io, gpa, root, &violations);
+    try zig_docs.checkMemoryLedgerSymbolClaims(io, gpa, root, &violations);
     try namespaces.checkBareKeyedTables(io, gpa, root, &violations);
 
     if (violations.items.len != 0) {

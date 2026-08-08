@@ -43,6 +43,7 @@ insert_bindings_path()
 
 from pancake import Ref, TRANSPORT_IROH, connect, encode_peer_locator, format_peer_uri  # noqa: E402
 from pancake.iroh import (  # noqa: E402
+    IrohConfig,
     Reachability,
     listen_iroh,
 )
@@ -69,7 +70,7 @@ async def accept_loop(server, served: list) -> None:
 
 async def run() -> None:
     # ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-    exporter = listen_iroh(Reachability.LOCAL_DISCOVERY)
+    exporter = listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
     exporter.host.publish_giftable("greeter", greeter)
     exporter_id = exporter.node_id
     exporter_served: list = []
@@ -77,7 +78,7 @@ async def run() -> None:
     print(f"python-iroh-redeem-posture: exporter published greeter on {exporter_id}")
 
     # ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-    gifter = listen_iroh(Reachability.LOCAL_DISCOVERY)
+    gifter = listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
     gifter_id = gifter.node_id
     exporter_uri = format_peer_uri(TRANSPORT_IROH, exporter_id)
     to_exporter = await connect(exporter_uri, Reachability.LOCAL_DISCOVERY, host=gifter.host)

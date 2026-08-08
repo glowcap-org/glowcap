@@ -42,7 +42,8 @@ pub(crate) use crate::session_shared::io_err;
 /// the handshake alone, never opening the channel: a TCP connect keeps the
 /// OS's own timeout, and an iroh dial-by-id keeps its discovery retry budget
 /// (ADR-0082), both of which finish before the handshake starts.
-pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(10_000);
+pub const HANDSHAKE_TIMEOUT: Duration =
+	Duration::from_millis(crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u64);
 
 /// A live CapTP session with one OCapN partner — the one object an application
 /// holds, over one byte-fed `PancakeHostSession` the shared [`Host`] minted.
@@ -72,6 +73,15 @@ pub struct Session {
 
 /// What [`Session::send_redeeming`] settles with: the partner's reply, and the
 /// direct exporter session that reply routes to.
+impl Session {
+	/// Binding-internal: the raw handles the trace veneer names a
+	/// session by (`annotate_session`). Null session pointer after
+	/// close — the veneer treats that as nothing to annotate.
+	pub(crate) fn trace_handles(&self) -> (*mut ffi::PancakeHost, *mut ffi::PancakeHostSession) {
+		(self.shared.host.raw(), self.shared.ptr.get())
+	}
+}
+
 pub struct Redeemed {
 	/// The value the send settled with, exactly what an ordinary
 	/// [`Session::send`] would have yielded. Lift a capability out of it with
@@ -119,26 +129,38 @@ pub struct PartnerIdentity {
 
 /// How a partner's advertised durable identity was authenticated, the third
 /// fact [`PartnerIdentity`] reports beside session key and designator.
+///
+/// The answer is a property of the connection rather than of its transport name
+/// (ADR-0105): the same transport symbol reaches this peer over code that can
+/// prove something and code that cannot, so no list of transports belongs here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DurableProvenance {
-	/// The transport layer proved the partner's durable key: iroh's QUIC
-	/// handshake, or WebRTC's DTLS binding under capability-authorized
-	/// signaling.
+	/// The code that realized this connection verified the far end of the byte
+	/// channel holds a durable key, and the partner claimed that same key.
 	AuthenticatedTransport,
-	/// The hello carried a `session-key-attestation` signed by the durable key
-	/// its designator names, and it verified (`keyed-tcp`, `keyed-relay`).
-	/// Static authorization: it proves the durable key authorized this session
-	/// key, not that the signer is live on this connection.
-	DurableKeyAttestation,
 	/// No durable identity was proved. An address transport designates a socket
 	/// address rather than a key, and a partner that advertised an address on a
 	/// key transport claimed no durable identity to authenticate.
 	Unauthenticated,
 }
 
+impl DurableProvenance {
+	/// One ABI provenance value in its spoken form.
+	///
+	/// Two surfaces report the same provenance fact about the same partner —
+	/// this identity query and the live trace's session-open — so the mapping
+	/// lives here once rather than being spelled at each of them.
+	pub(crate) fn from_abi(raw: u32) -> Self {
+		match raw {
+			sys::DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT => Self::AuthenticatedTransport,
+			_ => Self::Unauthenticated,
+		}
+	}
+}
+
 impl PartnerIdentity {
 	/// Whether the durable identity this partner advertised was
-	/// cryptographically authenticated, by either mechanism. This is the
+	/// cryptographically authenticated by the realized channel. This is the
 	/// predicate to ask when an operation requires a proved durable peer; it
 	/// stays correct once each connection draws a fresh session key.
 	pub fn durable_identity_authenticated(&self) -> bool {
@@ -185,11 +207,19 @@ impl Session {
 		designator: &str,
 		stream: S,
 		handshake_timeout: Option<Duration>,
+		verified_channel_key: Option<&str>,
 	) -> Result<Session>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
 		host.guard_open()?;
+		check_host(unsafe {
+			ffi::pancake_host_ensure_advertised_locator(
+				host.raw(),
+				transport.as_ptr(),
+				transport.len(),
+			)
+		})?;
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
 			ffi::pancake_host_session_open_dialed_locator(
@@ -201,9 +231,13 @@ impl Session {
 				&mut ptr,
 			)
 		})?;
-		Session::owning(SessionShared::new(ptr, host, stream))
-			.establish(handshake_timeout)
-			.await
+		let session = Session::owning(SessionShared::new(ptr, host, stream));
+		// Before the first partner byte, which is the only window a realizer's
+		// proof can be weighed in.
+		if let Some(key) = verified_channel_key {
+			session.bind_verified_channel_key(key)?;
+		}
+		session.establish(handshake_timeout).await
 	}
 
 	/// Mint the accepting half over a connection the caller's own listener
@@ -223,6 +257,7 @@ impl Session {
 		stream: S,
 		accepted_local_addr: &str,
 		handshake_timeout: Option<Duration>,
+		verified_channel_key: Option<&str>,
 	) -> Result<Session>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -262,22 +297,25 @@ impl Session {
 				)
 			}
 		};
+		let locator =
+			crate::uri::encode_peer_locator_bytes(transport_name.as_bytes(), designator, hint)?;
+		host.set_advertised_locator_record(&locator)?;
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
 			ffi::pancake_host_session_open_accepted(
 				host.raw(),
 				transport_name.as_ptr(),
 				transport_name.len(),
-				designator.as_ptr(),
-				designator.len(),
-				hint.as_ptr(),
-				hint.len(),
 				&mut ptr,
 			)
 		})?;
-		Session::owning(SessionShared::new(ptr, host, stream))
-			.establish(handshake_timeout)
-			.await
+		let session = Session::owning(SessionShared::new(ptr, host, stream));
+		// Before the first partner byte, which is the only window a realizer's
+		// proof can be weighed in.
+		if let Some(key) = verified_channel_key {
+			session.bind_verified_channel_key(key)?;
+		}
+		session.establish(handshake_timeout).await
 	}
 
 	// Drive the keyed handshake to an open session and start the serve loop,
@@ -367,15 +405,11 @@ impl Session {
 	/// A partner's keyed `op:start-session` carries an Ed25519 signature over
 	/// its own location record, and the engine verifies that signature before
 	/// the session opens. So a success here always means the signature was
-	/// checked, and there is no unverified answer to mistake for a verified
-	/// one. The signed span covers the whole record, which is what binds
-	/// [`designator`](PartnerIdentity::designator) to
-	/// [`session_key`](PartnerIdentity::session_key): the partner cannot claim
-	/// a designator it does not own without also owning the key.
-	///
-	/// That binding is how a server refuses a caller that names a locator
-	/// belonging to someone else. Compare the locator the caller claims in its
-	/// request against the identity this returns, and turn a mismatch away.
+	/// checked. The signed span binds the whole locator claim to the fresh
+	/// [`session_key`](PartnerIdentity::session_key); it does not prove control
+	/// of the durable [`designator`](PartnerIdentity::designator). Read
+	/// [`provenance`](PartnerIdentity::provenance) before relying on a durable
+	/// identity.
 	///
 	/// The bytes are copied out of the session here, so the returned
 	/// [`PartnerIdentity`] stays valid after the session closes.
@@ -407,21 +441,44 @@ impl Session {
 				crate::owned_from_view(out.locator_record, out.locator_record_len),
 			)
 		};
-		let provenance = match out.provenance {
-			sys::DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT => {
-				DurableProvenance::AuthenticatedTransport
-			}
-			sys::DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION => {
-				DurableProvenance::DurableKeyAttestation
-			}
-			_ => DurableProvenance::Unauthenticated,
-		};
+		let provenance = DurableProvenance::from_abi(out.provenance);
 		Ok(PartnerIdentity {
 			session_key,
 			designator: String::from_utf8_lossy(&designator).into_owned(),
 			locator_record,
 			provenance,
 		})
+	}
+
+	/// Testify what proved this connection's far end, when your own transport
+	/// proved one.
+	///
+	/// pancake does not open your sockets, so it cannot see what opening them
+	/// established. An iroh connection completes only with the holder of the
+	/// node id you dialed or accepted, and that is a stronger fact than
+	/// anything a partner can claim about itself — but only you hold it. Pass
+	/// the node id here and [`partner_identity`](Session::partner_identity)
+	/// reports `AuthenticatedTransport`; withhold it and the same session
+	/// reports `Unauthenticated`.
+	///
+	/// `designator` is that identity as a locator writes it, which is exactly
+	/// what the iroh transport's remote node id hands you.
+	///
+	/// Call it after opening the session and before feeding the first byte from
+	/// the partner. It fails afterwards, because by then the handshake this
+	/// evidence was for has already been judged. Naming a second, different
+	/// identity fails too: one connection has one far end. Naming the same one
+	/// twice is the same statement made twice and succeeds.
+	pub fn bind_verified_channel_key(&self, designator: &str) -> Result<()> {
+		self.shared.guard_open()?;
+		check_host(unsafe {
+			ffi::pancake_host_session_bind_verified_channel_key(
+				self.shared.ptr.get(),
+				designator.as_ptr(),
+				designator.len(),
+			)
+		})?;
+		Ok(())
 	}
 
 	/// Opt this session into distributed GC (ADR-0063), off by default. Once
@@ -594,12 +651,14 @@ impl Session {
 	/// `Into<Argument>`. A `Ref` this session spawned runs in process; a
 	/// partner's rides the wire, and a redeemed or fetched token routes to the
 	/// exporter connection that hosts it, transparently.
-	/// Listen on a promise capability this session holds (CapTP `op:listen`,
-	/// ADR-0095): the returned handle settles with the promise's resolution,
-	/// which may be any value, not only a capability. A re-gifted promise
-	/// routes to its exporter session transparently.
+	/// Listen on a far capability this session holds (CapTP `op:listen`,
+	/// ADR-0095): the returned handle settles with the listen notification,
+	/// which may be any value, not only a capability. In 1.0, the target may be
+	/// a far promise or live far object; in pancake-next, the target must be a
+	/// promise. A re-gifted promise routes to its exporter session
+	/// transparently.
 	pub fn listen(&self, target: &Ref) -> RemotePromise {
-		crate::promise::listen_promise(&self.shared, target)
+		crate::promise::listen_far(&self.shared, target)
 	}
 
 	pub fn send<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> RemotePromise {

@@ -25,26 +25,29 @@
 ;; diagnostic and `error-name` the originating error.
 (struct abort-info (domain kind message error-name) #:transparent)
 
-;; Who a session is talking to, as its handshake proved it. `session-key` is
-;; the partner's session public key, `designator` is the location designator
-;; the partner signed (a string, empty when its location carried none), and
+;; What a session's handshake reports about its partner. `session-key` is the
+;; partner's fresh session public key, `designator` is the location designator
+;; claimed under that session signature (a string, empty when its location
+;; carried none), and
 ;; `locator-record` is the verbatim <ocapn-peer> record those were read from
 ;; (empty when the session captured none). `session-partner-identity` builds
 ;; one, and only ever after the signature over that location record verified,
-;; so the designator here is bound to the key beside it.
+;; so the claim is bound to the session key. That signature does not prove
+;; control of the durable designator; `provenance` records channel proof.
 (struct partner-identity (session-key designator locator-record provenance) #:transparent)
 
 ;; How a partner's advertised durable identity was authenticated, the third
 ;; fact `partner-identity` reports beside session key and designator
-;; (ADR-0097). One of 'authenticated-transport (the transport layer proved the
-;; partner's durable key: iroh's QUIC handshake, or WebRTC's DTLS binding under
-;; capability-authorized signaling), 'durable-key-attestation (the hello
-;; carried a session-key-attestation signed by the durable key its designator
-;; names and it verified — static authorization, not proof the signer is live
-;; on this connection), or 'unauthenticated (no durable identity was proved).
+;; (ADR-0097, ADR-0105). The answer is a property of the connection rather than
+;; of its transport name: the same transport symbol reaches this peer over code
+;; that can prove something and code that cannot, so no list of transports
+;; belongs here. Either 'authenticated-transport (the code that realized this
+;; connection verified the far end of the byte channel holds a durable key, and
+;; the partner claimed that same key), or 'unauthenticated (no durable identity
+;; was proved).
 ;;
 ;; Ask `partner-identity-durable-authenticated?` when an operation needs a
-;; proved durable peer; never compare the designator against the session key,
-;; which is a coincidence of today's key reuse.
+;; proved durable peer. The fresh session key and durable designator are
+;; independent values.
 (define (partner-identity-durable-authenticated? id)
   (not (eq? (partner-identity-provenance id) 'unauthenticated)))

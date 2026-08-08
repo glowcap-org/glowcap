@@ -8,7 +8,7 @@
 //! decides how much a batch may amplify. The bridge adds no policy of its
 //! own — it owns only the verbs that let those owners reach each other: the
 //! loop's per-slot hooks adopt each accepted or dialed peer into the
-//! host (`Host.openAcceptedOver` / `Host.openDialedOver`) and serve each
+//! host (`Host.openAcceptedAdvertisedOver` / `Host.openDialedOver`) and serve each
 //! polled event through the host (`Host.serveEvent`), and the host's action
 //! queue drains into the loop — a `flush` action for session B, queued
 //! while session A was being served, becomes `Loop.armOutbound(B)`, which
@@ -26,9 +26,21 @@
 //!
 //! An iroh-backed loop and a TCP loop share this bridge for
 //! accept/serve/flush/redeem: dial dispatch is Locator-owned, not branched here.
+//!
+//! **Rendezvous side dial.** `keyed-relay` has no `completion.Loop` Backend
+//! today: its byte path is a blocking `net.keyed_relay` resident over a
+//! WebSocket (ADR-0088). When the embedder `attachRendezvous`s that netlayer,
+//! `connectOutbound` answers a `keyed-relay` dial by blocking-dialing the
+//! resident, adopting a side wire on this Host, and pumping the handshake on
+//! the loop-owner thread — the same seam PollHost's `answerDial` uses, named
+//! here so an iroh (or TCP) loop can still redeem browser peers. Call
+//! `pumpRendezvous` from the embedder's wake so live side wires keep moving
+//! after the handshake. Without `attachRendezvous`, a `keyed-relay` dial
+//! fails loud (`NoRendezvousConfigured`).
 
 const std = @import("std");
 
+const model = @import("model");
 const engine = @import("engine");
 const driver_core = @import("driver_core");
 const settle_mailbox = @import("settle_mailbox.zig");
@@ -73,20 +85,11 @@ pub fn Bridge(comptime LoopT: type) type {
         /// The entropy boundary for gift-id draws — the driver tier owns entropy,
         /// exactly as `drawSessionSecret` does for session secrets.
         io: std.Io,
-        /// The listener's transport and dialable designator, signed into every
-        /// accepted CapTP session's keyed hello (what a partner can actually dial,
-        /// and what a give made here names as the exporter location). Copied into
-        /// retained buffers at `attach`, because the loop's bound port is only
-        /// known after `Loop.init`.
+        /// The attached listener transport. Its complete advertised locator is
+        /// owned by `Host.node`; only the transport is retained here to select
+        /// that snapshot when an accepted connection arrives.
         transport_buf: [16]u8 = undefined,
         transport_len: usize = 0,
-        designator_buf: [64]u8 = undefined,
-        designator_len: usize = 0,
-        /// Bound dial address for a key-designator transport (`keyed-tcp`),
-        /// signed into every accepted CapTP session's locator as the
-        /// `direct-addresses` hint. Empty for address-designator transports.
-        hint_buf: [64]u8 = undefined,
-        hint_len: usize = 0,
         /// PeerId to loop slot, the map `drainActions` routes `flush` and `close`
         /// actions through. Bounded by live CapTP sessions: a row is added at
         /// adoption and removed first thing in `freeConnCtx`, so a teardown drain
@@ -110,6 +113,26 @@ pub fn Bridge(comptime LoopT: type) type {
         /// The off-turn settle mailbox this bridge applies on wake (ADR-0102
         /// stage 4); borrowed, armed by `attachSettleMailbox`.
         mailbox: ?*settle_mailbox.SettleMailbox = null,
+        /// Optional `keyed-relay` netlayer for rendezvous redeem/app dials the
+        /// Loop's Locator cannot resolve. Borrowed; the resident behind it must
+        /// outlive every side wire. Set once via `attachRendezvous`.
+        rendezvous_nl: ?net.netlayer.Netlayer = null,
+        /// PeerId → side wire for sessions opened through `rendezvous_nl`.
+        /// Orthogonal to `slots` (those name Loop connections).
+        rendezvous_wires: std.AutoHashMapUnmanaged(engine.PeerId, *RendezvousWire) = .{},
+        /// Handshake budget for a rendezvous dial, milliseconds.
+        rendezvous_handshake_ms: i64 = 10_000,
+        /// Depth while host actions are being translated into loop/side-wire
+        /// effects. Rendezvous redeem dials intentionally nest
+        /// drain → dial → handshake → drain. A side-wire close during this
+        /// window is collected when the outermost drain returns, matching loop
+        /// slots whose `freeConnCtx` runs after `closeSlot`.
+        draining_actions: usize = 0,
+        /// Rendezvous shells borrowed by bridge code or embedder callbacks.
+        /// A close may mark the side wire dead while one of these borrows is
+        /// live, but collection cannot release the Host session or free the
+        /// shell until the borrow ends.
+        rendezvous_borrows: usize = 0,
 
         /// Fires once per CapTP session, from the loop thread, the first time the
         /// session is open — after the event that opened it was served, with the
@@ -143,15 +166,36 @@ pub fn Bridge(comptime LoopT: type) type {
             redeem_done,
         };
 
-        /// One adopted connection's bridge shell: what the loop's serve hook gets
-        /// as its per-connection context. Bounded by live connections; freed in
-        /// `freeConnCtx`.
+        pub const Origin = union(enum) {
+            loop: usize,
+            rendezvous,
+        };
+
+        /// One adopted connection's bridge shell: what the loop's serve hook
+        /// gets as its per-connection context, and what `on_open` observes for
+        /// both loop slots and rendezvous side wires.
+        /// Bounded by live connections; loop shells are freed in `freeConnCtx`,
+        /// rendezvous shells with their `RendezvousWire`.
         pub const Slot = struct {
             bridge: *Self,
             session: *driver_core.HostSession,
-            slot: usize,
+            origin: Origin,
             opened: bool = false,
             leg: Leg = .accept,
+
+            fn isRendezvous(self: *const Slot) bool {
+                return self.origin == .rendezvous;
+            }
+        };
+
+        /// One Host session whose bytes ride a blocking `keyed-relay`
+        /// Connection rather than a Loop slot — the rendezvous side-dial shell.
+        pub const RendezvousWire = struct {
+            shell: Slot,
+            conn: net.Connection,
+            read_buf: []u8,
+            write_buf: []u8,
+            closed: bool = false,
         };
 
         pub const Options = struct {
@@ -199,46 +243,51 @@ pub fn Bridge(comptime LoopT: type) type {
         /// Record the listener's dialable address. Call after `Loop.init` (the
         /// kernel-chosen port is known then) and before the loop serves its first
         /// connection. Refuses a second attach — the bridge points at exactly one
-        /// listener identity for its lifetime. Also records the designator on the
-        /// host so dialed hellos sign the same dialable address accepted hellos
-        /// do. On a key-designator transport, pass the bound address as
+        /// listener identity for its lifetime. Publishes one complete locator
+        /// snapshot on the Host so dialed and accepted hellos read the same
+        /// value. On a key-designator transport, pass the bound address as
         /// `direct_addresses_hint` (TCP has no discovery); address transports
         /// leave it empty.
         pub fn attach(self: *Self, transport: []const u8, designator: []const u8, direct_addresses_hint: []const u8) !void {
             if (self.transport_len != 0) return error.AlreadyAttached;
-            if (transport.len > self.transport_buf.len or designator.len > self.designator_buf.len or
-                direct_addresses_hint.len > self.hint_buf.len)
-                return error.DesignatorTooLong;
-            try self.host.setSelfDesignator(designator);
+            if (transport.len > self.transport_buf.len)
+                return error.TransportTooLong;
+            var hint_entries: [1]model.HintEntry = undefined;
+            try self.host.setAdvertisedLocator(.{
+                .transport = transport,
+                .designator = designator,
+                .hints = model.Hints.forDirectAddresses(direct_addresses_hint, &hint_entries),
+            });
             @memcpy(self.transport_buf[0..transport.len], transport);
             self.transport_len = transport.len;
-            @memcpy(self.designator_buf[0..designator.len], designator);
-            self.designator_len = designator.len;
-            @memcpy(self.hint_buf[0..direct_addresses_hint.len], direct_addresses_hint);
-            self.hint_len = direct_addresses_hint.len;
+        }
+
+        /// Borrow a `keyed-relay` netlayer for rendezvous dials (ADR-0088). The
+        /// resident behind `nl` must outlive this bridge and every side wire.
+        /// Call once, before any `keyed-relay` redeem or app dial. Without this,
+        /// a `keyed-relay` dial fails with `NoRendezvousConfigured`.
+        pub fn attachRendezvous(self: *Self, nl: net.netlayer.Netlayer) error{AlreadyAttached}!void {
+            if (self.rendezvous_nl != null) return error.AlreadyAttached;
+            self.rendezvous_nl = nl;
         }
 
         /// Free the bridge's own state. The loop's `deinit` already released
         /// every adopted connection through `freeConnCtx`; run this after the
         /// loop's teardown and before the host's. Any stranded app-dial connect
-        /// (loop torn down mid-connect) frees its duped strings here.
+        /// (loop torn down mid-connect) frees its duped strings here. Rendezvous
+        /// side wires are released here — the Loop never adopted them.
         pub fn deinit(self: *Self) void {
             var it = self.pending_connects.valueIterator();
             while (it.next()) |pending| pending.deinit(self.allocator);
             self.pending_connects.deinit(self.allocator);
             self.slots.deinit(self.allocator);
+            var rw_it = self.rendezvous_wires.valueIterator();
+            while (rw_it.next()) |wire_ptr| self.destroyRendezvousWire(wire_ptr.*);
+            self.rendezvous_wires.deinit(self.allocator);
         }
 
         fn transportName(self: *const Self) []const u8 {
             return self.transport_buf[0..self.transport_len];
-        }
-
-        fn selfDesignator(self: *const Self) []const u8 {
-            return self.designator_buf[0..self.designator_len];
-        }
-
-        fn selfHint(self: *const Self) []const u8 {
-            return self.hint_buf[0..self.hint_len];
         }
 
         fn drainBestEffort(self: *Self) void {
@@ -252,6 +301,9 @@ pub fn Bridge(comptime LoopT: type) type {
         /// mailbox is borrowed and must outlive the loop.
         pub fn attachSettleMailbox(self: *Self, mailbox: *settle_mailbox.SettleMailbox) !void {
             self.mailbox = mailbox;
+            // A refused arm must not leave the bridge claiming a mailbox it
+            // will never apply.
+            errdefer self.mailbox = null;
             try self.loop.armWake(mailbox.wakeFd(), self, applySettleWake);
         }
 
@@ -297,17 +349,27 @@ pub fn Bridge(comptime LoopT: type) type {
             );
         }
 
-        /// Close the loop connection serving `peer_id`, if one is still
-        /// adopted. The slot row leaves in `freeConnCtx` before the session's
-        /// release, so a stale or already-torn id no-ops — the same spine
-        /// `drainActions`' close arm rides. Call from the loop-owner thread
-        /// only (`Loop.closeSlot` affinity).
+        /// Close the loop connection — or rendezvous side wire — serving
+        /// `peer_id`, if one is still adopted. The slot row leaves in
+        /// `freeConnCtx` before the session's release, so a stale or already-torn
+        /// id no-ops — the same spine `drainActions`' close arm rides. Call from
+        /// the loop-owner thread only (`Loop.closeSlot` affinity).
         pub fn closeConn(self: *Self, peer_id: engine.PeerId) void {
-            if (self.slots.get(peer_id)) |slot| self.loop.closeSlot(slot);
+            if (self.slots.get(peer_id)) |slot| {
+                self.loop.closeSlot(slot);
+                return;
+            }
+            if (self.rendezvous_wires.get(peer_id)) |wire| {
+                self.closeRendezvousWire(wire);
+                self.collectClosedRendezvous();
+            }
         }
 
-        /// Shared dialLocator + pending_connects.put spine for app and redeem.
-        /// Takes ownership of `connect` (map on success, deinit on refuse).
+        /// Shared dial spine for app and redeem. Loop-resolved transports go
+        /// through `dialLocator`; `keyed-relay` goes through the attached
+        /// rendezvous netlayer (blocking dial + side wire) when configured.
+        /// Takes ownership of `connect` (map on success, deinit on refuse /
+        /// rendezvous completion).
         fn connectOutbound(
             self: *Self,
             loop: *LoopT,
@@ -316,10 +378,377 @@ pub fn Bridge(comptime LoopT: type) type {
             designator: []const u8,
             hint: []const u8,
         ) !void {
+            if (std.mem.eql(u8, transport, model.transport.keyed_relay)) {
+                try self.dialRendezvous(connect, transport, designator, hint);
+                return;
+            }
             errdefer connect.deinit(self.allocator);
             const slot = try loop.dialLocator(transport, designator, hint);
             errdefer loop.closeSlot(slot);
             try self.pending_connects.put(self.allocator, slot, connect);
+        }
+
+        /// Blocking `keyed-relay` dial: open the Host session, dial the
+        /// attached rendezvous netlayer, pump the handshake on this thread,
+        /// then report `exporterDialed` for redeem (or free app-dial ownership).
+        /// `anyerror` breaks the inferred-error recursion nested drain → dial
+        /// → handshake → drain (same seat as `PollHost.answerDial`).
+        fn dialRendezvous(
+            self: *Self,
+            connect: OutboundConnect,
+            transport: []const u8,
+            designator: []const u8,
+            hint: []const u8,
+        ) anyerror!void {
+            errdefer connect.deinit(self.allocator);
+            const nl = self.rendezvous_nl orelse return error.NoRendezvousConfigured;
+
+            var entry_buf: [1]model.HintEntry = undefined;
+            const locator: model.PeerLocator = .{
+                .transport = transport,
+                .designator = designator,
+                .hints = model.Hints.forDirectAddresses(hint, &entry_buf),
+            };
+            try self.host.ensureAdvertisedLocator(transport);
+            const session = try self.host.openDialedLocator(locator);
+            var session_adopted = false;
+            errdefer if (!session_adopted) self.host.releaseSession(session) catch {};
+
+            const frame_cap = self.host.opts.limits.max_frame_bytes;
+            const read_buf = try self.allocator.alloc(u8, frame_cap);
+            errdefer if (!session_adopted) self.allocator.free(read_buf);
+            const write_buf = try self.allocator.alloc(u8, frame_cap);
+            errdefer if (!session_adopted) self.allocator.free(write_buf);
+
+            var conn = try nl.dial(session.served.port.peer, locator, .{ .read = read_buf, .write = write_buf });
+            errdefer if (!session_adopted) conn.deinit();
+            if (conn.socketHandle() == null) return error.TransportNotPollable;
+
+            try self.rendezvous_wires.ensureUnusedCapacity(self.allocator, 1);
+            const wire = try self.allocator.create(RendezvousWire);
+            errdefer if (!session_adopted) self.allocator.destroy(wire);
+            const leg: Leg = switch (connect) {
+                .redeem => |ticket| .{ .redeem = ticket },
+                .app_dial => .app_dial,
+            };
+            wire.* = .{
+                .shell = .{
+                    .bridge = self,
+                    .session = session,
+                    .origin = .rendezvous,
+                    .leg = leg,
+                },
+                .conn = conn,
+                .read_buf = read_buf,
+                .write_buf = write_buf,
+            };
+            self.rendezvous_wires.putAssumeCapacity(session.peer_id, wire);
+            session_adopted = true;
+            errdefer {
+                std.debug.assert(self.rendezvous_wires.remove(session.peer_id));
+                self.destroyRendezvousWire(wire);
+            }
+
+            try self.pumpRendezvousHandshake(session);
+            connect.deinit(self.allocator);
+        }
+
+        fn destroyRendezvousWire(self: *Self, wire: *RendezvousWire) void {
+            wire.closed = true;
+            wire.conn.deinit();
+            self.host.releaseSession(wire.shell.session) catch {};
+            self.allocator.free(wire.read_buf);
+            self.allocator.free(wire.write_buf);
+            self.allocator.destroy(wire);
+        }
+
+        /// Mark the side wire closed without releasing the transport. A
+        /// `Host.feedBytes` callback may close the same wire while its reader is
+        /// still on the stack; `collectClosedRendezvous` owns the eventual
+        /// transport teardown once borrows and callbacks have unwound.
+        fn closeRendezvousWire(self: *Self, wire: *RendezvousWire) void {
+            _ = self;
+            if (wire.closed) return;
+            wire.closed = true;
+            wire.shell.session.served.port.breakFarVows(wire.shell.session.served.closeReason("connection lost"));
+        }
+
+        fn beginRendezvousBorrow(self: *Self) void {
+            self.rendezvous_borrows += 1;
+        }
+
+        fn endRendezvousBorrow(self: *Self) void {
+            std.debug.assert(self.rendezvous_borrows > 0);
+            self.rendezvous_borrows -= 1;
+        }
+
+        fn collectClosedRendezvous(self: *Self) void {
+            if (self.draining_actions != 0 or self.rendezvous_borrows != 0 or self.host.in_callback) return;
+            while (true) {
+                var closed: [8]engine.PeerId = undefined;
+                var closed_n: usize = 0;
+                var it = self.rendezvous_wires.iterator();
+                while (it.next()) |entry| {
+                    const wire = entry.value_ptr.*;
+                    if (!wire.closed) continue;
+                    closed[closed_n] = entry.key_ptr.*;
+                    closed_n += 1;
+                    if (closed_n == closed.len) break;
+                }
+                for (closed[0..closed_n]) |peer_id| {
+                    if (self.rendezvous_wires.fetchRemove(peer_id)) |kv| {
+                        self.destroyRendezvousWire(kv.value);
+                    }
+                }
+                if (closed_n < closed.len) break;
+            }
+        }
+
+        const RendezvousSnapshot = struct {
+            ids: []engine.PeerId,
+            heap: ?[]engine.PeerId = null,
+
+            fn deinit(self: RendezvousSnapshot, allocator: std.mem.Allocator) void {
+                if (self.heap) |heap| allocator.free(heap);
+            }
+        };
+
+        fn snapshotRendezvousWires(
+            self: *Self,
+            stack: []engine.PeerId,
+            skip: ?*driver_core.HostSession,
+            comptime feed_tails_only: bool,
+        ) !RendezvousSnapshot {
+            const total = self.rendezvous_wires.count();
+            const backing = if (total <= stack.len)
+                stack
+            else
+                try self.allocator.alloc(engine.PeerId, total);
+            const heap = if (backing.ptr == stack.ptr) null else backing;
+            var n: usize = 0;
+            var it = self.rendezvous_wires.iterator();
+            while (it.next()) |entry| {
+                const wire = entry.value_ptr.*;
+                if (wire.closed) continue;
+                if (skip) |session| if (wire.shell.session == session) continue;
+                if (feed_tails_only and !wire.shell.session.feed_tail.isActive()) continue;
+                backing[n] = entry.key_ptr.*;
+                n += 1;
+            }
+            return .{ .ids = backing[0..n], .heap = heap };
+        }
+
+        fn writeRendezvousOutbound(self: *Self, wire: *RendezvousWire) !void {
+            _ = self;
+            if (wire.closed) return;
+            while (try wire.shell.session.takeOutbound()) |frame| {
+                var owned = frame;
+                defer owned.deinit();
+                _ = try net.writeFrameBytes(wire.conn.w, owned.bytes());
+            }
+            try wire.conn.w.flush();
+        }
+
+        fn readRendezvousFeed(self: *Self, wire: *RendezvousWire) !void {
+            const r = wire.conn.r;
+            if (r.bufferedLen() == 0) {
+                r.fillMore() catch |err| switch (err) {
+                    error.EndOfStream => return error.ConnectionLost,
+                    error.ReadFailed => return error.ConnectionLost,
+                };
+            }
+            const chunk = r.buffered();
+            self.beginRendezvousBorrow();
+            defer self.endRendezvousBorrow();
+            self.host.feedBytes(wire.shell.session, chunk) catch |err| {
+                r.toss(chunk.len);
+                self.drainBestEffort();
+                self.writeRendezvousOutbound(wire) catch {};
+                self.closeRendezvousWire(wire);
+                return net.classifyApplyError(err);
+            };
+            r.toss(chunk.len);
+        }
+
+        /// Resume paused frames already held by `Host.feedBytes`. The core
+        /// pauses behind the frame that opens a session so the embedder can run
+        /// post-open setup first; after that, no socket readiness will report
+        /// those bytes because they already left the kernel.
+        fn resumeRendezvousFeedTails(self: *Self, skip: ?*driver_core.HostSession) void {
+            while (true) {
+                var stack: [64]engine.PeerId = undefined;
+                const ids = self.snapshotRendezvousWires(&stack, skip, true) catch {
+                    self.drainBestEffort();
+                    return;
+                };
+                defer ids.deinit(self.allocator);
+                if (ids.ids.len == 0) break;
+
+                var failed: [8]engine.PeerId = undefined;
+                var failed_n: usize = 0;
+                var hit_batch_limit = false;
+                for (ids.ids) |peer_id| {
+                    const wire = self.rendezvous_wires.get(peer_id) orelse continue;
+                    if (wire.closed) continue;
+                    if (wire.shell.session == skip) continue;
+                    if (!wire.shell.session.feed_tail.isActive()) continue;
+                    self.beginRendezvousBorrow();
+                    self.host.feedBytes(wire.shell.session, &.{}) catch {
+                        self.endRendezvousBorrow();
+                        failed[failed_n] = peer_id;
+                        failed_n += 1;
+                        if (failed_n == failed.len) hit_batch_limit = true;
+                        break;
+                    };
+                    self.endRendezvousBorrow();
+                }
+                if (failed_n != 0) {
+                    self.drainBestEffort();
+                    for (failed[0..failed_n]) |peer_id| {
+                        if (self.rendezvous_wires.get(peer_id)) |wire| {
+                            self.writeRendezvousOutbound(wire) catch {};
+                            self.closeRendezvousWire(wire);
+                        }
+                    }
+                    self.collectClosedRendezvous();
+                }
+                if (!hit_batch_limit and failed_n == 0) break;
+            }
+        }
+
+        fn fireOpen(self: *Self, shell: *Slot) anyerror!void {
+            if (shell.opened) return;
+            if (!shell.session.sessionOpen()) return;
+            if (shell.isRendezvous()) self.beginRendezvousBorrow();
+            defer if (shell.isRendezvous()) self.endRendezvousBorrow();
+            shell.opened = true;
+            if (shell.leg == .redeem) {
+                const ticket = shell.leg.redeem;
+                self.host.exporterDialed(ticket, shell.session) catch |err| {
+                    self.host.dialFailed(ticket, @errorName(err)) catch {};
+                    shell.leg = .redeem_done;
+                    self.drainBestEffort();
+                    return err;
+                };
+                shell.leg = .redeem_open;
+            }
+            if (self.on_open) |on_open| try on_open(self.on_open_ctx, self, shell);
+        }
+
+        /// Pump one rendezvous wire's handshake until the CapTP session opens,
+        /// under `rendezvous_handshake_ms`. Loop sessions are frozen for this
+        /// window (same nested-dial freeze PollHost accepts).
+        fn pumpRendezvousHandshake(self: *Self, session: *driver_core.HostSession) anyerror!void {
+            const deadline = net.clock.nowMs(self.io) + self.rendezvous_handshake_ms;
+            while (!session.sessionOpen()) {
+                self.resumeRendezvousFeedTails(session);
+                try self.drainActions();
+                const wire = self.rendezvous_wires.get(session.peer_id) orelse return error.ConnectionLost;
+                if (wire.closed) return error.ConnectionLost;
+                self.writeRendezvousOutbound(wire) catch return error.ConnectionLost;
+
+                const remaining = deadline - net.clock.nowMs(self.io);
+                if (remaining <= 0) return error.HandshakeTimedOut;
+                const timeout: i32 = std.math.cast(i32, remaining) orelse std.math.maxInt(i32);
+
+                var fds = [_]std.posix.pollfd{.{
+                    .fd = wire.conn.socketHandle().?,
+                    .events = std.posix.POLL.IN,
+                    .revents = 0,
+                }};
+                if (wire.conn.hasBufferedRaw()) {
+                    self.readRendezvousFeed(wire) catch return error.ConnectionLost;
+                    continue;
+                }
+                const ready = std.posix.poll(&fds, timeout) catch return error.ConnectionLost;
+                if (ready == 0) return error.HandshakeTimedOut;
+                self.readRendezvousFeed(wire) catch return error.ConnectionLost;
+            }
+            // Drain anything queued by the open edge (exporterDialed follows).
+            try self.drainActions();
+            if (self.rendezvous_wires.get(session.peer_id)) |wire| {
+                self.writeRendezvousOutbound(wire) catch {};
+                try self.fireOpen(&wire.shell);
+            }
+            self.resumeRendezvousFeedTails(null);
+            try self.drainActions();
+        }
+
+        /// Non-blocking progress on every live rendezvous side wire. Call from
+        /// the embedder's wake (rooms-peer `maintain`) so redeem sessions keep
+        /// moving after the handshake while the Loop serves its own slots.
+        pub fn pumpRendezvous(self: *Self) void {
+            while (true) {
+                self.resumeRendezvousFeedTails(null);
+                self.drainBestEffort();
+                var stack: [64]engine.PeerId = undefined;
+                const ids = self.snapshotRendezvousWires(&stack, null, false) catch {
+                    self.drainBestEffort();
+                    return;
+                };
+                defer ids.deinit(self.allocator);
+                if (ids.ids.len == 0) {
+                    self.collectClosedRendezvous();
+                    self.drainBestEffort();
+                    break;
+                }
+                var doomed: [8]engine.PeerId = undefined;
+                var doomed_n: usize = 0;
+                var hit_batch_limit = false;
+                for (ids.ids) |peer_id| {
+                    const wire = self.rendezvous_wires.get(peer_id) orelse continue;
+                    if (wire.closed) {
+                        doomed[doomed_n] = peer_id;
+                        doomed_n += 1;
+                        if (doomed_n == doomed.len) {
+                            hit_batch_limit = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    self.writeRendezvousOutbound(wire) catch {
+                        doomed[doomed_n] = peer_id;
+                        doomed_n += 1;
+                        if (doomed_n == doomed.len) {
+                            hit_batch_limit = true;
+                            break;
+                        }
+                        continue;
+                    };
+                    // Drain readable / buffered without blocking the Loop wake.
+                    while (true) {
+                        var fds = [_]std.posix.pollfd{.{
+                            .fd = wire.conn.socketHandle() orelse break,
+                            .events = std.posix.POLL.IN,
+                            .revents = 0,
+                        }};
+                        const buffered = wire.conn.hasBufferedRaw();
+                        if (!buffered) {
+                            const ready = std.posix.poll(&fds, 0) catch break;
+                            if (ready == 0) break;
+                        }
+                        self.readRendezvousFeed(wire) catch {
+                            doomed[doomed_n] = peer_id;
+                            doomed_n += 1;
+                            if (doomed_n == doomed.len) hit_batch_limit = true;
+                            break;
+                        };
+                        if (wire.closed) break;
+                    }
+                    if (hit_batch_limit) break;
+                }
+                for (doomed[0..doomed_n]) |peer_id| {
+                    if (self.rendezvous_wires.get(peer_id)) |wire| {
+                        self.closeRendezvousWire(wire);
+                    }
+                }
+                self.collectClosedRendezvous();
+                if (!hit_batch_limit) {
+                    self.drainBestEffort();
+                    break;
+                }
+                self.drainBestEffort();
+            }
         }
 
         // ── The loop hooks ───────────────────────────────────────────────────────
@@ -335,19 +764,9 @@ pub fn Bridge(comptime LoopT: type) type {
         /// `completion.MakeConnCtx`: adopt the accepted or dialed peer into the
         /// host. Origin is one lookup: a `pending_connects` row means dial
         /// (`openDialedOver`, redeem or application); absence means accept
-        /// (`openAcceptedOver` + publish).
+        /// (`openAcceptedAdvertisedOver` + publish).
         pub fn makeConnCtx(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
-            // Authenticated-transport binding (ADR-0097), before any leg opens
-            // and so before a byte can feed: when the loop's backend proved
-            // the remote's durable key (iroh's QUIC handshake), the hello may
-            // claim that identity or an address — never someone else's key.
-            // Every leg, because the proof is the connection's, not the
-            // direction's; socket-backed loops carry no lower-layer identity
-            // and answer null.
-            if (self.loop.remotePartnerKey(slot)) |key| {
-                peer.expectPartnerDurableKey(foundation.crypto.PeerKey.fromBytes(key), .transport_verified);
-            }
             var leg: Leg = .accept;
             const session = if (self.pending_connects.fetchRemove(slot)) |kv| blk: {
                 const pending = kv.value;
@@ -370,10 +789,24 @@ pub fn Bridge(comptime LoopT: type) type {
                         };
                     },
                 };
-            } else try self.host.openAcceptedOver(peer, self.transportName(), self.selfDesignator(), self.selfHint());
+            } else try self.host.openAcceptedAdvertisedOver(peer, self.transportName());
             errdefer {
                 if (leg == .redeem) self.host.dialFailed(leg.redeem, "ConnectionClosed") catch {};
                 self.host.releaseSession(session) catch {};
+            }
+            // The transport proof (ADR-0105): when the loop's backend verified
+            // the remote's durable key (iroh's QUIC handshake), this is the
+            // code that realized the connection and so the one that may say
+            // so. Every leg, because the proof is the connection's, not the
+            // direction's; socket-backed loops carry no lower-layer identity
+            // and answer null.
+            //
+            // After the leg opened rather than before it, and it is safe to
+            // wait: no partner byte has been fed yet, since the loop arms this
+            // connection's reads only once adoption returns, and everything
+            // above it only sent this side's own hello.
+            if (self.loop.verifiedChannelKey(slot)) |key| {
+                peer.bindVerifiedChannelKey(foundation.crypto.PeerKey.fromBytes(key));
             }
             // Publish only on accepted desks — never on dialed exporter/app legs.
             if (session.role == .accepted) {
@@ -384,7 +817,7 @@ pub fn Bridge(comptime LoopT: type) type {
             shell.* = .{
                 .bridge = self,
                 .session = session,
-                .slot = slot,
+                .origin = .{ .loop = slot },
                 .leg = leg,
             };
             try self.slots.put(self.allocator, session.peer_id, slot);
@@ -404,20 +837,7 @@ pub fn Bridge(comptime LoopT: type) type {
                 self.drainBestEffort();
                 return err;
             };
-            if (!shell.opened and shell.session.sessionOpen()) {
-                shell.opened = true;
-                if (shell.leg == .redeem) {
-                    const ticket = shell.leg.redeem;
-                    self.host.exporterDialed(ticket, shell.session) catch |err| {
-                        self.host.dialFailed(ticket, @errorName(err)) catch {};
-                        shell.leg = .redeem_done;
-                        self.drainBestEffort();
-                        return err;
-                    };
-                    shell.leg = .redeem_open;
-                }
-                if (self.on_open) |on_open| try on_open(self.on_open_ctx, self, shell);
-            }
+            try self.fireOpen(shell);
             try self.drainActions();
         }
 
@@ -483,10 +903,22 @@ pub fn Bridge(comptime LoopT: type) type {
                 loop: *LoopT,
 
                 pub fn flush(e: @This(), peer_id: engine.PeerId) !void {
-                    if (e.bridge.slots.get(peer_id)) |slot| e.loop.armOutbound(slot);
+                    if (e.bridge.slots.get(peer_id)) |slot| {
+                        e.loop.armOutbound(slot);
+                        return;
+                    }
+                    if (e.bridge.rendezvous_wires.get(peer_id)) |wire| {
+                        if (wire.closed) return;
+                        e.bridge.writeRendezvousOutbound(wire) catch e.bridge.closeConn(peer_id);
+                    }
                 }
 
                 pub fn close(e: @This(), peer_id: engine.PeerId) !void {
+                    if (e.bridge.rendezvous_wires.get(peer_id)) |wire| {
+                        e.bridge.writeRendezvousOutbound(wire) catch {};
+                        e.bridge.closeRendezvousWire(wire);
+                        return;
+                    }
                     e.bridge.closeConn(peer_id);
                 }
 
@@ -505,7 +937,19 @@ pub fn Bridge(comptime LoopT: type) type {
                         view.designator,
                         view.direct_addresses_hint,
                     ) catch |err| {
-                        try bridge.host.dialFailed(d.ticket, @errorName(err));
+                        // Stack detail is copied inside `node.dialFailed` before return.
+                        // Include a short designator prefix so InvalidAddress digs
+                        // can see exporter shape without a second logging path.
+                        const prefix_len = @min(view.designator.len, 16);
+                        var detail: [192]u8 = undefined;
+                        const reason = std.fmt.bufPrint(&detail, "{s} transport={s} designatorLen={d} designatorPrefix={s} hintLen={d}", .{
+                            @errorName(err),
+                            view.transport,
+                            view.designator.len,
+                            view.designator[0..prefix_len],
+                            view.direct_addresses_hint.len,
+                        }) catch @errorName(err);
+                        try bridge.host.dialFailed(d.ticket, reason);
                     };
                 }
 
@@ -514,7 +958,14 @@ pub fn Bridge(comptime LoopT: type) type {
                     if (e.bridge.on_action) |on_action| on_action(e.bridge.on_action_ctx, e.bridge, action);
                 }
             };
-            try driver_core.drainActions(self.host, self.io, Exec{ .bridge = self, .loop = self.loop });
+            self.draining_actions += 1;
+            driver_core.drainActions(self.host, self.io, Exec{ .bridge = self, .loop = self.loop }) catch |err| {
+                self.draining_actions -= 1;
+                if (self.draining_actions == 0) self.collectClosedRendezvous();
+                return err;
+            };
+            self.draining_actions -= 1;
+            if (self.draining_actions == 0) self.collectClosedRendezvous();
         }
     };
 }

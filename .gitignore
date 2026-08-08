@@ -61,6 +61,10 @@ apps/rooms/web/ui/page.js
 
 # local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)
 .local/
+# Written by `deno task stress-tests` from a fixed seed, so the generator is the
+# artifact worth keeping and these are reproducible byte-for-byte on demand.
+# Together they are about 8MB; the 64x one alone is 4.4MB.
+apps/ocapnviz/test-data/stress-*x.json
 
 # Cold-cache fallback when HOME is unset (see bindings/c-abi-resolve.json
 # `fallback_cache_name`; written under $TMPDIR / the process cwd as appropriate).
@@ -75,3 +79,8 @@ pancake-c-abi-cache/
 
 # captured stderr from a redirected demo/test run; scratch, never committed
 *.err
+
+# ocapnviz runs on its own Deno toolchain; its dependency and build caches
+# are generated state.
+apps/ocapnviz/node_modules/
+apps/ocapnviz/.vite/

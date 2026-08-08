@@ -41,7 +41,7 @@ same posture as `rust-dogfood`.
 **The node id is the designator.** An iroh NodeId is an Ed25519 public key,
 precisely OCapN's self-authenticating designator. The transport symbol is
 `iroh`, the locator designator is the node id in its canonical 64-character
-lowercase-hex form (the one spelling `Resident.nodeId` prints and `dial`
+lowercase-hex form (the form `Resident.nodeId` prints and `dial`
 accepts), and relay or direct addresses ride the locator's hints, where ADR-0043
 already puts reachability. Slice 1 keeps the OCapN session key separate from the
 iroh node key; unifying them (one key, one identity) is real follow-up work
@@ -97,7 +97,7 @@ one library without colliding. They are split by prefix and by artifact name:
   declared in the generated header and shipped in the optional iroh archive
   (composed and named per [ADR-0059](ADR-0059-composable-c-abi-archives.md)).
 
-The three hand-spelled copies of the seam (Rust definitions, the seam header,
+The three hand-written copies of the seam (Rust definitions, the seam header,
 the Zig externs) are held to one shape by the `pancake_iroh_sidecar_` ABI parity
 check in `tools/check/meta_check.zig`. Nothing about the transport's behavior changed;
 this is a naming boundary that makes the private/public split legible and
@@ -142,10 +142,12 @@ authoritative, deterministic iroh gate.
 
 ## Scope (what this does not decide)
 
-- **Goblins interop over iroh is not possible today**: Goblins ships no iroh
-  netlayer, so this transport is the bring-your-own-netlayer contract proven
-  pancake-to-pancake. The OCapN conversation it carries is the same one the TCP
-  gates prove against Goblins.
+- **Goblins interop over iroh** was out of scope here: Goblins ships no
+  netlayer of its own, so this ADR proved the bring-your-own-netlayer contract
+  pancake-to-pancake. It has since been written — an iroh netlayer for Goblins
+  in `conformance/goblins-peer/racket/`, over the Racket binding's byte-channel
+  surface — and `zig build goblins-iroh` holds a live session across it. The
+  OCapN conversation it carries is the same one the TCP gates prove.
 - **Key unification, peer discovery, and durable identity** shipped: see the
   2026-06-12 "identity-and-discovery capstones" amendment above. (Relays and
   hole-punching themselves are sidecar-internal; pancake's part is the

@@ -3,10 +3,9 @@
 //! Two real `engine.Peer`s talk over a 127.0.0.1 socket pair driven by a
 //! `std.Io.Threaded` backend: the server runs concurrently (`io.concurrent`),
 //! the client on the test fiber. We prove (1) the handshake drives both peers to
-//! `open` over the wire, and (2) a bootstrap fetch. That fetch is an `op:deliver` answered by
-//! an auto-`op:resolve` that round-trips end to end, the same scenario the
-//! in-process conformance harness runs, now framed by `recvStreamPrefix` over a
-//! byte stream.
+//! `open` over the wire, and (2) a bootstrap fetch. That fetch is an
+//! `op:deliver` answered by an auto-`op:resolve` that round-trips end to end,
+//! the same oracle scenario now framed by `recvStreamPrefix` over a byte stream.
 
 const std = @import("std");
 const pancake = @import("pancake");

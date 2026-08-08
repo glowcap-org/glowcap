@@ -21,6 +21,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_PYTHON_INSTALL_DIR=/usr/local/uv/python \
     ZIG_GLOBAL_CACHE_DIR=/home/vscode/.cache/zig \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
     PLTUSERHOME=/opt/pancake-racket-userhome \
     PATH=/home/vscode/.cargo/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}
 
@@ -65,6 +66,7 @@ COPY .devcontainer/pins.sh \
      .devcontainer/install-uv.sh \
      .devcontainer/install-serena.sh \
      .devcontainer/install-racket-goblins.sh \
+     .devcontainer/install-playwright.sh \
      .devcontainer/verify-toolchains.sh \
      "${PANCAKE_DEVCONTAINER_DIR}/"
 
@@ -75,5 +77,13 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-opencode.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-serena.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh" \
- && bash "${PANCAKE_DEVCONTAINER_DIR}/verify-toolchains.sh"
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh"
+
+# Playwright's browser install is its own layer because it is the only installer
+# that also runs apt, and apt wants the same caches the first apt layer used.
+# It needs npx, so it follows install-js-toolchains.sh above.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    bash "${PANCAKE_DEVCONTAINER_DIR}/install-playwright.sh"
+
+RUN bash "${PANCAKE_DEVCONTAINER_DIR}/verify-toolchains.sh"

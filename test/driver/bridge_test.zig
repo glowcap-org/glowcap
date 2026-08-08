@@ -24,11 +24,15 @@ const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
 const tcp = net.tcp;
+const keyed_relay = net.keyed_relay;
+const crypto = pancake.foundation.crypto;
+const ws_relay = @import("../support/ws_relay.zig");
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 const TcpBridge = driver.Bridge(net.TcpLoop);
 const wait = @import("../support/wait.zig");
+const ip = std.Io.net;
 
 const frame_cap = 4096;
 
@@ -711,6 +715,185 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     try drainLoopThread(io, loop.port.?, &loop_done);
     loop_future.await(io);
     if (loop_err) |err| return err;
+}
+
+test "Bridge keyed-relay dial without attachRendezvous fails loud" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var seed: [32]u8 = undefined;
+    @memset(&seed, 0x42);
+    var host = Host.init(allocator, seed, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    defer host.deinit();
+
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
+    defer bridge.deinit();
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
+        .frame_cap = frame_cap,
+        .max_conns = 4,
+        .listen = 0,
+    }));
+    defer loop.deinit();
+
+    try bridge.attach(tcp.transport_name, "127.0.0.1:1", &.{});
+
+    const key = pancake.foundation.crypto.SecretKey.fromSeed([_]u8{0xab} ** 32).publicKey().toDesignator();
+    try std.testing.expectError(
+        error.NoRendezvousConfigured,
+        bridge.dialOutbound(model.transport.keyed_relay, key[0..], ""),
+    );
+}
+
+const RendezvousThermostat = struct {
+    pub fn handle(self: *RendezvousThermostat, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        _ = self;
+        _ = turn;
+        _ = args;
+        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
+        return .{ .string = "pong over rendezvous" };
+    }
+};
+
+fn bridgeRendezvousServer(server: *driver.Server, done: *const std.atomic.Value(bool)) anyerror!void {
+    try server.publishGiftable("thermostat", RendezvousThermostat, .{});
+    var accepted: ?*driver.Session = null;
+    defer if (accepted) |session| session.deinit();
+
+    while (!done.load(.acquire)) {
+        if (accepted == null) {
+            if (try server.waitAcceptable(20)) accepted = try server.accept();
+            continue;
+        }
+        _ = accepted.?.stepReadable(20) catch |err| switch (err) {
+            error.ConnectionClosed, error.ProtocolAbort => break,
+            else => |e| return e,
+        };
+    }
+}
+
+const BridgeRendezvousState = struct {
+    host: *Host,
+    bridge: ?*TcpBridge = null,
+    peer_id: ?engine.PeerId = null,
+    fetched: bool = false,
+    failed: bool = false,
+    close_on_fetch: bool = false,
+    closed_on_fetch: bool = false,
+
+    fn onFetched(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *BridgeRendezvousState = @ptrCast(@alignCast(ctx.?));
+        switch (resolution) {
+            .fulfilled => |value| {
+                self.fetched = value == .reference;
+                if (self.fetched and self.close_on_fetch) {
+                    const bridge = self.bridge orelse return;
+                    const peer_id = self.peer_id orelse return;
+                    bridge.closeConn(peer_id);
+                    self.closed_on_fetch = true;
+                }
+            },
+            .broken, .give => self.failed = true,
+        }
+    }
+};
+
+fn bridgeRendezvousOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, slot: *TcpBridge.Slot) anyerror!void {
+    const state: *BridgeRendezvousState = @ptrCast(@alignCast(ctx.?));
+    if (slot.leg != .app_dial or slot.origin != .rendezvous) return;
+    state.bridge = bridge;
+    state.peer_id = slot.session.peer_id;
+    const vow = try state.host.fetch(slot.session, "thermostat");
+    try state.host.vowOn(vow, .{ .ctx = state, .func = BridgeRendezvousState.onFetched });
+    try bridge.drainActions();
+}
+
+test "Bridge rendezvous attach is a one-time lifetime choice" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var host = Host.init(allocator, [_]u8{0x74} ** 32, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    defer host.deinit();
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
+    defer bridge.deinit();
+
+    var resident = tcp.Resident{ .io = io };
+    try bridge.attachRendezvous(resident.netlayer());
+    try std.testing.expectError(error.AlreadyAttached, bridge.attachRendezvous(resident.netlayer()));
+}
+
+test "Bridge keyed-relay rendezvous side wire opens, fetches, and closes from callback" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const relay_addr: ip.IpAddress = .{ .ip4 = ip.Ip4Address.loopback(0) };
+    var relay_server = try ip.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
+    defer relay_server.deinit(io);
+    const relay_port = relay_server.socket.address.getPort();
+
+    const relay_host_port = try tcp.parseHostPort("127.0.0.1", relay_port);
+    var relay_designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const relay_designator = tcp.locator(&relay_designator_buf, relay_host_port).designator;
+    var relay_url_buf: [80]u8 = undefined;
+    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://{s}/relay", .{relay_designator});
+    var register_url_buf: [80]u8 = undefined;
+    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://{s}/register", .{relay_designator});
+
+    var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
+
+    const server_secret = crypto.SecretKey.fromSeed([_]u8{0x72} ** crypto.SEED_BYTES);
+    var registered = keyed_relay.Resident{
+        .io = io,
+        .relay_url = try keyed_relay.RelayUrl.parse(relay_url),
+        .register_url = try keyed_relay.RelayUrl.parse(register_url),
+        .public_key = server_secret.publicKey(),
+    };
+    var remote = try driver.listen(allocator, registered.netlayer(), .{ .designator = "" }, .{ .keyed = server_secret }, dial_opts);
+
+    var done = std.atomic.Value(bool).init(false);
+    var server_future = try io.concurrent(bridgeRendezvousServer, .{ &remote, &done });
+
+    var dialer = try keyed_relay.Resident.init(io, relay_url);
+    var host = Host.init(allocator, [_]u8{0x73} ** 32, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    var loop: net.TcpLoop = undefined;
+    var state = BridgeRendezvousState{ .host = &host, .close_on_fetch = true };
+    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
+        .on_open = bridgeRendezvousOnOpen,
+        .on_open_ctx = &state,
+    });
+    try bridge.attachRendezvous(dialer.netlayer());
+
+    defer {
+        done.store(true, .release);
+        bridge.deinit();
+        host.deinit();
+        server_future.await(io) catch {};
+        remote.close() catch {};
+        relay_future.await(io) catch {};
+    }
+
+    const designator = server_secret.publicKey().toDesignator();
+    try bridge.dialOutbound(model.transport.keyed_relay, designator[0..], "");
+
+    var spins: usize = 0;
+    while (!state.fetched and !state.failed and spins < 500) : (spins += 1) {
+        bridge.pumpRendezvous();
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+    }
+    try std.testing.expect(!state.failed);
+    try std.testing.expect(state.fetched);
+    try std.testing.expect(state.closed_on_fetch);
+    bridge.pumpRendezvous();
+    try std.testing.expectEqual(@as(usize, 0), bridge.rendezvous_wires.count());
 }
 
 test "closeAndDrain: idle listener then deinit with the testing allocator" {

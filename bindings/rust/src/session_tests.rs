@@ -100,12 +100,16 @@ async fn enliven_round_trips_then_caches() {
 			ready_rx.await.unwrap();
 
 			let mismatch = conn
-				.enliven("ocapn://127.0.0.1%3A1.tcp/s/greeter")
+				.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg")
 				.await
 				.unwrap_err();
-			assert_eq!(mismatch.kind(), ErrorKind::InvalidArgument);
+			assert_eq!(
+				mismatch.kind(),
+				ErrorKind::InvalidArgument,
+				"mismatch detail: {mismatch:?}"
+			);
 			// The complete sturdyref must name this selected session's peer.
-			let sturdyref = format!("{locator}/s/greeter");
+			let sturdyref = format!("{locator}/s/Z3JlZXRlcg");
 			let cap = conn.enliven(&sturdyref).await.unwrap();
 			let reply = conn.send(&cap, "hello", &[]).await.unwrap();
 			assert_eq!(reply, Argument::Symbol("alive".into()));
@@ -304,6 +308,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 					stream,
 					&designator,
 					Some(HANDSHAKE_TIMEOUT),
+					None,
 				)
 				.await
 				.unwrap();
@@ -765,7 +770,13 @@ async fn pipelined_projections_reach_a_field() {
 	let local = LocalSet::new();
 	local
 		.run_until(async {
-			let server = listen("127.0.0.1:0").await.unwrap();
+			let next_host = || {
+				Host::with_options(crate::HostOptions {
+					captp_version: crate::CaptpVersion::Next,
+					..Default::default()
+				})
+			};
+			let server = listen_with_host("127.0.0.1:0", next_host()).await.unwrap();
 			let addr = server.local_addr().unwrap();
 			let (ready_tx, ready_rx) = oneshot::channel::<()>();
 			let host = tokio::task::spawn_local(async move {
@@ -796,7 +807,7 @@ async fn pipelined_projections_reach_a_field() {
 			let conn = connect(
 				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
 				None,
-				None,
+				Some(next_host()),
 			)
 			.await
 			.unwrap();
@@ -1156,6 +1167,7 @@ async fn dropping_a_fetched_cap_releases_its_import_when_gc_is_on() {
 					stream,
 					&designator,
 					Some(HANDSHAKE_TIMEOUT),
+					None,
 				)
 				.await
 				.unwrap();
@@ -1222,6 +1234,7 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 				&designator,
 				stream,
 				Some(HANDSHAKE_TIMEOUT),
+				None,
 			)
 			.await
 			.unwrap();
@@ -1589,6 +1602,7 @@ async fn a_zero_handshake_budget_waits_unbounded() {
 					stream,
 					&designator,
 					Some(HANDSHAKE_TIMEOUT),
+					None,
 				)
 				.await
 				.unwrap();
@@ -1728,6 +1742,194 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 
 			conn.close();
 			host.await.unwrap();
+		})
+		.await;
+}
+
+/// Test-side base64 decode (RFC 4648, padded) — the veneer encodes, this
+/// proves the round trip without pulling a crate into the dogfood.
+fn b64_decode(s: &str) -> Vec<u8> {
+	const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	let value = |ch: u8| ALPHABET.iter().position(|a| *a == ch).unwrap() as u32;
+	let mut out = Vec::new();
+	for chunk in s.trim_end_matches('=').as_bytes().chunks(4) {
+		let mut n = 0u32;
+		for (i, &ch) in chunk.iter().enumerate() {
+			n |= value(ch) << (18 - 6 * i);
+		}
+		out.push((n >> 16) as u8);
+		if chunk.len() > 2 {
+			out.push((n >> 8) as u8);
+		}
+		if chunk.len() > 3 {
+			out.push(n as u8);
+		}
+	}
+	out
+}
+
+// The live trace: the veneer stamps and forwards the native tap's facts, one
+// flat record per fact — session-opened with the codec the handshake actually
+// negotiated, the same verb outbound at the client and inbound at the server,
+// and session-closed. Endpoint labeling belongs to the consumer, so the
+// records carry only the session and direction.
+#[tokio::test]
+async fn the_live_trace_produces_the_timeline_schema() {
+	use std::cell::RefCell;
+	use std::rc::Rc;
+
+	let local = LocalSet::new();
+	local
+		.run_until(async {
+			let events: Rc<RefCell<Vec<crate::TraceEvent>>> = Rc::new(RefCell::new(Vec::new()));
+			let sink_events = Rc::clone(&events);
+			let uninstall = crate::enable_trace(
+				Box::new(move |ev| sink_events.borrow_mut().push(ev.clone())),
+				Some("smoke"),
+			);
+
+			let captp = Host::new_host();
+			captp.publish_giftable("greeter", move || {
+				Box::new(move |verb, _args| Ok(Argument::String(format!("hello {verb}"))))
+			});
+			let server = listen_with_host("127.0.0.1:0", captp).await.unwrap();
+			let addr = server.local_addr().unwrap();
+			let host = tokio::task::spawn_local(async move {
+				let conn = server.accept().await.unwrap();
+				conn.serve().await;
+			});
+
+			let conn = connect(
+				&crate::tcp_locator(&addr.ip().to_string(), addr.port()),
+				None,
+				None,
+			)
+			.await
+			.unwrap();
+			let greeter = conn.fetch("greeter").await.unwrap();
+			let reply = conn.send(&greeter, "trace-me", &[]).await.unwrap();
+			assert_eq!(reply, Argument::String("hello trace-me".into()));
+			// The annotation channel: named for the same session row the
+			// tap names.
+			crate::annotate_session(&conn, "greeter-server");
+			conn.close();
+			host.await.unwrap();
+			uninstall();
+
+			let events = events.borrow();
+			let opened: Vec<_> = events
+				.iter()
+				.filter(|ev| ev.kind == crate::TraceKind::SessionOpened)
+				.collect();
+			assert!(opened.len() >= 2, "both hosts' opens reached the one sink");
+			assert!(
+				opened
+					.iter()
+					.all(|ev| ev.codec == Some("syrup") && ev.a_label.as_deref() == Some("smoke")),
+				"opens carry the negotiated codec and the application's display label",
+			);
+			// A producer states what it RUNS, because this schema is not
+			// pancake's alone and a consumer must not read an implementation off
+			// the fact that a record arrived.
+			assert!(
+				opened.iter().all(|ev| ev.a_profile == Some("pancake")),
+				"an open states the implementation this producer runs",
+			);
+			// Identity and label are two facts. `a` is the host's own key
+			// designator — the name a partner knows it by, and so the only name
+			// two producers can agree on — and the label never stands in for it.
+			assert!(
+				opened.iter().all(|ev| {
+					ev.a.as_deref()
+						.is_some_and(|a| a.len() == 64 && a.chars().all(|c| c.is_ascii_hexdigit()))
+				}),
+				"an open's `a` endpoint is the reporting host's key designator",
+			);
+			// The OCapN Session ID is what lets a consumer merging two producers'
+			// feeds tell one session watched twice from two unrelated ones: both
+			// peers of this session derive it, so the two opens agree on it.
+			let session_ids: Vec<_> = opened
+				.iter()
+				.filter_map(|ev| ev.session_id.clone())
+				.collect();
+			assert_eq!(
+				session_ids.len(),
+				opened.len(),
+				"every open named its OCapN Session ID",
+			);
+			assert!(
+				session_ids.windows(2).all(|w| w[0] == w[1]),
+				"both peers of one session report the same OCapN Session ID",
+			);
+			// A designator does not name a location on its own, so every open
+			// carries the transport beside it.
+			assert!(
+				opened.iter().all(|ev| ev.transport.is_some()),
+				"an open reported a designator with no transport",
+			);
+			let outbound = events
+				.iter()
+				.find(|ev| {
+					ev.kind == crate::TraceKind::MessageDecoded
+						&& ev.op.as_deref() == Some("trace-me")
+						&& ev.outbound
+				})
+				.expect("the client's send traced outbound");
+			let inbound = events
+				.iter()
+				.find(|ev| {
+					ev.kind == crate::TraceKind::MessageDecoded
+						&& ev.op.as_deref() == Some("trace-me")
+						&& !ev.outbound
+				})
+				.expect("the server's deliver traced inbound");
+			assert_ne!(
+				outbound.session, inbound.session,
+				"each host names its own session row",
+			);
+			// Payload: both fact sites sit at the wire boundary (inbound
+			// dispatch, the outbound drain), so both records carry the whole
+			// (sub-cap) frame with its true length and the verb inside it.
+			for rec in [&inbound, &outbound] {
+				let frame = b64_decode(
+					rec.bytes_b64
+						.as_deref()
+						.expect("the record carries its frame"),
+				);
+				assert_eq!(
+					rec.len,
+					Some(frame.len()),
+					"true length rides beside the frame"
+				);
+				assert!(
+					frame.windows(8).any(|w| w == b"trace-me"),
+					"the frame bytes contain the delivered verb",
+				);
+			}
+			assert!(
+				events
+					.iter()
+					.any(|ev| ev.kind == crate::TraceKind::SessionClosed),
+				"the close reached the sink",
+			);
+			let meta = events
+				.iter()
+				.find(|ev| ev.kind == crate::TraceKind::SessionMeta)
+				.expect("the annotation reached the sink");
+			assert_eq!(
+				meta.meta.as_ref().map(|m| m.label.as_str()),
+				Some("greeter-server"),
+				"the annotation carries its label",
+			);
+			assert_eq!(
+				meta.session_id, outbound.session_id,
+				"the annotation names the same session row the tap names",
+			);
+			let mut last = 0u64;
+			for ev in events.iter() {
+				assert!(ev.sim_t_ns >= last, "sim_t_ns is monotone");
+				last = ev.sim_t_ns;
+			}
 		})
 		.await;
 }

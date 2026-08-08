@@ -31,13 +31,18 @@
   (subprocess #f #f #f RACKET HOST-SCRIPT HOST (number->string PORT)))
 
 (with-handlers ([(lambda (_) #t) (lambda (e) (subprocess-kill proc #t) (raise e))])
-  (define swiss (read-swiss proc-out "goblins exited before publishing the echo cap"))
-  (printf "racket-goblins-interop: goblins published echo swiss=~a on ~a:~a\n" swiss HOST PORT)
+  (define sturdyref-path
+    (read-sturdyref-path proc-out "goblins exited before publishing the echo sturdyref path"))
+  (printf "racket-goblins-interop: goblins published its echo sturdyref path on ~a:~a\n" HOST PORT)
 
-  (define conn (connect (tcp-locator HOST PORT)))
+  (define locator (tcp-locator HOST PORT))
+  (define conn (connect locator))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
-  (define sturdyref (string-append "ocapn://goblins-echo.tcp/s/" swiss))
+  ;; A sturdyref names a peer, and the enliven checks that peer against the
+  ;; session it rides (ADR-0098). Build it from the very locator this session
+  ;; dialed, so the two cannot drift apart.
+  (define sturdyref (string-append locator "/s/" sturdyref-path))
   (define echo (session-enliven conn sturdyref))
   (printf "racket-goblins-interop: enlivened goblins echo cap, calling it\n")
 

@@ -65,5 +65,33 @@ pub fn BiMap(comptime K: type, comptime V: type) type {
             std.debug.assert(self.forward.remove(old.value));
             return old.value;
         }
+
+        /// Replace the value paired with an existing key without growing either
+        /// backing map. Used for resolver-purpose state transitions where the
+        /// row identity stays live and only its phase changes.
+        pub fn replaceValueForKey(self: *Self, k: K, new_value: V) void {
+            const old_value = self.forward.get(k) orelse unreachable;
+            if (std.meta.eql(old_value, new_value)) return;
+            std.debug.assert(self.reverse.remove(old_value));
+            if (self.reverse.fetchRemove(new_value)) |old| {
+                std.debug.assert(self.forward.remove(old.value));
+            }
+            self.forward.putAssumeCapacity(k, new_value);
+            self.reverse.putAssumeCapacity(new_value, k);
+        }
+
+        /// Replace the key paired with an existing value without growing
+        /// either backing map. The old pair already reserves one slot in each
+        /// direction, so moving it is infallible.
+        pub fn replaceKeyForValue(self: *Self, v: V, new_key: K) void {
+            const old_key = self.reverse.get(v) orelse unreachable;
+            if (std.meta.eql(old_key, new_key)) return;
+            std.debug.assert(self.forward.remove(old_key));
+            if (self.forward.fetchRemove(new_key)) |old| {
+                std.debug.assert(self.reverse.remove(old.value));
+            }
+            self.forward.putAssumeCapacity(new_key, v);
+            self.reverse.putAssumeCapacity(v, new_key);
+        }
     };
 }

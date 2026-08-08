@@ -15,7 +15,12 @@ it.
 - "formerly", "previously", "originally", or "renamed from" notes;
 - "pre-1.0" / "pre-publication" as rationale;
 - "during the transition" phrasing when the current repository role is enough;
-- "later" / "future" when the actionable current fact is "not implemented".
+- "later" / "future" when the actionable current fact is "not implemented";
+- a comment defending the name in front of it against the one it replaced.
+  `X, not Y` earns its place when Y names a hazard that would recur — pick the
+  other one and chips vanish into their container, or a list titled after the
+  thing only one row might be reads as broken. It is a tombstone when Y is
+  merely the word that used to be there, and then the diff already says so.
 
 ## What To Write Instead
 

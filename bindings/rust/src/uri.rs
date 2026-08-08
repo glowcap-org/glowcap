@@ -264,6 +264,18 @@ pub fn encode_peer_locator(
 	designator: &str,
 	direct_addresses: &str,
 ) -> Result<Vec<u8>> {
+	encode_peer_locator_bytes(
+		transport.as_bytes(),
+		designator.as_bytes(),
+		direct_addresses.as_bytes(),
+	)
+}
+
+pub(crate) fn encode_peer_locator_bytes(
+	transport: &[u8],
+	designator: &[u8],
+	direct_addresses: &[u8],
+) -> Result<Vec<u8>> {
 	let mut out: *mut u8 = core::ptr::null_mut();
 	let mut out_len: usize = 0;
 	check(unsafe {

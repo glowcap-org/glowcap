@@ -8,6 +8,8 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
+const codec = pancake.ocapn.codec;
+const session = pancake.ocapn.session;
 const engine = pancake.ocapn.engine;
 const driver = pancake.driver;
 
@@ -115,4 +117,47 @@ test "stateless GC's fallback walk matches the threaded record for the same nest
     try p1.feedOwned(gc_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     try std.testing.expectEqual(@as(u64, 1), p1.session_state.exports.count(.from(7)));
+}
+
+test "stateless GC releases every answer sharing a resolve callback" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
+        .captp_version = .next,
+    }));
+    defer peer.deinit();
+    try peer.session_state.installOutboundAnswer(.from(5));
+    try peer.session_state.installOutboundAnswer(.from(6));
+    try peer.session_state.installOutboundAnswer(.from(7));
+
+    const storage = try allocator.dupe(u8, "resolve");
+    var event: engine.Event = .{
+        .frame = try pancake.foundation.Frame.initOwned(
+            allocator,
+            storage,
+            .byte,
+            .fromByteUnits(1),
+        ),
+        .tag = .resolve,
+        .codec = .syrup,
+        .captp_version = .next,
+        .answer_override = .{ .resolver_callback = .from(5) },
+        .allocator = allocator,
+    };
+    defer event.deinit();
+    try event.resolve_aliases.append(allocator, .from(6));
+    try event.resolve_aliases.append(allocator, .from(7));
+
+    driver.core.emitStatelessAfter(&peer, &event);
+    try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) == null);
+    try std.testing.expect(peer.session_state.outboundAnswer(.from(6)) == null);
+    try std.testing.expect(peer.session_state.outboundAnswer(.from(7)) == null);
+
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var gc_frame = peer.takeOutbound().?;
+    defer gc_frame.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.next, gc_frame.view());
+    try std.testing.expectEqual(@as(usize, 3), try body.gc_answer.positions.len());
+    try std.testing.expectEqual(@as(u64, 5), try body.gc_answer.positions.at(0));
+    try std.testing.expectEqual(@as(u64, 6), try body.gc_answer.positions.at(1));
+    try std.testing.expectEqual(@as(u64, 7), try body.gc_answer.positions.at(2));
 }

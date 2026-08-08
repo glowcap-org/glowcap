@@ -106,21 +106,22 @@ overflow rather than erroring.
 ### Session-local reuse and Host enrollment
 
 This builds on the sturdyref dedup cache above. Host CapTP enrollment posture
-(not a CapTP `FeatureSet` bit): after a partner's CapTP identity is known
-(`op:start-session` session public key), a Host admits at most one
-non-condemned CapTP session to that identity. Dial-time refuse covers only
-verified identity: dial↔dial by our own dialed designator, and keyed dials
-by partner session key (`HostError.SessionPairExists`). Partner-declared
-`acceptable_location.designator` on address transports is never a dial refuse
-key: the hello signature proves the claim, not ownership of a tcp
-`host:port`. An accepted tcp session therefore does not block
-`openDialedLocator` to that address; post-handshake
-`refuseDuplicatePartnerKey` is the chokepoint, and when two live sessions
-share a partner key the survivor follows the ADR-0068 crossed-hellos key
-order (both ends keep the session the higher-keyed peer opened) rather than
-local arrival order. Crossed-hellos window (ADR-0068): an accept beside an
-in-flight dial remains admitted until inbound start-session;
-`tiebreakInbound` condemns exactly one side so the pair collapses to one.
+(not a CapTP `FeatureSet` bit) keeps three facts distinct. The verified
+`op:start-session` signature proves control of a fresh session key. The signed
+hello also carries the partner's locator claim, but that signature does not
+prove control of the durable key or address named by its designator. Only proof
+from the realized channel authenticates that durable identity (ADR-0097,
+ADR-0105, ADR-0109).
+
+The Host indexes a durable peer for session reuse only when the channel supplied
+that proof. An unauthenticated locator claim, including a key-shaped claim from
+raw keyed TCP or keyed relay, cannot condemn or replace another session. A
+dialed locator still supplies an exact target check, but an expectation is not
+reported as authentication. Crossed hellos match the inbound locator claim
+against the outstanding dial target where the protocol requires that race to be
+resolved, then order the two connections by their distinct session identifiers.
+The tiebreak never treats locator equality as durable-key proof.
+
 `referencesStructurallyEqual` compares `(import_id, kind)` only within one
 session. The sturdyref dedup cache reuses that row for repeated enlivenment on
 the same session, and the sturdyref scenario proves that an ordinary deliver of

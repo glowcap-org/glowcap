@@ -34,6 +34,19 @@ _ARG_STRING, _ARG_SYMBOL, _ARG_VOID, _ARG_REFERENCE, _ARG_LIST = (
 )
 _ARG_SET, _ARG_TAGGED, _ARG_KEYWORD = _abi.ARG_SET, _abi.ARG_TAGGED, _abi.ARG_KEYWORD
 _ARG_BIG_INTEGER = _abi.ARG_BIG_INTEGER
+_FEATURE_FULL = _abi.FEATURE_FULL
+
+
+def _captp_version_id(version: str) -> int:
+    """The ``PANCAKE_CAPTP_*`` id for a CapTP profile name (ADR-0003).
+    ``v1_0`` is the interop floor a Goblins vat speaks; ``next`` is the
+    pancake-to-pancake track ``Offer.native`` prefers with Cap'n Proto."""
+    if version == "v1_0":
+        return _abi.CAPTP_V1_0
+    if version == "next":
+        return _abi.CAPTP_NEXT
+    raise ValueError(f'captp_version must be "v1_0" or "next", got {version!r}')
+
 
 def _codec_id(codec: str) -> int:
     """The ``PANCAKE_CODEC_*`` id for a codec name, the selector
@@ -43,6 +56,31 @@ def _codec_id(codec: str) -> int:
     if codec == "capnp":
         return _abi.CODEC_CAPNP
     raise ValueError(f"unknown OCapN codec {codec!r}")
+
+
+def _feature_mask(features) -> int:
+    """The ``PANCAKE_FEATURE_*`` bitmask for a Host feature offer."""
+    if features == "full":
+        return _abi.FEATURE_FULL
+    if features == "minimum":
+        return _abi.FEATURE_MINIMUM
+    if isinstance(features, int) and not isinstance(features, bool):
+        if features < 0 or features & ~_FEATURE_FULL:
+            raise ValueError(f"unknown OCapN feature mask {features!r}")
+        return features
+    mask = 0
+    for feature in features:
+        if feature == "pipelining":
+            mask |= _abi.FEATURE_PIPELINING
+        elif feature == "handoff":
+            mask |= _abi.FEATURE_HANDOFF
+        elif feature == "wire_delta":
+            mask |= _abi.FEATURE_WIRE_DELTA
+        elif feature == "sturdyref":
+            mask |= _abi.FEATURE_STURDYREF
+        else:
+            raise ValueError(f"unknown OCapN feature {feature!r}")
+    return mask
 
 
 def _ref_to_c(ref: Ref) -> _Reference:

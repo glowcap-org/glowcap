@@ -29,8 +29,15 @@ pub const AFFORDANCE_NAME = "affordance";
 /// The maximum wire frame the demo peers admit. One value, shared by every host.
 pub const frame_cap: usize = 1 << 16;
 
-/// The root the demo stores its `.data/` under; each host owns a subdirectory.
-pub const data_root = "apps/accountability-on-pancake/.data";
+/// Environment override for gate runs that must not dirty the source tree.
+pub const data_root_env = "PANCAKE_ACCOUNTABILITY_DATA_ROOT";
+/// The root the public demo stores its `.data/` under; each host owns a
+/// subdirectory.
+pub const default_data_root = "apps/accountability-on-pancake/.data";
+
+pub fn dataRoot(init: std.process.Init) []const u8 {
+    return init.environ_map.get(data_root_env) orelse default_data_root;
+}
 
 /// The single verb the Affordance answers.
 pub const invoke_verb = "invoke";

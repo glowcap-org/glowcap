@@ -47,40 +47,6 @@ pub fn canonicalLocationSignedBytesRaw(
     return encode.renderRecordExact(allocator, encode.writeMyLocationRecordRaw, .{location_record_bytes});
 }
 
-/// The record label that domain-separates the ADR-0097 durable-key credential:
-/// a `session-key-attestation` locator hint's 64-byte value is the durable
-/// key's Ed25519 signature over the canonical record this label heads.
-pub const session_key_attestation_label = "session-key-attestation-v1";
-
-/// Upper bound on `sessionKeyAttestationSignedBytes` output. The designator is
-/// a 64-hex key spelling and the session key 32 bytes; the headroom bounds the
-/// claimed transport symbol, so an attacker-sized transport fails loud instead
-/// of growing the scratch.
-pub const session_key_attestation_max_bytes = 512;
-
-/// Canonical signed bytes for a `session-key-attestation` credential: the
-/// Syrup encoding of `<session-key-attestation-v1 transport designator
-/// session-pubkey>` (symbol, symbol, string, bytestring). The durable key the
-/// designator names signs exactly these bytes to authorize `session_pubkey`
-/// for that locator identity; a different transport, designator, or session
-/// key invalidates the signature. Fills the caller's buffer — this runs at the
-/// pre-open handshake chokepoint, once per hello, and allocates nothing
-/// (ADR-0097's cost posture). Fields that cannot fit the domain bound are
-/// refused as malformed rather than truncated.
-pub fn sessionKeyAttestationSignedBytes(
-    buf: *[session_key_attestation_max_bytes]u8,
-    transport: []const u8,
-    designator: []const u8,
-    session_pubkey: []const u8,
-) Error![]const u8 {
-    return std.fmt.bufPrint(buf, "<{d}'{s}{d}'{s}{d}\"{s}{d}:{s}>", .{
-        session_key_attestation_label.len, session_key_attestation_label,
-        transport.len,                     transport,
-        designator.len,                    designator,
-        session_pubkey.len,                session_pubkey,
-    }) catch return Error.MalformedFrame;
-}
-
 /// Canonical signed bytes for a `desc:handoff-give`: the Syrup encoding of the
 /// inner `<desc:handoff-give recipient-key exporter-location
 /// gifter-exporter-session gifter-side gift-id>` record, exactly the byte domain

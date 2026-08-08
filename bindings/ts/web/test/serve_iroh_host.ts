@@ -6,7 +6,7 @@
 
 import { listenIroh, Reachability } from "@pancake/iroh";
 
-const server = listenIroh(Reachability.Direct);
+const server = listenIroh({ reachability: Reachability.Direct });
 server.host.publishGiftable("greeter", (verb: string, args: unknown[]) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over iroh relay`;

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://raw.githubusercontent.com/denoland/deno/main/cli/schemas/config-file.v1.json",
+  "name": "@pancake/ocapnviz",
+  "version": "0.0.0",
+  "exports": "./src/main.tsx",
+  "tasks": {
+    "dev": "deno run -A npm:vite",
+    "build": "deno run -A npm:vite build",
+    "preview": "deno run -A npm:vite preview",
+    "typecheck": "deno check src/main.tsx",
+    "test": "deno test -A",
+    "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
+    "lint": "deno lint",
+    "stress-tests": "deno run -A test-data/make-stress-tests.ts"
+  },
+  "nodeModulesDir": "auto",
+  "imports": {
+    "react": "npm:react@^19.2.8",
+    "react/jsx-runtime": "npm:react@^19.2.8/jsx-runtime",
+    "react-dom": "npm:react-dom@^19.2.8",
+    "react-dom/client": "npm:react-dom@^19.2.8/client",
+    "@types/react": "npm:@types/react@^19.2.18",
+    "@types/react-dom": "npm:@types/react-dom@^19.2.4",
+    "zod": "npm:zod@^4.4.3",
+    "pixi.js": "npm:pixi.js@^8.19.0",
+    "pixi-viewport": "npm:pixi-viewport@^6.0.3",
+    "miniplex": "npm:miniplex@^2.0.0",
+    "d3-force": "npm:d3-force@^3.0.0",
+    "@types/d3-force": "npm:@types/d3-force@^3.0.10",
+    "vite": "npm:vite@^8.2.0",
+    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.5",
+    "@deno/vite-plugin": "npm:@deno/vite-plugin@^2.0.3",
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    // The one place this scope's Playwright version is written, for every
+    // script under scripts/. Pinned exactly rather than by range: Playwright
+    // resolves its browser by a build number the version chooses, the
+    // devcontainer image installs the browser .devcontainer/pins.sh names, and
+    // a range here would let the library drift off the browser on disk.
+    // `zig build meta-check` holds the two together.
+    "playwright": "npm:playwright@1.62.1"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "jsxImportSourceTypes": "@types/react",
+    "lib": ["DOM", "DOM.Iterable", "ES2022", "deno.ns"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "include": ["src/", "vite.config.ts", "deno.json"],
+    "exclude": ["dist/", "node_modules/", ".pixi/"]
+  },
+  "lint": {
+    "include": ["src/", "vite.config.ts"],
+    "exclude": ["dist/", "node_modules/", ".pixi/"],
+    "rules": {
+      // `react` alongside the baseline, because this is a React app
+      // whose correctness leans on hook order: a hook reached through a
+      // branch or a loop is a defect no type and no test in this tree
+      // catches, and `react-rules-of-hooks` is the only thing here that
+      // reads for it.
+      "tags": ["recommended", "react"],
+      "exclude": ["no-explicit-any"]
+    }
+  },
+  "test": {
+    "include": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  },
+  "exclude": ["dist/", "node_modules/", ".pixi/"]
+}

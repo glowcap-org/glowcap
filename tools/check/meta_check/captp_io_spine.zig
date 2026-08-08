@@ -1067,6 +1067,11 @@ pub fn check(
             }
         }
         // Rooms iroh dials parse first; hint→Direct, else discovery — never blanket Direct on `://`.
+        // Each `required` names the invariant — the parsed locator itself is
+        // what gets dialed, through the one `connect` — and stops at the
+        // argument that carries it. Pinning a whole argument list makes every
+        // new dial option (a codec, a timeout) read as a violation of a rule
+        // it does not touch.
         const rooms_iroh_dial = [_]struct {
             path: []const u8,
             required: []const u8,
@@ -1079,12 +1084,12 @@ pub fn check(
             },
             .{
                 .path = "apps/rooms/clients/python/room_client.py",
-                .required = "await connect(locator, reach)",
+                .required = "await connect(locator, reach",
                 .banned = &.{"connect_iroh("},
             },
             .{
                 .path = "apps/rooms/clients/racket/room-client.rkt",
-                .required = "(connect locator reach)",
+                .required = "(connect locator reach",
                 .banned = &.{"(connect-iroh "},
             },
             .{
@@ -1233,16 +1238,31 @@ pub fn check(
                 break :iroh_public_surface;
             };
             defer gpa.free(rkt_contents);
-            if (std.mem.indexOf(u8, rkt_contents, "(module* dial #f") == null) {
-                try appendViolation(gpa, violations, "bindings/racket/pancake-iroh.rkt: missing `(module* dial #f)` for connect-iroh/node", .{});
+            // `connect-iroh/node` is binding-internal, and what keeps it that way
+            // is living in the private tree while the barrel re-exports only the
+            // hosting surface. It must not become a submodule again: Racket's
+            // compile manager does not manage submodule requests, so a program
+            // running against compiled bytecode cannot reach one without
+            // re-expanding the module it sits in.
+            if (std.mem.indexOf(u8, rkt_contents, "(module* dial") != null) {
+                try appendViolation(gpa, violations, "bindings/racket/pancake-iroh.rkt: `connect-iroh/node` must stay in private/iroh.rkt, not a `dial` submodule", .{});
             }
-            const rkt_dial = root.readFileAlloc(io, "bindings/racket/private/dial.rkt", gpa, .limited(2 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "bindings/racket/private/dial.rkt: failed to read with {s}", .{@errorName(err)});
+            const rkt_impl = root.readFileAlloc(io, "bindings/racket/private/iroh.rkt", gpa, .limited(2 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh.rkt: failed to read with {s}", .{@errorName(err)});
+                break :iroh_public_surface;
+            };
+            defer gpa.free(rkt_impl);
+            if (std.mem.indexOf(u8, rkt_impl, "(provide connect-iroh/node") == null) {
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh.rkt: must provide `connect-iroh/node` for the binding's dial", .{});
+            }
+            // One owner for reaching the transport, and it loads a plain module.
+            const rkt_dial = root.readFileAlloc(io, "bindings/racket/private/iroh-companion.rkt", gpa, .limited(2 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh-companion.rkt: failed to read with {s}", .{@errorName(err)});
                 break :iroh_public_surface;
             };
             defer gpa.free(rkt_dial);
-            if (std.mem.indexOf(u8, rkt_dial, "(iroh-dial-mod)") == null) {
-                try appendViolation(gpa, violations, "bindings/racket/private/dial.rkt: iroh dial must load `(submod … dial)`", .{});
+            if (std.mem.indexOf(u8, rkt_dial, "(submod") != null) {
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh-companion.rkt: reach the iroh transport as a plain module, never a submodule", .{});
             }
         }
         // keyed_tcp_locator must assemble direct-addresses through
@@ -1389,19 +1409,19 @@ pub fn check(
         const must_have = [_]struct { path: []const u8, needles: []const []const u8 }{
             .{
                 .path = "bindings/python/pancake/_constants.py",
-                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "HINT_DIRECT_ADDRESSES" },
+                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "TRANSPORT_KEYED_RELAY", "TRANSPORT_WEBRTC", "HINT_DIRECT_ADDRESSES" },
             },
             .{
                 .path = "bindings/rust/src/abi_constants.rs",
-                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "HINT_DIRECT_ADDRESSES" },
+                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "TRANSPORT_KEYED_RELAY", "TRANSPORT_WEBRTC", "HINT_DIRECT_ADDRESSES" },
             },
             .{
                 .path = "bindings/ts/stack/locator.ts",
-                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "HINT_DIRECT_ADDRESSES" },
+                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "TRANSPORT_KEYED_RELAY", "TRANSPORT_WEBRTC", "HINT_DIRECT_ADDRESSES" },
             },
             .{
                 .path = "bindings/racket/private/constants.rkt",
-                .needles = &.{ "TRANSPORT-TCP", "TRANSPORT-KEYED-TCP", "TRANSPORT-INPROC", "TRANSPORT-IROH", "HINT-DIRECT-ADDRESSES" },
+                .needles = &.{ "TRANSPORT-TCP", "TRANSPORT-KEYED-TCP", "TRANSPORT-INPROC", "TRANSPORT-IROH", "TRANSPORT-KEYED-RELAY", "TRANSPORT-WEBRTC", "HINT-DIRECT-ADDRESSES" },
             },
         };
         for (must_have) |entry| {

@@ -8,6 +8,16 @@ const model = pancake.ocapn.model;
 const capnp = pancake.ocapn.codec.capnp;
 const handoff_fixtures = @import("handoff_fixtures");
 
+/// Held at container scope so the slice below points at static storage rather
+/// than a temporary in `main`'s frame. `test/codec/capnp_golden_test.zig`
+/// declares the same list for the same reason, and the golden bytes hold the
+/// two in agreement.
+const deposit_gift_args = [_]model.Argument{
+    .{ .symbol = "deposit-gift" },
+    .{ .bytes = "gift-1" },
+    .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
+};
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -22,6 +32,16 @@ pub fn main() !void {
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = .from(42),
+            .resolve_me_desc = null,
+        } } },
+        // The gifter's deposit leg of a three-party handoff, the one
+        // deliver shape here that carries a symbol, a bytestring, and a
+        // reference in one argument list. `engine.Peer.sendDepositGift`
+        // is the definition this mirrors.
+        .{ "op_deliver_deposit_gift.bin", .{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(0) } },
+            .args = &deposit_gift_args,
+            .answer = null,
             .resolve_me_desc = null,
         } } },
         .{ "op_resolve_fulfill.bin", .{ .resolve = .{

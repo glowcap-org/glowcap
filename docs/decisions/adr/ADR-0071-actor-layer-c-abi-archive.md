@@ -10,6 +10,16 @@ superseded_by: [ADR-0072]
 
 # ADR-0071 The actor layer is exposed as an opt-in C ABI archive
 
+> **Scope of supersession.**
+> Superseded by [ADR-0072](ADR-0072-driver-tier-over-c-abi.md). The interim
+> `libpancake_actors` archive this record proposed does not exist; a binding
+> reaches the shared actor layer through `libpancake_host` instead, so there is
+> one host tier rather than a bare vat beside it. What stands is this record's
+> foundation, `Vat.spawnHosted` and `HostedActor`: an embedder still hosts a
+> foreign actor by handing the vat an opaque context and a behavior callback
+> that receives the full `Turn`, and a vat holding one is still refused a
+> snapshot. ADR-0072 consumes that contract rather than replacing it.
+
 ## Context
 
 `actors.Vat` is a sans-io layer above the engine: spawn, near-call, eventual-send,

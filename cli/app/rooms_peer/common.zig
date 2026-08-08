@@ -30,6 +30,44 @@ pub const default_locator = "http://pancake-rooms:8000/locator";
 pub const reply_placeholder = "YOUR REPLY HERE";
 pub const replied_cap: usize = 1200;
 
+/// Derive a dial-only keyed-relay rendezvous URL from an `http://host:port/…`
+/// rooms locator bootstrap (`ws://host:port/relay`). Returns null for
+/// `https://` (native keyed-relay speaks cleartext `ws://` only), non-http
+/// locators, or a host:port the relay URL grammar refuses. `localhost` maps to
+/// `127.0.0.1` because `RelayUrl` admits IP literals only. The caller owns the
+/// returned string for the resident's life (`RelayUrl` borrows it).
+pub fn deriveRendezvousUrl(gpa: Allocator, locator: []const u8) Allocator.Error!?[]u8 {
+    const scheme = "http://";
+    if (!std.mem.startsWith(u8, locator, scheme)) return null;
+    const rest = locator[scheme.len..];
+    const slash = std.mem.indexOfScalar(u8, rest, '/') orelse rest.len;
+    const hostport = rest[0..slash];
+    if (hostport.len == 0) return null;
+    const colon = std.mem.lastIndexOfScalar(u8, hostport, ':') orelse return null;
+    var host = hostport[0..colon];
+    const port = hostport[colon + 1 ..];
+    if (host.len == 0 or port.len == 0) return null;
+    if (std.mem.eql(u8, host, "localhost")) host = "127.0.0.1";
+    const url = try std.fmt.allocPrint(gpa, "ws://{s}:{s}/relay", .{ host, port });
+    errdefer gpa.free(url);
+    _ = net.keyed_relay.RelayUrl.parse(url) catch {
+        gpa.free(url);
+        return null;
+    };
+    return url;
+}
+
+/// Resolve rendezvous URL: `PANCAKE_RENDEZVOUS` when set, else derive from an
+/// `http://…/locator` bootstrap. Owned string or null. An explicit env value
+/// that fails `RelayUrl.parse` is `error.InvalidRendezvousUrl`.
+pub fn resolveRendezvousUrl(gpa: Allocator, environ_rendezvous: ?[]const u8, locator: []const u8) (Allocator.Error || error{InvalidRendezvousUrl})!?[]u8 {
+    if (environ_rendezvous) |url| {
+        _ = net.keyed_relay.RelayUrl.parse(url) catch return error.InvalidRendezvousUrl;
+        return try gpa.dupe(u8, url);
+    }
+    return deriveRendezvousUrl(gpa, locator);
+}
+
 /// The longest nickname this peer will mint an inbox for, matching `MAX_NICK` in
 /// `apps/rooms/lib/limits.ts`. The name arrives from the directory on a peer's
 /// say-so, and it ends up inside a bootstrap swissnum this process keeps for

@@ -27,6 +27,7 @@ const model = @import("model");
 
 const framing = @import("framing");
 pub const Prefix = framing.Prefix;
+pub const Boundary = framing.Boundary;
 const registry = @import("registry.zig");
 const Spec = registry.Spec;
 
@@ -38,6 +39,17 @@ pub const Error = registry.Error;
 /// Project the borrowed codec-neutral body from `frame` using `codec`.
 pub fn decodeBody(codec: model.CodecId, frame: foundation.FrameView) Error!model.view.Body {
     return decodeBodyWith(registry.active, codec, frame);
+}
+
+pub fn decodeBodyForProfile(
+    codec: model.CodecId,
+    profile: model.CaptpVersion,
+    frame: foundation.FrameView,
+) Error!model.view.Body {
+    inline for (registry.active) |spec| {
+        if (codec == spec.id) return spec.module.decodeBodyForProfile(profile, frame);
+    }
+    return error.UnknownCodec;
 }
 
 pub fn decodeBodyWith(
@@ -63,8 +75,20 @@ pub fn decodePrefix(codec: model.CodecId, bytes: []const u8, max_frame_bytes: us
     return decodePrefixWith(registry.active, codec, bytes, max_frame_bytes);
 }
 
-/// Frame the front of a growing stream buffer: the one entry point a byte-stream
-/// consumer calls, and the only framing vocabulary it needs.
+pub fn decodePrefixForProfile(
+    codec: model.CodecId,
+    profile: model.CaptpVersion,
+    bytes: []const u8,
+    max_frame_bytes: usize,
+) Prefix {
+    inline for (registry.active) |spec| {
+        if (codec == spec.id) return spec.module.decodePrefixForProfile(profile, bytes, max_frame_bytes);
+    }
+    return .malformed;
+}
+
+/// Frame the front of a growing stream buffer without projecting a semantic
+/// body: the one entry point a peer-less byte-stream consumer calls.
 ///
 /// A consumer appends bytes and asks again. Asking `decodePrefix` every time
 /// re-walks the frame from its first byte on every read, which is work
@@ -79,7 +103,7 @@ pub fn decodePrefix(codec: model.CodecId, bytes: []const u8, max_frame_bytes: us
 ///   record, never closes it, and grows the consumer's buffer without end.
 /// - Below `scan_threshold_bytes` the re-walk is too small to be worth
 ///   delaying a malformed frame's refusal for, so the scan is skipped.
-/// - Once a frame is decoded the front of the buffer moves, so the scan's
+/// - Once a frame is complete the front of the buffer moves, so the scan's
 ///   position is void and it is reset.
 ///
 /// `scan` is per stream, not per buffer: successive calls must describe the
@@ -92,19 +116,49 @@ pub fn framePrefix(
     bytes: []const u8,
     scan: *framing.StreamScan,
     max_frame_bytes: usize,
+) Boundary {
+    if (bytes.len > framing.scan_threshold_bytes and
+        scanStream(codec, bytes, scan, max_frame_bytes) == .need_more)
+    {
+        return if (bytes.len >= max_frame_bytes) .too_large else .incomplete;
+    }
+    const prefix = framePrefixWith(registry.active, codec, bytes, max_frame_bytes);
+    if (prefix == .complete) scan.reset();
+    // A codec refuses a prefix *longer* than the cap, which leaves the prefix
+    // that is exactly the cap and still open. It cannot complete within the cap
+    // either, so it is refused here rather than read past. Consumers used to
+    // carry this as a second, wider mirror of their own, which is how the two
+    // engine entry points came to differ by a single byte.
+    if (prefix == .incomplete and bytes.len >= max_frame_bytes) return .too_large;
+    return prefix;
+}
+
+pub fn framePrefixWith(
+    comptime specs: []const Spec,
+    codec: model.CodecId,
+    bytes: []const u8,
+    max_frame_bytes: usize,
+) Boundary {
+    inline for (specs) |spec| {
+        if (codec == spec.id) return spec.module.framePrefix(bytes, max_frame_bytes);
+    }
+    return .malformed;
+}
+
+pub fn framePrefixForProfile(
+    codec: model.CodecId,
+    profile: model.CaptpVersion,
+    bytes: []const u8,
+    scan: *framing.StreamScan,
+    max_frame_bytes: usize,
 ) Prefix {
     if (bytes.len > framing.scan_threshold_bytes and
         scanStream(codec, bytes, scan, max_frame_bytes) == .need_more)
     {
         return if (bytes.len >= max_frame_bytes) .too_large else .incomplete;
     }
-    const prefix = decodePrefix(codec, bytes, max_frame_bytes);
+    const prefix = decodePrefixForProfile(codec, profile, bytes, max_frame_bytes);
     if (prefix == .decoded) scan.reset();
-    // A codec refuses a prefix *longer* than the cap, which leaves the prefix
-    // that is exactly the cap and still open. It cannot complete within the cap
-    // either, so it is refused here rather than read past. Consumers used to
-    // carry this as a second, wider mirror of their own, which is how the two
-    // engine entry points came to differ by a single byte.
     if (prefix == .incomplete and bytes.len >= max_frame_bytes) return .too_large;
     return prefix;
 }
@@ -138,7 +192,7 @@ pub fn scanStreamWith(
             return spec.module.scanStream(bytes, scan, max_frame_bytes);
         }
     }
-    // An unregistered codec cannot frame; let `decodePrefix` say so.
+    // An unregistered codec cannot frame; let `framePrefix` say so.
     return .ready;
 }
 

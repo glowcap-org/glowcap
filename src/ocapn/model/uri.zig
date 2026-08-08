@@ -10,7 +10,8 @@
 //! Parsing delegates to `std.Uri` for RFC 3986 decomposition; percent-decoding
 //! uses `std.Uri.percentDecodeInPlace`. OCapN-specific splits (last-dot
 //! transport, `/s/` sturdyref, query key=value pairs on percent-encoded form)
-//! live here.
+//! live here. A V1.0 sturdyref's swiss number is unpadded base64url, matching
+//! Goblins; `next` keeps the current draft's RFC 3986-escaped raw string.
 //!
 //! Query hints carry no wire type system, so parsing always yields `string`
 //! hint values. Writing a typed `HintValue` is a write-side convenience: an
@@ -25,6 +26,7 @@ pub const Error = error{
     MissingTransport,
     EmptyComponent,
     MalformedPath,
+    InvalidSwissNumber,
     MalformedHint,
     UnsupportedHintValue,
     UriParseError,
@@ -137,7 +139,16 @@ pub fn parsePeer(allocator: std.mem.Allocator, uri_str: []const u8) Error!model.
     return .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
 }
 
+/// Parse the baseline Goblins-compatible sturdyref URI form.
 pub fn parseSturdyref(allocator: std.mem.Allocator, uri_str: []const u8) Error!model.SturdyRef {
+    return parseSturdyrefForProfile(allocator, .v1_0, uri_str);
+}
+
+pub fn parseSturdyrefForProfile(
+    allocator: std.mem.Allocator,
+    profile: model.CaptpVersion,
+    uri_str: []const u8,
+) Error!model.SturdyRef {
     const uri = try parseUri(uri_str);
     if (!std.mem.eql(u8, uri.scheme, scheme_str)) return Error.NotOcapnUri;
 
@@ -150,7 +161,7 @@ pub fn parseSturdyref(allocator: std.mem.Allocator, uri_str: []const u8) Error!m
     if (!std.mem.startsWith(u8, path_pe, sturdyref_path_prefix)) return Error.MalformedPath;
     const swiss_pe = path_pe[sturdyref_path_prefix.len..];
 
-    const swissnum = try percentDecodeOwned(allocator, swiss_pe);
+    const swissnum = try decodeSwissNumber(allocator, profile, swiss_pe);
     errdefer allocator.free(swissnum);
 
     const hints = try decodeHints(allocator, uri.query);
@@ -158,6 +169,30 @@ pub fn parseSturdyref(allocator: std.mem.Allocator, uri_str: []const u8) Error!m
         .peer = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints },
         .swissnum = swissnum,
     };
+}
+
+fn decodeSwissNumber(
+    allocator: std.mem.Allocator,
+    profile: model.CaptpVersion,
+    swiss_pe: []const u8,
+) Error![]u8 {
+    if (profile == .next) return percentDecodeOwned(allocator, swiss_pe);
+
+    // Base64url itself needs no escaping, but URI parsing happens before the
+    // profile grammar, so accept an RFC 3986 spelling of an alphabet byte.
+    var encoded_owned: ?[]u8 = null;
+    defer if (encoded_owned) |encoded| allocator.free(encoded);
+    const encoded = if (std.mem.indexOfScalar(u8, swiss_pe, '%') != null) blk: {
+        encoded_owned = try percentDecodeOwned(allocator, swiss_pe);
+        break :blk encoded_owned.?;
+    } else swiss_pe;
+
+    const decoder = std.base64.url_safe_no_pad.Decoder;
+    const decoded_len = decoder.calcSizeForSlice(encoded) catch return Error.InvalidSwissNumber;
+    const decoded = try allocator.alloc(u8, decoded_len);
+    errdefer allocator.free(decoded);
+    decoder.decode(decoded, encoded) catch return Error.InvalidSwissNumber;
+    return decoded;
 }
 
 /// A `host:port` designator split into its two halves. `host` borrows the
@@ -230,7 +265,7 @@ pub fn tcpConnectHostPort(
 pub fn writePeer(allocator: std.mem.Allocator, locator: model.PeerLocator) Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    try writeInto(allocator, &out, locator, null);
+    try writeInto(allocator, &out, locator, .v1_0, null);
     return try out.toOwnedSlice(allocator);
 }
 
@@ -253,10 +288,19 @@ pub fn canonicalPeerIdentityUri(allocator: std.mem.Allocator, uri_str: []const u
     return writePeer(allocator, bare);
 }
 
+/// Render the baseline Goblins-compatible sturdyref URI form.
 pub fn writeSturdyref(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) Error![]u8 {
+    return writeSturdyrefForProfile(allocator, .v1_0, sturdyref);
+}
+
+pub fn writeSturdyrefForProfile(
+    allocator: std.mem.Allocator,
+    profile: model.CaptpVersion,
+    sturdyref: model.SturdyRef,
+) Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    try writeInto(allocator, &out, sturdyref.peer, sturdyref.swissnum);
+    try writeInto(allocator, &out, sturdyref.peer, profile, sturdyref.swissnum);
     return try out.toOwnedSlice(allocator);
 }
 
@@ -264,6 +308,7 @@ fn writeInto(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
     locator: model.PeerLocator,
+    profile: model.CaptpVersion,
     swissnum: ?[]const u8,
 ) Error!void {
     try out.appendSlice(allocator, "ocapn://");
@@ -277,7 +322,14 @@ fn writeInto(
     try appendPercentEncoded(allocator, out, locator.transport, safeTransport);
     if (swissnum) |swiss| {
         try out.appendSlice(allocator, sturdyref_path_prefix);
-        try appendPercentEncoded(allocator, out, swiss, safePath);
+        switch (profile) {
+            .v1_0 => {
+                const encoder = std.base64.url_safe_no_pad.Encoder;
+                const encoded = try out.addManyAsSlice(allocator, encoder.calcSize(swiss.len));
+                _ = encoder.encode(encoded, swiss);
+            },
+            .next => try appendPercentEncoded(allocator, out, swiss, safePath),
+        }
     }
     if (locator.hints.entries.len > 0) {
         try out.append(allocator, '?');

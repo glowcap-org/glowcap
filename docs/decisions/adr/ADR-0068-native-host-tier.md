@@ -3,7 +3,7 @@ id: ADR-0068
 status: accepted
 date: 2026-07-05
 tags: [driver, actors, handoff, three-party, host, crossed-hellos, api]
-decision: "The native multi-connection tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered connections. An introduction is a typed third outcome (`actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there)) and the native spellings of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every connection, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connections compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
+decision: "The native multi-connection tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered connections. An introduction is a typed third outcome (`actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there)) and the native forms of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every connection, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connections compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
 supersedes: []
 superseded_by: []
 amends: []
@@ -42,7 +42,7 @@ can observe; the actors layer had no seam for it.
 
 ## Decision
 
-One composite owns what the bindings' composites own, spelled Zig-natively.
+One composite owns what the bindings' composites own, expressed in Zig.
 
 `driver.core.Host` holds the identity seed, the `engine.Node`, the netlayer slice,
 and a crossed-hellos registry. `Host.dial` and `Host.listen`/`accept` mint

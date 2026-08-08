@@ -26,12 +26,28 @@
 ;; out-param is a fresh caller-owned cell inside a generated or bespoke
 ;; wrapper; star-suffixed raw stubs stay unprovided. Callers see
 ;; `(values rc …)` only.
-(require "ffi-host-gen.rkt"
+(require ffi/unsafe
+         "ffi-host-gen.rkt"
          "ffi-shared.rkt")
 (provide (except-out (all-from-out "ffi-host-gen.rkt")
                      pancake_host_pending_dial*)
          (all-from-out "ffi-shared.rkt")
+         pancake_host_set_advertised_locator
+         pancake_host_ensure_advertised_locator
+         pancake_host_remove_advertised_locator
          pancake_host_pending_dial)
+
+;; The generated table covers the archive inventory; this handwritten loader
+;; binds the locator-state exports that are outside that inventory.
+(define pancake_host_set_advertised_locator
+  (get-ffi-obj "pancake_host_set_advertised_locator" driver-lib
+               (_fun _pointer _pointer _size -> _int32)))
+(define pancake_host_ensure_advertised_locator
+  (get-ffi-obj "pancake_host_ensure_advertised_locator" driver-lib
+               (_fun _pointer _pointer _size -> _int32)))
+(define pancake_host_remove_advertised_locator
+  (get-ffi-obj "pancake_host_remove_advertised_locator" driver-lib
+               (_fun _pointer _pointer _size -> _int32)))
 
 ;; Borrow the pending dial for `ticket` (no URI re-parse) and materialize the
 ;; three views as fresh byte copies before the borrow window closes. Returns

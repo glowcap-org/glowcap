@@ -4,44 +4,78 @@
 ;; `zig build gen-binding-ffi-layouts-check` (part of `check`) fails when
 ;; this is stale.
 ;;
-;; Expected sizes the hand-mirrored cstructs in ffi-shared.rkt,
-;; ffi-host.rkt, and ffi-iroh.rkt pass as pin-layout!'s want-size: values
-;; come from @sizeOf on the real Zig C ABI types. pin-layout! also
-;; re-derives each cstruct's field order and types from ctype->layout, a
-;; stronger check than an offset list, so the kind-based layout
-;; (pointer/fpointer/…) stays hand-authored and only want-size is
-;; generated here.
+;; The size and the ctype->layout kind list the hand-mirrored cstructs
+;; in ffi-shared.rkt, ffi-iroh.rkt, and ffi-webrtc.rkt pass to
+;; pin-layout!. Both come off @sizeOf/@offsetOf on the real Zig C ABI
+;; types, so pin-layout! compares a cstruct against the ABI itself
+;; rather than against a hand-copied expectation beside it. Function
+;; pointers are stated as `pointer`; pin-layout! normalizes the
+;; cstruct's `fpointer` slots the same way.
 
 (provide
   PANCAKE-REFERENCE-SIZE
+  PANCAKE-REFERENCE-LAYOUT
   PANCAKE-ARGUMENT-SIZE
+  PANCAKE-ARGUMENT-LAYOUT
   PANCAKE-FRAME-SIZE
+  PANCAKE-FRAME-LAYOUT
   PANCAKE-MANAGED-FRAME-SIZE
+  PANCAKE-MANAGED-FRAME-LAYOUT
   PANCAKE-LAST-ABORT-SIZE
+  PANCAKE-LAST-ABORT-LAYOUT
   PANCAKE-ALLOCATOR-SIZE
+  PANCAKE-ALLOCATOR-LAYOUT
   PANCAKE-HOST-ACTION-SIZE
+  PANCAKE-HOST-ACTION-LAYOUT
   PANCAKE-DIAL-PLAN-SIZE
+  PANCAKE-DIAL-PLAN-LAYOUT
   PANCAKE-ACCEPT-PLAN-SIZE
+  PANCAKE-ACCEPT-PLAN-LAYOUT
   PANCAKE-PENDING-DIAL-SIZE
+  PANCAKE-PENDING-DIAL-LAYOUT
   PANCAKE-PARTNER-IDENTITY-SIZE
+  PANCAKE-PARTNER-IDENTITY-LAYOUT
+  PANCAKE-TRACE-EVENT-SIZE
+  PANCAKE-TRACE-EVENT-LAYOUT
   PANCAKE-HOST-PUMP-HOOKS-SIZE
+  PANCAKE-HOST-PUMP-HOOKS-LAYOUT
   PANCAKE-IROH-READY-EVENT-SIZE
+  PANCAKE-IROH-READY-EVENT-LAYOUT
   PANCAKE-WEBRTC-READY-EVENT-SIZE
+  PANCAKE-WEBRTC-READY-EVENT-LAYOUT
   PANCAKE-IROH-CONFIG-SIZE
+  PANCAKE-IROH-CONFIG-LAYOUT
 )
 
 (define PANCAKE-REFERENCE-SIZE 8)
+(define PANCAKE-REFERENCE-LAYOUT '(uint64))
 (define PANCAKE-ARGUMENT-SIZE 64)
+(define PANCAKE-ARGUMENT-LAYOUT '(uint32 uint32 int64 double pointer uint64 (uint64) pointer uint64))
 (define PANCAKE-FRAME-SIZE 24)
+(define PANCAKE-FRAME-LAYOUT '(pointer uint64 uint32))
 (define PANCAKE-MANAGED-FRAME-SIZE 40)
+(define PANCAKE-MANAGED-FRAME-LAYOUT '(pointer uint64 uint32 pointer pointer))
 (define PANCAKE-LAST-ABORT-SIZE 56)
+(define PANCAKE-LAST-ABORT-LAYOUT '(uint32 uint32 pointer uint64 pointer uint64 pointer uint64))
 (define PANCAKE-ALLOCATOR-SIZE 24)
+(define PANCAKE-ALLOCATOR-LAYOUT '(pointer pointer pointer))
 (define PANCAKE-HOST-ACTION-SIZE 104)
+(define PANCAKE-HOST-ACTION-LAYOUT '(uint32 uint64 pointer (uint32 uint32 int64 double pointer uint64 (uint64) pointer uint64) pointer uint64))
 (define PANCAKE-DIAL-PLAN-SIZE 56)
+(define PANCAKE-DIAL-PLAN-LAYOUT '(uint32 pointer uint64 uint16 pointer uint64 uint32 uint32))
 (define PANCAKE-ACCEPT-PLAN-SIZE 32)
+(define PANCAKE-ACCEPT-PLAN-LAYOUT '(pointer uint64 pointer uint64))
 (define PANCAKE-PENDING-DIAL-SIZE 48)
+(define PANCAKE-PENDING-DIAL-LAYOUT '(pointer uint64 pointer uint64 pointer uint64))
 (define PANCAKE-PARTNER-IDENTITY-SIZE 56)
+(define PANCAKE-PARTNER-IDENTITY-LAYOUT '(pointer uint64 pointer uint64 pointer uint64 uint32))
+(define PANCAKE-TRACE-EVENT-SIZE 144)
+(define PANCAKE-TRACE-EVENT-LAYOUT '(uint32 uint64 uint8 uint32 uint32 uint32 pointer uint64 pointer uint64 pointer uint64 pointer uint64 pointer uint64 uint64 uint64 #(uint8 16)))
 (define PANCAKE-HOST-PUMP-HOOKS-SIZE 48)
+(define PANCAKE-HOST-PUMP-HOOKS-LAYOUT '(pointer pointer pointer pointer pointer pointer))
 (define PANCAKE-IROH-READY-EVENT-SIZE 16)
+(define PANCAKE-IROH-READY-EVENT-LAYOUT '(uint64 uint32))
 (define PANCAKE-WEBRTC-READY-EVENT-SIZE 16)
-(define PANCAKE-IROH-CONFIG-SIZE 16)
+(define PANCAKE-WEBRTC-READY-EVENT-LAYOUT '(uint64 uint32))
+(define PANCAKE-IROH-CONFIG-SIZE 32)
+(define PANCAKE-IROH-CONFIG-LAYOUT '(uint32 uint64 uint64 uint32))

@@ -7,8 +7,9 @@ Before changing code, read [the vision](docs/vision.md) and the section of
 [the architecture](docs/architecture.md) you will touch. [AGENTS.md](AGENTS.md)
 routes agents and human contributors to the same focused rules.
 
-This is a one-person project, so reviews are best-effort. A small change with a
-green `zig build check` is the easiest to review. Use the
+This is a one-person project, so reviews are best-effort. A narrow change with
+the right check is easiest to review. Read only the context needed, then widen
+when a claim crosses a boundary. Use the
 [issue tracker](https://github.com/jimisaacs/pancake/issues) for questions.
 
 ## Design boundaries
@@ -24,6 +25,10 @@ These rules define what fits the project:
 - The session owns authority. Codecs and adapters do not decide whether a
   reference is valid.
 - Every wire-path allocation or copy is forbidden, intentional, or measured.
+- A fact has one owner. Prefer a generated mirror or check step over a
+  hand-kept copy.
+- Update docs kept in step with today's code in the same change as the code
+  they describe. A claim that outlives the code is worse than no claim.
 
 Changes to protocol semantics, session state, negotiation, vocabulary, or
 codec, netlayer, and layer boundaries need a decision record. Copy
@@ -83,7 +88,7 @@ zig build arch-check                   # dependency layers and core I/O ban
 zig build examples                     # public examples
 zig build cli-test                     # CapTP CLI golden tests
 zig build fuzz                         # parsers and other untrusted inputs
-zig build rust-dogfood                 # Rust C ABI smoke test
+zig build rust-dogfood                 # Rust binding check against the C ABI
 zig build bindings                     # all language binding smoke tests
 zig build bench-codec                  # codec and dispatch measurements
 ```

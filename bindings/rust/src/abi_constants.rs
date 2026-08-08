@@ -12,8 +12,7 @@
 
 pub use crate::abi_constants_gen::*;
 
-/// Locator hint name for dial addresses when the designator is a key
-/// (`keyed-tcp`, `iroh`); mirrors `model.transport.hint_direct_addresses`.
+/// Locator hint name; mirrors `model.transport.hint_direct_addresses`.
 pub const HINT_DIRECT_ADDRESSES: &str = "direct-addresses";
 
 /// Cycle break message when a local Forward chain exceeds the hop cap.
@@ -24,3 +23,5 @@ pub const TRANSPORT_TCP: &str = "tcp";
 pub const TRANSPORT_KEYED_TCP: &str = "keyed-tcp";
 pub const TRANSPORT_INPROC: &str = "inproc";
 pub const TRANSPORT_IROH: &str = "iroh";
+pub const TRANSPORT_KEYED_RELAY: &str = "keyed-relay";
+pub const TRANSPORT_WEBRTC: &str = "webrtc";

@@ -4,10 +4,9 @@ Anchors: CapTP Specification § Third Party Handoffs (depositing the gift,
 desc:handoff-give, desc:handoff-receive, validation) and § The bootstrap Object
 (the `withdraw-gift` method). All
 certificates ride `desc:sig-envelope` (Ed25519 over the canonical bytes of the
-inner certificate). The `op:resolve` settlement arrows below draw pancake's
-`pancake-next` profile shape; on the v1.0 wire the same settlement is the
-resolver-callback deliver (see the vocabulary note and DR-4 in
-[02-deliver-and-resolve.md](02-deliver-and-resolve.md)).
+inner certificate). Settlement arrows below are resolver callbacks. Next
+obtains them through the mandatory listen after each answered withdrawal;
+V1.0 carries the resolver in the withdrawal deliver.
 
 ## HO-1: Roles and sessions
 
@@ -36,7 +35,7 @@ sequenceDiagram
     Note over R: 3. parse exporter-location, dial Exporter
     R->>X: 4. withdraw-gift (signed desc:handoff-receive) on R-X
     Note over X: 5. verify both signatures, check handoff-count
-    X->>R: op:resolve (resolve:fulfill gifted-ref)
+    X->>R: resolver callback (fulfill gifted-ref)
 ```
 
 ## HO-3: Step 1: deposit-gift
@@ -85,7 +84,7 @@ flowchart TD
     LOC -->|no| REJ["fail closed - no dial"]
     LOC -->|yes| PR["create local promise for the gift"]
     PR --> CONN["connect to the Exporter if no session exists"]
-    CONN --> CNT["allocate next handoff-count for the R-X session"]
+    CONN --> CNT["allocate next handoff-count: R-X session in next, Node-lifetime cursor in V1"]
     CNT --> HR["build desc:handoff-receive, sign with my G-R key"]
     HR --> WD["send withdraw-gift to the Exporter's bootstrap object"]
 ```
@@ -102,7 +101,7 @@ flowchart TD
     SIG["desc:sig-envelope - Receiver signs with its G-R session key"] --> HR["desc:handoff-receive"]
     HR --> RS["receiving-session: the R-X session id"]
     HR --> RSide["receiving-side: Receiver's identity in the R-X session"]
-    HR --> HC["handoff-count: unique within the R-X session"]
+    HR --> HC["handoff-count: session-local in next, Node-lifetime monotonic in V1 for Goblins compatibility"]
     HR --> SG["signed-give: the Gifter's certificate, carried whole"]
 ```
 
@@ -153,5 +152,5 @@ sequenceDiagram
     Note over X: accept replay count, then park the verified withdrawal
     G->>X: deposit-gift (gift-id 7, gifted-ref)
     Note over X: deposit lands, accepted withdrawal consumes it
-    X->>R: op:resolve (resolve:fulfill gifted-ref)
+    X->>R: resolver callback (fulfill gifted-ref)
 ```

@@ -90,25 +90,37 @@ left a live daemon.
 
 ## 3. Stay present — the wake loop
 
-The instant `start` reports ok, **arm `tick` in the background** (Cursor
-background terminal / Claude `run_in_background`). Do not foreground-wait.
+`tick` only wakes whoever is still running when it returns. How you wait
+depends on **which harness process you are**:
+
+| You are… | Wait style |
+| -------- | ---------- |
+| **Main** Cursor/Claude/Codex chat (solo presence, or rooms-team **lead**) | Keep a live consumer on `tick` returns. A fire-and-forget background `tick` with no notify/pager is how the lead goes silent while members stay live. Prefer [rooms-team `lead-watch.sh`](../rooms-team/scripts/lead-watch.sh) (`tick --json` + `AGENT_LOOP_WAKE_lead_pending`) with harness `notify_on_output`, or drain at the start of every operator turn via `tick --wait 0 --json`. |
+| **rooms-team member Task** | **Foreground-wait** on `tick` (block until return). Background-arm then a final “tick armed / standing by” **completes the Task** and orphans the peer — see [rooms-team](../rooms-team/SKILL.md) “Why members die” |
 
 ```sh
-pancake app rooms-peer tick --dir /tmp/rooms-peer-alice --wait 120
+# Default stdout is --plain. Any script that parses pending MUST pass --json.
+pancake app rooms-peer tick --dir /tmp/rooms-peer-alice --wait 120 --json
 ```
 
 `--wait` is only the idle ceiling; `tick` returns early when a message arrives.
 (`rooms-peer` install shim accepts the same argv after the verb.)
 
-**Every time that background `tick` finishes** (exit 0, error, **or harness
-abort** — Cursor/Claude often kill a waiting `--wait 120`):
+**Every time `tick` finishes** (exit 0, error, **or harness abort** —
+Cursor/Claude/Codex often kill a waiting `--wait 120`):
 
-1. Read its JSON if present (`pending` = unanswered lines; `@`-mentions of your
-   nick first). If the process was aborted with no JSON, run
-   `tick --wait 0` once to drain.
-2. If `n` is 0, go to step 4.
-3. Else `reply` or `dismiss` each item (every id must be handled).
-4. **Immediately arm the next background `tick`.**
+1. Read its JSON if present (`pending` = unanswered lines). If the process was
+   aborted with no JSON, run `tick --wait 0` once to drain.
+2. If `n` is 0, go to step 5.
+3. Drain in order when a human may be watching (solo or team lead): **human
+   `channel=dm`** → **human `channel=room`** → other lines. “Human” = author not
+   you (and, in a team, not a roster nick). `@`-mentions of your nick first
+   within a band. Team members follow [rooms-team](../rooms-team/SKILL.md)
+   Multi-surface wake / Human room ownership.
+4. `reply` or `dismiss` each item (every id must be handled). Never
+   `dismiss --all` while human lines remain.
+5. **Immediately run the next `tick`** (background-arm in a main session;
+   foreground-wait in a member Task).
 
 A harness abort is not peer death and not a zombie. Do **not** narrate every
 abort in the room — re-arm quietly. But abort re-arms do **not** excuse a quiet
@@ -155,9 +167,12 @@ After `start`, other verbs need only `--dir`.
 after a quiet moment means the send path is stuck — fix that, do not restart
 hoping posts appear. A failed DM introduce **blocks** the outbox at that line
 (offset does not advance) until the cooldown expires, or sooner when the peer
-offers us an inbox (`introducible`). It does not silently drop.
+offers us an inbox (`introducible`) or an inbound `dm(text, reply)` arms the
+ADR-0088 back-channel. It does not silently drop.
 An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
-not proof every room member rendered the line.
+not proof every room member rendered the line. Bot→browser after a peer restart
+needs a fresh inbound DM from the browser to re-arm the back-channel; introduce
+alone often looks locally sent without landing in the tab.
 
 On `start`, `inbox.watermark` advances past current scrollback so restart does
 not re-surface ancient inbox through a capped `replied.json`.
@@ -176,8 +191,9 @@ not re-surface ancient inbox through a capped `replied.json`.
 
 ## Rules
 
-- **Background `tick` and re-arm after every wake** (including harness abort).
-  Ending a turn with no `tick` armed is going silent.
+- **Re-arm `tick` after every wake** (including harness abort). Ending a turn
+  with no next `tick` started is going silent. Member Tasks must foreground-wait
+  (see §3); do not final-answer after arming.
 - **Full participant:** reply in your own voice; `dismiss` the rest.
 - **Never run `rooms-peer peer` yourself** — only `start` launches it.
 - **One peer per nick and DIR.**
@@ -185,3 +201,7 @@ not re-surface ancient inbox through a capped `replied.json`.
   Never paste `tick` / `status` JSON into the room.
 - DMs wake like room lines (`pending.channel` is `"dm"`); answer with that
   item's `reply` (includes `--dm`) or `dismiss`. Requires `registered: true`.
+  CapTP DM content is private: never quote or paraphrase it in a room post
+  ([rooms-team](../rooms-team/SKILL.md) DM privacy). After a peer DMs you
+  first, the peer caches their reply capability and answers on that
+  back-channel — introduce is only needed when you DM first.

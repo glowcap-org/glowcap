@@ -92,11 +92,10 @@
 
 ;; ── The bounded wait ──────────────────────────────────────────────────────────
 ;; How long a partner has to finish the keyed handshake once its byte channel
-;; is open. Matches the CLI's own product default, and the Rust binding's
-;; `HANDSHAKE_TIMEOUT`. Something finite is the point: an unbounded CapTP wait
-;; is a hang rather than a slow success. It lives here, beside the deadline it
-;; feeds, because dial and accept bound their handshake with the one constant.
-(define HANDSHAKE-TIMEOUT-MS 10000)
+;; is open. The value itself is the C ABI's (`PANCAKE_HANDSHAKE_TIMEOUT_MS`),
+;; arriving through `constants.rkt`, so the four bindings promise one number
+;; rather than four. Something finite is the point: an unbounded CapTP wait is
+;; a hang rather than a slow success.
 
 ;; The absolute `current-inexact-milliseconds` a bounded pump must not outlive,
 ;; or #f for an unbounded one. A partner that connects and then says nothing
@@ -135,9 +134,10 @@
   (check/host (pancake_host_session_break_far_vows
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
 
-;; Pop every encoded outbound frame on `c` into its pending-writes FIFO, in
-;; queue order. Caller holds the host lock (`take_outbound` is a host verb);
-;; the socket write happens after the lock releases, through `write-pending!`.
+;; Pop every encoded outbound frame on `c` into its pending-writes FIFO as a
+;; canonical Syrup byte-string prefix followed by the bare frame. Caller holds
+;; the host lock (`take_outbound` is a host verb); the socket write happens
+;; after the lock releases, through `write-pending!`.
 (define (drain-outbound! c)
   (unless (session-released? c)
     (let loop ()
@@ -149,6 +149,9 @@
          (check/host rc)
          (define out (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
          (pancake_managed_frame_release mf)
+         (async-channel-put
+          (session-pending-writes c)
+          (string->bytes/utf-8 (format "~a:" (bytes-length out))))
          (async-channel-put (session-pending-writes c) out)
          (loop)]))))
 

@@ -9,10 +9,22 @@
 //! Both would have failed this check the day they were written.
 //!
 //! The rule is deliberately narrow, so it fires on real drift and not on
-//! ordinary prose: a backticked `Type.method` where `Type` is capitalized and
-//! `method` is lower camelCase must have `method` declared as a function
-//! somewhere under `src/`. Cross-module and standard-library spellings are
-//! skipped by prefix, since their declarations are not in this tree.
+//! ordinary prose: a backticked path whose last two segments read
+//! `Type.method`, with `Type` capitalized and `method` lower camelCase, must
+//! have `method` declared as a function somewhere under `src/`. The leading
+//! module names are ignored rather than disqualifying, because
+//! `engine.Peer.sendKeyedStartSession` is how this tree usually writes the
+//! claim and reading only the bare spelling left most of them unchecked.
+//! Standard-library paths are skipped by their `std.` prefix, and a short list
+//! of type names declared outside this tree is skipped by name, since neither
+//! proves anything about `src/`.
+//!
+//! `checkMemoryLedgerSymbolClaims` points the same machinery at the one prose
+//! surface that carries symbol names as its load-bearing content: the memory
+//! rule's ledger, where each entry names the declaration that owns a cost
+//! instead of restating its derivation. It accepts a wider shape there, any
+//! final segment in lower camelCase, because the ledger writes `model.cloneMessage`
+//! and bare `ownedFrameFromView` as readily as `Peer.sendCopying`.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -146,14 +158,24 @@ fn checkSpan(
     line_no: usize,
     span: []const u8,
 ) !void {
-    // Exactly one dot, both halves plain identifiers: `Type.method`.
-    const dot = std.mem.indexOfScalar(u8, span, '.') orelse return;
-    const type_name = span[0..dot];
+    // A dotted path whose every segment is a plain identifier. The last two
+    // segments are the claim: `Type.method`, however many module names sit in
+    // front of it. Reading only the last two is what covers the spelling this
+    // tree actually writes — `engine.Peer.sendKeyedStartSession` far more often
+    // than the bare `Peer.sendKeyedStartSession` — and a rename that swept its
+    // two-segment referrers while leaving the qualified ones behind is the
+    // exact drift this check exists to catch.
+    for (span) |c| if (!isIdentChar(c) and c != '.') return;
+    const dot = std.mem.lastIndexOfScalar(u8, span, '.') orelse return;
     const method = span[dot + 1 ..];
-    if (type_name.len == 0 or method.len == 0) return;
-    if (std.mem.indexOfScalar(u8, method, '.') != null) return;
-    for (type_name) |c| if (!isIdentChar(c)) return;
-    for (method) |c| if (!isIdentChar(c)) return;
+    const owner_path = span[0..dot];
+    if (owner_path.len == 0 or method.len == 0) return;
+    const owner_dot = std.mem.lastIndexOfScalar(u8, owner_path, '.');
+    const type_name = if (owner_dot) |at| owner_path[at + 1 ..] else owner_path;
+    if (type_name.len == 0) return;
+    // A `std.` path is declared outside this tree whatever its shape, so it
+    // proves nothing about `src/` and is skipped before the type-name test.
+    if (std.mem.startsWith(u8, span, "std.")) return;
 
     // `Type.method`: a capitalized owner and a lower camelCase function.
     if (!std.ascii.isUpper(type_name[0])) return;
@@ -168,8 +190,8 @@ fn checkSpan(
         try appendViolation(
             gpa,
             violations,
-            "{s}:{d}: doc comment names `{s}.{s}`, but no `fn {s}(` is declared under src/ — fix the name or delete the claim",
-            .{ path, line_no, type_name, method, method },
+            "{s}:{d}: doc comment names `{s}`, but no `fn {s}(` is declared under src/ — fix the name or delete the claim",
+            .{ path, line_no, span, method },
         );
     }
 }
@@ -209,6 +231,16 @@ test "checkSpan flags a method no src/ file declares" {
 
     try checkSpan(gpa, &violations, &declared, "src/net/connection.zig", 28, "FrameStream.readFrame");
     try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+
+    // The qualified spelling this tree usually writes. Reading only the last
+    // two segments is what makes a rename's module-qualified referrers
+    // checkable; it was the shape four stale `engine.Peer.expectPartnerKey`
+    // claims survived two renames in.
+    try checkSpan(gpa, &violations, &declared, "src/net/connection.zig", 29, "net.FrameStream.drive");
+    try std.testing.expectEqual(@as(usize, 2), violations.items.len);
+
+    try checkSpan(gpa, &violations, &declared, "src/net/connection.zig", 30, "pancake.net.FrameStream.readFrame");
+    try std.testing.expectEqual(@as(usize, 2), violations.items.len);
 }
 
 test "checkSpan ignores enum members, foreign types, and prose" {
@@ -229,5 +261,106 @@ test "checkSpan ignores enum members, foreign types, and prose" {
     // Not a `Type.method` shape at all.
     try checkSpan(gpa, &violations, &declared, "p.zig", 3, "op:start-session");
     try checkSpan(gpa, &violations, &declared, "p.zig", 4, "std.mem.eql");
+    // A `std.` path whose last two segments *do* read `Type.method`: skipped
+    // by the prefix, since it is declared outside this tree.
+    try checkSpan(gpa, &violations, &declared, "p.zig", 5, "std.Uri.percentDecodeInPlace");
+    // A qualified path whose tail is a constant, not a call target.
+    try checkSpan(gpa, &violations, &declared, "p.zig", 6, "model.transport.hint_codec");
+    // A qualified path naming a type rather than a method.
+    try checkSpan(gpa, &violations, &declared, "p.zig", 7, "foundation.crypto.PeerKey");
     try std.testing.expectEqual(@as(usize, 0), violations.items.len);
+}
+
+/// The memory rule's ledger names, one per entry, the symbol whose declaration
+/// carries the full derivation of a named allocation. That pointer is the whole
+/// mechanism keeping the rule from re-growing a second copy of every argument,
+/// so a name that no longer resolves silently turns the ledger back into
+/// folklore. It rots exactly like a doc comment and nothing else reads it: a
+/// `clonePeerLocator` the ledger cited through two rewrites had never existed
+/// under any name, and the copy it described was a raw-bytes dupe with a
+/// relocated designator subslice.
+///
+/// Scoped to the ledger's Zig sections. `### Named deferred costs` is the one
+/// section that names binding-language symbols (`pointerOf`, `outBuffers`,
+/// `readMemory`), which no `fn` under `src/` declares and which this check
+/// would misread as drift.
+pub fn checkMemoryLedgerSymbolClaims(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const path = ".agents/rules/memory.md";
+    const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the ledger symbol check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    const ledger_start = std.mem.indexOf(u8, contents, "\n## The ledger") orelse {
+        try appendViolation(gpa, violations, "{s}: missing `## The ledger` section", .{path});
+        return;
+    };
+    const after = contents[ledger_start..];
+    const stop = std.mem.indexOf(u8, after, "\n### Named deferred costs") orelse after.len;
+    const ledger = after[0..stop];
+
+    var declared: std.StringHashMap(void) = .init(gpa);
+    defer {
+        var it = declared.keyIterator();
+        while (it.next()) |k| gpa.free(k.*);
+        declared.deinit();
+    }
+    try collectDeclaredFns(io, gpa, root, &declared, violations);
+    if (declared.count() == 0) return;
+
+    // Line numbers count from the top of the file, not the section.
+    var line_no = std.mem.count(u8, contents[0..ledger_start], "\n") + 1;
+    var lines = std.mem.splitScalar(u8, ledger, '\n');
+    while (lines.next()) |line| {
+        line_no += 1;
+        var rest: []const u8 = line;
+        while (std.mem.indexOfScalar(u8, rest, '`')) |open| {
+            const after_open = rest[open + 1 ..];
+            const close = std.mem.indexOfScalar(u8, after_open, '`') orelse break;
+            const span = after_open[0..close];
+            rest = after_open[close + 1 ..];
+            try checkSpan(gpa, violations, &declared, path, line_no, span);
+            try checkBareFnSpan(gpa, violations, &declared, path, line_no, span);
+        }
+    }
+}
+
+/// A backticked identifier whose final segment is lower camelCase with an
+/// interior capital (`ownedFrameFromView`, `model.cloneMessage`,
+/// `Node.stagePendingDial`) reads as a function this tree declares. Only the
+/// last segment is tested, so the owner may be a module or a type or absent;
+/// `checkSpan` above covers the `Type.method` shape more strictly and this
+/// covers the rest. Snake_case segments are fields, constants, and wire names
+/// rather than call targets, and a capitalized final segment is a type, so both
+/// are out of scope.
+fn checkBareFnSpan(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    declared: *const std.StringHashMap(void),
+    path: []const u8,
+    line_no: usize,
+    span: []const u8,
+) !void {
+    if (span.len == 0) return;
+    for (span) |c| if (!isIdentChar(c) and c != '.') return;
+    // A `std.` path is declared outside this tree, so it proves nothing here.
+    if (std.mem.startsWith(u8, span, "std.")) return;
+    const last = if (std.mem.lastIndexOfScalar(u8, span, '.')) |at| span[at + 1 ..] else span;
+    if (last.len == 0) return;
+    if (std.mem.indexOfScalar(u8, last, '_') != null) return;
+    if (!std.ascii.isLower(last[0])) return;
+    if (!hasUpper(last)) return;
+    if (declared.contains(last)) return;
+    try appendViolation(
+        gpa,
+        violations,
+        "{s}:{d}: the ledger names `{s}`, but no `fn {s}(` is declared under src/ — point the entry at the symbol that owns the cost, or drop the name",
+        .{ path, line_no, span, last },
+    );
 }

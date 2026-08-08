@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+container_name=${PANCAKE_DEV_CONTAINER:-pancake-dev}
+user=${PANCAKE_DEV_USER:-vscode}
+
+if ! command -v docker >/dev/null 2>&1; then
+	echo "pancake-dev: docker is not on PATH" >&2
+	exit 127
+fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+repo_name=$(basename "$repo_root")
+workdir=${PANCAKE_DEV_WORKDIR:-/workspaces/$repo_name}
+
+container_id=$(
+	docker ps --filter "name=^/${container_name}$" --format '{{.ID}}' | head -n 1
+)
+
+# Compose names a service container `<project>-<service>-<n>`, so the plain name
+# above misses the devcontainer this repository actually starts. The Dev
+# Containers extension stamps the host workspace path on it, which names this
+# checkout's container exactly, even with several pancake clones open at once.
+if [[ -z "$container_id" ]]; then
+	container_id=$(
+		docker ps --filter "label=devcontainer.local_folder=${repo_root}" \
+			--format '{{.ID}}' | head -n 1
+	)
+fi
+
+if [[ -z "$container_id" ]]; then
+	echo "pancake-dev: no running devcontainer for ${repo_root}" >&2
+	echo "pancake-dev: and no container named ${container_name}" >&2
+	echo "pancake-dev: start it with Dev Containers or override PANCAKE_DEV_CONTAINER" >&2
+	exit 1
+fi
+
+tty_args=(-i)
+if [[ -t 0 && -t 1 ]]; then
+	tty_args=(-it)
+fi
+
+if [[ $# -eq 0 ]]; then
+	set -- /bin/bash
+fi
+
+exec docker exec "${tty_args[@]}" --user "$user" --workdir "$workdir" "$container_id" "$@"

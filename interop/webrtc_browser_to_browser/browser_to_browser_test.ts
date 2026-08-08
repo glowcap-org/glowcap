@@ -14,8 +14,9 @@
 // a plain byte relay makes the proof deno-only, with no room and no cargo.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), and a Playwright
-// Chromium (`npx playwright install chromium && sudo npx playwright install-deps`).
-// Run directly:
+// Chromium (the devcontainer image ships one; elsewhere
+// `tools/check/playwright-preflight.sh` names the pinned version and how to get
+// it). Run directly:
 // `deno run --allow-all interop/webrtc_browser_to_browser/browser_to_browser_test.ts`.
 
 import { type Browser, chromium } from "playwright";

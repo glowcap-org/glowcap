@@ -1,6 +1,6 @@
 ---
 .title = "Object-capability RPC for OCapN, in Zig",
-.description = "pancake is a Zig implementation of OCapN and CapTP: two programs pass each other object references and call methods across the network, with no ambient authority to fall back on.",
+.description = "pancake is a Zig library for OCapN and CapTP: object-capability RPC with no ambient authority to fall back on.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "index.shtml",

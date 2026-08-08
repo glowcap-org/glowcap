@@ -84,19 +84,38 @@ typedef struct pancake_iroh_sidecar_endpoint pancake_iroh_sidecar_endpoint;
  * pancake_iroh_sidecar_accept; released by pancake_iroh_sidecar_conn_free. */
 typedef struct pancake_iroh_sidecar_conn pancake_iroh_sidecar_conn;
 
-/* Create an endpoint and bind its UDP sockets. `secret_seed32` is either NULL
- * (a fresh random Ed25519 endpoint key is generated) or a pointer to exactly
- * 32 bytes of secret key material the caller keeps owning. `reachability` is
+/* One endpoint's configuration, passed by pointer so a new setting is a field
+ * rather than a wider signature every caller has to agree on. `reachability` is
  * one of PANCAKE_IROH_REACH_* and is mandatory — it decides whether the
  * endpoint uses relays or a discovery service, and there is no default. An
- * unknown value returns NULL. `connect_timeout_ms` is the per-endpoint
- * stream-establishment deadline in milliseconds (0 = the built-in default) that
- * bounds every dial connect + first-stream open and each accepted stream on
- * this endpoint. Returns an owned handle, or NULL on failure. Blocks until the
- * sockets are bound. */
-pancake_iroh_sidecar_endpoint *pancake_iroh_sidecar_endpoint_new(const uint8_t *secret_seed32,
-                                                                 uint32_t reachability,
-                                                                 uint64_t connect_timeout_ms);
+ * unknown value returns NULL.
+ *
+ * `connect_timeout_ms` is the per-endpoint stream-establishment deadline in
+ * milliseconds that bounds every dial connect + first-stream open and each
+ * accepted stream on this endpoint.
+ *
+ * `idle_timeout_ms` is how long a connection survives with nothing arriving on
+ * it, and so how quickly a peer that was killed rather than closed stops
+ * counting as connected: such a peer sends nothing, and UDP has no equivalent
+ * of the FIN a dying TCP process gets from the operating system, so nothing
+ * else ends the connection. There is no keep-alive beside it; the sidecar
+ * derives the heartbeat from this timeout so the two cannot be put out of step.
+ *
+ * 0 means the built-in default for either timeout. */
+typedef struct pancake_iroh_sidecar_endpoint_config {
+  uint32_t reachability;
+  uint64_t connect_timeout_ms;
+  uint64_t idle_timeout_ms;
+} pancake_iroh_sidecar_endpoint_config;
+
+/* Create an endpoint and bind its UDP sockets. `secret_seed32` is either NULL
+ * (a fresh random Ed25519 endpoint key is generated) or a pointer to exactly
+ * 32 bytes of secret key material the caller keeps owning. `config` is
+ * mandatory; a NULL one returns NULL. Returns an owned handle, or NULL on
+ * failure. Blocks until the sockets are bound. */
+pancake_iroh_sidecar_endpoint *pancake_iroh_sidecar_endpoint_new(
+    const uint8_t *secret_seed32,
+    const pancake_iroh_sidecar_endpoint_config *config);
 
 /* Write this endpoint's id — its Ed25519 public key, the dialable designator —
  * into `out` as lowercase hex (64 bytes; iroh's canonical string form, parsed

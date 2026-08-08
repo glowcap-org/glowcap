@@ -14,16 +14,14 @@
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
 //! `zig build goblins-gift`, not in the in-tree check.
 //!
-//! With `--hinted-exporter` (the sibling step `zig build goblins-gift-hints`,
-//! ADR-0097 migration step 1) Bob's advertised location carries a 64-byte
-//! `session-key-attestation` entry in a hints mapping — the provisional
-//! durable-key credential's wire shape, in the position it would really
-//! occupy: the exporter's hello. The pancake gifter embeds that hinted
+//! With `--hinted-exporter` (the sibling step `zig build goblins-gift-hints`),
+//! Bob's advertised location carries an opaque `route-token` entry in a hints
+//! mapping. The pancake gifter embeds that hinted
 //! location verbatim in its signed give; Carol decodes the mapping-shaped
 //! hints through the upstream unmarshaller, dials the hinted node, and
 //! re-encodes the give inside her signed `desc:handoff-receive`; Bob then
 //! verifies the gifter's give signature over his own re-encoding. A green run
-//! therefore proves the credential-bearing locator survives live Goblins
+//! therefore proves a mapping-shaped hinted locator survives live Goblins
 //! decode, session-table lookup, and byte-exact re-canonicalization at both
 //! Goblins peers. The driver additionally requires Carol's netlayer trace to
 //! report the hint (`HINT SEEN:`), so the run cannot pass vacuously with an
@@ -65,18 +63,8 @@ fn pokeListener(io: std.Io, port: u16) void {
     stream.close(io);
 }
 
-/// The provisional credential's hint name (ADR-0097). The value in this
-/// driver is opaque route metadata nobody verifies — what the run proves is
-/// that a 64-byte bytes-valued entry under this name survives Goblins decode
-/// and re-encode — so the bytes are a real Ed25519 signature freshly derived
-/// from a fixed seed rather than a copy of the committed vector.
-const attestation_hint_name = "session-key-attestation";
-
-fn attestationHintBytes() [crypto.SIGNATURE_BYTES]u8 {
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x0d} ** crypto.SEED_BYTES);
-    const sig = crypto.sign(&secret, "pancake goblins-gift-hints live credential stand-in");
-    return sig.bytes;
-}
+const route_hint_name = "route-token";
+const route_hint_bytes = [_]u8{0xa5} ** 64;
 
 const GifterState = struct {
     host: *Host,
@@ -143,7 +131,7 @@ fn readCarolOk(io: std.Io, child: *std.process.Child, expect_hint: bool) !void {
             else => return err,
         };
         std.debug.print("goblins-gift: {s}", .{line});
-        if (std.mem.indexOf(u8, line, "HINT SEEN: " ++ attestation_hint_name) != null) {
+        if (std.mem.indexOf(u8, line, "HINT SEEN: " ++ route_hint_name) != null) {
             saw_hint = true;
         }
         if (std.mem.indexOf(u8, line, "GIFT OK:") != null and std.mem.indexOf(u8, line, "goblins-carol") != null) {
@@ -175,14 +163,13 @@ pub fn main(init: std.process.Init) !void {
     var carol_port_buf: [8]u8 = undefined;
     const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{bob_port + 1});
 
-    const hint_sig = attestationHintBytes();
-    var hint_hex_buf: [crypto.SIGNATURE_BYTES * 2]u8 = undefined;
+    var hint_hex_buf: [route_hint_bytes.len * 2]u8 = undefined;
     const bob_argv_hinted = [_][]const u8{
         exporter_script,
         host_addr,
         bob_port_str,
-        attestation_hint_name,
-        std.fmt.bufPrint(&hint_hex_buf, "{x}", .{hint_sig[0..]}) catch unreachable,
+        route_hint_name,
+        std.fmt.bufPrint(&hint_hex_buf, "{x}", .{route_hint_bytes[0..]}) catch unreachable,
     };
     const bob_argv: []const []const u8 = if (hinted_exporter) bob_argv_hinted[0..] else bob_argv_hinted[0..3];
 
@@ -205,7 +192,7 @@ pub fn main(init: std.process.Init) !void {
     if (hinted_exporter) {
         std.debug.print(
             "goblins-gift-hints OK: live Goblins decoded, re-encoded, and verified a give whose exporter locator carries the {s} hint dict\n",
-            .{attestation_hint_name},
+            .{route_hint_name},
         );
     } else {
         std.debug.print(
@@ -288,7 +275,7 @@ fn gifterStep(
         gifter_designator,
         introducer_swiss,
         carol_port_str,
-        attestation_hint_name,
+        route_hint_name,
     };
     var carol = try std.process.spawn(io, .{
         .argv = if (hinted_exporter) carol_argv_hinted[0..] else carol_argv_hinted[0..5],

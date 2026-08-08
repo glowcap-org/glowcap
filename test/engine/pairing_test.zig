@@ -86,8 +86,8 @@ test "sendKeyedStartSession drives two negotiating peers to an open session" {
 
     // Each side proactively signs and queues its own keyed start-session, exactly
     // as a real handshake (and a live Goblins partner) does.
-    try p1.sendKeyedStartSession(.v1_0, loc1, secret1);
-    try p2.sendKeyedStartSession(.v1_0, loc2, secret2);
+    try p1.sendKeyedStartSession(loc1, secret1);
+    try p2.sendKeyedStartSession(loc2, secret2);
 
     // Shuttle the handshake frames between the two peers until both are open.
     var i: usize = 0;
@@ -102,17 +102,153 @@ test "sendKeyedStartSession drives two negotiating peers to an open session" {
     try std.testing.expect(p2.sessionIsOpen());
 }
 
-test "sendKeyedStartSession rejects a version outside the peer profile" {
+test "sendKeyedStartSession advertises non-baseline features into the signed hello" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .captp_version = model.CaptpVersion.v1_0 });
+    var p1 = engine.Peer.initNegotiating(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.initNegotiatingWith(allocator, .{
+        .features = model.FeatureSet.minimum(),
+    });
+    defer p2.deinit();
+
+    const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:11", .hints = model.Hints.emptyFalse() };
+    const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:12", .hints = model.Hints.emptyFalse() };
+    const secret1 = crypto.SecretKey.fromSeed([_]u8{0x12} ** crypto.SEED_BYTES);
+    const secret2 = crypto.SecretKey.fromSeed([_]u8{0x23} ** crypto.SEED_BYTES);
+
+    try p1.sendKeyedStartSession(loc1, secret1);
+    try p2.sendKeyedStartSession(loc2, secret2);
+
+    var i: usize = 0;
+    while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
+        _ = try p1.step();
+        _ = try p2.step();
+        while (p1.takeOutbound()) |frame| try p2.feedOwned(frame);
+        while (p2.takeOutbound()) |frame| try p1.feedOwned(frame);
+    }
+
+    try std.testing.expect(p1.sessionIsOpen());
+    try std.testing.expect(p2.sessionIsOpen());
+    try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.features);
+    try std.testing.expectEqual(model.FeatureSet.minimum(), p2.session_state.features);
+}
+
+test "sendKeyedStartSession preserves arbitrary locator hint maps" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+    });
+    defer p1.deinit();
+    var p2 = engine.Peer.initNegotiating(allocator);
+    defer p2.deinit();
+
+    const hints = [_]model.HintEntry{
+        .{ .name = "route-a", .value = .{ .string = "one" } },
+        .{ .name = "route-b", .value = .{ .string = "two" } },
+        .{ .name = "route-c", .value = .{ .integer = 3 } },
+        .{ .name = "route-d", .value = .{ .boolean = true } },
+    };
+    const loc1: model.PeerLocator = .{
+        .transport = "test",
+        .designator = "peer-one",
+        .hints = .{ .entries = &hints },
+    };
+    const loc2: model.PeerLocator = .{
+        .transport = "test",
+        .designator = "peer-two",
+        .hints = model.Hints.emptyFalse(),
+    };
+    try p1.sendKeyedStartSession(loc1, crypto.SecretKey.fromSeed([_]u8{0x31} ** crypto.SEED_BYTES));
+    try p2.sendKeyedStartSession(loc2, crypto.SecretKey.fromSeed([_]u8{0x32} ** crypto.SEED_BYTES));
+
+    var i: usize = 0;
+    while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
+        _ = try p1.step();
+        _ = try p2.step();
+        while (p1.takeOutbound()) |frame| try p2.feedOwned(frame);
+        while (p2.takeOutbound()) |frame| try p1.feedOwned(frame);
+    }
+
+    try std.testing.expect(p1.sessionIsOpen());
+    try std.testing.expect(p2.sessionIsOpen());
+    var event = p2.pollEvent().?;
+    defer event.deinit();
+    const received = (try event.view()).start_session.acceptable_location;
+    const received_hints = try received.hints.toOwned(allocator);
+    defer model.freeHints(allocator, received_hints);
+    try std.testing.expectEqual(@as(usize, hints.len + 2), received_hints.entries.len);
+    for (hints) |expected| {
+        const actual = for (received_hints.entries) |candidate| {
+            if (std.mem.eql(u8, expected.name, candidate.name)) break candidate;
+        } else return error.MissingHint;
+        switch (expected.value) {
+            .string => |value| try std.testing.expectEqualStrings(value, actual.value.string),
+            .bytes => |value| try std.testing.expectEqualSlices(u8, value, actual.value.bytes),
+            .boolean => |value| try std.testing.expectEqual(value, actual.value.boolean),
+            .integer => |value| try std.testing.expectEqual(value, actual.value.integer),
+        }
+    }
+}
+
+test "a hello naming anything but the baseline version is refused before it is sent" {
+    // `sendKeyedStartSession` cannot produce one: it names the baseline and
+    // carries the preference in a hint, so the disagreement this guards
+    // against is unrepresentable through the verb. A hand-built message can
+    // still reach `send`, and that is the path checked here — a peer
+    // preferring `next` must still greet with the baseline, or a partner that
+    // knows only the baseline aborts instead of negotiating down to it.
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .captp_version = model.CaptpVersion.next });
     defer peer.deinit();
 
     const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
-    const secret = crypto.SecretKey.fromSeed([_]u8{0x33} ** crypto.SEED_BYTES);
+    try std.testing.expectError(session.Error.CaptpVersionMismatch, peer.sendCopying(.{
+        .start_session = .{
+            .captp_version = .next,
+            .session_pubkey = .{ .bytes = &[_]u8{0} ** 32 },
+            .acceptable_location = loc,
+            .acceptable_location_sig = .{ .bytes = &[_]u8{0} ** 64 },
+        },
+    }));
+    try std.testing.expect(!peer.session_state.handshake_local_sent);
+}
 
+test "exact keyed start-session refuses an unstamped non-baseline profile" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+    });
+    defer peer.deinit();
+
+    const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x44} ** crypto.SEED_BYTES);
     try std.testing.expectError(
-        session.Error.CaptpVersionMismatch,
-        peer.sendKeyedStartSession(.next, loc, secret),
+        session.Error.MalformedMessage,
+        peer.sendKeyedStartSessionExact(loc, secret),
+    );
+    try std.testing.expect(!peer.session_state.handshake_local_sent);
+}
+
+test "exact keyed start-session refuses duplicate locator hints before signing" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+
+    const hints = [_]model.HintEntry{
+        .{ .name = model.transport.hint_direct_addresses, .value = .{ .string = "127.0.0.1:1" } },
+        .{ .name = model.transport.hint_direct_addresses, .value = .{ .string = "127.0.0.1:2" } },
+    };
+    const loc: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:1",
+        .hints = .{ .entries = &hints },
+    };
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x45} ** crypto.SEED_BYTES);
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        peer.sendKeyedStartSessionExact(loc, secret),
     );
     try std.testing.expect(!peer.session_state.handshake_local_sent);
 }
@@ -271,8 +407,8 @@ test "next Syrup peers authenticate start-session before opening" {
     const secret1 = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
     const secret2 = crypto.SecretKey.fromSeed([_]u8{0x88} ** crypto.SEED_BYTES);
 
-    try p1.sendKeyedStartSession(.next, loc1, secret1);
-    try p2.sendKeyedStartSession(.next, loc2, secret2);
+    try p1.sendKeyedStartSession(loc1, secret1);
+    try p2.sendKeyedStartSession(loc2, secret2);
     try std.testing.expect(!p1.sessionIsOpen());
     try std.testing.expect(!p2.sessionIsOpen());
 
@@ -306,8 +442,8 @@ test "next Cap'n Proto peers authenticate start-session before opening" {
     const secret1 = crypto.SecretKey.fromSeed([_]u8{0x99} ** crypto.SEED_BYTES);
     const secret2 = crypto.SecretKey.fromSeed([_]u8{0xaa} ** crypto.SEED_BYTES);
 
-    try p1.sendKeyedStartSession(.next, loc1, secret1);
-    try p2.sendKeyedStartSession(.next, loc2, secret2);
+    try p1.sendKeyedStartSession(loc1, secret1);
+    try p2.sendKeyedStartSession(loc2, secret2);
 
     if (try pairing.shuttleUntilQuiescent(&p1, &p2) != .quiescent) {
         return error.HandshakeDidNotQuiesce;
@@ -478,114 +614,9 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     // The verifier refuses the forged handshake and does not open the session.
     try verifier.feedOwned(forged);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
-    try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
+    try std.testing.expectEqual(session.State.closed, verifier.session_state.state);
 
     // The refusal is fail-loud: a typed op:abort is queued for the partner.
-    var abort_frame = verifier.takeOutbound().?;
-    defer abort_frame.deinit();
-    const view = try codec.syrup.decodeBody(abort_frame.view());
-    try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, view.abort.kind);
-}
-
-test "after a refused op:start-session the byte stream may retry: a valid hello is admitted" {
-    const allocator = std.testing.allocator;
-
-    // Pins the ADR-0083 keep-negotiating exception end to end: a handshake
-    // refusal aborts without closing the negotiating session, so the same byte
-    // stream may carry a corrected hello (the spec draft's abort text says
-    // sever; pancake leaves severing to the adapter, and the retry grants
-    // nothing a first valid hello would not, since every hello verifies in
-    // full).
-    // docs/community-review.md names the divergence.
-    var verifier = engine.Peer.initNegotiating(allocator);
-    defer verifier.deinit();
-    verifier.verify_partner_handshake = true;
-
-    const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:9", .hints = model.Hints.emptyFalse() };
-    const honest = crypto.SecretKey.fromSeed([_]u8{0x33} ** crypto.SEED_BYTES);
-    const imposter = crypto.SecretKey.fromSeed([_]u8{0x44} ** crypto.SEED_BYTES);
-    const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, loc);
-    defer allocator.free(signed);
-
-    // First hello: valid signature, but not by the advertised key. Refused,
-    // abort queued, state stays negotiating.
-    {
-        var sender = engine.Peer.initNegotiating(allocator);
-        defer sender.deinit();
-        const sig = crypto.sign(&honest, signed);
-        try sender.sendCopying(.{ .start_session = .{
-            .captp_version = .v1_0,
-            .session_pubkey = .{ .bytes = imposter.publicKey().asBytes() },
-            .acceptable_location = loc,
-            .acceptable_location_sig = .{ .bytes = sig.asBytes() },
-        } });
-        _ = try sender.step();
-        try verifier.feedOwned(sender.takeOutbound().?);
-        try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
-        try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
-        var abort_frame = verifier.takeOutbound().?;
-        abort_frame.deinit();
-    }
-
-    // Second hello on the same session: honestly signed by the advertised key,
-    // admitted in full, exactly as a first valid hello would have been.
-    {
-        var sender = engine.Peer.initNegotiating(allocator);
-        defer sender.deinit();
-        const sig = crypto.sign(&honest, signed);
-        try sender.sendCopying(.{ .start_session = .{
-            .captp_version = .v1_0,
-            .session_pubkey = .{ .bytes = honest.publicKey().asBytes() },
-            .acceptable_location = loc,
-            .acceptable_location_sig = .{ .bytes = sig.asBytes() },
-        } });
-        _ = try sender.step();
-        try verifier.feedOwned(sender.takeOutbound().?);
-        try std.testing.expectEqual(engine.StepOutcome.progress, try verifier.step());
-        try std.testing.expect(verifier.session_state.handshake_remote_received);
-        try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
-        while (verifier.pollEvent()) |event_value| {
-            var event = event_value;
-            event.deinit();
-        }
-    }
-}
-
-test "a pinned peer refuses an op:start-session claiming any identity but the expected one" {
-    const allocator = std.testing.allocator;
-
-    // The verifier is a dialer that resolved a key-designator locator: it pins
-    // the *durable identity* it dialed. The sender's handshake is honestly
-    // signed — the signature verifies — but it advertises a different durable
-    // name, which is exactly the relay/squat case the pin refuses. The pin is
-    // on the advertised identity, not on `session_pubkey`: each connection
-    // signs with its own key (ADR-0097), so comparing a session key against a
-    // durable name would prove nothing.
-    var verifier = engine.Peer.initNegotiating(allocator);
-    defer verifier.deinit();
-    var sender = engine.Peer.initNegotiating(allocator);
-    defer sender.deinit();
-
-    const sender_secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
-    const squatter_identity = crypto.SecretKey.fromSeed([_]u8{0x99} ** crypto.SEED_BYTES);
-    const expected_secret = crypto.SecretKey.fromSeed([_]u8{0x88} ** crypto.SEED_BYTES);
-    verifier.expectPartnerDurableKey(expected_secret.publicKey(), .transport_verified);
-
-    const claimed = squatter_identity.publicKey().toDesignator();
-    const loc: model.PeerLocator = .{
-        .transport = "keyed-tcp",
-        .designator = claimed[0..],
-        .hints = model.Hints.emptyFalse(),
-    };
-    try sender.sendKeyedStartSession(.v1_0, loc, sender_secret);
-    _ = try sender.step();
-    const hello = sender.takeOutbound().?;
-
-    try verifier.feedOwned(hello);
-    try std.testing.expectError(error.PartnerDesignatorMismatch, verifier.step());
-    try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
-
-    // The refusal is fail-loud and rides the handshake abort domain.
     var abort_frame = verifier.takeOutbound().?;
     defer abort_frame.deinit();
     const view = try codec.syrup.decodeBody(abort_frame.view());
@@ -602,17 +633,17 @@ test "a pinned peer opens when the partner's start-session carries exactly the e
 
     const secret1 = crypto.SecretKey.fromSeed([_]u8{0x11} ** crypto.SEED_BYTES);
     const secret2 = crypto.SecretKey.fromSeed([_]u8{0x22} ** crypto.SEED_BYTES);
-    // Each side pins the other's real durable identity, and each advertises
-    // it: both handshakes must still open.
-    p1.expectPartnerDurableKey(secret2.publicKey(), .transport_verified);
-    p2.expectPartnerDurableKey(secret1.publicKey(), .transport_verified);
+    // Each side's realizer proved the other's durable identity, and each
+    // advertises its own: both handshakes must still open.
+    p1.bindVerifiedChannelKey(secret2.publicKey());
+    p2.bindVerifiedChannelKey(secret1.publicKey());
 
     const designator1 = secret1.publicKey().toDesignator();
     const designator2 = secret2.publicKey().toDesignator();
     const loc1: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = designator1[0..], .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = designator2[0..], .hints = model.Hints.emptyFalse() };
-    try p1.sendKeyedStartSession(.v1_0, loc1, secret1);
-    try p2.sendKeyedStartSession(.v1_0, loc2, secret2);
+    try p1.sendKeyedStartSession(loc1, secret1);
+    try p2.sendKeyedStartSession(loc2, secret2);
 
     var i: usize = 0;
     while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
@@ -628,9 +659,9 @@ test "a pinned peer opens when the partner's start-session carries exactly the e
 
 /// The exact `<ocapn-peer …>` record a hint-sending partner (a Goblins
 /// `tcp-testing-only` netlayer) puts in its `op:start-session`. The wire bytes
-/// are spelled out verbatim rather than produced by pancake's encoder, because
+/// are written verbatim rather than produced by pancake's encoder, because
 /// the point under test is verification over the *received* bytes — whatever
-/// hint spelling the partner chose — not over a re-encode.
+/// hint representation the partner chose — not over a re-encode.
 const hinted_locator_bytes = "<10'ocapn-peer3'tcp14\"127.0.0.1:9001{4\"host9\"127.0.0.14\"port9001+}>";
 
 /// Build the complete keyed `op:start-session` frame a partner would send for
@@ -677,7 +708,7 @@ test "a verifying peer accepts a hinted-locator handshake (signature checked on 
         .hints = model.Hints.emptyFalse(),
     };
 
-    try verifier.sendKeyedStartSession(.v1_0, verifier_loc, verifier_secret);
+    try verifier.sendKeyedStartSession(verifier_loc, verifier_secret);
     _ = try verifier.step();
     var hello = verifier.takeOutbound().?;
     hello.deinit();
@@ -685,7 +716,7 @@ test "a verifying peer accepts a hinted-locator handshake (signature checked on 
     // The partner's hello carries hint entries in its locator. Borrowed decode
     // projects them through `BorrowedHints`, but the signing domain is the
     // received `acceptable_location_raw` octets — re-encoding the structured
-    // locator can miss the partner's exact spelling and fail a valid signature.
+    // locator can miss the partner's exact representation and fail a valid signature.
     const frame = try hintedStartSessionFrame(allocator, partner_secret, hinted_locator_bytes);
     try verifier.feedOwned(frame);
     _ = try verifier.step();
@@ -706,7 +737,7 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
         .hints = model.Hints.emptyFalse(),
     };
 
-    try verifier.sendKeyedStartSession(.v1_0, verifier_loc, verifier_secret);
+    try verifier.sendKeyedStartSession(verifier_loc, verifier_secret);
     _ = try verifier.step();
     var hello = verifier.takeOutbound().?;
     hello.deinit();
@@ -720,7 +751,7 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
     const frame = try hintedStartSessionFrame(allocator, partner_secret, tampered);
     try verifier.feedOwned(frame);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
-    try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
+    try std.testing.expectEqual(session.State.closed, verifier.session_state.state);
 }
 
 test "the handshake records each partner's session key for later signature checks" {

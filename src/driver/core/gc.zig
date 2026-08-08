@@ -17,6 +17,7 @@
 //! that use it today run a bare `Served` with no node, so nothing reaches this
 //! case yet.
 
+const std = @import("std");
 const engine = @import("engine");
 const model = @import("model");
 
@@ -151,8 +152,26 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) void {
             break :blk resolve.answer;
         },
     };
-    const positions = [_]u64{answer.int()};
-    peer.sendCopying(.{ .gc_answer = .{ .positions = &positions } }) catch {};
+    const aliases = event.resolveAliases();
+    if (aliases.len == 0) {
+        const positions = [_]u64{answer.int()};
+        peer.sendCopying(.{ .gc_answer = .{ .positions = &positions } }) catch {};
+        return;
+    }
+
+    const positions = peer.allocator.alloc(u64, aliases.len + 1) catch {
+        const primary = [_]u64{answer.int()};
+        peer.sendCopying(.{ .gc_answer = .{ .positions = &primary } }) catch {};
+        for (aliases) |alias| {
+            const one = [_]u64{alias.int()};
+            peer.sendCopying(.{ .gc_answer = .{ .positions = &one } }) catch {};
+        }
+        return;
+    };
+    defer peer.allocator.free(positions);
+    positions[0] = answer.int();
+    for (aliases, positions[1..]) |alias, *position| position.* = alias.int();
+    peer.sendCopying(.{ .gc_answer = .{ .positions = positions } }) catch {};
 }
 
 /// The stateless-GC policy after one served event: a deliver gc-collects the

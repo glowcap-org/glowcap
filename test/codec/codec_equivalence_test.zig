@@ -16,7 +16,7 @@
 //! `test/engine/cross_peer_test.zig`.
 //!
 //! For each message, we encode it through Syrup and through Cap'n Proto, decode
-//! each back to the codec-neutral model (the production `decodeBody` path,
+//! each back to the codec-neutral model (the production profile-aware decode path,
 //! complete for every argument kind), and assert the two decoded models are
 //! structurally equal. Both codecs apply the same wire-perspective flip on decode
 //! (ADR-0010), so a faithful codec lands on the same model, a single
@@ -41,23 +41,27 @@ const model = pancake.ocapn.model;
 const codec = pancake.ocapn.codec;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
-const profile = model.CaptpVersion.next;
+const default_profile = model.CaptpVersion.next;
 
 /// Encode `message` through `codec_id` and decode it back to the owned,
 /// codec-neutral model. Caller owns the result (`model.freeMessage`).
-fn decodedVia(allocator: std.mem.Allocator, codec_id: model.CodecId, message: model.Message) !model.Message {
+fn decodedVia(allocator: std.mem.Allocator, codec_id: model.CodecId, profile: model.CaptpVersion, message: model.Message) !model.Message {
     var wire = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, profile, message);
     defer wire.deinit();
-    const body = try codec.dispatch.decodeBody(codec_id, wire.view());
+    const body = try codec.dispatch.decodeBodyForProfile(codec_id, profile, wire.view());
     return body.toOwned(allocator);
 }
 
 /// A message means the same thing through either codec.
 fn expectCodecEquivalent(message: model.Message) !void {
+    return expectCodecEquivalentForProfile(default_profile, message);
+}
+
+fn expectCodecEquivalentForProfile(profile: model.CaptpVersion, message: model.Message) !void {
     const allocator = std.testing.allocator;
-    const via_syrup = try decodedVia(allocator, .syrup, message);
+    const via_syrup = try decodedVia(allocator, .syrup, profile, message);
     defer model.freeMessage(allocator, via_syrup);
-    const via_capnp = try decodedVia(allocator, .capnp, message);
+    const via_capnp = try decodedVia(allocator, .capnp, profile, message);
     defer model.freeMessage(allocator, via_capnp);
     try std.testing.expect(messagesEqual(via_syrup, via_capnp));
 }
@@ -145,12 +149,12 @@ test "a sturdyref argument with locator hint entries is codec-equivalent" {
 }
 
 test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
-    try expectCodecEquivalent(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .integer = -7 } } } });
-    try expectCodecEquivalent(.{ .resolve = .{
+    try expectCodecEquivalentForProfile(.v1_0, .{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .integer = -7 } } } });
+    try expectCodecEquivalentForProfile(.v1_0, .{ .resolve = .{
         .answer = .from(2),
         .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(6) } } },
     } });
-    try expectCodecEquivalent(.{ .resolve = .{ .answer = .from(9), .resolution = .{ .@"break" = .{ .message = "boom" } } } });
+    try expectCodecEquivalentForProfile(.v1_0, .{ .resolve = .{ .answer = .from(9), .resolution = .{ .@"break" = .{ .message = "boom" } } } });
 
     try expectCodecEquivalent(.{ .gc_export = .{ .positions = &.{ 2, 5, 8 }, .deltas = &.{ 1, 1, 3 } } });
     try expectCodecEquivalent(.{ .gc_answer = .{ .positions = &.{ 1, 4, 9 } } });
@@ -162,11 +166,16 @@ test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
     try expectCodecEquivalent(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(7), .path = .{ .ops = &.{} } } },
         .listener = .{ .near = model.NearRef.object(2) },
-        .wants_partial = false,
+        .mode = .settling_only,
     } });
 
     try expectCodecEquivalent(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = .from(8) } });
-    try expectCodecEquivalent(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = .from(9) } });
+    try expectCodecEquivalent(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = .{ .integer = -3 }, .answer = .from(9) } });
+    try expectCodecEquivalent(.{ .index = .{
+        .receiver = .{ .far = model.FarRef.object(6) },
+        .index = .{ .big_integer = .{ .negative = true, .digits = "9223372036854775809" } },
+        .answer = .from(10),
+    } });
     try expectCodecEquivalent(.{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = .from(8) } });
 }
 
@@ -184,7 +193,7 @@ fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
         .{ .key = "k2", .value = .{ .integer = 2 } },
     };
     const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
-    var wire_frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, profile, .{ .deliver = .{
+    var wire_frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, default_profile, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(4) },
         .args = &args,
         .answer = .from(7),
@@ -199,7 +208,7 @@ fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
     const view = pancake.foundation.FrameView{ .bytes = buf, .shape = wire_frame.view().shape };
 
     const refused = blk: {
-        const body = codec.dispatch.decodeBody(codec_id, view) catch break :blk true;
+        const body = codec.dispatch.decodeBodyForProfile(codec_id, default_profile, view) catch break :blk true;
         const owned = body.toOwned(allocator) catch break :blk true;
         model.freeMessage(allocator, owned);
         break :blk false;

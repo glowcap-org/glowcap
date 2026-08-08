@@ -25,12 +25,6 @@
 
 const std = @import("std");
 
-// Force sidecar stubs so reflecting the iroh archive stays cargo-free.
-comptime {
-    _ = @import("iroh_sidecar_stub");
-    _ = @import("webrtc_sidecar_stub");
-}
-
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
@@ -152,10 +146,15 @@ const constants = [_]Const{
     // Default host connection frame cap (session.SessionLimits.max_frame_bytes).
     kd("DEFAULT_FRAME_CAP", "PANCAKE_DEFAULT_FRAME_CAP"),
     kd("MAX_LOCAL_FORWARD_HOPS", "PANCAKE_MAX_LOCAL_FORWARD_HOPS"),
+    kd("HANDSHAKE_TIMEOUT_MS", "PANCAKE_HANDSHAKE_TIMEOUT_MS"),
     kd("DISCOVERY_DIAL_RETRY_MS", "PANCAKE_DISCOVERY_DIAL_RETRY_MS"),
     kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS"),
     // The resolved dial the core hands back from pancake_host_plan_dial: the
     // byte channel to open (PancakeDialPlan.shape) and, for peer_id, the posture.
+    kd("TRACE_SESSION_OPEN", "PANCAKE_TRACE_SESSION_OPEN"),
+    kd("TRACE_MESSAGE", "PANCAKE_TRACE_MESSAGE"),
+    kd("TRACE_SESSION_CLOSE", "PANCAKE_TRACE_SESSION_CLOSE"),
+    kd("TRACE_DIGEST_BYTES", "PANCAKE_TRACE_DIGEST_BYTES"),
     kd("DIAL_SHAPE_HOST_PORT", "PANCAKE_DIAL_SHAPE_HOST_PORT"),
     kd("DIAL_SHAPE_PEER_ID", "PANCAKE_DIAL_SHAPE_PEER_ID"),
     kd("DIAL_SHAPE_SIGNALING", "PANCAKE_DIAL_SHAPE_SIGNALING"),
@@ -171,7 +170,6 @@ const constants = [_]Const{
     // identity was authenticated (ADR-0097). A caller needing a proved durable
     // peer reads this, never a designator-equals-session-key comparison.
     kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
-    kd("DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION", "PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION"),
     kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED"),
     // Iroh reachability postures and the redeem knob's starting value
     // (libpancake_net_transport_iroh). The stack's `Reachability` surface and
@@ -208,8 +206,17 @@ const constants = [_]Const{
     k("ARG_KEYWORD", "PANCAKE_ARG_KEYWORD"),
     k("ARG_BIG_INTEGER", "PANCAKE_ARG_BIG_INTEGER"),
     // Wire-grammar codec selectors (the host constructor and the transports).
+    k("CODEC_UNKNOWN", "PANCAKE_CODEC_UNKNOWN"),
     k("CODEC_SYRUP", "PANCAKE_CODEC_SYRUP"),
     k("CODEC_CAPNP", "PANCAKE_CODEC_CAPNP"),
+    k("CAPTP_V1_0", "PANCAKE_CAPTP_V1_0"),
+    k("CAPTP_NEXT", "PANCAKE_CAPTP_NEXT"),
+    k("FEATURE_PIPELINING", "PANCAKE_FEATURE_PIPELINING"),
+    k("FEATURE_HANDOFF", "PANCAKE_FEATURE_HANDOFF"),
+    k("FEATURE_WIRE_DELTA", "PANCAKE_FEATURE_WIRE_DELTA"),
+    k("FEATURE_STURDYREF", "PANCAKE_FEATURE_STURDYREF"),
+    k("FEATURE_MINIMUM", "PANCAKE_FEATURE_MINIMUM"),
+    k("FEATURE_FULL", "PANCAKE_FEATURE_FULL"),
     // PancakeLastAbort.domain.
     k("ABORT_DOMAIN_CODEC", "PANCAKE_ABORT_DOMAIN_CODEC"),
     k("ABORT_DOMAIN_SESSION", "PANCAKE_ABORT_DOMAIN_SESSION"),
@@ -239,30 +246,10 @@ fn emitLayout(
     try out.appendSlice(gpa, "\n");
 }
 
-/// One row of the wasm layout-descriptor manifest: the struct's constant
-/// prefix (matching the 64-bit mirror) and its extern type. Order here IS the
-/// descriptor's canonical struct order (`layout_specs` in
-/// `src/c_abi/wasm/mod.zig`); `zig build wasm-abi-layout-check` holds the two
-/// in lockstep.
-const ManifestRow = struct {
-    prefix: []const u8,
-    T: type,
-};
-
-const wasm_manifest = [_]ManifestRow{
-    .{ .prefix = "MANAGED_FRAME", .T = c.PancakeManagedFrame },
-    .{ .prefix = "REF", .T = c.PancakeReference },
-    .{ .prefix = "ARG", .T = c.PancakeArgument },
-    .{ .prefix = "FRAME", .T = c.PancakeFrame },
-    .{ .prefix = "LAST_ABORT", .T = c.PancakeLastAbort },
-    .{ .prefix = "ALLOCATOR", .T = c.PancakeAllocator },
-    .{ .prefix = "HOST_ACTION", .T = cd.PancakeHostAction },
-    .{ .prefix = "HOST_PUMP_HOOKS", .T = cd.PancakeHostPumpHooks },
-    .{ .prefix = "DIAL_PLAN", .T = cd.PancakeDialPlan },
-    .{ .prefix = "ACCEPT_PLAN", .T = cd.PancakeAcceptPlan },
-    .{ .prefix = "PENDING_DIAL", .T = cd.PancakePendingDial },
-    .{ .prefix = "PARTNER_IDENTITY", .T = cd.PancakePartnerIdentity },
-};
+/// The wasm layout manifest is the shared table in `c_abi_host`
+/// (`wasm_layout_manifest`) — the same authority the wasm module's
+/// descriptor exporter walks, so the two mirrors cannot drift.
+const wasm_manifest = cd.wasm_layout_manifest;
 
 /// 64-bit mirror prefixes with no wasm manifest row, because the struct's
 /// archive is never linked into the wasm32 module. Declared here, at the one
@@ -271,6 +258,8 @@ const wasm_manifest = [_]ManifestRow{
 const native_only_layouts = [_][]const u8{
     "IROH_READY_EVENT",
     "WEBRTC_READY_EVENT",
+    "IROH_CONFIG",
+    "WEBRTC_CONFIG",
 };
 
 /// The target-independent constants, emitted into the `@pancake/abi` package.
@@ -353,8 +342,11 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "ACCEPT_PLAN", cd.PancakeAcceptPlan, "PancakeAcceptPlan (libpancake_host, pancake_host_plan_accept)");
     try emitLayout(&out, gpa, "PENDING_DIAL", cd.PancakePendingDial, "PancakePendingDial (libpancake_host, pancake_host_pending_dial)");
     try emitLayout(&out, gpa, "PARTNER_IDENTITY", cd.PancakePartnerIdentity, "PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)");
+    try emitLayout(&out, gpa, "TRACE_EVENT", cd.PancakeTraceEvent, "PancakeTraceEvent (libpancake_host, pancake_host_set_trace)");
     try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.PancakeIrohReadyEvent, "PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent, "PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)");
+    try emitLayout(&out, gpa, "IROH_CONFIG", ci.PancakeIrohConfig, "PancakeIrohConfig (libpancake_net_transport_iroh, pancake_iroh_netlayer_new)");
+    try emitLayout(&out, gpa, "WEBRTC_CONFIG", cw.PancakeWebrtcConfig, "PancakeWebrtcConfig (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_new)");
 
     return out.toOwnedSlice(gpa);
 }

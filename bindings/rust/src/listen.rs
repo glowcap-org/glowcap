@@ -47,6 +47,8 @@ impl Server {
 				stream,
 				&local,
 				Some(HANDSHAKE_TIMEOUT),
+				// A socket proves nothing about who is on the other end.
+				None,
 			)
 			.await
 			{
@@ -88,7 +90,12 @@ pub async fn listen_with_host<A: ToSocketAddrs>(addr: A, host: Host) -> Result<S
 	// recognize it.
 	if let Ok(local) = listener.local_addr() {
 		let designator = crate::uri::socket_addr_designator(&local.ip().to_string(), local.port());
-		let _ = host.shared().set_self_designator(&designator);
+		host.shared().set_self_designator(&designator)?;
+		host.shared().set_advertised_locator(
+			crate::abi_constants::TRANSPORT_TCP,
+			&designator,
+			"",
+		)?;
 	}
 	Ok(Server { listener, host })
 }
@@ -122,6 +129,8 @@ impl KeyedTcpServer {
 				stream,
 				&hint,
 				Some(HANDSHAKE_TIMEOUT),
+				// keyed-tcp names peers by key but the socket proves none of it.
+				None,
 			)
 			.await
 			{
@@ -173,6 +182,13 @@ pub async fn listen_keyed_tcp(
 	let designator = host.designator()?;
 	let listener = TcpListener::bind((bind_host, port)).await.map_err(io_err)?;
 	host.shared().set_self_designator(&designator)?;
+	let local = listener.local_addr().map_err(io_err)?;
+	let direct_address = crate::uri::socket_addr_designator(&local.ip().to_string(), local.port());
+	host.shared().set_advertised_locator(
+		crate::abi_constants::TRANSPORT_KEYED_TCP,
+		&designator,
+		&direct_address,
+	)?;
 	Ok(KeyedTcpServer {
 		listener,
 		host,
@@ -227,6 +243,14 @@ mod tests {
 				)
 				.await
 				.unwrap();
+				let advertised = conn.partner_identity().unwrap();
+				let expected = crate::encode_peer_locator(
+					crate::abi_constants::TRANSPORT_TCP,
+					&crate::uri::socket_addr_designator(&addr.ip().to_string(), addr.port()),
+					"",
+				)
+				.unwrap();
+				assert_eq!(advertised.locator_record, expected);
 				ready_rx.await.unwrap();
 				let cap = conn.fetch("svc").await.unwrap();
 				let reply = conn

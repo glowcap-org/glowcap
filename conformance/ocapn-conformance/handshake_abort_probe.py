@@ -1,4 +1,4 @@
-"""Assert the pancake peer aborts a malformed `op:start-session` handshake.
+"""Assert pancake rejects malformed setup and honors pre-setup `op:abort`.
 
 The upstream suite's `tests.op_start_session` module is the authority and
 passes in full (crossed-hellos resolution included; the peer routes it through
@@ -10,6 +10,12 @@ suite's `test_start_session_with_invalid_signature` and
 `test_start_session_with_invalid_version` make, using the suite's own netlayer
 and message types, so the orchestrator gates on them on a tight budget without
 waiting out the crossed-hellos legs first.
+
+The suite's `tests.op_abort` accepts timeout or clean EOF after sending more
+data, but Linux reports a TCP reset when the peer closes with those extra bytes
+unread. The pre-setup case here accepts the equivalent EOF/reset/broken-pipe
+outcomes and rejects timeout: the check must observe that the connection was
+actually severed.
 
 Run under the same `uv` environment as `run.sh`; it adds the suite's `upstream/`
 to `sys.path` itself, so it works from any cwd.
@@ -32,6 +38,7 @@ from netlayers.testing_only_tcp import TestingOnlyTCPNetlayer  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
 CAPTP_VERSION = "1.0"
+OBJECT_TO_FETCH = b"VMDDd1voKWarCe2GvgLbxbVFysNzRPzx"
 
 
 def peer_url(port: int) -> str:
@@ -69,6 +76,25 @@ def case_invalid_version(netlayer, uri):
     return abort
 
 
+def case_pre_setup_abort(netlayer, uri):
+    """An abort before setup must make a subsequent setup unusable."""
+    remote = netlayer.connect(uri)
+    remote.send_message(OpAbort("test-abort-before-setup"))
+    try:
+        remote.setup_session(CAPTP_VERSION)
+        # The peer's hello may already be buffered before it reads our abort,
+        # so setup can finish locally. The first operation must still prove the
+        # connection unusable.
+        remote.fetch_object(OBJECT_TO_FETCH)
+    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError) as exc:
+        return f"connection severed ({type(exc).__name__})"
+    except TimeoutError as exc:
+        raise AssertionError("pre-setup abort did not produce observable teardown") from exc
+    finally:
+        remote.close()
+    raise AssertionError("session setup succeeded after pre-setup abort")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Handshake abort probe against pancake peer")
     parser.add_argument(
@@ -84,10 +110,11 @@ def main():
     for name, fn in (
         ("invalid-signature", case_invalid_signature),
         ("invalid-version", case_invalid_version),
+        ("pre-setup-abort", case_pre_setup_abort),
     ):
         try:
-            abort = fn(netlayer, uri)
-            print(f"handshake-abort-probe: {name} -> pancake aborted: {abort!r}")
+            result = fn(netlayer, uri)
+            print(f"handshake-abort-probe: {name} -> {result!r}")
         except Exception as exc:  # noqa: BLE001 - the probe reports any failure as a gate failure
             ok = False
             print(f"handshake-abort-probe: {name} -> FAILED ({type(exc).__name__}: {exc})")

@@ -1,14 +1,18 @@
 ---
 id: ADR-0029
-status: accepted
+status: superseded
 date: 2026-06-05
 tags: [codec, runtime, net, framing, resilience]
 decision: "Stream frame boundaries are found by the active codec's own decoder (`decodePrefix`), not a separate length-prefix or delimiter scanner. The decoder distinguishes `incomplete` (need more bytes), `decoded` (whole frame + consumed length), `malformed` (structurally invalid), and `too_large` (would exceed `max_frame_bytes`). The engine (`recvStreamPrefix`) and the byte-stream adapter (`pumpOver`) consume that one verdict. A resumable scan sits in front of it so a frame arriving over many reads is walked once rather than once per read; it reports no boundary of its own, so the decoder stays the only source of that verdict."
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-0110]
 ---
 
 # ADR-0029 One-parser stream framing
+
+ADR-0110 keeps this record's exact inner-codec validation and bounded decode,
+but replaces bare codec concatenation at byte-stream boundaries with one outer
+Syrup byte string per message.
 
 ## Context
 

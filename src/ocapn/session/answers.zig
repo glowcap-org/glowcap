@@ -35,15 +35,14 @@ pub fn answerSlot(position: model.AnswerPosition, status: AnswerStatus) slot.Slo
 /// resolution is delivered to when the answer fires (it becomes the fire
 /// `op:deliver`'s target). The field mirrors the wire name so it is not
 /// confused with `op:listen`'s `target` (the promise being listened on, which
-/// the cap `max_listeners_per_target` counts). `wants_partial` requests
-/// intermediate notifications when the answer resolves to another promise
-/// rather than only the final value. The type is a bare `FarRef`, not a full
+/// the cap `max_listeners_per_target` counts). `mode` says whether shortening,
+/// settling, or either transition concludes the subscription. The type is a bare `FarRef`, not a full
 /// `Reference`: the installs only ever anchor a positional far target
 /// (`pipeline.installAnswerListener` and the imported-promise install both
 /// build `FarRef.object`), so an entry is POD — no heap, nothing to free.
 pub const ListenerEntry = struct {
     listener: model.FarRef,
-    wants_partial: bool,
+    mode: model.ListenMode,
 };
 
 /// A row's `op:listen` subscribers — the parties to notify when the row's
@@ -94,8 +93,26 @@ pub const ListenerList = struct {
 /// a List element by zero-based index, or a Tagged payload by asserted tag.
 pub const ProjectionKind = union(enum) {
     field: []const u8,
-    index: i64,
+    index: ProjectionIndex,
     untag: []const u8,
+};
+
+/// The only index state a pending projection needs. A canonical big integer is
+/// outside every list admitted by this session's bounded value model, so its
+/// decimal wire bytes do not become session-lived authority.
+pub const ProjectionIndex = union(enum) {
+    candidate: usize,
+    out_of_bounds,
+
+    pub fn fromInteger(index: model.Integer) ProjectionIndex {
+        return switch (index) {
+            .integer => |value| if (std.math.cast(usize, value)) |candidate|
+                .{ .candidate = candidate }
+            else
+                .out_of_bounds,
+            .big_integer => .out_of_bounds,
+        };
+    }
 };
 
 /// A pending `op:get` / `op:index` / `op:untag` projection anchored on an
@@ -161,6 +178,13 @@ pub const AnswerCell = struct {
     /// Wire-delta count per ADR-0008 `op:gc-answers`.
     count: u64 = 1,
     payload: ?*AnswerPayload = null,
+    /// Next-profile local settling fan-out. The target import owns the ordered
+    /// answer list; this back-link makes `op:gc-answers` removal O(1) without a
+    /// scan of every imported promise. `settling_index == 0` names the inline
+    /// primary answer, larger values are one-based indexes into its followers.
+    settling_target: model.ImportPosition = .from(0),
+    settling_index: usize = 0,
+    has_settling_target: bool = false,
 
     pub fn initPending(position: model.AnswerPosition, row_id: u64) AnswerCell {
         return .{

@@ -1,21 +1,39 @@
-# ADR-0090: The Owning Host Face
-
-**Status:** Decided (built with this ADR; the owning tier rides it)
-**Date:** 2026-07-28
-**Decision:** `driver.connect` and `driver.listen` keep their signatures but
-return sessions backed by a `driver_core.Host` that a new owning `driver.PollHost`
-drives with blocking, poll-multiplexed I/O — the native sibling of the pump
-every binding already runs. A three-party introduction settles as a live
-capability inside the caller's wait in Zig exactly as it does in every
-binding, and the two things previously named `Session` collapse into one
-contract. The direct single-connection tier survives as the borrowing
-`BlockingSession`, the explicit escape whose caller owns the peer and buffers.
-
-This ADR builds on the sans-io serve core and byte-fed Host (ADR-0072), the
-loop-fed bridge (ADR-0076), the CapTP vocabulary alignment (ADR-0079), and the
-crossed-hello resolution the host core owns (ADR-0068).
-
 ---
+id: ADR-0090
+status: accepted
+date: 2026-07-28
+tags: [driver, host, api, session, poll, handoff]
+decision: "`driver.connect` and `driver.listen` keep their signatures but return sessions backed by a `driver_core.Host` that an owning `driver.PollHost` drives with blocking, poll-multiplexed I/O, the native sibling of the pump every binding already runs. A three-party introduction settles as a live capability inside the caller's wait in Zig exactly as it does in every binding, and the two things previously named `Session` collapse into one contract. The direct single-connection tier survives as the borrowing `BlockingSession`, the explicit escape whose caller owns the peer and buffers."
+supersedes: []
+superseded_by: []
+amends: []
+amended_by: [ADR-0110]
+---
+
+# ADR-0090 The owning host face
+
+> **Framing amendment (ADR-0110).** The owning face unwraps and emits the outer
+> Syrup byte-string envelope at byte-stream connections. Its core-facing frame
+> API remains bare.
+
+> **Implementation standing.** Built with this ADR; the owning tier rides it.
+
+## Decision
+
+`driver.connect` and `driver.listen` keep their signatures but return sessions
+backed by a `driver_core.Host` that an owning `driver.PollHost` drives with
+blocking, poll-multiplexed I/O, the native sibling of the pump every binding
+already runs. A three-party introduction settles as a live capability inside the
+caller's wait in Zig exactly as it does in every binding, and the two things
+previously named `Session` collapse into one contract. The direct
+single-connection tier survives as the borrowing `BlockingSession`, the explicit
+escape whose caller owns the peer and buffers.
+
+This ADR builds on the sans-io serve core and byte-fed Host
+([ADR-0072](ADR-0072-driver-tier-over-c-abi.md)), the loop-fed bridge
+([ADR-0076](ADR-0076-loop-fed-host-bridge.md)), the CapTP vocabulary alignment
+([ADR-0079](ADR-0079-captp-vocabulary.md)), and the crossed-hello resolution the
+host core owns ([ADR-0068](ADR-0068-native-host-tier.md)).
 
 ## Problem
 
@@ -75,8 +93,9 @@ driver.Server (owning)
 `net.Connection` needed no split: it is already the byte-stream face — its own
 contract exposes `socketHandle` "for a host that multiplexes several
 connections with `poll`", `hasBufferedInbound`, and `waitReadable`. The owning
-face reads raw bytes off `conn.r` and writes `takeOutbound` frames to
-`conn.w`; `pump`/`flush`/`spill` (the parse-into-peer half) stay the blocking
+face reads outer-framed bytes off `conn.r`, unwraps each complete body before
+feeding the core, and wraps `takeOutbound` frames before writing to `conn.w`.
+`pump`/`flush`/`spill` (the parse-into-peer half) stay the blocking
 single-connection tier's vocabulary. The one new `net` surface is
 `waitAnyReadable`: poll across many connections' fds, honoring buffered
 inbound, under one deadline.

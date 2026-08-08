@@ -32,6 +32,7 @@ import { classifyRelayTarget, type RelayTarget } from "@pancake/stack";
 import { dial, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
 import {
 	bridgeRendezvous,
+	parseTcpPeers,
 	registerRendezvous,
 	relayAllowed,
 	relayOriginAllowed,
@@ -54,6 +55,27 @@ const envAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_TR
 	.state === "granted";
 const chosenTransport = flagTransport ?? (envAllowed ? Deno.env.get("ROOMS_TRANSPORT") : undefined);
 const TRANSPORT = chosenTransport === "iroh" ? "iroh" : "tcp";
+// The live timeline endpoint the room server serves when ROOMS_VIZ_PORT is set
+// (the child inherits this environment). The page asks for it at `/viz` and
+// publishes its own trace there, which is the only way a direct message — a
+// session between two members that this server never carries — reaches the
+// timeline. Empty when tracing is off, and the page then installs no tap.
+const vizEnvAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_VIZ_PORT" })
+	.state === "granted";
+const VIZ_PORT = (vizEnvAllowed ? Deno.env.get("ROOMS_VIZ_PORT")?.trim() : undefined) ?? "";
+// Cleartext-TCP peers a browser may open a direct message to, as
+// `host:port,host:port`. The relay dials iroh anywhere and TCP only where it is
+// told, because a TCP address can be any service on the network rather than an
+// OCapN peer holding a key (`relayAllowed`). A member reachable only over
+// cleartext TCP — a Goblins vat on a TCP netlayer — belongs here; one on iroh
+// needs no entry.
+const tcpPeersAllowed = Deno.permissions.querySync({
+	name: "env",
+	variable: "PANCAKE_RELAY_TCP_PEERS",
+}).state === "granted";
+const RELAY_TCP_PEERS = parseTcpPeers(
+	tcpPeersAllowed ? Deno.env.get("PANCAKE_RELAY_TCP_PEERS") : undefined,
+);
 const ROOT = new URL(".", import.meta.url).pathname;
 // `--no-lock` on both arms, because this process spawns the room server as a
 // child and the child needs the same posture the parent was given. The deploy
@@ -261,10 +283,14 @@ console.log(
 // TypeScript and JSX (ui/deno.json targets the DOM libs) and served as JavaScript: a
 // pre-built ui/page.js is used if present — the deploy builds it ahead of time with
 // `deno bundle`, so the runtime does not need to download bundler dependencies —
-// otherwise the bundle runs once here at startup (a module edit needs a restart to
-// re-bundle). Everything is served with no-store, so a browser always fetches the current
-// build.
+// otherwise the bundle is built here. Either way it is rebuilt whenever a module it was
+// built from is newer than it, so a reload shows an edit. Everything is served with
+// no-store, so a browser always fetches the current build.
 const UI_DIR = `${ROOT}ui/`;
+// Every directory the browser bundle draws modules from. A staleness check that
+// misses one serves code from before an edit while the page assets around it are
+// current, which reads as "my change did nothing" and is very hard to see.
+const SOURCE_DIRS = [UI_DIR, `${ROOT}../lib/`, `${ROOT}../../../bindings/ts/`];
 // Not minified, so the served bundle stays readable in the browser's view-source.
 // A production build can shrink it a lot by adding "--minify" to a pre-built
 // page.js (see deploy/README.md).
@@ -290,65 +316,108 @@ async function bundleClient(): Promise<string> {
 	}
 	return new TextDecoder().decode(stdout);
 }
-// The newest modification time across the UI sources, or null if none can be read.
-// Used only to tell a current prebuilt bundle from a stale one. It walks, rather
-// than reading one directory, so putting a component in a subdirectory cannot
-// quietly stop the staleness check from seeing it.
-async function newestSourceTime(dir = UI_DIR): Promise<number | null> {
+// The newest modification time across every module the bundle is built from, or
+// null if none can be read. It walks, rather than reading one directory, so
+// putting a component in a subdirectory cannot quietly stop the staleness check
+// from seeing it.
+async function newestSourceTime(): Promise<number | null> {
 	let newest: number | null = null;
 	const note = (at: number | undefined) => {
 		if (at !== undefined && (newest === null || at > newest)) newest = at;
 	};
-	try {
-		for await (const entry of Deno.readDir(dir)) {
-			const path = `${dir}${entry.name}`;
-			if (entry.isDirectory) {
-				note(await newestSourceTime(`${path}/`) ?? undefined);
-				continue;
+	const walk = async (dir: string): Promise<void> => {
+		try {
+			for await (const entry of Deno.readDir(dir)) {
+				const path = `${dir}${entry.name}`;
+				if (entry.isDirectory) {
+					// Installed packages are not what anyone is editing, and
+					// walking them costs more than the check is worth.
+					if (entry.name !== "node_modules") await walk(`${path}/`);
+					continue;
+				}
+				if (!entry.isFile) continue;
+				if (!/\.(tsx?|css|html)$/.test(entry.name)) continue;
+				note((await Deno.stat(path)).mtime?.getTime());
 			}
-			if (!entry.isFile) continue;
-			if (!/\.(tsx?|css|html)$/.test(entry.name)) continue;
-			note((await Deno.stat(path)).mtime?.getTime());
+		} catch {
+			// A directory that cannot be read says nothing about staleness.
 		}
-	} catch {
-		return null;
-	}
+	};
+	for (const dir of SOURCE_DIRS) await walk(dir);
 	return newest;
 }
-async function clientJs(): Promise<string> {
-	let prebuilt: string | null = null;
-	let prebuiltAt: number | null = null;
-	try {
-		prebuilt = await Deno.readTextFile(`${UI_DIR}page.js`); // the deploy path
-		prebuiltAt = (await Deno.stat(`${UI_DIR}page.js`)).mtime?.getTime() ?? null;
-	} catch {
-		return await bundleClient(); // no prebuilt: bundle on the fly (the dev default)
-	}
-	// A prebuilt bundle older than a source module is the trap this guard exists
-	// for: an edit to ui/net.ts appears to do nothing, because the stale bundle
-	// wins silently. Rebuild it. If bundling is unavailable in a deployment,
-	// serve the last prepared artifact instead of refusing to start.
-	const sourceAt = await newestSourceTime();
-	if (prebuiltAt !== null && sourceAt !== null && sourceAt > prebuiltAt) {
-		console.warn("rooms: ui/page.js is older than the UI sources — rebundling");
-		try {
-			return await bundleClient();
-		} catch (err) {
-			console.warn(
-				`rooms: could not rebundle (${reasonOf(err)}); serving ui/page.js as built`,
-			);
-		}
-	}
-	return prebuilt;
+
+/** The bundle being served, and the newest source time it was built from.
+ *
+ * A bundle is stale the moment a module it was built from is newer than it, and
+ * that is one rule whether the bundle came off disk or was built here. It is
+ * the only thing the page loads that could go quietly out of date: page.html,
+ * page.css, and the wasm module are all read fresh per request, so a stale
+ * bundle serves old code inside a page that otherwise reloaded, and the edit
+ * looks like it did nothing. */
+let pageJs = "";
+let pageJsAt = 0;
+/** The source time a rebuild already failed on, so a broken edit is reported
+ * once rather than on every page load. Moving a source retries. */
+let failedSourceAt = 0;
+/** The rebuild in flight, so concurrent page loads share one, and the source
+ * time it is building for. A page load that joins a build already running has
+ * to report against that build's source time, not its own. */
+let rebuilding: { at: number; done: Promise<void> } | null = null;
+
+async function bundleInto(sourceAt: number): Promise<void> {
+	const code = await bundleClient();
+	pageJs = code;
+	pageJsAt = sourceAt;
 }
-let pageJs: string;
+
+/** Bring the bundle up to date if a module it was built from has moved. Returns
+ * the reason a rebuild failed, or null when there was nothing to do or it
+ * worked. A failure leaves the last good build standing: a deployment with no
+ * bundler has one prepared, and a syntax error mid-edit should not take the
+ * page down. */
+async function refreshPageJs(): Promise<string | null> {
+	const sourceAt = await newestSourceTime();
+	if (sourceAt === null || sourceAt <= pageJsAt || sourceAt === failedSourceAt) return null;
+	if (rebuilding === null) rebuilding = { at: sourceAt, done: bundleInto(sourceAt) };
+	const attempt = rebuilding;
+	try {
+		await attempt.done;
+		return null;
+	} catch (err) {
+		// The failure belongs to the source time the build was actually for. A
+		// load that joined a build already running would otherwise blame its own
+		// newer edit for a build nobody ran on it, and then skip the rebuild that
+		// edit is owed.
+		failedSourceAt = attempt.at;
+		return reasonOf(err);
+	} finally {
+		if (rebuilding === attempt) rebuilding = null;
+	}
+}
+
+// The deploy path: a bundle prepared ahead of time, so the runtime needs no
+// bundler. `refreshPageJs` holds it to the same staleness rule as one built
+// here, and if there is no bundler to rebuild with, this is what stands.
 try {
-	pageJs = await clientJs();
-} catch (err) {
-	console.error(`rooms: could not build the browser UI: ${reasonOf(err)}`);
+	pageJs = await Deno.readTextFile(`${UI_DIR}page.js`);
+	pageJsAt = (await Deno.stat(`${UI_DIR}page.js`)).mtime?.getTime() ?? 0;
+} catch {
+	// No prepared bundle: one is built below, which is the dev default.
+}
+// Build at startup rather than on the first page load, so a bundler failure is
+// an error in the terminal the server was started from.
+const startupFailure = await refreshPageJs();
+if (pageJs === "") {
+	console.error(
+		`rooms: could not build the browser UI: ${startupFailure ?? "no bundle produced"}`,
+	);
 	shutdown.abort();
 	killChild();
 	Deno.exit(1);
+}
+if (startupFailure !== null) {
+	console.warn(`rooms: could not rebundle (${startupFailure}); serving ui/page.js as built`);
 }
 
 // no-store so a browser (iOS Safari especially) never serves a stale asset after the
@@ -481,9 +550,10 @@ try {
 			} catch {
 				return new Response("rooms: unparseable relay target locator\n", { status: 400 });
 			}
-			if (!relayAllowed(classified, Number(ROOM_PORT))) {
+			if (!relayAllowed(classified, Number(ROOM_PORT), RELAY_TCP_PEERS)) {
 				return new Response(
-					`rooms: relay target not allowed (TCP relay reaches only 127.0.0.1:${ROOM_PORT})\n`,
+					`rooms: relay target not allowed (TCP relay reaches 127.0.0.1:${ROOM_PORT} ` +
+						`and the peers named in PANCAKE_RELAY_TCP_PEERS)\n`,
 					{ status: 403 },
 				);
 			}
@@ -510,7 +580,43 @@ try {
 				},
 			});
 		}
-		if (url.pathname === "/page.js") return asset(pageJs, "text/javascript; charset=utf-8");
+		// Where a browser member publishes its own trace, so its direct
+		// messages appear on the same timeline as the room's own sessions. The
+		// page builds the socket URL against its own hostname, so this answers
+		// with the port alone; a run whose endpoint is not reachable from the
+		// browser passes `?viz=<ws url>` on the page URL instead.
+		if (url.pathname === "/viz") {
+			if (VIZ_PORT === "") {
+				return new Response("rooms: no live timeline endpoint\n", { status: 404 });
+			}
+			if (VIZ_PORT === "0") {
+				// An ephemeral endpoint port is chosen inside the room server
+				// and announced on its stderr, which this process passes
+				// through rather than reading. Nothing here can name it.
+				return new Response(
+					"rooms: the live timeline endpoint took an ephemeral port; " +
+						"set ROOMS_VIZ_PORT to a fixed one, or open the page with ?viz=<ws url>\n",
+					{ status: 409 },
+				);
+			}
+			return new Response(`${VIZ_PORT}\n`, {
+				headers: {
+					"content-type": "text/plain; charset=utf-8",
+					"cache-control": "no-store",
+				},
+			});
+		}
+		if (url.pathname === "/page.js") {
+			return (async () => {
+				const failed = await refreshPageJs();
+				if (failed !== null) {
+					console.warn(
+						`rooms: could not rebuild the browser UI (${failed}); serving the last build`,
+					);
+				}
+				return asset(pageJs, "text/javascript; charset=utf-8");
+			})();
+		}
 		// The browser peer's wasm Host module (ADR-0070), fetched by the page's
 		// `@pancake/web` init. Read fresh so a rebuilt module serves without a
 		// restart, like the page assets.

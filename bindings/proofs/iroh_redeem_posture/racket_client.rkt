@@ -50,7 +50,7 @@
          (loop))))))
 
 ;; ── Exporter: a node-giftable greeter on its own local-discovery endpoint ──────
-(define exporter (listen-iroh IROH-REACH-LOCAL-DISCOVERY))
+(define exporter (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
 (host-publish-giftable (iroh-server-host exporter) "greeter"
                           (methods [(greet who) (format "hello ~a over a configured-posture redeem" who)]))
 (define exporter-id (iroh-server-node-id exporter))
@@ -59,7 +59,7 @@
 (printf "racket-iroh-redeem-posture: exporter published greeter on ~a\n" exporter-id)
 
 ;; ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-(define gifter (listen-iroh IROH-REACH-LOCAL-DISCOVERY))
+(define gifter (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
 (define gifter-id (iroh-server-node-id gifter))
 (define to-exporter
   (connect (format-peer-uri TRANSPORT-IROH exporter-id) IROH-REACH-LOCAL-DISCOVERY

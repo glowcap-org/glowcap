@@ -20,21 +20,40 @@ use std::task::{Context, Poll};
 use futures_util::{Sink, Stream};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
 
 use crate::{sys, Error, Result};
 
 /// Open a WebSocket to `url` and adapt it. A failure before the upgrade
 /// completes is a typed dial error; after it, an error or close surfaces
 /// through the stream, which the session's teardown classifies.
+/// The per-connection WebSocket buffers, named rather than inherited.
+///
+/// tungstenite 0.25 gave `read_buffer_size` a 128 KiB default, and its changelog
+/// warns that the new default costs memory wherever a process holds many
+/// connections. A client holds one per rendezvous leg, so the cost is smaller
+/// here than in the relay, but an unnamed per-connection buffer is the thing
+/// this project's memory posture forbids either way. The write buffer has
+/// defaulted to 128 KiB since 0.20 and is named alongside it.
+///
+/// 16 KiB per direction matches `steady_outbound_bytes` on the Zig side, so the
+/// binding and the sessions it carries answer to one number.
+const WS_BUFFER_BYTES: usize = 16 * 1024;
+
 pub(crate) async fn connect_websocket(url: &str) -> Result<WsStream> {
-	let (inner, _response) = connect_async(url).await.map_err(|e| {
-		Error::with_detail(
-			sys::ERR_INVALID_ARGUMENT,
-			format!("rendezvous WebSocket connect failed: {e}"),
-		)
-	})?;
+	let config = WebSocketConfig::default()
+		.read_buffer_size(WS_BUFFER_BYTES)
+		.write_buffer_size(WS_BUFFER_BYTES);
+	let (inner, _response) = connect_async_with_config(url, Some(config), false)
+		.await
+		.map_err(|e| {
+			Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				format!("rendezvous WebSocket connect failed: {e}"),
+			)
+		})?;
 	Ok(WsStream {
 		inner,
 		read_buf: Vec::new(),

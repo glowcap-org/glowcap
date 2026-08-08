@@ -14,7 +14,7 @@ from . import _constants as _abi
 from ._dial import _StreamTransport
 from ._errors import PancakeError
 from ._host import Host
-from ._locator import keyed_tcp_locator, socket_addr_designator
+from ._locator import encode_peer_locator, keyed_tcp_locator, socket_addr_designator
 
 if TYPE_CHECKING:
     from ._session import Session
@@ -172,13 +172,17 @@ async def listen_keyed_tcp(bind_host: str, port: int = 0, seed: Optional[bytes] 
     same seed after a restart to keep the designator stable (ADR-0075)."""
     if seed is not None and len(seed) != 32:
         raise PancakeError(_ERR_INVALID_ARGUMENT, "listen_keyed_tcp: seed must be 32 bytes")
-    host = Host(seed=seed, codec=codec or "syrup")
+    host = Host(seed=seed, codec=codec if codec is not None else "syrup")
     designator = host.designator()
     queue: asyncio.Queue = asyncio.Queue()
     server = await asyncio.start_server(
         lambda r, w: queue.put_nowait((r, w)), bind_host, port,
     )
     host.set_self_designator(designator)
+    bound = socket_addr_designator(server.sockets[0].getsockname())
+    host.set_advertised_locator(encode_peer_locator(
+        _abi.TRANSPORT_KEYED_TCP, designator, bound,
+    ))
     return KeyedTcpServer(server, queue, host, designator)
 
 
@@ -196,7 +200,9 @@ async def listen(bind_host: str, port: int = 0, host: Optional[Host] = None,
             _ERR_INVALID_ARGUMENT,
             f'codec "{codec}" conflicts with the host\'s "{host.codec}"; mint the host with it instead',
         )
-    host = host if host is not None else Host(codec=codec or "syrup")
+    host = host if host is not None else Host(
+        codec=codec if codec is not None else "syrup"
+    )
     queue: asyncio.Queue = asyncio.Queue()
     server = await asyncio.start_server(
         lambda r, w: queue.put_nowait((r, w)), bind_host, port,
@@ -204,5 +210,7 @@ async def listen(bind_host: str, port: int = 0, host: Optional[Host] = None,
     # This Host also dials (the gifter side of a handoff), and its dials sign
     # the listener's own address so a partner's crossed-hellos table can
     # recognize it.
-    host.set_self_designator(socket_addr_designator(server.sockets[0].getsockname()))
+    designator = socket_addr_designator(server.sockets[0].getsockname())
+    host.set_self_designator(designator)
+    host.set_advertised_locator(encode_peer_locator(_abi.TRANSPORT_TCP, designator))
     return Server(server, queue, host)

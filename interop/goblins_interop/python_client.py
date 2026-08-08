@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, insert_bindings_path, parse_port, read_swiss  # noqa: E402
+from helpers import fail, insert_bindings_path, parse_port, read_sturdyref_path  # noqa: E402
 
 insert_bindings_path()
 
@@ -32,21 +32,37 @@ HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt"
 
 async def converse() -> None:
     proc = await asyncio.create_subprocess_exec(
-        RACKET, HOST_SCRIPT, HOST, str(PORT),
+        RACKET,
+        HOST_SCRIPT,
+        HOST,
+        str(PORT),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        swiss = await read_swiss(proc, "python-goblins-interop", miss="never saw the Goblins echo cap readiness line")
-        print(f"python-goblins-interop: goblins published echo swiss={swiss} on {HOST}:{PORT}")
+        sturdyref_path = await read_sturdyref_path(
+            proc,
+            "python-goblins-interop",
+            miss="never saw the Goblins echo sturdyref path readiness field",
+        )
+        print(
+            f"python-goblins-interop: goblins published its echo sturdyref path on {HOST}:{PORT}"
+        )
 
-        conn = await connect(tcp_locator(HOST, PORT))
-        print("python-goblins-interop: session open, keyed start-session accepted by goblins")
+        locator = tcp_locator(HOST, PORT)
+        conn = await connect(locator)
+        print(
+            "python-goblins-interop: session open, keyed start-session accepted by goblins"
+        )
         conn.serve()
 
-        sturdyref = f"ocapn://goblins-echo.tcp/s/{swiss}"
+        # A sturdyref names a peer, and the enliven checks that peer against
+        # the session it rides (ADR-0098). Build it from the very locator this
+        # session dialed, so the two cannot drift apart.
+        sturdyref = f"{locator}/s/{sturdyref_path}"
         echo = await conn.enliven(sturdyref)
         print("python-goblins-interop: enlivened goblins echo cap, calling it")
+
         # The echo actor is `(lambda args args)`: it returns its argument
         # list, so assert the content survived the round-trip (the native
         # driver's bar), not merely that something resolved.
@@ -60,10 +76,14 @@ async def converse() -> None:
         assert_echoed(await conn.send(echo, "", [b"pancake-ping"]), b"pancake-ping")
 
         again = await conn.enliven(sturdyref)
-        if echo.far is None or again.far is None or echo.far.id != again.far.id:
+        # The dedup cache hands back the same capability, so the two handles
+        # carry one opaque Host identity (ADR-0096). The id is the whole
+        # observable: a binding cannot see the wire import behind it, which is
+        # the point of the identity being opaque.
+        if echo.id != again.id:
             fail(
                 "python-goblins-interop",
-                "repeat enliven did not return the same far import (dedup miss)",
+                "repeat enliven did not return the same capability (dedup miss)",
             )
         assert_echoed(
             await conn.send(again, "", [b"pancake-ping-again"]), b"pancake-ping-again"

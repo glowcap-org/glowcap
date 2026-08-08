@@ -3,7 +3,7 @@ id: ADR-0100
 status: accepted
 date: 2026-08-01
 tags: [captp, handoff, session, authority, gifts]
-decision: "Each CapTP Peer owns its session's deposited gifts and scalar accepted/emitted handoff counters. Withdrawal resolves the live Gifter–Exporter Peer named by the signed give, verifies with that Peer's session key, consumes from that Peer's gift table, and records replay state on the Receiver–Exporter Peer. Closing a Peer destroys the authority it owns. Reconnect-incarnation isolation remains ADR-0097 work because Host key reuse can recreate the same session names. Node keeps only authority-neutral dependencies keyed by gifter session plus a fixed-size gift digest, and each receiver groups waits by the same key, so a deposit wakes and retries only its exact bounded group."
+decision: "Each CapTP Peer owns its session's deposited gifts, accepted replay counter, and spec-profile emitted counter. Withdrawal resolves the live Gifter–Exporter Peer named by the signed give, verifies with that Peer's session key, consumes from that Peer's gift table, and records replay state on the Receiver–Exporter Peer. Closing a Peer destroys the authority it owns. A Node's automatic V1 redeem path uses a separate host-lifetime emitted-count cursor for Goblins reconnect interoperability; this changes count issuance only and never receive-side validation. Fresh per-connection session keys (ADR-0097) isolate reconnect incarnations on ordinary product Hosts. Node otherwise keeps only authority-neutral handoff routing and scheduler state."
 supersedes: [ADR-0056]
 superseded_by: []
 amends: [ADR-0025, ADR-0066, ADR-0068, ADR-0072, ADR-0083, ADR-0096]
@@ -33,12 +33,19 @@ dirty-FIFO slot and one flush plus one close action slot per live shell. A drive
 that encounters OOM keeps the exact wake and dirty row for the next action
 drain.
 
-Reconnect-incarnation isolation is not part of the shipped result. The Host
-currently reuses one session key, so a replacement connection can derive the
-same side and session names. An old signed receive can then resolve against that
-replacement Peer and consume a later deposit with the same session-local gift
-id. Fresh per-session keys and the scenario that rejects this case remain
-acceptance work for ADR-0097.
+Reconnect-incarnation isolation for ordinary product Hosts is ADR-0097 work
+that has since shipped: `PollHost`, the C Host, and the bindings mint fresh
+session keys from a rooted entropy seed, and the reconnect evidence there
+holds. A bare byte-fed Host that omits `Options.session_seeds` still defaults
+to reusing the durable seed, which can recreate session names across reconnect;
+that default is the remaining footgun, not an open ADR-0097 deliverable.
+
+The V1 Goblins compatibility case is also shipped. Goblins 0.15 retains the
+last accepted count on its Gifter–Exporter coordinator, so it rejects count
+zero when a Receiver–Exporter session closes and a fresh one redeems another
+introduction. A Node's automatic V1 redeem path now issues monotonically for
+the Node lifetime. The spec/next path remains session-local, and accepted
+replay state remains session-local in both profiles.
 
 ## Context
 
@@ -69,8 +76,13 @@ Every `engine.Peer` owns one `GiftRegistry` for its CapTP session:
 - `gifts[gift_id]` contains only deposits made on that session;
 - `accepted_handoff_count` is the monotonic replay guard for receives arriving
   on that session;
-- `next_emitted_handoff_count` mints counts for withdrawals emitted on that
-  session.
+- `next_emitted_handoff_count` mints counts for standalone and next-profile
+  withdrawals emitted on that session.
+
+For automatic V1 redemption, `Node.next_v1_emitted_handoff_count` supplies the
+wire value across replacement Receiver–Exporter sessions. This cursor grants no
+authority and validates nothing. It only avoids reusing a lower value against
+the long-lived coordinator where Goblins 0.15 records its check.
 
 A gift row stores its payload, not a copied gifter key or side. Gift ids need no
 gifter dimension because the containing Gifter–Exporter session is their
@@ -133,7 +145,9 @@ therefore leaves no pending row, accepted count, or orphan dependency.
   not a scan of unrelated pending rows. The admission sweep above
   removes an adopted receiver while its real pending row remains, proving that
   receiver teardown removes the dependency rather than merely invoking the
-  scheduler callbacks by hand.
+  scheduler callbacks by hand. The suite also decodes automatic withdrawals on
+  fresh exporter sessions. V1 requires Node-lifetime counts `0`, then `1`,
+  while next requires session-local counts `0`, then `0`.
 - [`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig)
   pins the production Host directory, the close-after-deposit failure, and both
   outcomes of one discriminating early-withdraw composition. A deposit arriving
@@ -162,6 +176,10 @@ therefore leaves no pending row, accepted count, or orphan dependency.
 - Closing either required Exporter Peer destroys that Peer's gift and replay
   state. Failure stays closed while its session names remain absent; ADR-0097
   owns the fresh-key work that makes those names unique across reconnects.
+- Automatic V1 redeems from one Node do not restart their emitted wire count
+  when an exporter session is replaced. Independent receivers still cannot
+  coordinate around Goblins' misplaced comparison; that upstream defect
+  remains recorded in `docs/upstream-watch.md`.
 - Gift rows no longer duplicate a 32-byte gifter key or carry a gifter-side map
   dimension; replay counters allocate no map rows.
 - `max_seen_handoff_counts` and `HandoffCountCapExceeded` are deleted. The

@@ -1,4 +1,4 @@
-import { connect, Host, Ref, type Session, tcpLocator } from "@pancake/stack";
+import { Ref, type Session } from "@pancake/stack";
 import {
 	DIRECTORY,
 	ENTER,
@@ -27,7 +27,7 @@ import {
 import { MAX_NICK } from "../lib/limits.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
 import { Directory } from "../lib/room_client.ts";
-import { dial, loopbackTcpDesignator } from "../lib/locator.ts";
+import { dial, loopbackTcpDesignator, roomsHost } from "../lib/locator.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const SERVER = new URL("../server/main.ts", import.meta.url).pathname;
@@ -230,7 +230,7 @@ async function subscribeOnce(
 	nick: string,
 ): Promise<string> {
 	return subscribeOnceConn(
-		await connect(tcpLocator("127.0.0.1", port)),
+		await dial(loopbackTcpDesignator(port)),
 		room,
 		nick,
 	);
@@ -249,7 +249,7 @@ async function trySubscribe(port: number, room: string, nick: string): Promise<{
 	code?: RoomErrorCode | null;
 	leave: () => Promise<void>;
 }> {
-	const session = await connect(tcpLocator("127.0.0.1", port));
+	const session = await dial(loopbackTcpDesignator(port));
 	session.serve().catch(() => {});
 	try {
 		const roomRef = await enterOrOpen(session, room);
@@ -277,7 +277,7 @@ async function subscribeTwiceAndClose(
 	port: number,
 	room: string,
 ): Promise<void> {
-	const session = await connect(tcpLocator("127.0.0.1", port));
+	const session = await dial(loopbackTcpDesignator(port));
 	session.serve().catch(() => {});
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn(() => null);
@@ -290,7 +290,7 @@ async function subscribeTwiceAndClose(
 async function resubscribeAndHold(port: number, room: string): Promise<{
 	leave: () => Promise<void>;
 }> {
-	const session = await connect(tcpLocator("127.0.0.1", port));
+	const session = await dial(loopbackTcpDesignator(port));
 	session.serve().catch(() => {});
 	const roomRef = await enterOrOpen(session, room);
 	const inbox = session.spawn(() => null);
@@ -347,7 +347,7 @@ async function watchRoomConn(
 
 async function watchRoom(port: number, room: string, nick: string) {
 	return watchRoomConn(
-		await connect(tcpLocator("127.0.0.1", port)),
+		await dial(loopbackTcpDesignator(port)),
 		room,
 		nick,
 	);
@@ -369,7 +369,7 @@ async function waitForLine(lines: string[], pattern: RegExp): Promise<string> {
 
 Deno.test("rooms directory opens a room and rejects opening it twice", async () => {
 	await withServer(async (port) => {
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		try {
 			const directory = await session.fetch(DIRECTORY);
@@ -392,7 +392,7 @@ Deno.test("rooms directory opens a room and rejects opening it twice", async () 
 
 Deno.test("rooms directory rejects entering a room that does not exist", async () => {
 	await withServer(async (port) => {
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		try {
 			const directory = await session.fetch(DIRECTORY);
@@ -466,6 +466,44 @@ Deno.test("rooms server grants each live nickname once per room", async () => {
 		const reclaimed = await trySubscribe(port, "lobby", "CLAIMED");
 		assert(reclaimed.ok, "released name should be claimable again");
 		await reclaimed.leave();
+	});
+});
+
+Deno.test("rooms server will not grant a name a connected member still answers to", async () => {
+	// A name outlives a room membership: leaving a room does not give up the
+	// registration a member is reached by, because a direct line is not the
+	// room's. So the room must not hand that name to the next person while the
+	// first is still connected — the roster would show one of them and an
+	// introduction under the name would reach the other.
+	await withServer(async (port) => {
+		const holder = await dial(loopbackTcpDesignator(port));
+		holder.serve().catch(() => {});
+		try {
+			const holderDir = await holder.fetch(DIRECTORY);
+			const room = await enterOrOpen(holder, "lobby");
+			await holder.send(room, SUBSCRIBE, ["ada", holder.spawn(() => null)]);
+			await registerAndWatch(holder, holderDir, "ada", loopbackTcpDesignator(port));
+
+			// Ada leaves the room. Her membership is gone; her registration is not,
+			// because a direct line does not belong to the room that introduced it.
+			await holder.send(room, LEAVE, []);
+
+			const impostor = await trySubscribe(port, "lobby", "ada");
+			assert(
+				!impostor.ok,
+				"the room granted a name a still-connected member answers to for direct " +
+					"messages; an introduction from the roster would reach the wrong person",
+			);
+			assert(impostor.code === NICK_TAKEN, "the refusal should read as nick-taken");
+
+			// Only the held name is refused; the rule costs nobody else the room.
+			const other = await trySubscribe(port, "lobby", "grace");
+			assert(other.ok, "an unheld name should still be granted");
+			await other.leave();
+		} finally {
+			holder.close();
+			await holder.serve().catch(() => {});
+		}
 	});
 });
 
@@ -567,7 +605,7 @@ Deno.test("rooms directory lists the live rooms with member counts", async () =>
 		const beta2 = await watchRoom(port, "beta", "b2");
 		await waitForLine(beta.lines, /^room: b2 joined \(2 here\)$/);
 
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		try {
 			const rooms = new Map(await listRooms(session));
@@ -602,7 +640,7 @@ Deno.test("rooms directory lists the live rooms with member counts", async () =>
 
 Deno.test("rooms directory pushes open/count/close deltas to a watcher", async () => {
 	await withServer(async (port) => {
-		const watcherConn = await connect(tcpLocator("127.0.0.1", port));
+		const watcherConn = await dial(loopbackTcpDesignator(port));
 		const watch = await watchDirectory(watcherConn);
 
 		const m1 = await watchRoom(port, "wroom", "m1");
@@ -622,7 +660,7 @@ Deno.test("rooms directory pushes open/count/close deltas to a watcher", async (
 
 Deno.test("a room leave drops just that membership, keeping the connection", async () => {
 	await withServer(async (port) => {
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		try {
 			const one = await enterOrOpen(session, "one");
@@ -718,7 +756,7 @@ Deno.test("racket one-shot client exits by its deadline while unrelated traffic 
 
 Deno.test("rooms directory registers a member and acknowledges the name", async () => {
 	await withServer(async (port) => {
-		const exporter = await connect(tcpLocator("127.0.0.1", port));
+		const exporter = await dial(loopbackTcpDesignator(port));
 		exporter.serve().catch(() => {});
 		const exporterDir = await exporter.fetch(DIRECTORY);
 		let registered = false;
@@ -745,7 +783,7 @@ Deno.test("rooms directory introduces only to the inbox a member minted for the 
 	// message is the `demo-rooms-dm` gate's job; here nothing dials, so the test
 	// stays fast and needs no second listener.
 	await withServer(async (port) => {
-		const bobHost = new Host();
+		const bobHost = roomsHost();
 		const bob = await dial(loopbackTcpDesignator(port), bobHost);
 		bob.serve().catch(() => {});
 		const bobDir = await bob.fetch(DIRECTORY);
@@ -762,7 +800,7 @@ Deno.test("rooms directory introduces only to the inbox a member minted for the 
 		while (!bobAck && Date.now() < bobDeadline) await delay(25);
 		assert(bobAck, "bob should be registered");
 
-		const carol = await connect(tcpLocator("127.0.0.1", port));
+		const carol = await dial(loopbackTcpDesignator(port));
 		carol.serve().catch(() => {});
 		const carolDir = await carol.fetch(DIRECTORY);
 		let carolAck = false;
@@ -805,7 +843,7 @@ Deno.test("rooms directory introduces only to the inbox a member minted for the 
 		assert(introducible, "carol should hear that bob is introducible");
 
 		// An unregistered caller has no name an inbox could have been minted for.
-		const stranger = await connect(tcpLocator("127.0.0.1", port));
+		const stranger = await dial(loopbackTcpDesignator(port));
 		stranger.serve().catch(() => {});
 		const strangerDir = await stranger.fetch(DIRECTORY);
 		let strangerRefused = false;
@@ -871,7 +909,7 @@ Deno.test("rooms directory refuses a register whose nick is too long", async () 
 	// in every member it is introduced to. Clients cap their own input; only the
 	// directory caps everyone's.
 	await withServer(async (port) => {
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const session = await dial(loopbackTcpDesignator(port));
 		session.serve().catch(() => {});
 		const directory = await session.fetch(DIRECTORY);
 		const inbox = session.spawn(() => null);
@@ -906,13 +944,13 @@ Deno.test("rooms directory does not hand a nickname's next holder the last one's
 	// somebody else, and the caller's interface would paint their messages as that
 	// person's with nothing left to doubt.
 	await withServer(async (port) => {
-		const carolHost = new Host();
+		const carolHost = roomsHost();
 		const carol = await dial(loopbackTcpDesignator(port), carolHost);
 		carol.serve().catch(() => {});
 		const carolDir = await carol.fetch(DIRECTORY);
 		const carolSaw = await registerAndWatch(carol, carolDir, "carol", "127.0.0.1:1");
 
-		const bob = await connect(tcpLocator("127.0.0.1", port));
+		const bob = await dial(loopbackTcpDesignator(port));
 		bob.serve().catch(() => {});
 		const bobDir = await bob.fetch(DIRECTORY);
 		const bobSaw = await registerAndWatch(bob, bobDir, "bob", loopbackTcpDesignator(port));
@@ -932,7 +970,7 @@ Deno.test("rooms directory does not hand a nickname's next holder the last one's
 		await bob.serve().catch(() => {});
 		const goneDeadline = Date.now() + 3_000;
 		let free: string | null = "held";
-		const mallory = await connect(tcpLocator("127.0.0.1", port));
+		const mallory = await dial(loopbackTcpDesignator(port));
 		mallory.serve().catch(() => {});
 		const malloryDir = await mallory.fetch(DIRECTORY);
 		const malloryInbox = mallory.spawn(() => null);
@@ -971,12 +1009,12 @@ Deno.test("a member re-offers its inboxes after a second registration, minting n
 	// giftable and a second one would answer forever under a name nobody can take
 	// back.
 	await withServer(async (port) => {
-		const asker = await connect(tcpLocator("127.0.0.1", port));
+		const asker = await dial(loopbackTcpDesignator(port));
 		asker.serve().catch(() => {});
 		const askerDir = await asker.fetch(DIRECTORY);
 		const askerSaw = await registerAndWatch(asker, askerDir, "carol", "127.0.0.1:1");
 
-		const memberHost = new Host();
+		const memberHost = roomsHost();
 		let dir: Directory | null = null;
 		dir = await Directory.connect(
 			loopbackTcpDesignator(port),
@@ -1027,13 +1065,13 @@ Deno.test("rooms directory keeps one registered nick per connection", async () =
 	// first. A nick change re-registers on the live session, so this is the
 	// shipped path, not a hypothetical.
 	await withServer(async (port) => {
-		const member = await connect(tcpLocator("127.0.0.1", port));
+		const member = await dial(loopbackTcpDesignator(port));
 		member.serve().catch(() => {});
 		const memberDir = await member.fetch(DIRECTORY);
 		await registerAndWatch(member, memberDir, "alice", loopbackTcpDesignator(port));
 		await registerAndWatch(member, memberDir, "alicia", loopbackTcpDesignator(port));
 
-		const asker = await connect(tcpLocator("127.0.0.1", port));
+		const asker = await dial(loopbackTcpDesignator(port));
 		asker.serve().catch(() => {});
 		const askerDir = await asker.fetch(DIRECTORY);
 		await registerAndWatch(asker, askerDir, "dave", "127.0.0.1:1");
@@ -1056,7 +1094,7 @@ Deno.test("rooms directory refuses a nick another live connection holds", async 
 	await withServer(async (port) => {
 		const designator = loopbackTcpDesignator(port);
 
-		const first = await connect(tcpLocator("127.0.0.1", port));
+		const first = await dial(loopbackTcpDesignator(port));
 		first.serve().catch(() => {});
 		const firstDir = await first.fetch(DIRECTORY);
 		let firstAck = false;
@@ -1072,7 +1110,7 @@ Deno.test("rooms directory refuses a nick another live connection holds", async 
 		// Another connection asking for the same name is refused while the holder's
 		// connection is open. A registration is what `introduce` routes on, so
 		// granting this would hand callers the wrong member's capability.
-		const second = await connect(tcpLocator("127.0.0.1", port));
+		const second = await dial(loopbackTcpDesignator(port));
 		second.serve().catch(() => {});
 		const secondDir = await second.fetch(DIRECTORY);
 		const secondInbox = second.spawn(() => null);

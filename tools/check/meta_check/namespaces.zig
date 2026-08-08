@@ -120,6 +120,12 @@ const registered = [_]Table{
     },
     .{
         .file = "ocapn/engine/node.zig",
+        .name = "advertised_locators",
+        .owner = "Transport names in this node's own publication registry; callers cannot select another node because the map is a Node field.",
+        .epoch = "Replacement atomically swaps the owned snapshot for that transport, removal deletes it, and the complete registry dies with the Node.",
+    },
+    .{
+        .file = "ocapn/engine/node.zig",
         .name = "redeemed",
         .owner = "Node-minted tokens from the same counter as foreign_imports.",
         .epoch = "Never reused. Rows for a dead session are deliberately kept so routing reads the missing peer and fails the token closed.",
@@ -147,12 +153,6 @@ const registered = [_]Table{
         .name = "pending_gifts",
         .owner = "Tickets this node mints for its own gift-id draws.",
         .epoch = "Monotonic; a row is removed when its ticket is answered.",
-    },
-    .{
-        .file = "driver/core/host.zig",
-        .name = "dialed_by_designator",
-        .owner = "Designators this host itself dialed — bytes we chose, never a partner's claim about where it lives.",
-        .epoch = "Rows clear on unindex, condemn, and release, and removal is identity-checked so a released session cannot evict a newer dial's row.",
     },
     .{
         .file = "driver/core/host.zig",

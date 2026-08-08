@@ -6,15 +6,20 @@
 // through serve.ts's `/relay`, and drives `lib/room_client.ts` directly. No JSON
 // bridge is on the page's path.
 //
+// Before that it watches the load itself, frame by frame from the first one,
+// because what a reader sees on the way in is part of the page too: the screen
+// that stands in while the peer opens has to be there, and the message meant for
+// a browser that cannot run this page must never appear on one that can.
+//
 // It then holds the two rails that flank the conversation — the rooms and
 // direct-message list, and the roster — to the promises they make on both
-// layouts. A real browser is the only place those can be checked: every one of
-// them is about what a reader can see or reach, and a stylesheet read on its own
-// says nothing about either.
+// layouts. A real browser is the only place any of this can be checked: every
+// one of them is about what a reader can see or reach, and a stylesheet read on
+// its own says nothing about either.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server is native), and a Playwright Chromium
-// (`npx playwright install chromium && sudo npx playwright install-deps`).
+// (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web_page_test.ts`.
 
 import { chromium } from "playwright";
@@ -94,21 +99,102 @@ try {
 	const tab = await browser.newPage();
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));
 
+	// ── The opening screen ───────────────────────────────────────────────
+	// The page draws itself, so page.html holds a screen up until it has, and
+	// carries an explanation for when it never will. Three things have to hold,
+	// and the first of them is the one a reader complained about: the
+	// explanation is for a page that cannot run, so a page that can must never
+	// lay it out — not on mount, not for a frame before it.
+	//
+	// Watched from the first frame rather than looked at afterwards. Asking once
+	// the page is up would pass on the version that flashed the message and
+	// replaced it, which is the whole defect.
+	await tab.addInitScript(() => {
+		const seen = { explain: 0, wait: 0 };
+		(globalThis as unknown as { seenFrames: typeof seen }).seenFrames = seen;
+		const laidOut = (sel: string) =>
+			(document.querySelector(sel)?.getClientRects().length ?? 0) > 0;
+		const sample = () => {
+			if (laidOut(".boot-explain")) seen.explain++;
+			if (laidOut(".boot-wait")) seen.wait++;
+			requestAnimationFrame(sample);
+		};
+		requestAnimationFrame(sample);
+	});
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
+	await tab.waitForSelector("#joinBtn", { timeout: 60_000 });
 
-	// The page draws itself, so page.html carries an explanation for when it
-	// cannot. Two things have to hold: the interface replaces it on mount, or the
-	// message would sit under a working page; and it is actually reached when the
-	// bundle is not, which is the case nobody sees until it happens to them.
-	if (await tab.locator(".boot").count() !== 0) {
-		fail("the boot message survived mount; it would sit under the running page");
+	// The screen is the peer's to end, not the bundle's: it stays up until the
+	// session has come back, so by the time it goes the room list behind it is
+	// the real one. Ended, it leaves the document entirely.
+	await tab.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
+		.catch(() => fail("the opening screen never handed the page over"));
+	const frames = await tab.evaluate(() =>
+		(globalThis as unknown as { seenFrames: { explain: number; wait: number } }).seenFrames
+	);
+	if (frames.explain > 0) {
+		fail(
+			`the "needs JavaScript" message was on screen for ${frames.explain} frames of a ` +
+				`load that ran fine; a reader sees that as a flash`,
+		);
 	}
+	if (frames.wait === 0) {
+		fail("nothing was on screen while the page was opening; the reader waits on a blank");
+	}
+
+	// A reader who has asked for less motion gets a mark that sits still and
+	// still gets the page. Both halves are worth holding: the mark's animation
+	// yields to the sheet's own reduced-motion rule, and the screen is taken out
+	// of the document when its fade ends — a fade that same rule shortens to
+	// nothing. Were that end never reported, the screen would stay in the
+	// document for good, and only this reader would ever find out.
 	{
+		const still = await browser.newContext({ reducedMotion: "reduce" });
+		const calm = await still.newPage();
+		await calm.addInitScript(() => {
+			const held = { motion: "" };
+			(globalThis as unknown as { markMotion: typeof held }).markMotion = held;
+			const sample = () => {
+				const mark = document.querySelector(".boot-mark");
+				if (mark !== null) held.motion = getComputedStyle(mark).animationDuration;
+				if (held.motion === "") requestAnimationFrame(sample);
+			};
+			requestAnimationFrame(sample);
+		});
+		await calm.goto(`http://127.0.0.1:${httpPort}/`);
+		await calm.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
+			.catch(() =>
+				fail("with less motion asked for, the opening screen never left the document")
+			);
+		const motion = await calm.evaluate(() =>
+			(globalThis as unknown as { markMotion: { motion: string } }).markMotion.motion
+		);
+		if (parseFloat(motion) > 0.01) {
+			fail(`the opening screen's mark still animates for ${motion} under reduced motion`);
+		}
+		await still.close();
+	}
+
+	// The other two: a browser with scripting off is told why there is nothing
+	// here, and so is one whose bundle never arrived — the case nobody sees until
+	// it happens to them.
+	{
+		const off = await browser.newContext({ javaScriptEnabled: false });
+		const quiet = await off.newPage();
+		await quiet.goto(`http://127.0.0.1:${httpPort}/`);
+		if (!await quiet.locator(".boot-explain").isVisible()) {
+			fail("a browser with scripting off is not told why the page is empty");
+		}
+		if (await quiet.locator(".boot-wait").isVisible()) {
+			fail("a browser with scripting off is shown a wait that will never end");
+		}
+		await off.close();
+
 		const dark = await browser.newContext();
 		const blind = await dark.newPage();
 		await blind.route("**/page.js", (route) => route.fulfill({ status: 503, body: "" }));
 		await blind.goto(`http://127.0.0.1:${httpPort}/`);
-		if (!await blind.locator(".boot").isVisible()) {
+		if (!await blind.locator(".boot-explain").isVisible()) {
 			fail("a page whose bundle did not load shows a reader nothing at all");
 		}
 		await dark.close();
@@ -319,7 +405,9 @@ try {
 		"PASS: the rooms page ran as a browser peer — joined a room through /relay and " +
 			"round-tripped a line over the room capability, no JSON bridge; both rails " +
 			"hold their layout and their way back on a phone; nothing that truncates " +
-			"cuts off its own descenders; and a page that cannot draw itself says so",
+			"cuts off its own descenders; the opening screen waited for the peer and " +
+			"never flashed the message meant for a browser that cannot run it; and a " +
+			"page that cannot draw itself says so",
 	);
 } finally {
 	clearTimeout(deadline);

@@ -1,11 +1,9 @@
 # Remaining work
 
-This page contains unfinished work only. [What ships](shipped.md) covers the
+This page lists unfinished work only. [What ships](shipped.md) covers the
 present, [known limitations](boundaries.md) covers their consequences, and
-[the ladder](ladder.md) tracks progress toward 1.0.
-
-Nothing here waits on anyone else. Open questions in OCapN and Goblins are
-[watched separately](upstream-watch.md).
+[the ladder](ladder.md) tracks progress toward 1.0. Open OCapN and Goblins
+questions are [watched separately](upstream-watch.md).
 
 ## Platforms and reachability
 
@@ -37,6 +35,36 @@ Nothing here waits on anyone else. Open questions in OCapN and Goblins are
 
 ## Beyond the library
 
-The deterministic simulator (`pancake griddle`), the ocapnviz protocol viewer,
-and the A2A agent-to-agent facade are products built on pancake. None adds wire
-semantics. Their designs live in [`docs/planning/`](planning/).
+The ocapnviz protocol viewer and the A2A agent-to-agent facade are products
+built on pancake. Neither adds wire semantics. The A2A design sketch is in
+[`docs/planning/`](planning/), deferred by
+[ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md).
+
+`pancake griddle run` ships the deterministic simulator: a seeded schedule,
+an NDJSON timeline, per-link latency, and partition. The viewer at
+`apps/ocapnviz/` imports that timeline; the live producer is native. The host
+core's trace tap is the one place that reports session opens, message verbs,
+and closes. Every binding's `enable_trace` stamps and forwards those events.
+An embedder that can take a callback uses `pancake_host_set_trace`; a browser
+drains the same facts from the ring `pancake_host_set_trace_queue` installs.
+The rooms server serves the stream at `ROOMS_VIZ_PORT` for Live mode, and
+other peers publish there too, so a direct message the room never carries
+still reaches the timeline (ADR-0104).
+
+Three pieces of that family are named and unbuilt.
+
+**OpenTelemetry export** is an adapter-only OTLP exporter off the same Host and
+session event spine the stderr logs already use. It is enabled by `OTEL_*` or a
+flag, off by default, and never in a `core = true` module. The timeline schema
+stays the source of truth either way, because topology and deterministic replay
+are not recoverable from generic spans.
+
+**The object layer** is the set of facts the tap does not report: what a
+session carries, rather than which sessions exist.
+
+**A capability-native trace stream** would replace the ambient loopback port
+that serves the feed today.
+
+The second and third are argued in
+[ADR-0106](decisions/adr/ADR-0106-viz-control-capability.md), whose Scope
+section says plainly that none of the three is implemented.

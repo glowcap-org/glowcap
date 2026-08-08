@@ -190,8 +190,8 @@ export async function raiseFeedRefusal(
 }
 
 /** Drain every encoded outbound frame on this CapTP session and write it to
- * the transport — how a FLUSH action lands. Writes are serialized, so
- * frames stay whole and in submission order. */
+ * the byte-stream transport as a canonical Syrup byte string. Writes are
+ * serialized, so each prefix/body pair stays in submission order. */
 export async function flushOutbound(h: PumpHandle): Promise<void> {
 	const prior = h.writing;
 	let release!: () => void;
@@ -210,6 +210,7 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 				L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
 			);
 			releaseManagedFrame(mf);
+			await h.write(utf8Encoder.encode(`${frame.length}:`));
 			await h.write(frame);
 		}
 	} finally {

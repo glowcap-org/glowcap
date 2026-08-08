@@ -12,7 +12,7 @@
 // `zig build deno-goblins-interop`.
 
 import { connect, tcpLocator } from "@pancake/stack";
-import { fail, readSwiss } from "../_common/deno/helpers.ts";
+import { fail, readSturdyrefPath } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
 // The Goblins vat's fixed port; `--port=N` (from
@@ -38,25 +38,29 @@ const stdoutReader = child.stdout.getReader();
 
 let ok = false;
 try {
-	const swiss = await readSwiss(
+	const sturdyrefPath = await readSturdyrefPath(
 		stdoutReader,
 		"deno-goblins-interop",
-		"never saw the Goblins echo cap readiness line",
+		"never saw the Goblins echo sturdyref path readiness field",
 	);
 	console.log(
-		`deno-goblins-interop: goblins published echo swiss=${swiss} on ${HOST}:${PORT}`,
+		`deno-goblins-interop: goblins published its echo sturdyref path on ${HOST}:${PORT}`,
 	);
 
 	// `connect` completes the keyed handshake; reaching here means Goblins accepted
 	// our signed start-session and we accepted its.
-	const conn = await connect(tcpLocator(HOST, PORT));
+	const locator = tcpLocator(HOST, PORT);
+	const conn = await connect(locator);
 	console.log(
 		"deno-goblins-interop: session open, keyed start-session accepted by goblins",
 	);
 	conn.serve().catch(() => {}); // the partner hanging up ends the serve loop
 
 	// Peer URI host is ignored once the session is open; enliven keys on swiss.
-	const sturdyref = `ocapn://goblins-echo.tcp/s/${swiss}`;
+	// A sturdyref names a peer, and the enliven checks that peer against the
+	// session it rides (ADR-0098). Build it from the very locator this session
+	// dialed, so the two cannot drift apart.
+	const sturdyref = `${locator}/s/${sturdyrefPath}`;
 	const echo = await conn.enliven(sturdyref);
 	console.log("deno-goblins-interop: enlivened goblins echo cap, calling it");
 

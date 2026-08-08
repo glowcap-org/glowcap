@@ -11,6 +11,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const actors = @import("actors");
+const engine = @import("engine");
 
 const crypto = foundation.crypto;
 
@@ -71,6 +72,14 @@ pub const Error = error{
     /// produce the durable designator the transport advertises. Accept with
     /// `.{ .keyed = secret }` holding the listener's identity key.
     EphemeralIdentityOnKeyedTransport,
+    /// This face was wired to advertise a durable key it cannot sign for
+    /// (ADR-0105): an `Identity.keyed` whose `designator` names some other
+    /// peer's key, or a keyed listener bound under a key that is not the one
+    /// the host was built on. The mismatch is refused where it was wired
+    /// rather than on the first accept. Same name and meaning as
+    /// `driver_core.HostError.UnheldIdentity`, which the byte-fed tier raises
+    /// for the same condition.
+    UnheldIdentity,
 };
 
 /// How long a CapTP wait may take. It lives here beside `HandshakeTimedOut`
@@ -85,7 +94,7 @@ pub const Error = error{
 /// an unbounded wait parks the caller on it forever, so the owning tier asks
 /// the question where it cannot be skipped.
 ///
-/// `unbounded` stays available, spelled out, because an in-process pair and a
+/// `unbounded` stays available explicitly because an in-process pair and a
 /// harness that drives both ends genuinely want it. A `.ms` of zero or less
 /// is a budget that has already expired: a wait under it times out
 /// immediately, in every build mode, rather than inheriting the OS poll
@@ -100,84 +109,38 @@ pub const Budget = union(enum) {
     ms: i32,
 };
 
-/// What a transport's locator designator is, the byte-fed mirror of
-/// `net.netlayer.DesignatorScheme`: `address` means the designator is where to
-/// dial; `key` means it is the peer's Ed25519 public key in canonical hex, so
-/// a dial pins the partner's session identity to it. Two spellings exist
-/// because `driver_core` is sans-io and holds transport *strings*, never
-/// netlayers: where a transport has a netlayer resident, that vtable's
-/// `designator_scheme` is the authoritative declaration on every I/O path
-/// (`driver.connectVia` reads it) and this string table mirrors it, so a
-/// transport added to one is added to the other — `zig build meta-check` holds
-/// the mirror in sync. A resident-less key transport has no vtable to mirror
-/// (`keyed-relay`, whose byte path is a browser WebSocket rendezvous rather
-/// than a Zig netlayer, ADR-0088): for it this byte-fed string table is the
-/// sole authority.
-pub const DesignatorScheme = enum { address, key };
+/// What a transport's locator designator means. The model vocabulary owns the
+/// type and symbol table; netlayer vtables declare the same fact for runtime
+/// residents, and `meta-check` keeps those declarations aligned.
+pub const DesignatorScheme = model.transport.DesignatorScheme;
 
 /// The designator scheme for a transport symbol (see `DesignatorScheme`).
-/// `keyed-tcp` and `iroh` both use a key designator: the dialed locator's
-/// designator *is* the partner's Ed25519 public key in canonical hex, and the
-/// byte-fed host pins the handshake to it (`Host.openDialedLocator` then
-/// `expectPartnerKey`). Binding-hosted iroh servers mint one seed for the
-/// endpoint and the `Node` so designator, session key, and netlayer identity
-/// stay one value (ADR-0075).
 pub fn designatorSchemeForTransport(transport: []const u8) DesignatorScheme {
-    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) return .key;
-    if (std.mem.eql(u8, transport, model.transport.iroh)) return .key;
-    // `webrtc` names a peer by its Ed25519 key; the channel comes up through a
-    // signaling exchange rather than a dialable address (ADR-0089), and the keyed
-    // handshake pins the designator exactly as keyed-tcp/iroh do.
-    if (std.mem.eql(u8, transport, model.transport.webrtc)) return .key;
-    // `keyed-relay` names a peer by key alone with no dialable address — its byte
-    // path is a relay rendezvous, not a socket (ADR-0088). The keyed handshake
-    // pins the designator exactly as keyed-tcp/iroh do.
-    if (std.mem.eql(u8, transport, model.transport.keyed_relay)) return .key;
-    return .address;
-}
-
-/// How a transport authenticates the durable identity its key designator
-/// names (ADR-0097). Designator *grammar* (`DesignatorScheme`) and
-/// authentication *mechanism* are separate contracts: every member of the
-/// `.key` set above carries an assignment here, and the engine receives the
-/// selected contract from the adapter rather than inferring it from a
-/// transport string or a key-shaped designator.
-pub const AuthenticationMechanism = enum {
-    /// The transport layer itself proves the durable peer key: iroh's QUIC
-    /// handshake authenticates the endpoint id, WebRTC's DTLS fingerprint is
-    /// exchanged through the capability-authorized signaling channel. The
-    /// adapter surfaces that verified remote binding on dial and accept.
-    authenticated_transport,
-    /// No lower layer can prove the designator (`keyed-tcp`, `keyed-relay`):
-    /// the hello's key-designator location must carry a
-    /// `session-key-attestation` hint signed by the durable key
-    /// (`engine.verifyPartnerAttestation`).
-    durable_key_attestation,
-    /// Address transports: connection provenance only, no durable claim.
-    none,
-};
-
-/// The authentication mechanism for a transport symbol (see
-/// `AuthenticationMechanism`). Every `.key`-scheme transport
-/// `designatorSchemeForTransport` names has a non-`none` row here, and each
-/// resident's `authentication` declaration mirrors its row; `zig build
-/// meta-check` holds both directions.
-pub fn authenticationMechanismForTransport(transport: []const u8) AuthenticationMechanism {
-    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) return .durable_key_attestation;
-    if (std.mem.eql(u8, transport, model.transport.keyed_relay)) return .durable_key_attestation;
-    if (std.mem.eql(u8, transport, model.transport.iroh)) return .authenticated_transport;
-    if (std.mem.eql(u8, transport, model.transport.webrtc)) return .authenticated_transport;
-    return .none;
+    return model.transport.designatorScheme(transport);
 }
 
 /// `keyed-tcp` requires a non-empty direct-addresses hint on accept; other
 /// key-designator transports (iroh) may omit it (discovery can resolve by
 /// node id alone). Kept next to `designatorSchemeForTransport` so sans-io
 /// transport-string policy lives in one table.
+///
+/// This is the *refusal* question, not the publish question: an empty hint here
+/// is a locator nothing could ever dial, so the open fails closed. What a hello
+/// publishes when it does know its addresses is the netlayer's own answer, noted
+/// below.
 pub fn requiresDirectAddressesHint(transport: []const u8) bool {
     return std.mem.eql(u8, transport, model.transport.keyed_tcp);
 }
 
+/// Which hints a locator carries is the netlayer's own business, so there is
+/// deliberately no table here saying who publishes dial addresses. The netlayer
+/// answers that by what it writes: `net.netlayer.Listener.localDirectAddresses` returns the
+/// bound address for `keyed-tcp` and the endpoint's direct addresses for `iroh`,
+/// and nothing at all where a designator already says where to dial. On the
+/// byte-fed path the embedder owns the transport and answers the same question.
+/// `dial_plan.planAccept` passes that answer through rather than second-guessing
+/// it; a table here would be a second authority for one fact, free to drift from
+/// the vtable that produces the value.
 /// The locator hint entry name that carries dial addresses when the
 /// designator is a key (`keyed-tcp`, `iroh`). Same literal as
 /// `model.transport.hint_direct_addresses` / `net.netlayer.hint_direct_addresses`.
@@ -192,12 +155,12 @@ pub const hint_direct_addresses = model.transport.hint_direct_addresses;
 /// placeholder never drifts between them.
 pub const unreachable_client_designator = "127.0.0.1:0";
 
-/// The identity a driver half signs its keyed `op:start-session` with. Every
-/// transport-neutral dial (`connectVia`) and accept (`acceptVia`) carries one
-/// explicitly — there is no implicit default key. The two arms make the only two
-/// postures unrepresentable as each other: an ephemeral dialer has no
-/// stable designator of its own (it signs the unreachable-client placeholder),
-/// and a keyed peer always names the designator its key is reachable as.
+/// The durable-locator posture a driver half advertises in its keyed
+/// `op:start-session`. The session signing key is always drawn separately per
+/// connection. Every transport-neutral dial (`connectVia`) and accept
+/// (`acceptVia`) carries this posture explicitly: an ephemeral dialer has no
+/// stable designator of its own, while a keyed peer names the durable
+/// designator its endpoint is reachable as.
 pub const Identity = union(enum) {
     /// Draw a fresh random session key at the I/O boundary for this one
     /// session. The ordinary client posture: a dialer that does not itself
@@ -205,13 +168,16 @@ pub const Identity = union(enum) {
     /// On accept, the listener's bound designator is still signed — a host is
     /// always reachable.
     ephemeral,
-    /// Sign the handshake with a caller-held `secret` and advertise
-    /// `designator` as the caller's own dialable designator. Under key
-    /// unification `secret` is the secret half of the key the netlayer endpoint
-    /// is built on and `designator` is that endpoint's node id, so the partner's
-    /// verified session pubkey equals the transport node id equals the signed
-    /// designator — one key is transport identity, locator designator, and
-    /// session signing key at once.
+    /// Hold `secret` as this caller's *durable* identity and advertise
+    /// `designator` as its own dialable designator. `secret` is the secret half
+    /// of the key the netlayer endpoint is built on, so it is what a partner
+    /// re-dials across a restart. The key each session *signs its hello with*
+    /// is drawn per connection and is a different value.
+    ///
+    /// `designator` is the caller's own address on a transport that names
+    /// peers by address. On a key-scheme transport there is one legal value,
+    /// `secret`'s own public key: naming any other is `Error.UnheldIdentity`,
+    /// since this endpoint does not hold it.
     keyed: struct { secret: crypto.SecretKey, designator: []const u8 },
 
     /// The dialable designator a *dialer* advertises for this identity: the
@@ -226,21 +192,17 @@ pub const Identity = union(enum) {
     }
 };
 
-/// The partner identity a session's handshake proved: the partner's session
-/// public key, the location designator it signed, and the verbatim
-/// `<ocapn-peer …>` record those came from.
+/// The three identity facts learned for a partner: the verified session public
+/// key, the location claim signed by that key, and any matching authenticated
+/// channel provenance for the claim.
 ///
-/// This is the counterpart to `Identity`, which is what *this* side signs. It
-/// answers "who am I talking to" without taking the partner's word for it. A
-/// keyed `op:start-session` carries an Ed25519 signature over the partner's own
-/// `<my-location …>` record, and the engine verifies that signature before the
-/// session opens and before any of these bytes are learned. The signed span
-/// covers the whole location record, so `designator` is bound to `session_key`
-/// by the same signature.
-///
-/// That binding is the point. An application can require that a locator a
-/// caller *claims* names the key the caller actually proved, and refuse the
-/// mismatch, which is what `designatorIsSessionKey` answers.
+/// This is the received counterpart to `Identity`, which describes what this
+/// side advertises. A keyed `op:start-session` carries an Ed25519 signature
+/// over its `<my-location …>` record. Verification proves control of
+/// `session_key` and that this session signer made the locator claim. It does
+/// not prove that the signer owns the durable key or address in that locator.
+/// Only `provenance` answers whether the realized channel independently
+/// authenticated a durable key matching `designator`.
 ///
 /// Every field borrows session-owned bytes. They are written once when the
 /// partner's handshake half arrives and are never rewritten, so they stay valid
@@ -249,8 +211,9 @@ pub const PartnerIdentity = struct {
     /// The partner's verified session public key. Never empty: a session cannot
     /// open under verification without one.
     session_key: []const u8,
-    /// The designator the partner signed, or empty when its signed location
-    /// carried none.
+    /// The designator the verified session signer claimed and signed, or empty
+    /// when its signed location carried none. This is not durable-identity
+    /// authentication by itself.
     designator: []const u8,
     /// The verbatim `<ocapn-peer …>` location record, or empty when the apply
     /// path captured no raw bytes.
@@ -263,24 +226,21 @@ pub const PartnerIdentity = struct {
     provenance: DurableProvenance = .unauthenticated,
 
     /// Whether the durable identity this partner advertised was
-    /// cryptographically authenticated, by either mechanism. This is the
+    /// cryptographically authenticated by the realized channel. This is the
     /// predicate an API that requires a proved durable peer asks. It stays
-    /// correct when session keys go fresh, which is exactly what
-    /// `designatorIsSessionKey` will not do.
+    /// independent of whether the claimed designator happens to equal the
+    /// session key.
     pub fn durableIdentityAuthenticated(self: PartnerIdentity) bool {
         return self.provenance != .unauthenticated;
     }
 
     /// Whether `designator` is literally this partner's session key, in the
-    /// canonical hex a key designator is spelled in.
+    /// canonical hex encoding used by a key designator.
     ///
-    /// **A diagnostic, not an authentication predicate** (ADR-0097). It reports
-    /// today's key-reuse coincidence: while every session in a host is signed
-    /// by the host's durable key, a keyed transport's designator and its
-    /// `session_pubkey` happen to be the same bytes. Once each connection draws
-    /// a fresh session key they will differ, and this will answer false for a
-    /// fully authenticated keyed partner. Ask `durableIdentityAuthenticated`
-    /// for "did the partner prove the name it advertised".
+    /// **A diagnostic, not an authentication predicate** (ADR-0097). Fresh
+    /// sessions normally use a key distinct from the durable key a locator
+    /// names, so this normally answers false even for an authenticated partner.
+    /// Ask `durableIdentityAuthenticated` when durable authentication matters.
     ///
     /// An `address` transport such as `tcp` designates a socket address, which
     /// the handshake signature covers but which the key does not determine, so
@@ -293,35 +253,24 @@ pub const PartnerIdentity = struct {
     }
 };
 
-/// How a partner's advertised durable identity was authenticated (ADR-0097),
+/// How a partner's advertised durable identity was authenticated (ADR-0105),
 /// the third fact `PartnerIdentity` reports beside session key and designator.
 /// It answers "what proved this name", never "who is this" — an unauthenticated
 /// partner still has a session key and may still have signed a location.
-pub const DurableProvenance = enum {
-    /// The transport layer proved the remote's durable key: iroh's QUIC
-    /// handshake, or WebRTC's DTLS binding under capability-authorized
-    /// signaling. The strongest posture; it also covers the byte channel.
-    authenticated_transport,
-    /// The hello carried a `session-key-attestation` signed by the durable key
-    /// the designator names, and it verified (`keyed-tcp`, `keyed-relay`).
-    /// Static authorization only: it proves the durable key authorized this
-    /// session key, not that the signer is live on this connection, and the
-    /// cleartext channel keeps ADR-0075's replay exposure.
-    durable_key_attestation,
-    /// No durable identity was proved. An address transport designates a
-    /// socket address rather than a key, and a partner that advertised an
-    /// address on a key transport (an ephemeral client) claimed no durable
-    /// identity to authenticate.
-    unauthenticated,
-};
+///
+/// `engine.DurableProvenance` is the one definition and
+/// `engine.Peer.partnerDurableProvenance` the one derivation, because the
+/// verdict is reached at the pre-open chokepoint from the evidence one session
+/// holds. This alias is how the byte-fed tier and the C ABI name it without
+/// reaching into the engine.
+pub const DurableProvenance = engine.DurableProvenance;
 
-/// The responder's signing posture for `listen` / `acceptVia`. An accepting
-/// host always signs its listener's own bound designator — the address a
-/// partner can actually dial — so unlike the dialer's `Identity` there is no
-/// designator to carry: `ephemeral` draws a fresh key per accepted session,
-/// and `keyed` signs with the caller-held secret (a handoff exporter that must
-/// present one stable key across sessions, or key unification where the
-/// secret is the netlayer endpoint's own key).
+/// The responder's durable-locator posture for `listen` / `acceptVia`. An
+/// accepting host advertises its listener's bound designator, so unlike the
+/// dialer's `Identity` there is no designator to carry. `ephemeral` supplies no
+/// durable key. `keyed` supplies the caller-held endpoint key from which a
+/// key-scheme listener derives its stable designator. Both draw a separate
+/// session signing key per accepted connection.
 pub const AcceptIdentity = union(enum) {
     ephemeral,
     keyed: crypto.SecretKey,
@@ -333,7 +282,7 @@ pub const AcceptIdentity = union(enum) {
 /// actor layer. `settleVow` drives it to a `Settled`.
 pub const Vow = actors.Vow;
 
-/// A local actor bound to an export position, the borrowing tier's spelling
+/// A local actor bound to an export position, the borrowing tier's form
 /// of "capability I host": `ref` is the vat-local reference, so the
 /// application can near-call or `send` to the actor it just published or
 /// spawned without redoing vat bookkeeping, and `nearRef()` returns the

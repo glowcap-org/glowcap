@@ -53,7 +53,15 @@ async fn main() -> Result<(), Fail> {
 
 	// The `Session` is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result = local.run_until(converse(swiss, port)).await;
+	let result = match tokio::time::timeout(
+		helpers::INTEROP_TIMEOUT,
+		local.run_until(converse(swiss, port)),
+	)
+	.await
+	{
+		Ok(result) => result,
+		Err(_) => Err("rust-goblins-handoff timed out".into()),
+	};
 	let _ = child.kill().await;
 	result
 }

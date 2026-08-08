@@ -33,44 +33,10 @@ from ._ffi_ocapn import (
     _ManagedFrame,
     _Reference,
 )
-from ._layouts_gen import (
-    PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF,
-    PANCAKE_DIAL_PLAN_ADDRESSES_OFF,
-    PANCAKE_DIAL_PLAN_HOST_LEN_OFF,
-    PANCAKE_DIAL_PLAN_HOST_OFF,
-    PANCAKE_DIAL_PLAN_PORT_OFF,
-    PANCAKE_DIAL_PLAN_REACH_KIND_OFF,
-    PANCAKE_DIAL_PLAN_REACH_VALUE_OFF,
-    PANCAKE_DIAL_PLAN_SHAPE_OFF,
-    PANCAKE_DIAL_PLAN_SIZE,
-    PANCAKE_HOST_ACTION_KIND_OFF,
-    PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF,
-    PANCAKE_HOST_ACTION_MESSAGE_OFF,
-    PANCAKE_HOST_ACTION_SESSION_OFF,
-    PANCAKE_HOST_ACTION_SIZE,
-    PANCAKE_HOST_ACTION_TICKET_OFF,
-    PANCAKE_HOST_ACTION_VALUE_OFF,
-    PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF,
-    PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF,
-    PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
-    PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
-    PANCAKE_ACCEPT_PLAN_SIZE,
-    PANCAKE_HOST_PUMP_HOOKS_SIZE,
-    PANCAKE_PARTNER_IDENTITY_DESIGNATOR_LEN_OFF,
-    PANCAKE_PARTNER_IDENTITY_DESIGNATOR_OFF,
-    PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF,
-    PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_OFF,
-    PANCAKE_PARTNER_IDENTITY_SESSION_KEY_LEN_OFF,
-    PANCAKE_PARTNER_IDENTITY_SESSION_KEY_OFF,
-    PANCAKE_PARTNER_IDENTITY_SIZE,
-    PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF,
-    PANCAKE_PENDING_DIAL_DESIGNATOR_OFF,
-    PANCAKE_PENDING_DIAL_HINT_LEN_OFF,
-    PANCAKE_PENDING_DIAL_HINT_OFF,
-    PANCAKE_PENDING_DIAL_SIZE,
-    PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF,
-    PANCAKE_PENDING_DIAL_TRANSPORT_OFF,
-)
+from ._pin import pin_struct
+# The trace record's digest is a fixed-width array, so its width is the
+# reflected constant rather than a number retyped here.
+from ._constants_gen import TRACE_DIGEST_BYTES
 from ._lib_resolve import _lib_path
 
 # The signature table is generated from the archive's annotated symbol
@@ -153,121 +119,15 @@ class _PartnerIdentity(ctypes.Structure):
     ]
 
 
-def _pin_layout() -> None:
-    # The layout gate, the Rust mirror's `const` assert block made Pythonic
-    # (bindings/rust/src/sys/driver.rs): the hand-mirrored struct is pinned at
-    # import time against the sizes and offsets `_layouts_gen` reflects off
-    # the real Zig C ABI types — so the gate catches a mirror that drifts
-    # from its documented layout, not a C-side change that updates neither;
-    # the dogfoods defend that behaviorally. A plain `raise` rather than
-    # `assert`, so `python -O` cannot strip the gate.
-    # The shared _Reference/_Argument sizes are pinned where they are
-    # declared (_ffi_ocapn._pin_layout); this pin owns only _HostAction,
-    # this module's own declaration.
-    got_size = ctypes.sizeof(_HostAction)
-    if got_size != PANCAKE_HOST_ACTION_SIZE:
-        raise ImportError(
-            f"pancake FFI layout drift: sizeof(_HostAction) == {got_size}, "
-            f"expected {PANCAKE_HOST_ACTION_SIZE}; re-mirror the struct"
-        )
-    expected_offsets = (
-        ("kind", PANCAKE_HOST_ACTION_KIND_OFF),
-        ("ticket", PANCAKE_HOST_ACTION_TICKET_OFF),
-        ("conn", PANCAKE_HOST_ACTION_SESSION_OFF),
-        ("value", PANCAKE_HOST_ACTION_VALUE_OFF),
-        ("message", PANCAKE_HOST_ACTION_MESSAGE_OFF),
-        ("message_len", PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF),
-    )
-    for name, want in expected_offsets:
-        got = getattr(_HostAction, name).offset
-        if got != want:
-            raise ImportError(
-                f"pancake FFI layout drift: _HostAction.{name} at offset {got}, "
-                f"expected {want}; re-mirror the struct"
-            )
-    plan_size = ctypes.sizeof(_DialPlan)
-    if plan_size != PANCAKE_DIAL_PLAN_SIZE:
-        raise ImportError(
-            f"pancake FFI layout drift: sizeof(_DialPlan) == {plan_size}, "
-            f"expected {PANCAKE_DIAL_PLAN_SIZE}; re-mirror the struct"
-        )
-    for name, want in (
-        ("shape", PANCAKE_DIAL_PLAN_SHAPE_OFF),
-        ("host", PANCAKE_DIAL_PLAN_HOST_OFF),
-        ("host_len", PANCAKE_DIAL_PLAN_HOST_LEN_OFF),
-        ("port", PANCAKE_DIAL_PLAN_PORT_OFF),
-        ("addresses", PANCAKE_DIAL_PLAN_ADDRESSES_OFF),
-        ("addresses_len", PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF),
-        ("reach_kind", PANCAKE_DIAL_PLAN_REACH_KIND_OFF),
-        ("reach_value", PANCAKE_DIAL_PLAN_REACH_VALUE_OFF),
-    ):
-        got = getattr(_DialPlan, name).offset
-        if got != want:
-            raise ImportError(
-                f"pancake FFI layout drift: _DialPlan.{name} at offset {got}, "
-                f"expected {want}; re-mirror the struct"
-            )
-    accept_size = ctypes.sizeof(_AcceptPlan)
-    if accept_size != PANCAKE_ACCEPT_PLAN_SIZE:
-        raise ImportError(
-            f"pancake FFI layout drift: sizeof(_AcceptPlan) == {accept_size}, "
-            f"expected {PANCAKE_ACCEPT_PLAN_SIZE}; re-mirror the struct"
-        )
-    for name, want in (
-        ("designator", PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF),
-        ("designator_len", PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF),
-        ("direct_addresses_hint", PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF),
-        ("direct_addresses_hint_len", PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF),
-    ):
-        got = getattr(_AcceptPlan, name).offset
-        if got != want:
-            raise ImportError(
-                f"pancake FFI layout drift: _AcceptPlan.{name} at offset {got}, "
-                f"expected {want}; re-mirror the struct"
-            )
-    pending_size = ctypes.sizeof(_PendingDial)
-    if pending_size != PANCAKE_PENDING_DIAL_SIZE:
-        raise ImportError(
-            f"pancake FFI layout drift: sizeof(_PendingDial) == {pending_size}, "
-            f"expected {PANCAKE_PENDING_DIAL_SIZE}; re-mirror the struct"
-        )
-    for name, want in (
-        ("transport", PANCAKE_PENDING_DIAL_TRANSPORT_OFF),
-        ("transport_len", PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF),
-        ("designator", PANCAKE_PENDING_DIAL_DESIGNATOR_OFF),
-        ("designator_len", PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF),
-        ("hint", PANCAKE_PENDING_DIAL_HINT_OFF),
-        ("hint_len", PANCAKE_PENDING_DIAL_HINT_LEN_OFF),
-    ):
-        got = getattr(_PendingDial, name).offset
-        if got != want:
-            raise ImportError(
-                f"pancake FFI layout drift: _PendingDial.{name} at offset {got}, "
-                f"expected {want}; re-mirror the struct"
-            )
-    identity_size = ctypes.sizeof(_PartnerIdentity)
-    if identity_size != PANCAKE_PARTNER_IDENTITY_SIZE:
-        raise ImportError(
-            f"pancake FFI layout drift: sizeof(_PartnerIdentity) == {identity_size}, "
-            f"expected {PANCAKE_PARTNER_IDENTITY_SIZE}; re-mirror the struct"
-        )
-    for name, want in (
-        ("session_key", PANCAKE_PARTNER_IDENTITY_SESSION_KEY_OFF),
-        ("session_key_len", PANCAKE_PARTNER_IDENTITY_SESSION_KEY_LEN_OFF),
-        ("designator", PANCAKE_PARTNER_IDENTITY_DESIGNATOR_OFF),
-        ("designator_len", PANCAKE_PARTNER_IDENTITY_DESIGNATOR_LEN_OFF),
-        ("locator_record", PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_OFF),
-        ("locator_record_len", PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF),
-    ):
-        got = getattr(_PartnerIdentity, name).offset
-        if got != want:
-            raise ImportError(
-                f"pancake FFI layout drift: _PartnerIdentity.{name} at offset {got}, "
-                f"expected {want}; re-mirror the struct"
-            )
-
-
-_pin_layout()
+# The layout gate for the mirrors this module declares. _TraceEvent and
+# _HostPumpHooks are declared further down (they need callback types stated
+# first) and are pinned at their own declarations, so no mirror here sits
+# outside the gate.
+pin_struct(_HostAction, "PANCAKE_HOST_ACTION", aliases={"session": "conn"})
+pin_struct(_DialPlan, "PANCAKE_DIAL_PLAN")
+pin_struct(_AcceptPlan, "PANCAKE_ACCEPT_PLAN")
+pin_struct(_PendingDial, "PANCAKE_PENDING_DIAL")
+pin_struct(_PartnerIdentity, "PANCAKE_PARTNER_IDENTITY")
 
 
 # The C callback type (pancake_host.h's PancakeHostBehavior):
@@ -275,6 +135,40 @@ _pin_layout()
 #               size_t verb_len, const PancakeArgument *args, size_t args_len,
 #               PancakeArgument *out_reply);
 # The one shared instance lives in :mod:`pancake._trampoline`.
+# PancakeTraceEvent — one live-trace fact (pancake_host_set_trace). Field
+# order and widths mirror the generated header; the layout facts in
+# ``_layouts_gen`` pin them.
+class _TraceEvent(ctypes.Structure):
+    _fields_ = [
+        ("kind", ctypes.c_uint32),
+        ("session", ctypes.c_uint64),
+        ("outbound", ctypes.c_uint8),
+        ("provenance", ctypes.c_uint32),
+        ("codec", ctypes.c_uint32),
+        ("captp_version", ctypes.c_uint32),
+        ("designator", ctypes.POINTER(ctypes.c_uint8)),
+        ("designator_len", ctypes.c_size_t),
+        ("transport", ctypes.POINTER(ctypes.c_uint8)),
+        ("transport_len", ctypes.c_size_t),
+        ("session_id", ctypes.POINTER(ctypes.c_uint8)),
+        ("session_id_len", ctypes.c_size_t),
+        ("verb", ctypes.POINTER(ctypes.c_uint8)),
+        ("verb_len", ctypes.c_size_t),
+        ("frame", ctypes.POINTER(ctypes.c_uint8)),
+        ("frame_len", ctypes.c_size_t),
+        ("frame_total_len", ctypes.c_size_t),
+        ("dropped", ctypes.c_uint64),
+        ("digest", ctypes.c_uint8 * TRACE_DIGEST_BYTES),
+    ]
+
+
+pin_struct(_TraceEvent, "PANCAKE_TRACE_EVENT")
+
+
+# PancakeTraceCallback — void (*)(void *ctx, const PancakeTraceEvent *event).
+_TraceCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(_TraceEvent))
+
+
 _HostBehavior = ctypes.CFUNCTYPE(
     ctypes.c_int32,
     ctypes.c_void_p,
@@ -308,12 +202,7 @@ class _HostPumpHooks(ctypes.Structure):
     ]
 
 
-_hooks_size = ctypes.sizeof(_HostPumpHooks)
-if _hooks_size != PANCAKE_HOST_PUMP_HOOKS_SIZE:
-    raise ImportError(
-        f"pancake FFI layout drift: sizeof(_HostPumpHooks) == {_hooks_size}, "
-        f"expected {PANCAKE_HOST_PUMP_HOOKS_SIZE}; re-mirror the struct"
-    )
+pin_struct(_HostPumpHooks, "PANCAKE_HOST_PUMP_HOOKS")
 
 
 def _load():
@@ -328,7 +217,18 @@ def _load():
         _HostPumpHooks,
         _HostBehavior,
         _PartnerIdentity,
+        _TraceCallback,
     )
+    # The generated table covers the archive inventory; the handwritten loader
+    # binds the locator-state exports that are outside that inventory.
+    P = ctypes.c_void_p
+    size = ctypes.c_size_t
+    i32 = ctypes.c_int32
+    sigs.update({
+        "pancake_host_set_advertised_locator": ([P, P, size], i32),
+        "pancake_host_ensure_advertised_locator": ([P, P, size], i32),
+        "pancake_host_remove_advertised_locator": ([P, P, size], i32),
+    })
     lib = ctypes.CDLL(str(_lib_path("pancake_host")))
     facade = _Lib(lib)
     _bind(facade, lib, sigs)

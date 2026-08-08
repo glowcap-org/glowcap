@@ -172,7 +172,7 @@ async fn dial(locator: &str) -> Result<Session, String> {
 		} else {
 			pancake::Reachability::Direct
 		};
-		return connect(locator, Some(reachability), None)
+		return connect(locator, Some(reachability), Some(rooms_host()))
 			.await
 			.map_err(|e| format!("connect iroh: {e:?}"));
 	}
@@ -180,9 +180,26 @@ async fn dial(locator: &str) -> Result<Session, String> {
 		format!("rooms locator is neither host:port nor an ocapn:// URI: {locator}: {e:?}")
 	})?;
 	let loc = tcp_locator(&host, port);
-	connect(&loc, None, None)
+	connect(&loc, None, Some(rooms_host()))
 		.await
 		.map_err(|e| format!("connect: {e:?}"))
+}
+
+/// Mint a Host for a rooms peer.
+///
+/// Every rooms peer is a pancake peer, so the room speaks pancake's own
+/// profile rather than the interop floor: the `pancake-next` CapTP version
+/// over the word-aligned Cap'n Proto codec. The two are named together
+/// because they are one decision, agreed out of band by every peer reading
+/// the same configuration. This is the Rust spelling of the pair
+/// `apps/rooms/lib/protocol.ts` carries for the TypeScript peers. Rust's
+/// `connect` takes no profile argument, so the host is what names it.
+fn rooms_host() -> pancake::Host {
+	pancake::Host::with_options(pancake::HostOptions {
+		codec: pancake::Codec::Capnp,
+		captp_version: pancake::CaptpVersion::Next,
+		..Default::default()
+	})
 }
 
 /// One line in the room. `system` is true for the room's own announcements (a

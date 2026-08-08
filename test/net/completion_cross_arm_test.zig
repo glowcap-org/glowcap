@@ -301,7 +301,7 @@ const CrossArmBackend = struct {
         }
     }
 
-    pub fn remotePartnerKey(self: *CrossArmBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *CrossArmBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -379,6 +379,15 @@ fn drainOutboundBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *s
     }
 }
 
+fn drainOutboundStreamBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *std.ArrayList(u8)) !void {
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        defer frame.deinit();
+        _ = try pancake.net.appendFrameBytes(sink, allocator, frame.bytes());
+    }
+}
+
 test "cross-arm: cross-armed bytes count into pending outbound and park the read at the high-water mark" {
     const allocator = std.testing.allocator;
 
@@ -391,7 +400,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
@@ -405,7 +414,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
     defer fetch_bytes.deinit(allocator);
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
     try client.send(prepared.message);
-    try drainOutboundBytes(&client, allocator, &fetch_bytes);
+    try drainOutboundStreamBytes(&client, allocator, &fetch_bytes);
 
     const high_water: usize = 16;
 
@@ -473,7 +482,7 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
@@ -487,7 +496,7 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
     defer fetch_bytes.deinit(allocator);
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
     try client.send(prepared.message);
-    try drainOutboundBytes(&client, allocator, &fetch_bytes);
+    try drainOutboundStreamBytes(&client, allocator, &fetch_bytes);
 
     CrossArmBackend.chunks = &.{client_ss.items};
     CrossArmBackend.hold_sends = false;
@@ -564,7 +573,7 @@ test "cross-arm: a partial write that drains under the mark clears the deadline"
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
     CrossArmBackend.hold_sends = true;
@@ -624,7 +633,7 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
     CrossArmBackend.hold_sends = false;
@@ -685,7 +694,7 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
     CrossArmBackend.hold_sends = false;
@@ -757,7 +766,7 @@ test "close-slot: a second close on a draining connection escalates to a hard cl
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
     CrossArmBackend.hold_sends = false;
@@ -815,7 +824,7 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
     try client.sendCopying(startSession("client"));
-    try drainOutboundBytes(&client, allocator, &client_ss);
+    try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     // Hello, then bytes the session refuses. The refusal projects an abort
     // while the hello's reply is still held, so the abort has nowhere to go but

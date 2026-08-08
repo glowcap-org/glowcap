@@ -58,10 +58,35 @@ pub fn tcpLocator(designator: []const u8) model.PeerLocator {
     return .{ .transport = "tcp", .designator = designator, .hints = model.Hints.emptyFalse() };
 }
 
+/// Model a listener adapter in tests: publish its complete locator, then open
+/// an accepted session from that snapshot.
+pub fn publishAndOpenAccepted(host: *Host, transport: []const u8, designator: []const u8, direct_addresses: []const u8) !*HostSession {
+    var entries: [1]model.HintEntry = undefined;
+    try host.setAdvertisedLocator(.{
+        .transport = transport,
+        .designator = designator,
+        .hints = model.Hints.forDirectAddresses(direct_addresses, &entries),
+    });
+    return host.openAcceptedAdvertised(transport);
+}
+
+/// The adopted-peer counterpart to `publishAndOpenAccepted`.
+pub fn publishAndOpenAcceptedOver(host: *Host, peer: *pancake.ocapn.engine.Peer, transport: []const u8, designator: []const u8, direct_addresses: []const u8) !*HostSession {
+    var entries: [1]model.HintEntry = undefined;
+    try host.setAdvertisedLocator(.{
+        .transport = transport,
+        .designator = designator,
+        .hints = model.Hints.forDirectAddresses(direct_addresses, &entries),
+    });
+    return host.openAcceptedAdvertisedOver(peer, transport);
+}
+
 /// Open a dialed/accepted pair between two hosts and drive the keyed
 /// handshake open over fed bytes (shuttle-only; no host actions expected).
 pub fn openPair(dialer: *Host, acceptor: *Host, designator: []const u8) !Pair {
-    const accepted = try acceptor.openAccepted("tcp", designator, &.{});
+    try dialer.ensureAdvertisedLocator("tcp");
+    try acceptor.setAdvertisedLocator(tcpLocator(designator));
+    const accepted = try acceptor.openAcceptedAdvertised("tcp");
     const dialed = try dialer.openDialedLocator(tcpLocator(designator));
     const pair = Pair{ .ah = dialer, .a = dialed, .bh = acceptor, .b = accepted };
     try pumpToQuiescence(&.{pair});

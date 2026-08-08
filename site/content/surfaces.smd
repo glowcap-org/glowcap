@@ -1,38 +1,28 @@
 ---
 .title = "Surfaces",
-.description = "The several ways to hold pancake — Zig package, C ABI, four language bindings, CLI, and the browser — all putting the same CapTP conversation on the wire.",
+.description = "Zig package, C ABI, four language bindings, CLI, and the browser: every surface puts the same CapTP conversation on the wire.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-pancake is one library you can hold several ways. Every surface puts the same
-CapTP conversation on the wire, so choose the one that matches how you work.
+pancake is one library you can hold several ways. Choose the surface that matches
+how you work.
 
 [One core under every surface, so the one you hold never changes what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
 
 | Surface | You write | Reach for it when |
 | --- | --- | --- |
-| [Zig package]($link.page('start')) | Zig | you want the full engine and types |
-| [C ABI](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md) | C / any FFI | embedding, or wrapping a language with no binding yet |
-| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | you are already in one of those four |
-| [CapTP CLI]($link.page('cli')) | shell / MCP | call, host, REPL, or agent MCP (`zig build`, then `zig-out/bin/pancake`) |
+| [Zig package]($link.page('start')) | Zig | You want the full engine and its types. |
+| [C ABI](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md) | C / any FFI | You are embedding, or wrapping a language with no binding yet. |
+| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | You already work in one of those four. |
+| [CapTP CLI]($link.page('cli')) | shell / MCP | You want call, host, REPL, or agent MCP (`zig build`, then `zig-out/bin/pancake`). |
 
 The bindings surface reaches one more place: the TypeScript binding compiles to
 WebAssembly, so a session runs in the browser too ([Bindings]($link.page('bindings'))).
-
-Each surface has its own front door. [Start building]($link.page('start'))
-walks the Zig round-trip line by line, and the
-[Zig API]($link.page('reference/api')) lists every declaration. The C archives
-ship generated headers, inventoried in the
-[API reference]($link.page('reference')), and
-[consuming-from-c](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md)
-walks a first C program. [Bindings]($link.page('bindings')) carries each
-language's idiom. The [CapTP CLI]($link.page('cli')) page shows the shell happy
-path, and
-[docs/cli.md](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md)
-has more recipes.
+[Start building]($link.page('start')) walks the Zig round-trip; each row above
+links its own front door.
 
 ## One engine
 

@@ -21,8 +21,8 @@
 //! Two properties are checked, and only the first is about crashing.
 //!
 //! Nothing crashes and nothing leaks, whatever the read boundaries were and
-//! whatever the application was in the middle of. Everything runs under
-//! `std.testing.allocator`, which fails on either.
+//! whatever the application was in the middle of. Each mutation runs under a
+//! fresh `DebugAllocator`, whose teardown fails the mutation on a leak.
 //!
 //! And every table the session declares a bound for stays inside it. That is
 //! the property worth the most: a partner's goal is to make the process hold
@@ -113,7 +113,12 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
         const at = smith.valueRangeAtMost(u16, 0, @intCast(bytes.len - 1));
         damaged[at] ^= smith.valueRangeAtMost(u8, 1, 255);
     }
-    host.feedBytes(session, damaged[0..bytes.len]) catch {};
+    var stream_bytes: [max_input + pancake.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
+    var prefix_buf: [pancake.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
+    const prefix = pancake.foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
+    @memcpy(stream_bytes[0..prefix.len], prefix);
+    @memcpy(stream_bytes[prefix.len..][0..bytes.len], damaged[0..bytes.len]);
+    host.feedBytes(session, stream_bytes[0 .. prefix.len + bytes.len]) catch {};
     drainHost(host, session);
     try bounds.checkDeclared(&session.served.port.peer.session_state);
 }
@@ -152,15 +157,31 @@ fn hostFeedOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // Let the fuzzer choose where the read boundaries fall. Small sizes are the
     // interesting ones, because that is where a frame straddles two feeds.
     const chunk: usize = smith.valueRangeAtMost(u8, 0, 64);
-    var budget = Budget.draw(smith, session_span);
+    var backing: std.heap.DebugAllocator(.{
+        .stack_trace_frames = 0,
+        .resize_stack_traces = false,
+    }) = .init;
+    var budget = Budget.drawWith(smith, session_span, backing.allocator());
     const gpa = budget.allocator();
+
+    const result = hostFeedOneWithAllocator(smith, input, chunk, gpa);
+    if (backing.deinit() == .leak) return error.FuzzAllocatorLeak;
+    return result;
+}
+
+fn hostFeedOneWithAllocator(
+    smith: *std.testing.Smith,
+    input: []const u8,
+    chunk: usize,
+    gpa: std.mem.Allocator,
+) !void {
 
     // Accepted but still negotiating: the handshake regime, where almost
     // everything is refused.
     {
         var host = Host.init(gpa, [_]u8{0x11} ** 32, .{ .limits = bounds.tight });
         defer host.deinit();
-        const session = host.openAccepted("tcp", "127.0.0.1:9000", &.{}) catch return;
+        const session = host_pair.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9000", &.{}) catch return;
         drainHost(&host, session);
         try feedChunked(&host, session, input, chunk);
     }

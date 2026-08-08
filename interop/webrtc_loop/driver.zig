@@ -136,7 +136,7 @@ fn clientOnce(
     hub: *Hub,
     server_designator: []const u8,
 ) anyerror!void {
-    var resident = try webrtc.Resident.init();
+    var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer resident.deinit();
     var peer = try resident.newPeer(true);
     defer peer.deinit();
@@ -170,12 +170,11 @@ fn clientOnce(
     var engine_peer = engine.Peer.initNegotiating(allocator);
     defer engine_peer.deinit();
     engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    // Pin the server's durable identity: the signaling exchange was aimed at
-    // it, and the DataChannel's DTLS binding under that exchange is what
-    // proves it (ADR-0097).
-    engine_peer.expectPartnerDurableKey(
+    // Demand the server's durable identity. The signaling exchange was aimed
+    // at it and the DataChannel's DTLS binding under that exchange is what
+    // proves it, which the resident asserts for itself (ADR-0105).
+    engine_peer.demandPartnerDurableKey(
         crypto.PeerKey.fromDesignator(server_designator) orelse return error.InvalidDesignator,
-        .transport_verified,
     );
 
     const read_buf = try allocator.alloc(u8, frame_cap);
@@ -223,7 +222,7 @@ pub fn main(init: std.process.Init) !void {
     const server_designator_buf = crypto.SecretKey.fromSeed(server_seed).publicKey().toDesignator();
     const server_designator = server_designator_buf[0..];
 
-    var server_resident = try webrtc.Resident.init();
+    var server_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer server_resident.deinit();
 
     var host = driver.core.Host.init(allocator, server_seed, .{

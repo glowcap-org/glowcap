@@ -31,8 +31,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use pancake_rust_dogfood::{
-	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, Reachability, Ref,
-	Session, HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
+	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability,
+	Ref, Session, HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
 };
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Fail> {
 
 async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-	let exporter = Rc::new(listen_iroh(Reachability::Direct)?);
+	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct))?);
 	exporter
 		.host()
 		.publish_giftable("greeter", || Box::new(greeter()));
@@ -61,7 +61,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
-	let gifter = Rc::new(listen_iroh(Reachability::Direct)?);
+	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct))?);
 	let gifter_host = gifter.host();
 	// Wait for the gifter endpoint's direct addresses so its `uri()` is dialable
 	// under the relay-less Direct posture.

@@ -108,24 +108,87 @@ pub export fn pancake_webrtc_clear_last_error() void {
     c.lastErrorClear();
 }
 
+/// One WebRTC endpoint's configuration, filled by the caller and passed to
+/// `pancake_webrtc_netlayer_new` / `_new_in`.
+///
+/// **This is the authority for what these settings mean**; the resident and the
+/// sidecar mirror this struct and point here.
+///
+/// `ice_servers` is a comma-separated list of ICE server URLs, borrowed for the
+/// call, and it decides how far a peer created from this endpoint can reach.
+/// Empty offers host candidates only, which connects two peers on one network
+/// and nothing beyond it, because neither end can discover the address a NAT
+/// gave it. A deployment crossing NAT names STUN servers here
+/// (`stun:host:port`). Credentialed TURN relaying is not expressible yet; see
+/// ADR-0089.
+///
+/// `include_loopback_candidates` offers loopback addresses too, which is what
+/// lets two peers in one process or on one host connect with no STUN. It is off
+/// unless asked for: a test wants it and says so, while a deployment neither
+/// needs it nor wants to advertise addresses a partner can never reach.
+///
+/// `worker_threads` sizes this endpoint's runtime; 0 takes the sidecar's
+/// default. It is a per-endpoint cost, so a process holding many endpoints, or
+/// one endpoint holding many peers, is the caller that should name it.
+///
+/// There is no establishment deadline here, unlike the iroh endpoint's
+/// `connect_timeout_ms`, and the difference is deliberate. That sidecar
+/// performs a dial on the caller's behalf and is the only party that can see it
+/// fail, so it must bound it. This one runs a state machine the caller feeds,
+/// and publishes every terminal outcome as a readiness event, including a
+/// connection that fails to establish. The caller already owns the wall clock,
+/// and a second deadline here would be a second authority for the same fact.
+///
+/// Callers must zero-initialize the whole struct before filling the fields they
+/// set, so a field added in a later version defaults to 0 rather than reading a
+/// caller's stack garbage. The `extern struct` counterpart of the header's
+/// `PancakeWebrtcConfig`.
+pub const PancakeWebrtcConfig = extern struct {
+    ice_servers: ?[*]const u8,
+    ice_servers_len: usize,
+    include_loopback_candidates: u32,
+    worker_threads: u32,
+};
+
 /// Create the shared WebRTC runtime and readiness endpoint. Every peer is
 /// created from this netlayer and must be released before the netlayer.
-pub export fn pancake_webrtc_netlayer_new(out_netlayer: ?*?*PancakeWebrtcNetlayer) i32 {
+/// `config` carries the endpoint's settings; a null one is
+/// `PANCAKE_ERR_NULL_POINTER`.
+pub export fn pancake_webrtc_netlayer_new(
+    config: ?*const PancakeWebrtcConfig,
+    out_netlayer: ?*?*PancakeWebrtcNetlayer,
+) i32 {
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
-    return netlayerNewIn(c.library_allocator, slot);
+    const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
+    return netlayerNewIn(c.library_allocator, cfg, slot);
 }
 
-pub export fn pancake_webrtc_netlayer_new_in(context: ?*PancakeContext, out_netlayer: ?*?*PancakeWebrtcNetlayer) i32 {
+pub export fn pancake_webrtc_netlayer_new_in(
+    context: ?*PancakeContext,
+    config: ?*const PancakeWebrtcConfig,
+    out_netlayer: ?*?*PancakeWebrtcNetlayer,
+) i32 {
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
-    return netlayerNewIn(c_ctx.allocator(), slot);
+    const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
+    return netlayerNewIn(c_ctx.allocator(), cfg, slot);
 }
 
-fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeWebrtcNetlayer) i32 {
+fn netlayerNewIn(
+    alloc: std.mem.Allocator,
+    cfg: *const PancakeWebrtcConfig,
+    slot: *?*PancakeWebrtcNetlayer,
+) i32 {
     slot.* = null;
+    const ice_servers = c.sliceFromC(cfg.ice_servers, cfg.ice_servers_len) catch
+        return PANCAKE_ERR_INVALID_ARGUMENT;
     const payload = alloc.create(NetlayerPayload) catch return PANCAKE_ERR_INTERNAL;
     payload.* = .{
-        .resident = webrtc.Resident.init() catch {
+        .resident = webrtc.Resident.init(.{
+            .ice_servers = ice_servers,
+            .include_loopback_candidates = cfg.include_loopback_candidates != 0,
+            .worker_threads = cfg.worker_threads,
+        }) catch {
             alloc.destroy(payload);
             setLastError("webrtc netlayer_new: the sidecar could not create an endpoint", .{});
             return PANCAKE_ERR_IO;

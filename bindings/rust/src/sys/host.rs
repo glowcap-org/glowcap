@@ -18,6 +18,9 @@
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
 
 use super::layouts_gen::*;
+// The trace record's digest is a fixed-width array, so its width is the
+// reflected constant rather than a number retyped here.
+use crate::abi_constants::TRACE_DIGEST_BYTES;
 use crate::sys::{PancakeArgument, PancakeReference};
 
 /// A byte-fed multi-session CapTP host: one identity, one routing and
@@ -245,6 +248,9 @@ const _: () = {
 		offset_of!(PancakePartnerIdentity, locator_record_len)
 			== PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF
 	);
+	assert!(
+		offset_of!(PancakePartnerIdentity, provenance) == PANCAKE_PARTNER_IDENTITY_PROVENANCE_OFF
+	);
 };
 
 /// Borrowed verified partner identity from
@@ -266,6 +272,83 @@ pub struct PancakePartnerIdentity {
 	/// `DURABLE_PROVENANCE_*` constants (ADR-0097).
 	pub provenance: c_uint,
 }
+
+/// One live-trace fact (`pancake_host_set_trace`). `kind` selects the live
+/// fields; string views are borrowed for the callback only.
+#[repr(C)]
+pub struct PancakeTraceEvent {
+	pub kind: u32,
+	pub session: u64,
+	pub outbound: u8,
+	/// SESSION_OPEN: what proved the partner's durable name, as a
+	/// `PANCAKE_DURABLE_PROVENANCE_*` value.
+	pub provenance: u32,
+	pub codec: u32,
+	pub captp_version: u32,
+	/// SESSION_OPEN: the partner's OCapN Designator. Half a name on its own —
+	/// the spec needs a designator and a transport together to tell two
+	/// locations apart, so `transport` travels beside it.
+	pub designator: *const c_uchar,
+	pub designator_len: usize,
+	/// SESSION_OPEN: the locator's OCapN Transport, the netlayer symbol this
+	/// session runs over.
+	pub transport: *const c_uchar,
+	pub transport_len: usize,
+	/// SESSION_OPEN: the OCapN Session ID, which both peers of this session
+	/// derive to the same value. Not `session` above, which is this host's
+	/// own handle and means nothing to anyone else.
+	pub session_id: *const c_uchar,
+	pub session_id_len: usize,
+	pub verb: *const c_uchar,
+	pub verb_len: usize,
+	pub frame: *const c_uchar,
+	pub frame_len: usize,
+	pub frame_total_len: usize,
+	pub dropped: u64,
+	/// A tag over the frame's bytes, naming one message across the two peers
+	/// that carried it. Zero on the non-message kinds.
+	pub digest: [c_uchar; TRACE_DIGEST_BYTES as usize],
+}
+
+// This struct had no layout assertions while every sibling above had them,
+// so when the ABI moved to designator/transport/provenance/session_id the
+// declaration here kept the old field set and still compiled — a silent
+// misread of every trace fact, which no gate could see. Rust cannot check a
+// declaration it is never told to check; these are that instruction.
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeTraceEvent>() == PANCAKE_TRACE_EVENT_SIZE);
+	assert!(offset_of!(PancakeTraceEvent, kind) == PANCAKE_TRACE_EVENT_KIND_OFF);
+	assert!(offset_of!(PancakeTraceEvent, session) == PANCAKE_TRACE_EVENT_SESSION_OFF);
+	assert!(offset_of!(PancakeTraceEvent, outbound) == PANCAKE_TRACE_EVENT_OUTBOUND_OFF);
+	assert!(offset_of!(PancakeTraceEvent, provenance) == PANCAKE_TRACE_EVENT_PROVENANCE_OFF);
+	assert!(offset_of!(PancakeTraceEvent, codec) == PANCAKE_TRACE_EVENT_CODEC_OFF);
+	assert!(offset_of!(PancakeTraceEvent, captp_version) == PANCAKE_TRACE_EVENT_CAPTP_VERSION_OFF);
+	assert!(offset_of!(PancakeTraceEvent, designator) == PANCAKE_TRACE_EVENT_DESIGNATOR_OFF);
+	assert!(
+		offset_of!(PancakeTraceEvent, designator_len) == PANCAKE_TRACE_EVENT_DESIGNATOR_LEN_OFF
+	);
+	assert!(offset_of!(PancakeTraceEvent, transport) == PANCAKE_TRACE_EVENT_TRANSPORT_OFF);
+	assert!(offset_of!(PancakeTraceEvent, transport_len) == PANCAKE_TRACE_EVENT_TRANSPORT_LEN_OFF);
+	assert!(offset_of!(PancakeTraceEvent, session_id) == PANCAKE_TRACE_EVENT_SESSION_ID_OFF);
+	assert!(
+		offset_of!(PancakeTraceEvent, session_id_len) == PANCAKE_TRACE_EVENT_SESSION_ID_LEN_OFF
+	);
+	assert!(offset_of!(PancakeTraceEvent, verb) == PANCAKE_TRACE_EVENT_VERB_OFF);
+	assert!(offset_of!(PancakeTraceEvent, verb_len) == PANCAKE_TRACE_EVENT_VERB_LEN_OFF);
+	assert!(offset_of!(PancakeTraceEvent, frame) == PANCAKE_TRACE_EVENT_FRAME_OFF);
+	assert!(offset_of!(PancakeTraceEvent, frame_len) == PANCAKE_TRACE_EVENT_FRAME_LEN_OFF);
+	assert!(
+		offset_of!(PancakeTraceEvent, frame_total_len) == PANCAKE_TRACE_EVENT_FRAME_TOTAL_LEN_OFF
+	);
+	assert!(offset_of!(PancakeTraceEvent, dropped) == PANCAKE_TRACE_EVENT_DROPPED_OFF);
+	assert!(offset_of!(PancakeTraceEvent, digest) == PANCAKE_TRACE_EVENT_DIGEST_OFF);
+};
+
+/// The trace callback: called synchronously at the fact site, on the host's
+/// one thread, with `event` and its views borrowed for the call.
+pub type PancakeTraceCallback =
+	Option<unsafe extern "C" fn(ctx: *mut c_void, event: *const PancakeTraceEvent)>;
 
 // The raw extern block is generated (`host_fns_gen.rs`, `zig build
 // gen-binding-rust-ffi`): types reflected from the Zig exports, parameter

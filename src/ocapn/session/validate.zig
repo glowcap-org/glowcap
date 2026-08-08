@@ -3,8 +3,8 @@
 //!
 //! The public spine is the three dispatch validators (`validateSend`,
 //! `validateRecv`, `validateRecvView`), reached through `Session.recordSend` /
-//! `recordRecv` / `recordRecvView`, plus the two kind validators the engine
-//! runs before its own pre-apply steps (`validatePipelinedDeliver`,
+//! `recordRecv` / `recordRecvView`, plus the kind validators the engine runs
+//! before its own pre-apply steps (`validateInboundDeliverView` and
 //! `validateInboundListen`). Everything else is module-local: the per-kind
 //! rules and the reference / argument walkers are implementation detail of
 //! this file, called directly (`validateReference(self, ref, .received,
@@ -46,7 +46,10 @@ pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *Intr
         .listen => |listen| try validateInboundListen(self, listen),
         .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
         .index => |index| try validateProjectionOp(self, index.receiver, index.answer),
-        .untag => |untag| try validateProjectionOp(self, untag.receiver, untag.answer),
+        .untag => |untag| {
+            if (self.captp_version == .v1_0) return Error.UnexpectedMessage;
+            try validateProjectionOp(self, untag.receiver, untag.answer);
+        },
         else => {},
     }
 }
@@ -78,9 +81,65 @@ fn validateStartSession(
         .remote_received => self.handshake_remote_received,
     };
     if (already_observed) return Error.DuplicateStartSession;
-    if (ss.captp_version != self.captp_version) {
+    // A hello names the baseline version, not the sender's preference: a peer
+    // that stated a preference here would be refused by every partner that did
+    // not already share it, which is the opposite of negotiating. The
+    // preference travels as a hint and governs the session once both hellos
+    // are in. Compared against the baseline rather than the session's own
+    // version because by this point the session may already have settled on
+    // something else.
+    if (ss.captp_version != model.Preference.baseline.captp_version) {
         return Error.CaptpVersionMismatch;
     }
+    try validateStartSessionHints(ss);
+}
+
+fn validateStartSessionHints(ss: anytype) Error!void {
+    const hints = ss.acceptable_location.hints;
+    try validateHintNamesUnique(hints);
+    if (try startSessionHintValue(hints, model.transport.hint_captp_version)) |value| {
+        const text = switch (value) {
+            .string => |s| s,
+            else => return Error.MalformedMessage,
+        };
+        if (model.CaptpVersion.fromWireString(text) == null) return Error.MalformedMessage;
+    }
+    if (try startSessionHintValue(hints, model.transport.hint_codec)) |value| {
+        const text = switch (value) {
+            .string => |s| s,
+            else => return Error.MalformedMessage,
+        };
+        _ = std.fmt.parseInt(u16, text, 10) catch return Error.MalformedMessage;
+    }
+    if (try startSessionHintValue(hints, model.transport.hint_features)) |value| {
+        const text = switch (value) {
+            .string => |s| s,
+            else => return Error.MalformedMessage,
+        };
+        if (model.FeatureSet.fromWireString(text) == null) return Error.MalformedMessage;
+    }
+}
+
+fn validateHintNamesUnique(hints: anytype) Error!void {
+    if (comptime @hasDecl(@TypeOf(hints), "validateUniqueNames")) {
+        hints.validateUniqueNames() catch return Error.MalformedMessage;
+        return;
+    }
+    for (hints.entries, 0..) |entry, i| {
+        for (hints.entries[0..i]) |seen| {
+            if (std.mem.eql(u8, seen.name, entry.name)) return Error.MalformedMessage;
+        }
+    }
+}
+
+fn startSessionHintValue(hints: anytype, name: []const u8) Error!?model.HintValue {
+    if (comptime @hasDecl(@TypeOf(hints), "findNamed")) {
+        return hints.findNamed(name) catch return Error.MalformedMessage;
+    }
+    for (hints.entries) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return entry.value;
+    }
+    return null;
 }
 
 /// Validate an inbound `op:listen`: the pipelining feature gate, the target
@@ -91,8 +150,8 @@ fn validateStartSession(
 /// call this same body, so the engine pre-step and the recv path cannot drift.
 pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void {
     if (!self.features.pipelining) return Error.FeatureNotNegotiated;
-    try validateReference(self, listen.target, .received, .held_import);
-    try validateReference(self, listen.listener, .received, .introduction);
+    try validateDeliverOrListenTarget(self, listen.target, .received);
+    try validateListenListener(self, listen.listener, .received);
 }
 
 /// Validate an inbound `op:resolve`. The answer must be one we allocated
@@ -185,18 +244,24 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
         },
         .listen => |listen| {
             if (!self.features.pipelining) return Error.FeatureNotNegotiated;
-            try validateReference(self, listen.target, .sent, .held_import);
-            try validateReference(self, listen.listener, .sent, .held_import);
-        },
-        .handoff => |handoff| {
-            if (!self.features.handoff) return Error.FeatureNotNegotiated;
-            try session.validateHandoffWellFormed(handoff);
+            try validateDeliverOrListenTarget(self, listen.target, .sent);
+            try validateListenListener(self, listen.listener, .sent);
         },
         // `op:get` / `op:index` / `op:untag` name a receiver like a deliver
         // target: it must be something we hold (ADR-0050).
-        .get => |get| try validateReference(self, get.receiver, .sent, .held_import),
-        .index => |index| try validateReference(self, index.receiver, .sent, .held_import),
-        .untag => |untag| try validateReference(self, untag.receiver, .sent, .held_import),
+        .get => |get| {
+            try checkOutboundAnswerPosition(self, get.answer);
+            try validateReference(self, get.receiver, .sent, .held_import);
+        },
+        .index => |index| {
+            try checkOutboundAnswerPosition(self, index.answer);
+            try validateReference(self, index.receiver, .sent, .held_import);
+        },
+        .untag => |untag| {
+            if (self.captp_version == .v1_0) return Error.UnexpectedMessage;
+            try checkOutboundAnswerPosition(self, untag.answer);
+            try validateReference(self, untag.receiver, .sent, .held_import);
+        },
         // `op:abort` carries no send-side validation. Listing the remaining
         // no-op kinds explicitly (rather than `else`) makes a new
         // `model.Message` kind fail to compile until its send-side validation
@@ -237,16 +302,9 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
         .listen => |listen| try validateInboundListen(self, listen),
         .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
         .index => |index| try validateProjectionOp(self, index.receiver, index.answer),
-        .untag => |untag| try validateProjectionOp(self, untag.receiver, untag.answer),
-        .handoff => |handoff| {
-            if (!self.features.handoff) return Error.FeatureNotNegotiated;
-            // Well-formedness only. Withdrawal authority (the two sessions'
-            // `engine.bootstrap.GiftRegistry` state) moves solely through a verified
-            // caller (`engine.bootstrap.resolveForWithdraw`, or a host that
-            // verifies both handoff certificates before applying the withdraw
-            // against the registry), never from this unauthenticated generic
-            // inbound path. See the `.handoff` arm in `apply.zig`.
-            try session.validateHandoffWellFormed(handoff);
+        .untag => |untag| {
+            if (self.captp_version == .v1_0) return Error.UnexpectedMessage;
+            try validateProjectionOp(self, untag.receiver, untag.answer);
         },
         // `op:abort` is always admitted and carries no kind-specific rule.
         else => {},
@@ -254,11 +312,24 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
 }
 
 fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
-    try validateReference(self, deliver.target, .sent, .held_import);
+    if (deliver.answer) |answer| try checkOutboundAnswerPosition(self, answer);
+    try validateDeliverOrListenTarget(self, deliver.target, .sent);
     if (deliver.resolve_me_desc) |reference| {
+        // Next has no inline resolver field: answered operations are followed
+        // by their mandatory op:listen. Refuse before apply installs `answer`;
+        // leaving this to the codec would commit session state for a message
+        // that can never be encoded.
+        if (self.captp_version == .next) return Error.UnexpectedMessage;
         try validateReference(self, reference, .sent, .held_import);
     }
     try validateArguments(self, deliver.args, 0, .held);
+}
+
+/// One locally chosen answer position names one outstanding question until a
+/// matching `op:gc-answers` release removes it. Reuse would alias two distinct
+/// calls onto one settlement row.
+fn checkOutboundAnswerPosition(self: *const Session, answer: model.AnswerPosition) Error!void {
+    if (self.outbound_answers.contains(answer)) return Error.UnexpectedMessage;
 }
 
 // ── Inbound reference / argument validation (single walker) ─────────────
@@ -295,6 +366,10 @@ pub const IntroducedImports = struct {
     allocator: std.mem.Allocator,
     seen: std.AutoHashMapUnmanaged(model.ImportPosition, void) = .empty,
     mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
+    /// Promise-shaped far mentions that require the next profile's one private
+    /// shortening subscription. Repeats are retained here; the session table
+    /// deduplicates by live import identity when the engine schedules them.
+    promise_mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
     /// What is left of this message's equality-comparison allowance, spent by
     /// the set-uniqueness fold. It rides the per-turn record rather than the
     /// session because it is turn state: one record is built per recv entry
@@ -313,11 +388,14 @@ pub const IntroducedImports = struct {
     pub fn deinit(self: *IntroducedImports) void {
         self.seen.deinit(self.allocator);
         self.mentions.deinit(self.allocator);
+        self.promise_mentions.deinit(self.allocator);
     }
 
-    fn noteFar(self: *IntroducedImports, s: *Session, import_position: model.ImportPosition) RecvViewError!void {
+    fn noteFar(self: *IntroducedImports, s: *Session, far: model.FarRef) RecvViewError!void {
+        const import_position = far.import_position;
         if (import_position.int() == BOOTSTRAP_POSITION) return;
         try self.mentions.append(self.allocator, import_position);
+        if (far.kind == .promise) try self.promise_mentions.append(self.allocator, import_position);
         if (s.imports.contains(import_position)) return;
         const gop = try self.seen.getOrPut(self.allocator, import_position);
         if (gop.found_existing) return;
@@ -351,7 +429,7 @@ fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Erro
 
 fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *IntroducedImports) RecvViewError!void {
     if (deliver.answer) |answer| try checkInboundAnswerPosition(self, answer);
-    try validateReference(self, deliver.target, .received, .held_import);
+    try validateDeliverOrListenTarget(self, deliver.target, .received);
     // A promise target's pipeline path is refused inbound: pancake decomposes
     // every multi-hop pipeline into single-hop links at the *sender*
     // (`engine.pipeline`, the flat-inbound invariant in `pipeline.zig`), and the
@@ -369,25 +447,12 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
         if (!empty) return Error.UnexpectedMessage;
     }
     if (deliver.resolve_me_desc) |reference| {
-        try validateReference(self, reference, .received, .held_import);
+        // The partner is introducing the resolver it wants us to invoke, not
+        // referring to an import we already hold. V1.0 registration commits
+        // that introduction only after this full deliver has validated.
+        try validateReference(self, reference, .received, .introduction);
     }
     try validateInboundArguments(self, deliver.args, 0, introduced);
-}
-
-/// Validate a pipelined inbound deliver, one whose target is a still-pending
-/// answer the engine queues rather than dispatching immediately. It gets the *same*
-/// reference, argument, depth, and answer-position validation a directly-delivered
-/// call gets, so a malformed-reference or over-deep pipelined call is rejected
-/// exactly like its direct twin instead of slipping past validation onto the
-/// queue. Validation only: the answer install and any import introduction
-/// happen when the call is later drained and redirected at its resolved
-/// target, so the mention record is throwaway here — gpa-backed with a
-/// paired deinit, never the recv arena (this path never reaches the turn
-/// reset that reclaims it).
-pub fn validatePipelinedDeliver(self: *Session, deliver: anytype) RecvViewError!void {
-    var introduced: IntroducedImports = .init(self.allocator, self.limits);
-    defer introduced.deinit();
-    try validateInboundDeliverAny(self, deliver, &introduced);
 }
 
 /// Whose message the one reference validator is looking at. A `near` names one
@@ -417,6 +482,64 @@ const FarPolicy = enum {
     /// node-minted handoff token.
     introduction,
 };
+
+/// Validate the descriptor role shared by `op:deliver` and `op:listen`
+/// targets, not merely the authority behind its integer. On send, a target is
+/// one of the partner's exports (`far` -> wire `desc:export`) or an answer we
+/// allocated (`promise` -> wire `desc:answer`). On receive those roles flip to
+/// one of our granted exports (`near`) or an answer the partner allocated
+/// (`promise`). A live answer is a row still present in the matching table,
+/// pending or settled; `op:gc-answers` is what ends its addressability.
+///
+/// `anytype` keeps this one rule shared by owned and borrowed inbound paths.
+fn validateDeliverOrListenTarget(
+    self: *Session,
+    reference: anytype,
+    comptime perspective: Perspective,
+) Error!void {
+    switch (perspective) {
+        .sent => switch (reference) {
+            .far => try validateReference(self, reference, .sent, .held_import),
+            .promise => |promise| {
+                if (!self.outbound_answers.contains(promise.answer_position)) {
+                    return Error.InvalidReference;
+                }
+            },
+            .near, .sturdy, .broken => return Error.InvalidReference,
+        },
+        .received => switch (reference) {
+            .near => try validateReference(self, reference, .received, .held_import),
+            .promise => |promise| {
+                if (!self.inbound_answers.contains(promise.answer_position)) {
+                    return Error.InvalidReference;
+                }
+            },
+            .far, .sturdy, .broken => return Error.InvalidReference,
+        },
+    }
+}
+
+/// Validate `op:listen`'s notification destination in its own descriptor role.
+/// We send one of our exports (`near` -> wire `desc:import-*`); a partner sends
+/// one of its exports as a fresh import (`far`, decoded from `desc:import-*`).
+/// Targets and listener destinations are both references, but they are not
+/// interchangeable protocol positions.
+fn validateListenListener(
+    self: *Session,
+    reference: anytype,
+    comptime perspective: Perspective,
+) Error!void {
+    switch (perspective) {
+        .sent => switch (reference) {
+            .near => try validateReference(self, reference, .sent, .held_import),
+            .far, .promise, .sturdy, .broken => return Error.InvalidReference,
+        },
+        .received => switch (reference) {
+            .far => try validateReference(self, reference, .received, .introduction),
+            .near, .promise, .sturdy, .broken => return Error.InvalidReference,
+        },
+    }
+}
 
 /// The one reference-position validator. Post perspective-flip (ADR-0010) a
 /// decoded `near` names one of our exports; the `near` arm varies by
@@ -478,7 +601,7 @@ fn validateInboundArgument(
     switch (arg) {
         .reference => |reference| {
             try validateReference(self, reference, .received, .introduction);
-            if (reference == .far) try introduced.noteFar(self, reference.far.import_position);
+            if (reference == .far) try introduced.noteFar(self, reference.far);
         },
         .list => |items| try validateInboundArguments(self, items, depth + 1, introduced),
         .set => |items| {
@@ -490,7 +613,8 @@ fn validateInboundArgument(
         // Exhaustive on purpose: a new Argument arm must decide here whether it
         // can carry a reference. The struct arm above was once missed behind an
         // `else`, which let a struct-wrapped reference dodge this walk entirely.
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
+        .handoff => |handoff| try validateInboundHandoffArgument(self, handoff),
+        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error" => {},
     }
 }
 
@@ -498,7 +622,7 @@ fn validateInboundArgument(
 /// one; walk every entry's value like a list element. Dual-shape like its
 /// callers: the borrowed `model.view.StructEntries` walks its lazy cursor,
 /// the owned slice walks directly.
-/// A set admits each member once: two Equal elements are two wire spellings of
+/// A set admits each member once: two Equal elements are two wire encodings of
 /// one set, so an inbound duplicate is refused (`DuplicateSetElement`) instead
 /// of admitted. The Syrup decoder already refuses this at the byte layer
 /// (strictly ascending encoded elements), so in practice this fold is the
@@ -679,6 +803,52 @@ fn validateInboundStructEntries(
     }
 }
 
+/// Handoff certificates enter CapTP as nested passable values, not as their
+/// own operation. Enforce the negotiated gate and structural floor at that
+/// real entry point for both borrowed and owned argument trees.
+fn validateHandoffArgument(self: *const Session, handoff: anytype) Error!void {
+    if (!self.features.handoff) return Error.FeatureNotNegotiated;
+    const value = if (comptime @typeInfo(@TypeOf(handoff)) == .pointer)
+        handoff.*
+    else
+        handoff;
+    try session.validateHandoffWellFormed(value);
+    const give = switch (value) {
+        .give => |give| give,
+        .receive => |receive| receive.signed_give,
+    };
+    try validateHandoffGiftId(self, give.gift_id);
+}
+
+/// Enforce the current profile's fixed gift-id domain without narrowing the
+/// Goblins-compatible V1.0 profile. Public for bootstrap admission, which must
+/// reject before it copies a deposit id or parks an early withdrawal.
+pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!void {
+    if (self.captp_version == .next and gift_id.len != model.HANDOFF_GIFT_ID_BYTES) {
+        return Error.MalformedMessage;
+    }
+}
+
+/// A give is addressed to the local key of the session on which it arrived.
+/// Check that claim in session authority before Host can project its locator or
+/// queue a dial. A receive embeds the same give on a different session, so it
+/// deliberately does not take this Receiver-side check.
+fn validateInboundHandoffArgument(self: *const Session, handoff: anytype) Error!void {
+    try validateHandoffArgument(self, handoff);
+    if (self.captp_version != .next) return;
+    const value = if (comptime @typeInfo(@TypeOf(handoff)) == .pointer)
+        handoff.*
+    else
+        handoff;
+    switch (value) {
+        .give => |give| {
+            const local_key = self.localSessionKey() orelse return Error.InvalidHandoffSession;
+            if (!std.mem.eql(u8, give.recipient_key, local_key)) return Error.InvalidGift;
+        },
+        .receive => {},
+    }
+}
+
 /// How the send-side walker treats a leaf `reference`. Both send paths hold
 /// every reference to the same rule, and differ on exactly one arm.
 ///
@@ -781,6 +951,7 @@ fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime 
             try checkSentStructKeyUniqueness(self.allocator, entries);
         },
         // Exhaustive on purpose, see `validateInboundArgument`.
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
+        .handoff => |handoff| try validateHandoffArgument(self, handoff),
+        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error" => {},
     }
 }

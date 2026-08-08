@@ -1,10 +1,8 @@
 # Sturdyrefs and locators
 
 Anchors: OCapN Locators specification; CapTP Specification § The bootstrap
-Object (fetch). The `op:resolve` settlement arrow in ST-2 draws pancake's
-`pancake-next` profile shape; on the v1.0 wire the same settlement is the
-resolver-callback deliver (see the vocabulary note and DR-4 in
-[02-deliver-and-resolve.md](02-deliver-and-resolve.md)).
+Object (fetch). The next profile follows an answered fetch with a mandatory
+listen. Goblins V1.0 carries the resolver in the fetch deliver instead.
 
 ## ST-1: Sturdyref anatomy
 
@@ -37,7 +35,8 @@ sequenceDiagram
     Note over H: holds sturdyref (locator, swiss number)
     H->>P: op:start-session handshake per the locator
     H->>P: op:deliver (to desc:export 0, ['fetch, swiss-num], answer-pos N)
-    P->>H: op:resolve (N, resolve:fulfill desc:import-object M)
+    H->>P: op:listen (desc:answer N, desc:import-object R, mode 3)
+    P->>H: op:deliver (to desc:export R, ['fulfill, desc:import-object M], answer-pos false)
     Note over H: sturdy authority is now a live import at M
 ```
 

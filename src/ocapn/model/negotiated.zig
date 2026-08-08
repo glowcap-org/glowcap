@@ -29,6 +29,24 @@ pub const CodecId = enum(u16) {
     _,
 };
 
+/// What one peer prefers for a session: one CapTP version, one codec, and the
+/// features it can do. Plain vocabulary, like everything else in this file —
+/// the session records each side's, and `engine.negotiation` settles them.
+///
+/// Only the preference travels, never the accepted set, because a pancake peer
+/// speaks the v1.0 Syrup baseline by construction: it must, to reach a Goblins
+/// vat at all. So what a peer accepts is derivable from what it prefers, and a
+/// peer that names nothing has said "the baseline".
+pub const Preference = struct {
+    captp_version: CaptpVersion = .v1_0,
+    codec: CodecId = .syrup,
+    features: FeatureSet = FeatureSet.full(),
+
+    /// The profile every conforming peer speaks, and so what a peer has
+    /// told us by telling us nothing.
+    pub const baseline: Preference = .{};
+};
+
 /// CapTP version spoken on a session. Two jobs, one axis:
 /// - `v1_0` / `"1.0"` — pancake's current Goblins 0.18.0 and pinned-suite
 ///   interop floor. The wire token does not claim the draft is released.
@@ -77,6 +95,17 @@ pub const FeatureSet = struct {
     wire_delta: bool = false,
     sturdyref: bool = false,
 
+    pub const wire_string_max_len = blk: {
+        var len: usize = 0;
+        var fields: usize = 0;
+        for (@typeInfo(FeatureSet).@"struct".fields) |field| {
+            if (fields != 0) len += 1; // comma
+            len += field.name.len;
+            fields += 1;
+        }
+        break :blk len;
+    };
+
     /// The minimal set: Deliver, Resolve, and Abort only.
     pub fn minimum() FeatureSet {
         return .{};
@@ -107,6 +136,51 @@ pub const FeatureSet = struct {
         var out: FeatureSet = .{};
         inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
             @field(out, field.name) = @field(self, field.name) and @field(other, field.name);
+        }
+        return out;
+    }
+
+    /// Stable hint representation: enabled field names, comma-separated in
+    /// declaration order. Callers omit the hint when the offered set is the
+    /// full baseline; if the hint is present, the minimum set is the empty
+    /// string.
+    pub fn toWireString(self: FeatureSet, buf: []u8) error{NoSpace}![]const u8 {
+        var len: usize = 0;
+        var first = true;
+        inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
+            if (@field(self, field.name)) {
+                if (!first) {
+                    if (len == buf.len) return error.NoSpace;
+                    buf[len] = ',';
+                    len += 1;
+                }
+                if (buf.len - len < field.name.len) return error.NoSpace;
+                @memcpy(buf[len..][0..field.name.len], field.name);
+                len += field.name.len;
+                first = false;
+            }
+        }
+        return buf[0..len];
+    }
+
+    /// Parse `toWireString`. Unknown, empty-token, or repeated names are
+    /// malformed: the feature hint is signed handshake authority, not an
+    /// advisory routing hint.
+    pub fn fromWireString(wire: []const u8) ?FeatureSet {
+        var out: FeatureSet = .{};
+        if (wire.len == 0) return out;
+        var it = std.mem.splitScalar(u8, wire, ',');
+        while (it.next()) |name| {
+            if (name.len == 0) return null;
+            var matched = false;
+            inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
+                if (std.mem.eql(u8, name, field.name)) {
+                    if (@field(out, field.name)) return null;
+                    @field(out, field.name) = true;
+                    matched = true;
+                }
+            }
+            if (!matched) return null;
         }
         return out;
     }

@@ -14,7 +14,7 @@
 // core never hard-depends on the iroh artifact. Application code never imports
 // that internal dial — it uses `connect(locator, reachability[, host])`.
 //
-//   const server = listenIroh(Reachability.Direct);
+//   const server = listenIroh({ reachability: Reachability.Direct });
 //   console.log(server.uri);              // hand this to a partner
 //   for await (const session of server) session.serve();
 //
@@ -50,6 +50,10 @@ import {
 	ffi,
 	INVALID_ARGUMENT,
 	IO,
+	IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF,
+	IROH_CONFIG_IDLE_TIMEOUT_MS_OFF,
+	IROH_CONFIG_REACHABILITY_OFF,
+	IROH_CONFIG_SIZE,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
 	IROH_EV_CONNECT,
@@ -94,6 +98,21 @@ function readUsize(buf: Uint8Array): number {
 // stream delimiter above.
 const READ_CHUNK = 64 * 1024;
 
+/** One iroh endpoint's configuration, field-for-field with the header's
+ * `PancakeIrohConfig`, which documents what each setting means. An omitted
+ * timeout takes the transport's default.
+ *
+ * `reachability` is mandatory: enabling relays or a discovery service is always
+ * the caller's visible choice. `connectTimeoutMs` bounds getting a connection
+ * up, `idleTimeoutMs` bounds keeping one. Set `idleTimeoutMs` if you read a
+ * live session as presence, because it is what ends a connection whose peer was
+ * killed rather than closed. */
+export type IrohConfig = {
+	reachability: Reachability;
+	connectTimeoutMs?: number;
+	idleTimeoutMs?: number;
+};
+
 /** A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
  * sibling of the TCP `Netlayer`, but it is also its own listener (there is no
  * host:port to bind, so accepting lives here, on the readiness loop). Dial a
@@ -102,22 +121,39 @@ const READ_CHUNK = 64 * 1024;
 export class IrohNetlayer {
 	#raw: Ptr;
 
-	/** Bind an endpoint. `reachability` is required, the caller owns the
-	 * reach/privacy posture, with no default. `secretSeed` is a 32-byte
+	/** Bind an endpoint. `config` carries the endpoint's settings, mandatory
+	 * because `reachability` is (see `IrohConfig`). `secretSeed` is a 32-byte
 	 * Ed25519 secret key for a stable id, or omitted for a fresh random key. */
-	constructor(reachability: Reachability, secretSeed?: Uint8Array) {
+	constructor(config: IrohConfig, secretSeed?: Uint8Array) {
 		const seed = secretSeed ?? new Uint8Array(0);
 		const out = new Uint8Array(8);
-		// PancakeIrohConfig: u32 reachability @0 (4 pad), u64 connect_timeout_ms
-		// @8, 16 bytes. Zero-initialized, so connect_timeout_ms stays 0 (the
-		// built-in default) — the header's zero-init contract.
-		const config = new Uint8Array(16);
-		new DataView(config.buffer).setUint32(0, reachability, true);
+		// The size and every offset come from the generated layout mirror rather
+		// than being counted here, so a field added to `PancakeIrohConfig`
+		// cannot leave this buffer short of what the transport reads.
+		// Zero-initialized, so an unset field stays 0 and means the built-in
+		// default, which is the header's zero-init contract.
+		const raw = new Uint8Array(IROH_CONFIG_SIZE);
+		const view = new DataView(raw.buffer);
+		view.setUint32(IROH_CONFIG_REACHABILITY_OFF, config.reachability, true);
+		if (config.connectTimeoutMs !== undefined) {
+			view.setBigUint64(
+				IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF,
+				BigInt(config.connectTimeoutMs),
+				true,
+			);
+		}
+		if (config.idleTimeoutMs !== undefined) {
+			view.setBigUint64(
+				IROH_CONFIG_IDLE_TIMEOUT_MS_OFF,
+				BigInt(config.idleTimeoutMs),
+				true,
+			);
+		}
 		irohCheck(
 			irohS().pancake_iroh_netlayer_new(
 				ab(seed),
 				BigInt(seed.length),
-				ab(config),
+				ab(raw),
 				out,
 			),
 		);
@@ -259,6 +295,28 @@ export class IrohConn {
 	/** This connection's stable readiness identity. */
 	key(): bigint {
 		return irohS().pancake_iroh_conn_id(this.#raw);
+	}
+
+	/** The far end's node id, as QUIC proved it: this connection completed
+	 * only because the peer held the secret for this key. Null when the
+	 * connection is gone or the handshake proved nothing.
+	 *
+	 * This is the fact a session is otherwise missing. pancake cannot see it —
+	 * it did not open this connection — so whoever did passes it on with
+	 * `Session.bindVerifiedChannelKey`, which `acceptIroh` and `_connectIroh`
+	 * below do for every session this module establishes. */
+	remoteNodeId(): string | null {
+		const cap = 64;
+		const out = new Uint8Array(cap);
+		const len = new Uint8Array(8);
+		const rc = irohS().pancake_iroh_conn_remote_node_id(
+			this.#raw,
+			ab(out),
+			BigInt(cap),
+			ab(len),
+		);
+		if (rc !== OK) return null;
+		return new TextDecoder().decode(out.subarray(0, readUsize(len)));
 	}
 
 	/** Non-blocking read of raw inbound bytes into `buf`: the byte count (>0),
@@ -740,7 +798,7 @@ export async function _connectIroh(
 	host: Host = new Host(),
 	handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 ): Promise<Session> {
-	const netlayer = new IrohNetlayer(reachability);
+	const netlayer = new IrohNetlayer({ reachability });
 	const loop = new IrohLoop(netlayer);
 	loop.start();
 	let conn: IrohConn;
@@ -762,12 +820,17 @@ export async function _connectIroh(
 	// the host's live-session directory agrees — what a three-party handoff requires
 	// (ADR-0009/ADR-0056).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
+	// This module opened the connection, so it is the one place that can say
+	// what QUIC proved about the far end. Passing it here is what makes the
+	// session report `authenticated-transport` instead of resting on whatever
+	// the partner claims about itself.
 	return Session.establishDialedLocator(
 		host,
 		TRANSPORT_IROH,
 		nodeId,
 		transport,
 		handshakeTimeoutMs,
+		conn.remoteNodeId(),
 	);
 }
 
@@ -791,7 +854,7 @@ export async function dialLocatorForRelay(
 	const nodeId = parsed.designator;
 	const directAddresses = parsed.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
 
-	const netlayer = new IrohNetlayer(reachability);
+	const netlayer = new IrohNetlayer({ reachability });
 	const loop = new IrohLoop(netlayer);
 	loop.start();
 	let conn: IrohConn;
@@ -815,24 +878,37 @@ export async function dialLocatorForRelay(
 }
 
 /** Complete the responder handshake over an accepted iroh connection, signing
- * the server's endpoint id as the locator designator (used by `IrohServer`).
- * The accepted connection's loop and netlayer belong to the server, not this
- * connection. */
+ * the server's endpoint id as the locator designator and its direct addresses as
+ * the dial hint (used by `IrohServer`). The accepted connection's loop and
+ * netlayer belong to the server, not this connection.
+ *
+ * `directAddresses` is read per accept rather than once at listen, because an
+ * endpoint learns and loses addresses while it runs, and the hello should say
+ * where this peer is reachable *now*. Signing them matters for somebody who has
+ * not arrived: a third party handed this locator in a handoff has to dial it, and
+ * a node id alone leaves it a relay round trip away, or unreachable if this
+ * endpoint has no relay. */
 function acceptIroh(
 	conn: IrohConn,
 	localNodeId: string,
 	loop: IrohLoop,
 	host: Host = new Host(),
+	directAddresses = "",
 ): Promise<Session> {
 	// As `_connectIroh`: the connection is minted against the server's host, so
 	// its accepted sessions share one identity and live-session directory — what lets
 	// an exporter resolve a gift's deposit (on the gifter session) during withdraw
 	// (on the recipient session).
+	// As the dial side: this module accepted the connection, so it is the one
+	// place that can say what QUIC proved about the peer that reached it.
 	return Session.establishAccepted(
 		host,
 		TRANSPORT_IROH,
 		localNodeId,
 		new IrohChannel(conn, loop),
+		directAddresses,
+		undefined,
+		conn.remoteNodeId(),
 	);
 }
 
@@ -850,6 +926,7 @@ export class IrohServer {
 	// the still-open session that owns its gift. This is the exporter-host shape
 	// a handoff recipient relies on (ADR-0009/ADR-0100). The TCP `Server`'s iroh sibling.
 	readonly #host: Host;
+	#advertisedDirectAddresses: string | null = null;
 
 	constructor(netlayer: IrohNetlayer, host: Host) {
 		this.#netlayer = netlayer;
@@ -858,6 +935,7 @@ export class IrohServer {
 		// `listenIroh` draws one seed for both (ADR-0075).
 		this.#host = host;
 		this.#host.setSelfDesignator(this.#nodeId);
+		this.#refreshAdvertisedLocator();
 		// Serve every accepted connection from one readiness loop instead of a
 		// blocking accept and a blocking read parked per connection (ADR-0057).
 		this.#loop = new IrohLoop(netlayer);
@@ -877,7 +955,19 @@ export class IrohServer {
 
 	/** This endpoint's comma-separated direct-address hints. */
 	get directAddresses(): string {
-		return this.#netlayer.directAddresses();
+		return this.#refreshAdvertisedLocator();
+	}
+
+	/** Keep the Host's peer-owned locator snapshot aligned with the endpoint.
+	 * Direct addresses can appear after bind, so every observation and accept
+	 * refreshes the snapshot before another session can advertise it. */
+	#refreshAdvertisedLocator(): string {
+		const directAddresses = this.#netlayer.directAddresses();
+		if (directAddresses !== this.#advertisedDirectAddresses) {
+			this.#host.setAdvertisedLocator(TRANSPORT_IROH, this.#nodeId, directAddresses);
+			this.#advertisedDirectAddresses = directAddresses;
+		}
+		return directAddresses;
 	}
 
 	/** The `ocapn://<nodeid>.iroh?direct-addresses=…` URI a partner dials. */
@@ -908,7 +998,13 @@ export class IrohServer {
 				// its abandoned handshake read.
 				let connection: Session | null;
 				try {
-					connection = await acceptIroh(conn, this.#nodeId, this.#loop, this.#host);
+					connection = await acceptIroh(
+						conn,
+						this.#nodeId,
+						this.#loop,
+						this.#host,
+						this.directAddresses,
+					);
 				} catch {
 					connection = null;
 				}
@@ -940,14 +1036,18 @@ export class IrohServer {
 }
 
 /** Bind an iroh endpoint and return an `IrohServer` you iterate for each
- * accepted `Session`. `reachability` is required, the caller owns the reach
- * posture, with no default. `secretSeed` is a 32-byte Ed25519 secret key
- * for a stable endpoint id, or omitted for a fresh random one shared with the
- * `Host`. Pass `host` only when it was built from the same seed — one identity
- * for netlayer and session (ADR-0075). Needs the iroh ABI library
- * (`zig build iroh-abi`). */
+ * accepted `Session`. `config` carries the endpoint's settings and is mandatory
+ * because `reachability` is (see `IrohConfig`). `secretSeed` is a 32-byte
+ * Ed25519 secret key for a stable endpoint id, or omitted for a fresh random
+ * one shared with the `Host`. Pass `host` only when it was built from the same
+ * seed — one identity for netlayer and session (ADR-0075). Needs the iroh ABI
+ * library (`zig build iroh-abi`).
+ *
+ * A server that treats a live session as presence should set
+ * `config.idleTimeoutMs`, because that is what ends a connection whose peer was
+ * killed rather than closed and so lets `serve()` settle. */
 export function listenIroh(
-	reachability: Reachability,
+	config: IrohConfig,
 	secretSeed?: Uint8Array,
 	host?: Host,
 ): IrohServer {
@@ -966,5 +1066,5 @@ export function listenIroh(
 		}
 	}
 	const n = host ?? new Host(seed);
-	return new IrohServer(new IrohNetlayer(reachability, seed), n);
+	return new IrohServer(new IrohNetlayer(config, seed), n);
 }

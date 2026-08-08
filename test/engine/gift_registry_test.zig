@@ -85,6 +85,112 @@ fn makeReceiveAs(
 
 const default_limits: session.SessionLimits = .{};
 
+test "next deposit rejects non-32-byte gift id before copy or registry mutation" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        s.deinit();
+    }
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator, null);
+
+    const gifted = model.Reference{ .broken = .{ .message = "would require a copy" } };
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        engine.bootstrap.resolveForDeposit(&s, &registry, null, null, .{
+            .gift_id = "short",
+            .gifted = model.view.Reference.fromOwned(&gifted),
+            .answer = null,
+        }),
+    );
+    try std.testing.expect(!registry.giftLive("short"));
+}
+
+test "v1 deposit preserves Goblins non-32-byte gift-id tolerance" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator, null);
+
+    const gifted = model.Reference{ .broken = .{ .message = "legacy gift" } };
+    try std.testing.expect(try engine.bootstrap.resolveForDeposit(&s, &registry, null, null, .{
+        .gift_id = "short",
+        .gifted = model.view.Reference.fromOwned(&gifted),
+        .answer = null,
+    }) == null);
+    try std.testing.expect(registry.giftLive("short"));
+}
+
+test "next withdraw rejects non-32-byte gift id before lookup or parking" {
+    const allocator = std.testing.allocator;
+    const receive: model.HandoffReceive = .{
+        .receiving_session = "receiving-session",
+        .receiving_side = "receiving-side",
+        .handoff_count = 0,
+        .signed_give = .{
+            .recipient_key = "recipient-key",
+            .exporter = .{ .transport = "memory", .designator = "exporter" },
+            .gifter_exporter_session = "gifter-session",
+            .gifter_side = "gifter-side",
+            .gift_id = "short",
+            .signature = "give-signature",
+        },
+        .signature = "receive-signature",
+    };
+    var handoff = model.Handoff{ .receive = receive };
+    const view = model.view.Handoff.fromOwned(&handoff).receive;
+
+    var next_session = session.Session.initWith(allocator, .{ .captp_version = .next });
+    defer next_session.deinit();
+    var next_registry: GiftRegistry = .{};
+    defer next_registry.deinit(allocator, null);
+    var refused = switch (try engine.bootstrap.resolveForWithdraw(
+        allocator,
+        &next_session,
+        &next_registry,
+        null,
+        null,
+        null,
+        .{ .receive = view, .answer = .from(1) },
+    )) {
+        .settled => |prepared| prepared,
+        .awaiting_deposit => return error.TestUnexpectedPending,
+    };
+    defer refused.deinit(allocator);
+    try std.testing.expectEqualStrings(
+        "handoff gift id has invalid width",
+        refused.message.?.resolve.resolution.@"break".message,
+    );
+
+    // The same legacy certificate reaches ordinary gifter-session lookup in
+    // V1.0; its short id is not rejected by next-only admission.
+    var v1_session = session.Session.init(allocator);
+    defer v1_session.deinit();
+    var v1_registry: GiftRegistry = .{};
+    defer v1_registry.deinit(allocator, null);
+    var legacy = switch (try engine.bootstrap.resolveForWithdraw(
+        allocator,
+        &v1_session,
+        &v1_registry,
+        null,
+        null,
+        null,
+        .{ .receive = view, .answer = .from(2) },
+    )) {
+        .settled => |prepared| prepared,
+        .awaiting_deposit => return error.TestUnexpectedPending,
+    };
+    defer legacy.deinit(allocator);
+    try std.testing.expectEqualStrings(
+        "gifter session is not open",
+        legacy.message.?.resolve.resolution.@"break".message,
+    );
+}
+
 test "registry deposits a gift and accepts a matching withdrawal" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
@@ -111,13 +217,14 @@ test "the generic inbound path moves no gift-withdrawal authority" {
         "gift-1",
         "recipient-key",
     );
-    // A top-level handoff frame on the generic recv path (the surface a hostile
-    // socket peer reaches directly) must never burn a deposited gift: no
-    // Ed25519 check has run here. The session validates well-formedness only and
-    // holds no gift state, so the registry row stays untouched.
-    try exporter.session_state.recordRecv(.{
-        .handoff = .{ .receive = makeReceive("gift-1", "recipient-key", &session_a, 1) },
-    });
+    try exporter.session_state.registerExport(.from(1));
+    var handoff = model.Handoff{ .receive = makeReceive("gift-1", "recipient-key", &session_a, 1) };
+    // Merely carrying a receive certificate as a passable value cannot burn a
+    // gift. Withdrawal authority belongs to the verified bootstrap method.
+    try exporter.session_state.recordRecv(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(1) },
+        .args = &.{.{ .handoff = &handoff }},
+    } });
     try std.testing.expect(exporter.giftRegistry().giftLive("gift-1"));
 }
 
@@ -413,9 +520,10 @@ test "a gifted near with no published name is refused at deposit" {
     // allocator past the end of its own range.
     // The gifter holds the exporter's object as an import; the exporter reads
     // that same reference back as one of its own exports.
+    const gift_id = [_]u8{0x71} ** model.HANDOFF_GIFT_ID_BYTES;
     try exporter.session_state.registerExport(.from(9));
     try gifter.session_state.registerImport(.from(9));
-    try gifter.sendDepositGift("gift-unnamed", .{ .far = model.FarRef.object(9) });
+    try gifter.sendDepositGift(&gift_id, .{ .far = model.FarRef.object(9) });
     try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));
 
     // The accepted side of this rule — a deposit whose gifted near does carry
@@ -439,15 +547,16 @@ test "a gifted far is refused at deposit rather than at the recipient's expense"
     // an object the gifter hosts, which this exporter cannot serve to anybody.
     // Handed back verbatim on the recipient's session it would name an export
     // that session never made.
+    const gift_id = [_]u8{0x72} ** model.HANDOFF_GIFT_ID_BYTES;
     try gifter.session_state.registerExport(.from(9));
-    try gifter.sendDepositGift("gift-far", .{ .near = model.NearRef.object(9) });
+    try gifter.sendDepositGift(&gift_id, .{ .near = model.NearRef.object(9) });
     try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));
 
     // Refusing at the deposit is what puts the refusal on the gifter's own
     // session. Left for the withdraw responder to discover, the same gift
     // would abort the *recipient's* session instead, which is a seam a gifter
     // could aim deliberately.
-    try std.testing.expect(!exporter.giftRegistry().giftLive("gift-far"));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(&gift_id));
 }
 
 test "two gifters reusing one gift id keep separate rows" {

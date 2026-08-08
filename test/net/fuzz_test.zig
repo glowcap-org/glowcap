@@ -98,7 +98,7 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
             // that admitted it. This is ADR-0041's boundedness, checked while
             // the spill is live rather than assumed.
             try std.testing.expect(spill.len <= spill.buf.len);
-            try std.testing.expect(spill.len <= frame_cap);
+            try std.testing.expect(spill.len <= frame_cap + 32 + read_len);
         }
     }
 }
@@ -403,7 +403,7 @@ const LifecycleBackend = struct {
         self.record(user_data, .close, 0);
     }
 
-    pub fn remotePartnerKey(self: *LifecycleBackend, fd: Fd) ?[32]u8 {
+    pub fn verifiedChannelKey(self: *LifecycleBackend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;
         return null;
@@ -1065,13 +1065,9 @@ const max_calls: usize = 128;
 const max_stream_frames: usize = 32;
 const frames_budget: usize = 8192;
 
-/// How far past the cap the open-record tail runs, so the refusal has to come
-/// from the cap rather than from the stream running out.
-const open_tail_slack: usize = 256;
-
 /// The stream one plan feeds, and the synthesized frame it may include. At file
 /// scope because a plan hands out slices of them that outlive the builder.
-var stream_buf: [frames_budget + large_frame_cap + open_tail_slack]u8 = undefined;
+var stream_buf: [frames_budget + large_frame_cap + 32]u8 = undefined;
 var big_frame_buf: [large_frame_cap]u8 = undefined;
 var frame_spans: [max_stream_frames][]const u8 = undefined;
 
@@ -1082,9 +1078,8 @@ const stream_config_bytes: usize = 6;
 const Tail = enum {
     /// Nothing follows, so the reader meets a clean end on a frame boundary.
     clean,
-    /// A record opened and never closed. It cannot complete within the cap, so
-    /// the cap is what has to refuse it.
-    open_record,
+    /// An outer length larger than the frame cap, refused before its body.
+    oversize_length,
     /// A whole frame cut off part-way. The stream ends inside a frame, which is
     /// a different condition from ending between two.
     truncated_frame,
@@ -1093,7 +1088,7 @@ const Tail = enum {
     fn verdict(self: Tail) anyerror {
         return switch (self) {
             .clean => error.Closed,
-            .open_record => error.FrameTooLarge,
+            .oversize_length => error.FrameTooLarge,
             .truncated_frame => error.TruncatedFrame,
         };
     }
@@ -1113,7 +1108,7 @@ const StreamPlan = struct {
     /// hold.
     frame_cap: usize,
     tail: Tail,
-    /// The frames fed, in order, borrowing from `stream_buf`.
+    /// The bare frames fed, in order; `bytes` carries their outer envelopes.
     frames: []const []const u8,
     /// The whole stream: those frames, then the tail.
     bytes: []const u8,
@@ -1124,6 +1119,16 @@ const StreamPlan = struct {
 /// follows that prefix.
 fn corpusFrame(index: usize) []const u8 {
     return seeds.message_seeds[index % seeds.message_seeds.len][4..];
+}
+
+fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
+    var prefix_buf: [32]u8 = undefined;
+    const prefix = std.fmt.bufPrint(&prefix_buf, "{d}:", .{frame.len}) catch return null;
+    const total = prefix.len + frame.len;
+    if (total > dest.len) return null;
+    @memcpy(dest[0..prefix.len], prefix);
+    @memcpy(dest[prefix.len..total], frame);
+    return total;
 }
 
 /// An `op:deliver` whose argument list fills about `want` bytes: one whole
@@ -1156,17 +1161,6 @@ fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
     return out[0 .. at + closer.len];
 }
 
-/// An `op:deliver` whose argument list opens and never closes. Every byte of it
-/// is a legal continuation, so the decoder can only ever call it incomplete, and
-/// the frame cap is the only thing that ends it.
-fn openRecordTail(out: []u8) []const u8 {
-    const opener = "<10'op:deliver<11'desc:export7+>[";
-    @memcpy(out[0..opener.len], opener);
-    var at = opener.len;
-    while (at + 2 <= out.len) : (at += 2) @memcpy(out[at..][0..2], "1+");
-    return out[0..at];
-}
-
 /// Read one stream plan out of the drawn input, or null when the input is too
 /// short to describe one.
 ///
@@ -1182,7 +1176,7 @@ fn planStream(input: []const u8) ?StreamPlan {
     const per_read = 1 + @as(usize, input[1]) % max_read_len;
     const tail: Tail = switch (input[2] % 3) {
         0 => .clean,
-        1 => .open_record,
+        1 => .oversize_length,
         else => .truncated_frame,
     };
     // One byte carries both halves of the large-cap choice, because they only
@@ -1206,19 +1200,25 @@ fn planStream(input: []const u8) ?StreamPlan {
         const synthesized = pick == seeds.message_seeds.len;
         if (synthesized and !large) continue;
         const frame = if (synthesized) big else corpusFrame(pick);
-        if (at + frame.len > frames_budget) break;
-        @memcpy(stream_buf[at..][0..frame.len], frame);
-        frame_spans[count] = stream_buf[at..][0..frame.len];
-        at += frame.len;
+        const framed_len = appendOuterFrame(stream_buf[at..frames_budget], frame) orelse break;
+        frame_spans[count] = frame;
+        at += framed_len;
         count += 1;
     }
 
     switch (tail) {
         .clean => {},
-        .open_record => at += openRecordTail(stream_buf[at..][0 .. cap + open_tail_slack]).len,
+        .oversize_length => {
+            const prefix = std.fmt.bufPrint(stream_buf[at..], "{d}:", .{cap + 1}) catch return null;
+            at += prefix.len;
+        },
         .truncated_frame => {
             const frame = corpusFrame(input[4]);
             const keep = 1 + @as(usize, input[5]) % (frame.len - 1);
+            var prefix_buf: [32]u8 = undefined;
+            const prefix = std.fmt.bufPrint(&prefix_buf, "{d}:", .{frame.len}) catch return null;
+            @memcpy(stream_buf[at..][0..prefix.len], prefix);
+            at += prefix.len;
             @memcpy(stream_buf[at..][0..keep], frame[0..keep]);
             at += keep;
         },
@@ -1262,7 +1262,7 @@ fn expectSpillBounded(spill: *const net.Spill, plan: StreamPlan) !void {
     // What waits here is one in-flight frame, and the codec refuses a prefix
     // that reaches the cap, so the most that can be waiting is the cap plus the
     // single read that carried the prefix over it.
-    const bound = plan.frame_cap + plan.read_len;
+    const bound = plan.frame_cap + 32 + plan.read_len;
     try std.testing.expect(spill.len <= bound);
     // Capacity doubles when it grows, so it can overshoot what is waiting by up
     // to one doubling and no more.
@@ -1336,8 +1336,8 @@ fn ratifyStreamShapes() !void {
         try std.testing.expect(frame.len <= small_frame_cap);
         var scan: net.StreamScan = .{};
         const prefix = codec.dispatch.framePrefix(.syrup, frame, &scan, small_frame_cap);
-        try std.testing.expect(prefix == .decoded);
-        try std.testing.expectEqual(frame.len, prefix.decoded.consumed);
+        try std.testing.expect(prefix == .complete);
+        try std.testing.expectEqual(frame.len, prefix.complete);
     }
 
     // The synthesized frame, at both ends of the argument count the plan can
@@ -1348,22 +1348,18 @@ fn ratifyStreamShapes() !void {
         try std.testing.expect(big.len <= large_frame_cap);
         var scan: net.StreamScan = .{};
         const prefix = codec.dispatch.framePrefix(.syrup, big, &scan, large_frame_cap);
-        try std.testing.expect(prefix == .decoded);
-        try std.testing.expectEqual(big.len, prefix.decoded.consumed);
+        try std.testing.expect(prefix == .complete);
+        try std.testing.expectEqual(big.len, prefix.complete);
     }
 
-    // The open-record tail under each cap: incomplete while it is below the cap,
-    // refused once it reaches it. The first of those is what makes the second the
-    // cap's doing rather than the stream's. Under the small cap the decoder
-    // refuses it; under the large one the scan has already withheld the decoder,
-    // so `framePrefix` is what refuses.
+    // The outer length is the byte-stream allocation bound: a declaration over
+    // the frame cap is refused before any body bytes arrive.
     for ([_]usize{ small_frame_cap, large_frame_cap }) |cap| {
-        const tail = openRecordTail(stream_buf[0 .. cap + open_tail_slack]);
-        try std.testing.expect(tail.len > cap);
-        var under: net.StreamScan = .{};
-        try std.testing.expect(codec.dispatch.framePrefix(.syrup, tail[0 .. cap - 1], &under, cap) == .incomplete);
-        var over: net.StreamScan = .{};
-        try std.testing.expect(codec.dispatch.framePrefix(.syrup, tail, &over, cap) == .too_large);
+        var prefix_buf: [32]u8 = undefined;
+        const at_cap = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{cap});
+        try std.testing.expect(pancake.net.outerPrefix(at_cap, cap) == .incomplete);
+        const over_cap = try std.fmt.bufPrint(&prefix_buf, "{d}:", .{cap + 1});
+        try std.testing.expect(pancake.net.outerPrefix(over_cap, cap) == .too_large);
     }
 }
 

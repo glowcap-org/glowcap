@@ -74,7 +74,7 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
             .target = .{ .promise = .{ .answer_position = projected_answer } },
             // Project from the authoritative slot, never a hand-typed kind (ADR-0080).
             .listener = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
-            .wants_partial = false,
+            .mode = .settling_only,
         },
     };
     try peer.pushEncoded(wire);

@@ -15,10 +15,10 @@ const std = @import("std");
 
 /// Every CapTP message in the checked-in Syrup corpus, wired as a seed.
 ///
-/// The whole directory, not a hand-picked spread: a corpus entry that is not a
-/// seed is a shape the fuzzer never starts from, and picking by hand meant most
-/// of them were not. `zig build meta-check` holds these two lists against the
-/// directory, so a new corpus file cannot land without becoming a seed.
+/// The whole message subset, not a hand-picked spread: a message entry that is
+/// not a seed is a shape the fuzzer never starts from. `zig build meta-check`
+/// holds all seed lists against the directory, so a new corpus file cannot land
+/// without becoming a seed.
 pub const message_seeds = [_][]const u8{
     seed(@embedFile("../oracle/corpus/op_abort.bin")),
     seed(@embedFile("../oracle/corpus/op_abort_connection_lost.bin")),
@@ -39,8 +39,6 @@ pub const message_seeds = [_][]const u8{
     seed(@embedFile("../oracle/corpus/op_gc_answers.bin")),
     seed(@embedFile("../oracle/corpus/op_gc_exports.bin")),
     seed(@embedFile("../oracle/corpus/op_get.bin")),
-    seed(@embedFile("../oracle/corpus/op_handoff_give.bin")),
-    seed(@embedFile("../oracle/corpus/op_handoff_receive.bin")),
     seed(@embedFile("../oracle/corpus/op_index.bin")),
     seed(@embedFile("../oracle/corpus/op_listen_export_target.bin")),
     seed(@embedFile("../oracle/corpus/op_listen_promise_target.bin")),
@@ -55,16 +53,19 @@ pub const message_seeds = [_][]const u8{
     seed(@embedFile("../oracle/corpus/op_untag.bin")),
 };
 
+/// Passable CapTP descriptors that are valid nested values, not messages.
+pub const descriptor_seeds = [_][]const u8{
+    seed(@embedFile("../oracle/corpus/desc_handoff_give_signed.bin")),
+    seed(@embedFile("../oracle/corpus/desc_handoff_receive_signed.bin")),
+};
+
 /// The corpus also holds bare Syrup values that are not CapTP messages: a
 /// dictionary, integers at both ends of the small/big boundary, a list, a set, a
-/// string, and the ADR-0097 credential vectors (a bare signing-domain record
-/// and a hint-dict locator record). They seed the fuzzer with well-formed
+/// string. They seed the fuzzer with well-formed
 /// Syrup that the message decoder must still refuse, which is a different and
 /// useful starting shape, so they are seeds but not subject to
 /// `ratifySyrupSeeds`.
 pub const primitive_seeds = [_][]const u8{
-    seed(@embedFile("../oracle/corpus/cred_locator_keyed_tcp_hint.bin")),
-    seed(@embedFile("../oracle/corpus/cred_session_key_attestation_v1.bin")),
     seed(@embedFile("../oracle/corpus/prim_dict_str_to_int.bin")),
     seed(@embedFile("../oracle/corpus/prim_integer_big_neg.bin")),
     seed(@embedFile("../oracle/corpus/prim_integer_neg_7.bin")),
@@ -81,7 +82,7 @@ pub const primitive_seeds = [_][]const u8{
 /// build check that holds a saved input against its replay looks for it in that
 /// target's own file. Each target keeps its own `regression_seeds` and appends
 /// it to this.
-pub const all = message_seeds ++ primitive_seeds;
+pub const all = message_seeds ++ descriptor_seeds ++ primitive_seeds;
 
 /// `Smith.slice` replays a corpus entry by reading a little-endian u32 length
 /// ahead of the slice bytes, so a seed is its frame prefixed with the frame's

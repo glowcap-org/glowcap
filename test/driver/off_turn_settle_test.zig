@@ -87,13 +87,18 @@ const DeferringVat = struct {
 
 /// The worker: real off-thread completion. Waits for each parked resolver id
 /// and posts its settle from this thread — first fulfilled, then broken.
-fn worker(mb: *driver.SettleMailbox, out: *std.atomic.Value(u64)) void {
+fn worker(
+    mb: *driver.SettleMailbox,
+    out: *std.atomic.Value(u64),
+    stop: *const std.atomic.Value(bool),
+) void {
     var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
     for (0..2) |round| {
         var id: u64 = 0;
         while (true) {
+            if (stop.load(.acquire)) return;
             id = out.load(.acquire);
             if (id != 0) break;
             std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
@@ -152,7 +157,8 @@ test "off-turn settle over PollHost: a worker thread's post wakes the poll wait 
     // Mint the mailbox before any pump runs, hand it to the worker thread.
     const mb = try server.host.settleMailbox();
     var parked = std.atomic.Value(u64).init(0);
-    const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked });
+    var worker_stop = std.atomic.Value(bool).init(false);
+    const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked, &worker_stop });
 
     var host_future = try io.concurrent(pollHostServe, .{ &server, &parked });
 
@@ -171,6 +177,7 @@ test "off-turn settle over PollHost: a worker thread's post wakes the poll wait 
         break :blk {};
     };
 
+    worker_stop.store(true, .release);
     worker_thread.join();
     const host_result = host_future.await(io);
     try client_result;
@@ -244,7 +251,8 @@ test "off-turn settle over the completion loop: the wake recv applies the worker
     const mb = try driver.SettleMailbox.init(allocator, driver.settle_mailbox.default_slots);
     var shared = LoopShared{};
     var parked = std.atomic.Value(u64).init(0);
-    const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked });
+    var worker_stop = std.atomic.Value(bool).init(false);
+    const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked, &worker_stop });
 
     var server_future = try io.concurrent(loopServerTask, .{ allocator, &shared, mb, &parked });
 
@@ -271,6 +279,7 @@ test "off-turn settle over the completion loop: the wake recv applies the worker
         break :blk {};
     };
 
+    worker_stop.store(true, .release);
     worker_thread.join();
     // Stop the loop through the mailbox's own wake — the stopper's share of
     // the sanctioned cross-thread entry, not a connect-and-drop.
@@ -280,4 +289,98 @@ test "off-turn settle over the completion loop: the wake recv applies the worker
     mb.deinit();
     try client_result;
     try server_result;
+}
+
+/// Serve with bounded steps rather than `serve`'s unbounded poll, so a
+/// swallowed wake cannot park this thread forever — the point under test is
+/// where the settle is applied, not whether a wake can end a wait.
+fn pollHostServeStepping(
+    server: *driver.Server,
+    out: *std.atomic.Value(u64),
+    done: *std.atomic.Value(bool),
+) anyerror!void {
+    const conn = try server.accept();
+    defer conn.deinit();
+    _ = try conn.publish("worker", DeferringOwned, .{ .out = out });
+    while (!done.load(.acquire)) {
+        const progress = conn.host.stepSession(conn.hs, 25) catch break;
+        if (progress) |p| if (p == .closed) break;
+    }
+}
+
+/// Post the settle and immediately consume the wake byte it wrote, so the
+/// owning thread's poll can never select the mailbox row. Applying has to
+/// come from the pump's own loop top or not at all.
+fn workerSwallowingItsWake(mb: *driver.SettleMailbox, out: *std.atomic.Value(u64)) void {
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var id: u64 = 0;
+    while (id == 0) {
+        id = out.load(.acquire);
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+    }
+    mb.post(id, .{ .fulfilled = .{ .string = "applied at the loop top" } }) catch unreachable;
+    mb.drainWake();
+}
+
+test "off-turn settle applies at the pump top, not only when the wake wins the poll" {
+    // The regression that matters for stage 4 under load. The wake fd rides
+    // the poll set as its last row, and a readiness wait reports the *first*
+    // ready row, so a busy wire preempts it every pass. If applying depended
+    // on that row being selected, a peer with sustained traffic would starve
+    // its own mailbox until it filled — exactly the case the mechanism
+    // exists for.
+    //
+    // Swallowing the wake byte is the deterministic form of that race: the
+    // poll has nothing to select. The settle must still land, because
+    // applying belongs to the top of the pump loop rather than to a poll
+    // result.
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        dial_opts,
+    );
+    defer server.close() catch {};
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
+
+    const mb = try server.host.settleMailbox();
+    var parked = std.atomic.Value(u64).init(0);
+    var done = std.atomic.Value(bool).init(false);
+    const worker_thread = try std.Thread.spawn(.{}, workerSwallowingItsWake, .{ mb, &parked });
+    var host_future = try io.concurrent(pollHostServeStepping, .{ &server, &parked, &done });
+
+    const client_result = blk: {
+        const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+        var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+        const client = driver.connect(
+            allocator,
+            &netlayers,
+            tcp.locator(&designator_buf, address),
+            .ephemeral,
+            dial_opts,
+        ) catch |err| break :blk err;
+        defer client.deinit();
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const worker_ref = client.fetch("worker") catch |err| break :blk err;
+        const settled = client.call(worker_ref, "work", &.{}, arena.allocator()) catch |err| break :blk err;
+        if (settled != .fulfilled) break :blk error.SettleNeverApplied;
+        break :blk {};
+    };
+
+    worker_thread.join();
+    done.store(true, .release);
+    const host_result = host_future.await(io);
+    try client_result;
+    try host_result;
 }

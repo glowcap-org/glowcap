@@ -6,37 +6,47 @@
 //! its unit tests; embedders never touch it — the host runs the tiebreak
 //! itself.
 //!
-//! The tiebreak is **two operations over two different identities**, and
-//! keeping them apart is the whole design (ADR-0097):
+//! The tiebreak is **two operations over two different values**, and keeping
+//! them apart is the whole design (ADR-0097):
 //!
 //!   1. **Matching** asks which two connection attempts are racing. That is a
-//!      question about the *durable peer*, so the key is the partner
-//!      designator — the peer's own key on a key-designator transport, and its
-//!      declared location on an address transport, with the stated weakness the
-//!      host's caller documents.
+//!      question about the dial target, so the key is its transport and the
+//!      partner's claimed designator. A session signature binds that claim to
+//!      the fresh session key but does not prove ownership of the locator. The
+//!      host separately decides whether channel evidence authenticated a peer.
 //!   2. **Ordering** asks which of the two racing sessions survives. That is a
 //!      question about *session identity*, so it compares the OCapN session
 //!      identifiers derived from the two connections' `session_pubkey`s — ours
 //!      on the outbound, the partner's on the inbound.
 //!
-//! They coincide today only because every session in a host is signed by the
-//! host's durable key. Once each connection draws a fresh session key, matching
-//! must keep using the durable designator while ordering picks up the new
-//! per-connection identifiers, and a single conflated key would silently do the
-//! wrong one. The field names here say which is which so that change is one
-//! call site, not a rediscovery.
+//! These values do not coincide: each connection has a fresh session key, while
+//! a locator designator names the dial target. A single conflated key would
+//! silently perform the wrong operation. The field names here keep the two axes
+//! visible at each call site.
 
 const std = @import("std");
 
 const foundation = @import("foundation");
 
+pub const DialTarget = struct {
+    transport: []const u8,
+    designator: []const u8,
+
+    pub fn eql(a: DialTarget, b: DialTarget) bool {
+        return std.mem.eql(u8, a.transport, b.transport) and
+            std.mem.eql(u8, a.designator, b.designator);
+    }
+};
+
 pub const CrossedHellos = struct {
     entries: std.ArrayListUnmanaged(Entry) = .empty,
 
     const Entry = struct {
-        /// The matching axis: the durable peer this outbound dial is trying to
-        /// reach.
-        partner_durable: []const u8,
+        /// One allocation backing both slices in `target`.
+        target_bytes: []u8,
+        /// The matching axis: the complete locator identity this outbound dial
+        /// is trying to reach. Authentication is a separate Host fact.
+        target: DialTarget,
         /// The ordering axis: the OCapN session identifier derived from *this
         /// outbound connection's* own session key.
         our_session_id: foundation.PeerId,
@@ -50,25 +60,36 @@ pub const CrossedHellos = struct {
     pub fn registerOutbound(
         self: *CrossedHellos,
         allocator: std.mem.Allocator,
-        partner_durable: []const u8,
+        target: DialTarget,
         our_session_id: foundation.PeerId,
     ) !void {
-        const owned = try allocator.dupe(u8, partner_durable);
-        errdefer allocator.free(owned);
-        try self.entries.append(allocator, .{ .partner_durable = owned, .our_session_id = our_session_id });
+        const byte_len = std.math.add(usize, target.transport.len, target.designator.len) catch
+            return error.OutOfMemory;
+        const bytes = try allocator.alloc(u8, byte_len);
+        errdefer allocator.free(bytes);
+        @memcpy(bytes[0..target.transport.len], target.transport);
+        @memcpy(bytes[target.transport.len..], target.designator);
+        try self.entries.append(allocator, .{
+            .target_bytes = bytes,
+            .target = .{
+                .transport = bytes[0..target.transport.len],
+                .designator = bytes[target.transport.len..],
+            },
+            .our_session_id = our_session_id,
+        });
     }
 
     /// Match an inbound start-session against the registered outbound dials by
-    /// durable peer, then order the two racing sessions by their session
-    /// identifiers. Null when no dial to `partner_durable` is outstanding (no
+    /// complete dial target, then order the two racing sessions by their session
+    /// identifiers. Null when no dial to `target` is outstanding (no
     /// collision), so the caller does nothing.
     pub fn checkInbound(
         self: *const CrossedHellos,
-        partner_durable: []const u8,
+        target: DialTarget,
         inbound_session_id: foundation.PeerId,
     ) ?Verdict {
         for (self.entries.items) |entry| {
-            if (std.mem.eql(u8, entry.partner_durable, partner_durable)) {
+            if (entry.target.eql(target)) {
                 const order = std.mem.order(u8, &entry.our_session_id.bytes, &inbound_session_id.bytes);
                 return .{ .abort_inbound = order != .lt };
             }
@@ -76,12 +97,12 @@ pub const CrossedHellos = struct {
         return null;
     }
 
-    /// Remove exactly one entry for `partner_durable`: one row is appended
+    /// Remove exactly one entry for `target`: one row is appended
     /// per dial, so a sweep would drop a sibling dial's still-live entry.
-    pub fn unregister(self: *CrossedHellos, allocator: std.mem.Allocator, partner_durable: []const u8) void {
+    pub fn unregister(self: *CrossedHellos, allocator: std.mem.Allocator, target: DialTarget) void {
         for (self.entries.items, 0..) |entry, i| {
-            if (std.mem.eql(u8, entry.partner_durable, partner_durable)) {
-                allocator.free(entry.partner_durable);
+            if (entry.target.eql(target)) {
+                allocator.free(entry.target_bytes);
                 _ = self.entries.orderedRemove(i);
                 return;
             }
@@ -89,7 +110,7 @@ pub const CrossedHellos = struct {
     }
 
     pub fn deinit(self: *CrossedHellos, allocator: std.mem.Allocator) void {
-        for (self.entries.items) |entry| allocator.free(entry.partner_durable);
+        for (self.entries.items) |entry| allocator.free(entry.target_bytes);
         self.entries.deinit(allocator);
     }
 };

@@ -33,8 +33,13 @@ export const HOST_ACTION_FAIL = 4;
 export const HOST_ACTION_CLOSE = 5;
 export const DEFAULT_FRAME_CAP = 1048576;
 export const MAX_LOCAL_FORWARD_HOPS = 256;
+export const HANDSHAKE_TIMEOUT_MS = 10000;
 export const DISCOVERY_DIAL_RETRY_MS = 3000;
 export const DISCOVERY_DIAL_MAX_ATTEMPTS = 24;
+export const TRACE_SESSION_OPEN = 0;
+export const TRACE_MESSAGE = 1;
+export const TRACE_SESSION_CLOSE = 2;
+export const TRACE_DIGEST_BYTES = 16;
 export const DIAL_SHAPE_HOST_PORT = 0;
 export const DIAL_SHAPE_PEER_ID = 1;
 export const DIAL_SHAPE_SIGNALING = 2;
@@ -46,8 +51,7 @@ export const DIAL_POSTURE_REDEEM = 0;
 export const DIAL_POSTURE_EXPLICIT = 1;
 export const DIAL_POSTURE_EXPLICIT_NONE = 2;
 export const DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT = 0;
-export const DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION = 1;
-export const DURABLE_PROVENANCE_UNAUTHENTICATED = 2;
+export const DURABLE_PROVENANCE_UNAUTHENTICATED = 1;
 export const IROH_REACH_DIRECT = 0;
 export const IROH_REACH_DISCOVERY = 1;
 export const IROH_REACH_DISCOVERY_NO_RELAY = 2;
@@ -76,8 +80,17 @@ export const ARG_SET = 9;
 export const ARG_TAGGED = 10;
 export const ARG_KEYWORD = 11;
 export const ARG_BIG_INTEGER = 12;
-export const CODEC_SYRUP = 0;
-export const CODEC_CAPNP = 1;
+export const CODEC_UNKNOWN = 0;
+export const CODEC_SYRUP = 1;
+export const CODEC_CAPNP = 2;
+export const CAPTP_V1_0 = 0;
+export const CAPTP_NEXT = 1;
+export const FEATURE_PIPELINING = 1;
+export const FEATURE_HANDOFF = 2;
+export const FEATURE_WIRE_DELTA = 4;
+export const FEATURE_STURDYREF = 8;
+export const FEATURE_MINIMUM = 0;
+export const FEATURE_FULL = 15;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
@@ -102,6 +115,7 @@ export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "ACCEPT_PLAN", fields: ["DESIGNATOR", "DESIGNATOR_LEN", "DIRECT_ADDRESSES_HINT", "DIRECT_ADDRESSES_HINT_LEN"] },
 	{ prefix: "PENDING_DIAL", fields: ["TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINT", "HINT_LEN"] },
 	{ prefix: "PARTNER_IDENTITY", fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN", "PROVENANCE"] },
+	{ prefix: "TRACE_EVENT", fields: ["KIND", "SESSION", "OUTBOUND", "PROVENANCE", "CODEC", "CAPTP_VERSION", "DESIGNATOR", "DESIGNATOR_LEN", "TRANSPORT", "TRANSPORT_LEN", "SESSION_ID", "SESSION_ID_LEN", "VERB", "VERB_LEN", "FRAME", "FRAME_LEN", "FRAME_TOTAL_LEN", "DROPPED", "DIGEST"] },
 ] as const;
 
 // Layout prefixes that exist only in native archives the wasm32 module
@@ -112,4 +126,6 @@ export const WASM_LAYOUT_STRUCTS = [
 export const NATIVE_ONLY_LAYOUT_PREFIXES = [
 	"IROH_READY_EVENT",
 	"WEBRTC_READY_EVENT",
+	"IROH_CONFIG",
+	"WEBRTC_CONFIG",
 ] as const;

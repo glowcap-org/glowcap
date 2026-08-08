@@ -188,7 +188,7 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var resident = try webrtc.Resident.init();
+    var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer resident.deinit();
     var peer = try resident.newPeer(false); // answerer
     defer peer.deinit();

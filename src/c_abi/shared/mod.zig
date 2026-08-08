@@ -92,9 +92,112 @@ pub const PANCAKE_ERR_TIMEOUT: i32 = -17;
 /// Codec selector: the wire grammar a Host session speaks and the framing an
 /// endpoint delimits with (`pancake_tcp_connect` / `pancake_tcp_accept`). The
 /// two must match, the endpoint splits the stream with the same grammar the
-/// session encodes in.
-pub const PANCAKE_CODEC_SYRUP: u32 = 0;
-pub const PANCAKE_CODEC_CAPNP: u32 = 1;
+/// session encodes in. Zero is deliberately not a valid input selector:
+/// zeroed trace memory or a future codec id reads as unknown, never Syrup.
+pub const PANCAKE_CODEC_UNKNOWN: u32 = 0;
+pub const PANCAKE_CODEC_SYRUP: u32 = 1;
+pub const PANCAKE_CODEC_CAPNP: u32 = 2;
+
+/// The CapTP profile a session negotiates in (ADR-0003). `V1_0` is the
+/// interop floor a Goblins vat and the upstream suite speak; `NEXT` is the
+/// pancake-to-pancake track, which `Offer.native` prefers together with
+/// Cap'n Proto. `op:start-session` names the version each end offers, and
+/// the two need not match: the version and the codec negotiate as
+/// independent axes, and an offer the partner cannot follow settles that
+/// axis back to the baseline rather than being refused (ADR-0103). Carrying
+/// a fleet gets the profile it wants when both ends prefer it, but this is not
+/// a condition for opening the session.
+pub const PANCAKE_CAPTP_V1_0: u32 = 0;
+pub const PANCAKE_CAPTP_NEXT: u32 = 1;
+
+/// Feature-offer bitmask for the optional CapTP features a Host advertises.
+/// `FULL` is the default interop posture; `MINIMUM` advertises only Deliver,
+/// Resolve, and Abort. Unknown bits are refused so a caller cannot accidentally
+/// believe it enabled a feature this build does not know how to gate.
+pub const PANCAKE_FEATURE_PIPELINING: u32 = 1 << 0;
+pub const PANCAKE_FEATURE_HANDOFF: u32 = 1 << 1;
+pub const PANCAKE_FEATURE_WIRE_DELTA: u32 = 1 << 2;
+pub const PANCAKE_FEATURE_STURDYREF: u32 = 1 << 3;
+pub const PANCAKE_FEATURE_MINIMUM: u32 = 0;
+
+const FeatureSpec = struct {
+    field: []const u8,
+    bit: u32,
+};
+
+const feature_specs = [_]FeatureSpec{
+    .{ .field = "pipelining", .bit = PANCAKE_FEATURE_PIPELINING },
+    .{ .field = "handoff", .bit = PANCAKE_FEATURE_HANDOFF },
+    .{ .field = "wire_delta", .bit = PANCAKE_FEATURE_WIRE_DELTA },
+    .{ .field = "sturdyref", .bit = PANCAKE_FEATURE_STURDYREF },
+};
+
+fn featureFullMask() u32 {
+    var out: u32 = 0;
+    inline for (feature_specs) |spec| out |= spec.bit;
+    return out;
+}
+
+pub const PANCAKE_FEATURE_FULL: u32 = featureFullMask();
+
+comptime {
+    const fields = @typeInfo(model.FeatureSet).@"struct".fields;
+    if (fields.len != feature_specs.len) {
+        @compileError("model.FeatureSet changed; update the C ABI PANCAKE_FEATURE_* table and binding mirrors");
+    }
+    var bits_seen: u32 = 0;
+    for (feature_specs) |spec| {
+        if (!@hasField(model.FeatureSet, spec.field)) {
+            @compileError("PANCAKE_FEATURE_* table names a field missing from model.FeatureSet: " ++ spec.field);
+        }
+        if (spec.bit == 0 or spec.bit & (spec.bit - 1) != 0) {
+            @compileError("PANCAKE_FEATURE_* bit must name exactly one nonzero bit: " ++ spec.field);
+        }
+        if (bits_seen & spec.bit != 0) {
+            @compileError("PANCAKE_FEATURE_* table reuses a bit: " ++ spec.field);
+        }
+        bits_seen |= spec.bit;
+    }
+    for (fields) |field| {
+        var matches = 0;
+        for (feature_specs) |spec| {
+            if (std.mem.eql(u8, spec.field, field.name)) matches += 1;
+        }
+        if (matches != 1) {
+            @compileError("model.FeatureSet field must have exactly one PANCAKE_FEATURE_* bit: " ++ field.name);
+        }
+    }
+}
+
+/// Encode a CapTP version as its `PANCAKE_CAPTP_*` value — the decode's
+/// inverse, kept beside it so the pair cannot drift.
+pub fn captpVersionToC(version: model.CaptpVersion) u32 {
+    return switch (version) {
+        .v1_0 => PANCAKE_CAPTP_V1_0,
+        .next => PANCAKE_CAPTP_NEXT,
+    };
+}
+
+/// Decode a `PANCAKE_CAPTP_*` value, or null for anything outside the family.
+pub fn captpVersionFromC(version: u32) ?model.CaptpVersion {
+    return switch (version) {
+        PANCAKE_CAPTP_V1_0 => .v1_0,
+        PANCAKE_CAPTP_NEXT => .next,
+        else => null,
+    };
+}
+
+/// Encode a codec as its `PANCAKE_CODEC_*` value — the decode's inverse for
+/// built-ins. Unknown non-exhaustive codec ids cannot be described as either
+/// built-in, so output surfaces use the explicit sentinel instead of lying as
+/// Syrup.
+pub fn codecToC(codec: model.CodecId) u32 {
+    return switch (codec) {
+        .syrup => PANCAKE_CODEC_SYRUP,
+        .capnp => PANCAKE_CODEC_CAPNP,
+        _ => PANCAKE_CODEC_UNKNOWN,
+    };
+}
 
 /// Decode a `PANCAKE_CODEC_*` value, or null for anything outside the family.
 pub fn codecFromC(codec: u32) ?model.CodecId {
@@ -103,6 +206,23 @@ pub fn codecFromC(codec: u32) ?model.CodecId {
         PANCAKE_CODEC_CAPNP => .capnp,
         else => null,
     };
+}
+
+pub fn featureSetToC(features: model.FeatureSet) u32 {
+    var out: u32 = 0;
+    inline for (feature_specs) |spec| {
+        if (@field(features, spec.field)) out |= spec.bit;
+    }
+    return out;
+}
+
+pub fn featureSetFromC(features: u32) ?model.FeatureSet {
+    if (features & ~PANCAKE_FEATURE_FULL != 0) return null;
+    var out = model.FeatureSet.minimum();
+    inline for (feature_specs) |spec| {
+        @field(out, spec.field) = features & spec.bit != 0;
+    }
+    return out;
 }
 
 // ── Frame storage shape ──────────────────────────────────────────────────────

@@ -128,13 +128,24 @@ typedef struct PancakeIrohReadyEvent {
    _new_in. reachability is mandatory (one of PANCAKE_IROH_REACH_*; an unknown
    value is refused). connect_timeout_ms is the per-endpoint stream-
    establishment deadline in milliseconds — the dial's connect + first-stream
-   open and each accepted stream ride it — with 0 meaning the built-in default.
+   open and each accepted stream ride it — with 0 meaning pancake's thirty seconds. Every 0 here is
+   pancake's number, never the QUIC stack's own, a distinction that matters most
+   for idle_timeout_ms, where pancake's replaces a longer one the stack would
+   otherwise use.
+   idle_timeout_ms bounds how long a connection survives without a packet from
+   the far end, which decides how quickly a peer that was killed rather than
+   closed stops counting as present: such a peer sends nothing, and UDP has no
+   equivalent of the FIN a dying TCP process gets from the operating system, so
+   nothing else ends the connection. 0 keeps pancake's fifteen seconds; read a live
+   session as presence and you want a shorter one of your own.
    Zero-initialize the whole struct before filling the fields you set (e.g.
    `PancakeIrohConfig cfg = {0};`), so a field added in a later version
    defaults to 0 rather than reading stack garbage. */
 typedef struct PancakeIrohConfig {
   uint32_t reachability;
   uint64_t connect_timeout_ms;
+  uint64_t idle_timeout_ms;
+  uint32_t worker_threads;
 } PancakeIrohConfig;
 
 /* Create an iroh netlayer (one bound endpoint) allocating through the library
@@ -143,7 +154,7 @@ typedef struct PancakeIrohConfig {
    length is PANCAKE_ERR_INVALID_ARGUMENT. config carries the mandatory reachability
    (PANCAKE_IROH_REACH_*; an unknown value or a NULL config is
    PANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional
-   connect_timeout_ms (0 = the built-in default). Binds the endpoint and arms the
+   connect_timeout_ms (0 = pancake's own default). Binds the endpoint and arms the
    readiness loop, so the netlayer is immediately driveable through
    pancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)
    if the endpoint cannot bind or the loop cannot arm. Release with
@@ -179,6 +190,18 @@ void pancake_iroh_conn_release(PancakeIrohConn *conn);
    lifetime and never derived from the handle allocation address. Returns 0 for a
    NULL handle. */
 size_t pancake_iroh_conn_id(PancakeIrohConn *conn);
+/* Write the far end's QUIC-verified endpoint id into out as lowercase hex, and the
+   byte count into out_len. The TLS handshake authenticated the key at the other end
+   of this connection, on an accepted connection exactly as on a dialed one, so the
+   host that owns the connection may say so about it. The spelling is the designator
+   pancake_iroh_netlayer_node_id prints: compare it against the location a partner's
+   CapTP hello claims, and treat an equal pair — and only an equal pair — as a proved
+   durable name. cap must be at least the id length (64) or the call is
+   PANCAKE_ERR_BUFFER_TOO_SMALL. No terminator is written. A connection whose remote
+   cannot be read (the handle is gone, or the sidecar faulted) is PANCAKE_ERR_IO (see
+   pancake_iroh_last_error) with out_len untouched; the call never returns PANCAKE_OK
+   with a zero length, so a missing proof cannot be mistaken for a designator. */
+int32_t pancake_iroh_conn_remote_node_id(PancakeIrohConn *conn, uint8_t *out, size_t cap, size_t *out_len);
 /* The netlayer's single read-only OS readiness fd — the borrowed read end of the
    sidecar's wakeup channel, readable whenever fresh readiness records are pending.
    Register it once with your poller (poll/epoll/kqueue, or a runtime's reactor);

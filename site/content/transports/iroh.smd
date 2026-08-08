@@ -15,20 +15,24 @@ key rather than a `host:port`. Everything above the wire stays the same OCapN
 pancake speaks over TCP, so switching to iroh changes only two things: how a peer
 is addressed, and that its channel is now encrypted and authenticated end to end.
 
-## One key does three jobs
+## The durable key and session key have separate jobs
 
-Each endpoint is an Ed25519 keypair, and pancake makes that single key carry three
-roles at once:
+Each endpoint has a durable Ed25519 keypair. Its public key has two related
+roles:
 
 - it is the **iroh node id** the transport authenticates the QUIC channel against;
 - it is the **designator**, the peer's name inside an OCapN locator, the part
   you dial in an `ocapn://<node-id>.iroh` URI;
-- it is the **session signing key** that signs the `op:start-session` handshake.
 
-[One keypair fills all three roles, so the peer you dialed is provably the peer that signed the session.]($image.siteAsset('diagram-iroh-key.svg'))
+Every CapTP connection also draws a fresh session signing key. The hello
+signature proves control of that session key and binds it to the locator the
+partner claims. The signature alone does not prove control of the durable node
+id.
 
-The session key, authenticated node id, and signed locator designator must all
-match. There is no separate certificate or host address to trust.
+The iroh channel supplies the missing proof: it authenticates the far endpoint's
+node id, and pancake requires the hello's claimed designator to match that
+authenticated id. The durable node id and fresh session key remain distinct
+even though the channel proof binds them to one connection.
 
 Binding from the same seed restores the node identity at a new network
 address. A sturdyref works after that restart only if the application also

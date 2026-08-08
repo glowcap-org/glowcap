@@ -4,6 +4,14 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 const uri = model.uri;
 
+const goblins_sturdyref_uri = "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU";
+const goblins_swiss = [_]u8{
+    0x79, 0x08, 0xcf, 0xe2, 0x74, 0x76, 0xf1, 0xf7,
+    0xd7, 0xe5, 0xea, 0x0d, 0x08, 0xae, 0x43, 0x58,
+    0x7e, 0x83, 0x4f, 0xf7, 0x7b, 0x04, 0x8a, 0x83,
+    0xdf, 0xe3, 0x32, 0xe3, 0x9f, 0x42, 0x51, 0xb5,
+};
+
 test "parses the conformance peer URI: designator, transport, and hints" {
     const allocator = std.testing.allocator;
     const locator = try uri.parsePeer(
@@ -44,10 +52,11 @@ test "a designator may itself contain dots; only the last dot splits the transpo
     try std.testing.expectEqualStrings("a.b.c", locator.designator);
 }
 
-test "parses a sturdyref URI: peer plus swiss-num before the query" {
+test "next parses a sturdyref URI as raw swiss bytes before the query" {
     const allocator = std.testing.allocator;
-    const sturdyref = try uri.parseSturdyref(
+    const sturdyref = try uri.parseSturdyrefForProfile(
         allocator,
+        .next,
         "ocapn://abcd.tcp-testing-only/s/my-swiss-num?host=127.0.0.1",
     );
     defer uri.freeSturdyref(allocator, sturdyref);
@@ -82,15 +91,52 @@ test "writePeer round-trips a hinted locator through parsePeer" {
     try std.testing.expectEqualStrings(original, emitted);
 }
 
-test "writeSturdyref places /s/ before the query and round-trips" {
+test "next writeSturdyref places raw swiss bytes before the query and round-trips" {
     const allocator = std.testing.allocator;
-    const original = "ocapn://abcd.onion/s/swiss?host=h";
-    const sturdyref = try uri.parseSturdyref(allocator, original);
+    const original = "ocapn://abcd.onion/s/swiss%2F%00?host=h";
+    const sturdyref = try uri.parseSturdyrefForProfile(allocator, .next, original);
     defer uri.freeSturdyref(allocator, sturdyref);
+    try std.testing.expectEqualStrings("swiss/\x00", sturdyref.swissnum);
 
-    const emitted = try uri.writeSturdyref(allocator, sturdyref);
+    const emitted = try uri.writeSturdyrefForProfile(allocator, .next, sturdyref);
     defer allocator.free(emitted);
     try std.testing.expectEqualStrings(original, emitted);
+}
+
+test "default sturdyref parser decodes the exact Goblins unpadded base64url vector" {
+    const allocator = std.testing.allocator;
+    const sturdyref = try uri.parseSturdyref(allocator, goblins_sturdyref_uri);
+    defer uri.freeSturdyref(allocator, sturdyref);
+
+    try std.testing.expectEqualStrings("onion", sturdyref.peer.transport);
+    try std.testing.expectEqualSlices(u8, &goblins_swiss, sturdyref.swissnum);
+}
+
+test "default sturdyref renderer emits the exact Goblins unpadded base64url vector" {
+    const allocator = std.testing.allocator;
+    const rendered = try uri.writeSturdyref(allocator, .{
+        .peer = .{
+            .transport = "onion",
+            .designator = "wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd",
+            .hints = model.Hints.emptyFalse(),
+        },
+        .swissnum = &goblins_swiss,
+    });
+    defer allocator.free(rendered);
+
+    try std.testing.expectEqualStrings(goblins_sturdyref_uri, rendered);
+}
+
+test "v1 sturdyref parser rejects padded and non-url-safe base64" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(
+        uri.Error.InvalidSwissNumber,
+        uri.parseSturdyrefForProfile(allocator, .v1_0, "ocapn://abcd.onion/s/YQ=="),
+    );
+    try std.testing.expectError(
+        uri.Error.InvalidSwissNumber,
+        uri.parseSturdyrefForProfile(allocator, .v1_0, "ocapn://abcd.onion/s/YQ+/"),
+    );
 }
 
 test "emits integer and boolean hint values as their URI string form" {

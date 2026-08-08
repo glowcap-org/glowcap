@@ -20,11 +20,11 @@
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_back_demo.ts
 
 import process from "node:process";
-import { formatPeerUri, Host, listen, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
+import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
 import { serveDirectory } from "../server/main.ts";
-import { dial, loopbackTcpDesignator } from "../lib/locator.ts";
+import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
 import { waitUntil } from "../lib/dm_handoff.ts";
@@ -46,14 +46,14 @@ async function main(): Promise<void> {
 	const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
 
 	// The room.
-	const room = listen("127.0.0.1", 0);
+	const room = roomsListen("127.0.0.1", 0);
 	const roomLocator = loopbackTcpDesignator(await room.ready());
 	const roomServe = serveDirectory(room);
 
 	// Bob: one Host that listens (the redeem target) and dials the room (so
 	// `register` can fetch his `dm` on the room session).
-	const bobHost = new Host();
-	const bob = listen("127.0.0.1", 0, bobHost);
+	const bobHost = roomsHost();
+	const bob = roomsListen("127.0.0.1", 0, bobHost);
 	const bobLocator = loopbackTcpDesignator(await bob.ready());
 	let bobAccepts = 0;
 	(async () => {
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
 	// for — her keyed identity, not a dial address — then opens a direct line,
 	// which redeems the introduction and hosts a reply inbox on that connection.
 	const carolReplies: string[] = [];
-	const carolHost = new Host();
+	const carolHost = roomsHost();
 	const carol = await Directory.connect(roomLocator, (l) => dial(l, carolHost));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const line = await DirectMessage.open(carol, "bob", (text) => {

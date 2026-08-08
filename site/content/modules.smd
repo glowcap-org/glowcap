@@ -7,11 +7,9 @@
 .draft = false,
 ---
 
-This page names each of pancake's layers and what it owns, so you know which
-module a job belongs to. You do not have to keep the layering in your head; the
-build keeps it for you. Each layer is its own module with a one-way import
-table, so a reach across layers is a compile error. The diagram above is the
-map, and
+You do not have to keep the layering in your head; the build keeps it for you.
+Each layer is its own module with a one-way import table, so a reach across layers
+is a compile error. The diagram above is the map, and
 [architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 is the full account.
 
@@ -19,15 +17,15 @@ is the full account.
 
 | Name | Job |
 | --- | --- |
-| **Peer** | Caller-owned engine handle: feed inbound frames, `step`, drain outbound, read events. No sockets. |
-| **Session** | One-partner application object: `connect` / `listen`, `fetch`, blocking `call`. Owns one live conversation. |
-| **Host** | Multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
-| **Bridge** | Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_host`. |
+| **Peer** | The caller-owned engine handle. You feed inbound frames, call `step`, drain outbound frames, and read events. It opens no sockets. |
+| **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It owns one live conversation. |
+| **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
+| **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_host`. |
 
 Ordinary apps stay on `Session`, introductions included. An introduction settles
-as a live capability inside the call, because every `Session` rides a Host
-underneath: `driver.PollHost` in native Zig, or the binding's own host
-elsewhere. The `Bridge` and completion-loop pairing is the scale path.
+as a live capability inside the call, because every `Session` is backed by a Host:
+`driver.PollHost` in native Zig, or the binding's own host elsewhere. The
+`Bridge` and completion-loop pairing is the scale path.
 Three-party introductions are covered in [Concepts]($link.page('concepts')).
 
 ## The protocol core
@@ -56,9 +54,10 @@ you can test it without a host runtime.
   `Served`, and the byte-fed `Host` an embedder drives with raw frames. A build
   check keeps I/O out of it.
 - **net** is where `std.Io` enters. The residents today are cleartext TCP,
-  keyed-tcp, inproc, [iroh](https://www.iroh.computer/) QUIC as an optional
-  artifact, and a [WebRTC]($link.page('transports/webrtc')) DataChannel reached
-  by signaling. The [Transports]($link.page('transports')) page covers them all.
+  keyed-tcp, keyed-relay, inproc, [iroh](https://www.iroh.computer/) QUIC as an
+  optional artifact, and a [WebRTC]($link.page('transports/webrtc')) DataChannel
+  reached by signaling. The [Transports]($link.page('transports')) page covers
+  them all.
 
 > **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and the wider ocap

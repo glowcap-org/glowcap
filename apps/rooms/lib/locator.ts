@@ -6,13 +6,16 @@
 // URI dials over iroh's encrypted QUIC — directly from a terminal, or through
 // serve.ts's `/relay` byte pipe from a browser (which has no socket API).
 
+import { CAPTP_VERSION, CODEC } from "./protocol.ts";
 import {
 	connect,
 	designatorHostPort,
 	HINT_DIRECT_ADDRESSES,
-	type Host,
+	Host,
+	listen,
 	parseLocator,
 	Reachability,
+	type Server,
 	type Session as SessionType,
 	socketAddrDesignator,
 	tcpLocator,
@@ -77,7 +80,42 @@ function dialIroh(locator: string, host?: Host): Promise<SessionType> {
 	const loc = parseLocator(locator);
 	const hints = loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
 	const fallback = host ? host.redeemReachability : Reachability.Discovery;
-	return connect(locator, hints.length > 0 ? Reachability.Direct : fallback, host);
+	const reach = hints.length > 0 ? Reachability.Direct : fallback;
+	return connect(locator, reach, host ?? roomsHost());
+}
+
+/** Mint a Host for a rooms peer.
+ *
+ * Every rooms peer — the server, a terminal client, a browser tab, a test —
+ * needs a Host that speaks the rooms profile — `CODEC` and `CAPTP_VERSION`
+ * together — because both ends of an OCapN session must name the same pair
+ * and a default Host speaks the v1.0 Syrup interop floor. Spelling
+ * `new Host(...)` at each site is how a fleet drifts: one site keeps the
+ * default, its sessions refuse every frame, and the failure reads as a
+ * malformed frame rather than a disagreement. So the fleet's peers are
+ * built here, once.
+ *
+ * `seed` pins the retained OCapN identity (the iroh endpoint shares it);
+ * omitted, the host takes a fresh one. */
+export function roomsHost(seed?: Uint8Array): Host {
+	return new Host(seed, { codec: CODEC, captpVersion: CAPTP_VERSION });
+}
+
+/** Listen for rooms peers on `bindHost:port`.
+ *
+ * A rooms peer comes into being two ways, by dialing and by being dialed, and
+ * both have to wear the profile. `listen`'s own default host speaks the v1.0
+ * Syrup floor, so a room server that takes it accepts sessions no rooms peer
+ * can hold — and the refusal reads as a malformed frame, which sends the next
+ * reader looking at the codec rather than at who minted the host. This is the
+ * accepting half of `roomsHost`, and `zig build meta-check` keeps the rooms
+ * tree calling it rather than the raw `listen`. */
+export function roomsListen(
+	bindHost: string,
+	port: number,
+	host: Host = roomsHost(),
+): Server {
+	return listen(bindHost, port, host);
 }
 
 /** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh,
@@ -88,7 +126,11 @@ function dialIroh(locator: string, host?: Host): Promise<SessionType> {
  * all an ordinary client needs.
  *
  * A browser and a terminal dial the same way; the browser's `connect` rides the
- * relay transparently. */
+ * relay transparently.
+ *
+ * Either way the session speaks the rooms profile: a dial with no host of its
+ * own mints one through `roomsHost`, so the codec and the CapTP version travel
+ * together rather than one of them being passed loose. */
 export function dial(locator: string, host?: Host): Promise<SessionType> {
 	if (isUriLocator(locator)) {
 		const loc = parseLocator(locator);
@@ -100,5 +142,6 @@ export function dial(locator: string, host?: Host): Promise<SessionType> {
 		return dialIroh(locator, host);
 	}
 	const { hostname, port } = designatorHostPort(locator);
-	return connect(tcpLocator(hostname, port), undefined, host);
+	const tcp = tcpLocator(hostname, port);
+	return connect(tcp, undefined, host ?? roomsHost());
 }

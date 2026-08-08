@@ -30,7 +30,14 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from pancake import Session, connect, designator_host_port, parse_locator, tcp_locator  # noqa: E402
+from pancake import (  # noqa: E402
+    Host,
+    Session,
+    connect,
+    designator_host_port,
+    parse_locator,
+    tcp_locator,
+)
 from pancake._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
 from pancake.iroh import Reachability  # noqa: E402
 
@@ -59,6 +66,22 @@ def _rooms(raw) -> "list[tuple[str, int]]":
     return out
 
 
+# Every rooms peer is a pancake peer, so the room speaks pancake's own
+# profile rather than the interop floor: the ``pancake-next`` CapTP version
+# over the word-aligned Cap'n Proto codec. The two are named together because
+# they are one decision, agreed out of band by every peer reading the same
+# configuration. This is the Python spelling of the pair
+# `apps/rooms/lib/protocol.ts` carries for the TypeScript peers.
+ROOMS_CODEC = "capnp"
+ROOMS_CAPTP_VERSION = "next"
+
+
+def rooms_host() -> Host:
+    """A Host wearing the room's profile. Every dial below goes through it, so
+    the profile is stated once rather than per transport."""
+    return Host(codec=ROOMS_CODEC, captp_version=ROOMS_CAPTP_VERSION)
+
+
 async def _dial(locator: str) -> Session:
     """Dial a transport-neutral rooms locator: an ``ocapn://`` URI goes over iroh,
     a bare ``host:port`` over TCP. The room's wire is identical either way; only
@@ -73,9 +96,9 @@ async def _dial(locator: str) -> Session:
             )
         hints = loc.hints.get(HINT_DIRECT_ADDRESSES, "")
         reach = Reachability.DIRECT if hints else Reachability.DISCOVERY
-        return await connect(locator, reach)
+        return await connect(locator, reach, rooms_host())
     host, port = designator_host_port(locator)
-    return await connect(tcp_locator(host, port))
+    return await connect(tcp_locator(host, port), host=rooms_host())
 
 
 class Directory:

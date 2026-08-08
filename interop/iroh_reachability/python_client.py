@@ -33,6 +33,7 @@ insert_bindings_path()
 
 from pancake import connect, format_peer_uri, TRANSPORT_IROH  # noqa: E402
 from pancake.iroh import (  # noqa: E402
+    IrohConfig,
     Reachability,
     listen_iroh,
 )
@@ -60,7 +61,7 @@ async def accept_loop(server, served: list) -> None:
 
 async def run() -> None:
     # ── Server: a giftable greeter, dialable by node id alone over discovery ──────
-    server = listen_iroh(Reachability.DISCOVERY)
+    server = listen_iroh(IrohConfig(Reachability.DISCOVERY))
     server.host.publish_giftable("greeter", greeter)
     server_id = server.node_id
     served: list = []

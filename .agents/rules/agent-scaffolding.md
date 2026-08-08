@@ -5,16 +5,16 @@ alwaysApply: true
 
 # pancake — Agent Scaffolding
 
-The scaffolding — `AGENTS.md`, everything under `.agents/`, the `.claude/` and
-`.cursor/` overlays, the hooks, the skills — is a public API whose consumers are
-agents. Every value this project holds about public surfaces therefore applies
-to it, and applies harder, because the consumers act on what the surface says,
-every session, at machine speed. A stale README misleads a reader who might
-notice. A stale rule instructs an executor who won't. A rough edge in code
-becomes a rough edge in one contribution; a rough edge in a rule becomes a rough
-edge in every contribution that follows. The rest of this rule is not new
-policy. It is the project's existing values pointed at the surface that delivers
-them.
+The scaffolding — `AGENTS.md`, everything under `.agents/`, the `.claude/`,
+`.cursor/`, and `.codex/` overlays, the hooks, the skills — is a public API
+whose consumers are agents. Every value this project holds about public
+surfaces therefore applies to it, and applies harder, because the consumers act
+on what the surface says, every session, at machine speed. A stale README
+misleads a reader who might notice. A stale rule instructs an executor who
+won't. A rough edge in code becomes a rough edge in one contribution; a rough
+edge in a rule becomes a rough edge in every contribution that follows. The
+rest of this rule is not new policy. It is the project's existing values
+pointed at the surface that delivers them.
 
 ## The scaffolding is living-state
 
@@ -35,9 +35,10 @@ check modules and tables are the complete inventory, read them before assuming
 a claim is unchecked. The shape of
 what it holds:
 
-- Both overlay schemes are complete and unbroken; the symlink map itself lives
-  in the [`.agents/` index](../README.md). A canonical rule without its overlay
-  is silently unloaded, the failure mode is invisible at exactly the moment it
+- Cursor and Claude overlays are complete and unbroken, and Codex's direct
+  loading contract has no duplicate skills mirror; the map itself lives in the
+  [`.agents/` index](../README.md). A canonical rule without its overlay is
+  silently unloaded, the failure mode is invisible at exactly the moment it
   matters. **Edit only the canonical files** (`AGENTS.md`, `.agents/rules/*.md`).
   Never write through `.cursor/rules/*.mdc` or `CLAUDE.md`: a bulk in-place edit
   that follows those symlinks turns them into regular files and the overlay
@@ -86,7 +87,9 @@ would. Prefer one sentence with teeth over five with hedges, bullet accretion
 is the drift mode of scaffolding, and it kills documents slowly: the
 load-bearing lines drown, the voice flattens, and agents start skimming the very
 text that was supposed to stop them from skimming. Pruning is not maintenance
-deferred from the ratchet; it is half the ratchet.
+deferred from the ratchet; it is half the ratchet. The budget saves tokens with
+sharper routing and mechanical checks, not by erasing the ownership, evidence,
+or verification standard a future agent needs.
 
 ## The gate accretes too
 
@@ -114,6 +117,12 @@ lifetime surfaces, sharp module boundaries, a gate that bites. If a prompt's
 standard is worth keeping, this rule and the gate are where it keeps, expressed
 as a consequence an agent can act on, never as a name an agent is asked to
 impersonate.
+
+**Live humans stay out of rules and docs.** Do not write a living person's
+personal name into `.agents/` rules or skills, `AGENTS.md` / `CLAUDE.md`, or
+human docs under `docs/` / READMEs. Use generic nicks in examples (`Alice`,
+`<human>`). Copyright attribution lines are fine; this ban is not a scrub of
+`Copyright …` notices.
 
 **A commit message is a committed file, and it is the one this rule keeps
 losing.** History carries persona slugs, skill names, review-loop vocabulary,

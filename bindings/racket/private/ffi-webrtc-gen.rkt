@@ -20,7 +20,7 @@
    'last-error
    (get-ffi-obj 'pancake_webrtc_last_error L (_fun _pointer _size -> _size))
    'netlayer-new
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_new L (_fun _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_new L (_fun _PancakeWebrtcConfig-pointer _pointer -> _int32))
               _pointer #f)
    'netlayer-readiness-fd
    (get-ffi-obj 'pancake_webrtc_netlayer_readiness_fd L (_fun _pointer -> _int32))

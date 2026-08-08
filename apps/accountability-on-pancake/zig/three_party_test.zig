@@ -83,7 +83,11 @@ fn deliverGive(
         give.gift_id,
         give.recipient_key,
     );
-    try gifter_peer.sendCopying(.{ .handoff = .{ .give = give } });
+    var handoff = model.Handoff{ .give = give };
+    try gifter_peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(0) },
+        .args = &.{.{ .handoff = &handoff }},
+    } });
     try pumpFrame(gifter_peer, recipient);
 }
 
@@ -128,7 +132,14 @@ fn withdrawGift(
     try gifter_gifts.validateWithdrawGift(receive);
     _ = try registry.applyWithdraw(gifter_gifts, exporter_peer.allocator, null, receive);
 
-    try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
+    const observation_export = model.ExportPosition.from(777);
+    try exporter_peer.session_state.registerExport(observation_export);
+    try recipient.session_state.registerImport(model.ImportPosition.from(observation_export.int()));
+    var handoff = model.Handoff{ .receive = receive };
+    try recipient.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(observation_export.int()) },
+        .args = &.{.{ .handoff = &handoff }},
+    } });
     try pumpFrame(recipient, exporter_peer);
 }
 
@@ -193,7 +204,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
 
     var c_id = try identity.Identity.incept(allocator, tio);
     defer c_id.deinit();
-    const data_dir = "apps/accountability-on-pancake/.data/three-party-test";
+    const data_dir = ".zig-cache/pancake-accountability/three-party-test";
     var c_store = try accountable.Store.init(allocator, tio, &c_id, data_dir);
     defer c_store.deinit();
 

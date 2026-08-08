@@ -19,6 +19,78 @@ const AdrRecord = struct {
     body: []const u8,
 };
 
+/// The one spelling of an ADR's own standing. A record that states its status
+/// in prose instead of frontmatter sits outside `checkAdrRelations` entirely,
+/// because that walk skips a file with no `id`, so its links to other records
+/// are held by nothing. Five records lived in that blind spot for weeks. This
+/// check closes it: every record carries frontmatter, its `id` matches its
+/// filename, its `status` is one of the three lifecycle values
+/// `docs/decisions/README.md` defines, and a superseded record names its
+/// replacement so the reciprocity walk can prove the replacement points back.
+pub fn checkAdrFrontmatter(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const dir_path = "docs/decisions/adr";
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for ADR frontmatter check with {s}", .{ dir_path, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.startsWith(u8, entry.path, "ADR-")) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+
+        const body = dir.readFileAlloc(io, entry.path, gpa, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}/{s}: failed to read for ADR frontmatter check with {s}", .{ dir_path, entry.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(body);
+
+        const id = adrFrontmatterValue(body, "id") orelse {
+            try appendViolation(gpa, violations, "{s}/{s}: needs YAML frontmatter with `id`, `status`, and `date`; a prose `**Status:**` header is invisible to the ADR relation graph", .{ dir_path, entry.path });
+            continue;
+        };
+        // `ADR-0086-byte-transparent-relay.md` -> `ADR-0086`. A name with no
+        // second dash carries no number to compare against, so that one clause
+        // sits out while the status clauses below still run.
+        if (std.mem.indexOfScalarPos(u8, entry.path, 4, '-')) |dash| {
+            const expected_id = entry.path[0..dash];
+            if (!std.mem.eql(u8, id, expected_id)) {
+                try appendViolation(gpa, violations, "{s}/{s}: frontmatter `id: {s}` disagrees with the filename's `{s}`", .{ dir_path, entry.path, id, expected_id });
+            }
+        }
+        if (adrFrontmatterValue(body, "date") == null) {
+            try appendViolation(gpa, violations, "{s}/{s}: frontmatter needs a `date`", .{ dir_path, entry.path });
+        }
+        const status = adrFrontmatterValue(body, "status") orelse {
+            try appendViolation(gpa, violations, "{s}/{s}: frontmatter needs a `status`", .{ dir_path, entry.path });
+            continue;
+        };
+        const lifecycle = [_][]const u8{ "proposed", "accepted", "superseded" };
+        var known = false;
+        for (lifecycle) |value| {
+            if (std.mem.eql(u8, status, value)) known = true;
+        }
+        if (!known) {
+            try appendViolation(gpa, violations, "{s}/{s}: `status: {s}` is not one of proposed, accepted, or superseded", .{ dir_path, entry.path, status });
+            continue;
+        }
+        if (!std.mem.eql(u8, status, "superseded")) continue;
+        const raw = adrFrontmatterValue(body, "superseded_by") orelse "[]";
+        const inner = adrListInner(raw) orelse "";
+        if (std.mem.trim(u8, inner, " \t").len == 0) {
+            try appendViolation(gpa, violations, "{s}/{s}: a superseded record must name its replacement in `superseded_by`", .{ dir_path, entry.path });
+        }
+    }
+}
+
 /// ADR replacement and amendment links are graph edges, not independent prose.
 /// A one-sided edge makes the older record lie about whether its substance is
 /// still living guidance, which is how vocabulary-only amendments were
@@ -1371,7 +1443,10 @@ pub fn checkExampleFenceIndent(
     const space_langs = [_][]const u8{ "zig", "python", "py", "sh", "bash", "json", "c", "rust", "rkt", "racket" };
     const dirs = [_][]const u8{ "site/content", "docs", "bindings", "examples", "apps", "tools", "bench", "interop", "conformance", "transports", ".devcontainer" };
     const top_files = [_][]const u8{ "README.md", "CONTRIBUTING.md", "SECURITY.md", "PROVENANCE.md", "AGENTS.md" };
-    const skip_fragments = [_][]const u8{ "target/", "node_modules/", "upstream/", "zig-out/", ".zig-cache/" };
+    // `apps/ocapnviz/` is the maintainer's own viewer, carried over from the
+    // pre-Zig pancake tree and possibly headed for its own repository; its
+    // docs keep their source style until that decision lands.
+    const skip_fragments = [_][]const u8{ "target/", "node_modules/", "upstream/", "zig-out/", ".zig-cache/", "apps/ocapnviz/" };
 
     for (top_files) |path| {
         try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);
@@ -1389,11 +1464,16 @@ pub fn checkExampleFenceIndent(
             if (entry.kind != .file) continue;
             const is_doc = std.mem.endsWith(u8, entry.path, ".md") or std.mem.endsWith(u8, entry.path, ".smd");
             if (!is_doc) continue;
-            for (skip_fragments) |frag| {
-                if (std.mem.indexOf(u8, entry.path, frag) != null) continue :walk;
-            }
             const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
             defer gpa.free(path);
+            // Match on the repo-relative path: a walked entry's own path is
+            // relative to the directory being walked, which would never carry
+            // a fragment that names the top-level directory.
+            for (skip_fragments) |frag| {
+                if (std.mem.indexOf(u8, path, frag) != null) {
+                    continue :walk;
+                }
+            }
             try checkFenceIndentFile(io, gpa, root, path, &tab_langs, &space_langs, violations);
         }
     }

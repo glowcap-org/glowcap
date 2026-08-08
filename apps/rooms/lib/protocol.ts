@@ -27,6 +27,28 @@ export const ENTER = "enter";
 export const LIST = "list";
 export const WATCH = "watch";
 
+/** The wire format every rooms peer speaks.
+ *
+ * Both ends of an OCapN session must name the same codec, and pancake's
+ * negotiation exists for peers that do not know each other: it settles a
+ * mutual preference from two offers. A closed fleet has no such problem —
+ * every rooms peer is a pancake peer, written here, so the room simply
+ * agrees on pancake's native word-aligned format rather than the Syrup
+ * interop floor. A peer that speaks Syrup (a Goblins vat) is not a rooms
+ * peer; it reaches pancake through the OCapN interop surface instead.
+ */
+export const CODEC = "capnp" as const;
+
+/** The CapTP profile every rooms peer speaks.
+ *
+ * It travels with `CODEC`, not beside it by coincidence: ADR-0003 names
+ * `next` + Cap'n Proto as the pancake-to-pancake pair (what
+ * `engine.negotiation.Offer.native` prefers), and `v1_0` + Syrup as the
+ * interop floor a Goblins vat and the upstream suite speak. Picking the
+ * native codec while staying on the floor version would be half a
+ * decision. */
+export const CAPTP_VERSION = "next" as const;
+
 /** Room methods a client sends. `subscribe(nick, inboxCap)` returns a welcome
  * line; `post(text)` broadcasts to every subscriber; `typing(on)` broadcasts an
  * ephemeral "I am typing" flag to the other members and is never stored or
@@ -39,9 +61,10 @@ export const LEAVE = "leave";
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
- * `register(nick, locator, inboxCap)` claims a name and tells the directory to
- * stamp `locator` as the gift exporter location, answering
- * `notify("registered", nick)`. A second `register` for the same nick replaces
+ * `register(nick, locator, inboxCap)` claims a name and answers
+ * `notify("registered", nick)`. The locator is for the directory's own checks
+ * (and nick identity); after ADR-0109, gift exporter location comes from the
+ * member's signed hello, not from stamping this argument. A second `register` for the same nick replaces
  * the prior intro when it comes from the connection holding it, and is refused
  * `nick-taken` when it comes from another while that connection is open — a
  * registration is a claim on a name, and only its holder or its ending frees it.
@@ -156,6 +179,16 @@ export const DM = "dm";
  * It hears `notify("introducible", peer)` when a peer it was waiting on has
  * offered an inbox, so an `introduce` that was refused `introduction-pending`
  * is worth retrying.
+ *
+ * That notice can arrive before the refusal it belongs to, and a client which
+ * parks the line rather than handing the refusal back to its caller has to
+ * expect it. One `introduce` makes the room do two things: ask the member for an
+ * inbox, and refuse the asker as pending. A member that offers quickly gets
+ * `introducible` to the asker first, where it finds nothing waiting yet, and
+ * there is no second notice to come. So a parking client remembers a notice that
+ * arrived early and lets the refusal ask again at once. `room_client.ts` keeps
+ * that memo, and so does the Goblins vat's `conformance/goblins-peer/racket/
+ * rooms-dm.rkt`; a client that surfaces the refusal instead needs neither.
  *
  * A room also pushes an ephemeral typing signal on this same inbox as
  * `notify("room", "", "typing", nick, on)`: `nick` is the member who started or

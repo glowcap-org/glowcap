@@ -21,7 +21,7 @@ the receiver's eventual Struct / List, break on a missing field, an
 out-of-bounds index, a non-container value, or a broken receiver, and follow
 intermediate promise resolutions. Goblins implements exactly this with a
 `hash-ref` / `list-ref` vow. Two wire details surfaced while closing the
-boundary: pancake spelled the field name as a Syrup Symbol where the spec says
+boundary: pancake encoded the field name as a Syrup Symbol where the spec says
 String (and Goblins guards `string?` on receipt), and sending an `op:get` never
 installed the outbound answer, so the partner's eventual resolve for it would
 have been refused as unknown.
@@ -47,6 +47,10 @@ have been refused as unknown.
   listeners on the _projected_ answer all settle in turn, and the V1.0
   translation applies unchanged (no resolver means the stored resolution feeds
   `op:listen`, which is how Goblins consumes it).
+- **Indexes preserve OCapN Integer semantics.** An `op:index` operand is
+  arbitrary-precision. A value too large or negative for any admitted List
+  becomes an out-of-bounds projection marker; its decimal wire bytes do not
+  remain in session state.
 - **No recursion, two bounds.** Encode deferral makes the drain iterative: a
   projected resolve is _queued_, never recursed, so projections-on-projections
   settle one step at a time and total work is bounded by what the caps admitted.
@@ -74,8 +78,11 @@ have been refused as unknown.
   engine scenarios (settle, late op, every break shape, the promise-following
   re-anchor, the cyclic-chain bound, the cap), and live as the asker: the
   `goblins-interop` gate pipelines an `op:index` / `op:get` against a Goblins
-  vat and Goblins resolves the projection. That does not prove Goblins-as-asker
-  against pancake's in-tree responders (Zig scenarios and the suite cover those).
+  vat and Goblins resolves the projection. The same gate proves Goblins-written
+  `op:get` / `op:index` frames arrive at pancake's responders and that pancake
+  settles both projected answers through V1.0 resolver-callback fulfillments.
+  The probe still bypasses a public Goblins application-level API for sending
+  those projections because the pinned Goblins release does not expose one.
 - The get / index events still surface, so an application can observe the ops;
   the engine answers autonomously, and an application that races a manual
   resolve for a projected answer simply wins (the engine leaves a settled answer

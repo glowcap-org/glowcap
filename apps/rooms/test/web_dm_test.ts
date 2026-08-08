@@ -14,13 +14,13 @@
 //   deno run --allow-all apps/rooms/test/web_dm_test.ts
 
 import { chromium } from "playwright";
-import { Host } from "@pancake/stack";
+
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { Directory, Room } from "../lib/room_client.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
-import { dial } from "../lib/locator.ts";
+import { dial, roomsHost } from "../lib/locator.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -89,13 +89,13 @@ const web = new Deno.Command("deno", {
 // target), joins the room, and registers his iroh locator.
 const bobInbox: string[] = [];
 const bobSeed = crypto.getRandomValues(new Uint8Array(32));
-const bobHost = new Host(bobSeed);
+const bobHost = roomsHost(bobSeed);
 // A giftable answers the browser over the connection the DM arrived on
 // (`currentSession()`), sending to the reply inbox the browser hosts on that same
 // connection. Bob never dials the browser, which cannot be dialed — the shared
 // `recordingReplyDm` owns that receiver primitive.
 const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
-const bobEndpoint = listenIroh(Reachability.Direct, bobSeed, bobHost);
+const bobEndpoint = listenIroh({ reachability: Reachability.Direct }, bobSeed, bobHost);
 (async () => {
 	for await (const session of bobEndpoint) session.serve().catch(() => {});
 })();

@@ -468,7 +468,7 @@ def _handoff_give_record():
     )
 
 
-def op_handoff_give() -> Record:
+def signed_handoff_give() -> Record:
     """``<desc:sig-envelope <desc:handoff-give …> <sig-val …>>``.
 
     Stage 2 / ADR-0009 wire shape for a Gifter-signed
@@ -485,14 +485,14 @@ def op_handoff_give() -> Record:
     )
 
 
-def op_handoff_receive() -> Record:
+def signed_handoff_receive() -> Record:
     """``<desc:sig-envelope <desc:handoff-receive receiving-session
     receiving-side handoff-count <signed-give>> <sig-val …>>``.
 
     Stage 2 / ADR-0009 wire shape for a Receiver-signed
     ``desc:handoff-receive`` envelope. The ``signed-give`` slot
     nests the same ``desc:sig-envelope``-wrapped ``desc:handoff-give``
-    structure as the ``op_handoff_give.bin`` fixture, but with a
+    structure as the ``desc_handoff_give_signed.bin`` fixture, but with a
     fresh inner-Gifter signature byte pattern (``0xAA``) and
     an outer Receiver signature byte pattern (``0xBB``), matches
     pancake's ``ocapn_tests::handoff_receive_roundtrips_through_syrup``.
@@ -542,7 +542,7 @@ def op_deliver_withdraw_gift() -> Record:
     fixture's wire bytes don't depend on which the runtime
     chooses).
 
-    Inner field bytes match ``op_handoff_receive`` so a single
+    Inner field bytes match ``signed_handoff_receive`` so a single
     Goblins-Racket ↔ Python ↔ pancake parity assertion exercises
     the cross-implementation byte shape of both shapes at once;
     only the outer ``op:deliver`` envelope differs.
@@ -573,49 +573,6 @@ def op_deliver_withdraw_gift() -> Record:
     target = Record(Symbol("desc:export"), (0,))
     args = [Symbol("withdraw-gift"), signed_receive]
     return Record(Symbol("op:deliver"), (target, args, 99, False))
-
-
-# ── ADR-0097 provisional session-key-attestation credential ───────
-#
-# The durable-key credential's canonical signing-domain record and the
-# keyed-tcp locator that carries its signature as a hint entry; the
-# committed vectors ADR-0097's migration step 1 requires before any
-# implementation ships. Deterministic keys: durable Ed25519 seed
-# ``0x0D * 32``, session seed ``0x5E * 32``; the signature is the
-# durable key's RFC 8032 Ed25519 signature over the exact bytes of the
-# record fixture. ``test/oracle/attestation_vector_test.zig`` derives
-# and verifies it; mirrors the Racket builders in ``generate.rkt``.
-
-_ATTESTATION_DESIGNATOR = (
-    "91a28a0b74381593a4d9469579208926afc8ad82c8839b7644359b9eba9a4b3a"
-)
-_ATTESTATION_SESSION_PUB = bytes.fromhex(
-    "8146640f02493af4fbc54fe33388e75dc2c937ae0b7727cc2b2afb1b75199a3e"
-)
-_ATTESTATION_SIG = bytes.fromhex(
-    "49347b25281df79dec07ead42a609b08dd238efa0e9151c83b203d053b422ffa"
-    "8b94a9086fa26725f6e2e895ae97409ebc829c02ffa61c20c38eec692be4e707"
-)
-
-
-def cred_session_key_attestation_v1() -> Record:
-    """``<session-key-attestation-v1 keyed-tcp "designator" session-pubkey>``."""
-    return Record(
-        Symbol("session-key-attestation-v1"),
-        (Symbol("keyed-tcp"), _ATTESTATION_DESIGNATOR, _ATTESTATION_SESSION_PUB),
-    )
-
-
-def cred_locator_keyed_tcp_hint() -> Record:
-    """``<ocapn-peer keyed-tcp "designator" {"session-key-attestation" sig}>``."""
-    return Record(
-        Symbol("ocapn-peer"),
-        (
-            Symbol("keyed-tcp"),
-            _ATTESTATION_DESIGNATOR,
-            {"session-key-attestation": _ATTESTATION_SIG},
-        ),
-    )
 
 
 # ── ADR-0007 / op:get + op:index field-projection ops ─────────────
@@ -749,12 +706,9 @@ FIXTURES = {
     "op_deliver_listen_break_notification.bin": op_deliver_listen_break_notification,
     "op_gc_exports.bin": op_gc_exports,
     "op_gc_answers.bin": op_gc_answers,
-    "op_handoff_give.bin": op_handoff_give,
-    "op_handoff_receive.bin": op_handoff_receive,
+    "desc_handoff_give_signed.bin": signed_handoff_give,
+    "desc_handoff_receive_signed.bin": signed_handoff_receive,
     "op_deliver_withdraw_gift.bin": op_deliver_withdraw_gift,
-    # ADR-0097 provisional credential vectors (migration step 1)
-    "cred_session_key_attestation_v1.bin": cred_session_key_attestation_v1,
-    "cred_locator_keyed_tcp_hint.bin": cred_locator_keyed_tcp_hint,
     # ADR-0007 op:get / op:index field-projection ops
     "op_get.bin": op_get,
     "op_index.bin": op_index,

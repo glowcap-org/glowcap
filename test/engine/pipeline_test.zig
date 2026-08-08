@@ -158,14 +158,14 @@ test "decomposeOutboundDeliver rejects a field step on the Syrup path" {
 }
 
 test "classifyListenerDrain fires once on a non-promise fulfillment" {
-    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .wants_partial = false };
+    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .settling_only };
     const action = pipeline.classifyListenerDrain(entry, .{ .fulfill = .{ .bytes = "v" } });
     try std.testing.expect(action == .fire);
     try std.testing.expectEqual(@as(u64, 2), action.fire);
 }
 
-test "classifyListenerDrain re-anchors (no fire) on a partial-promise without wants_partial" {
-    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .wants_partial = false };
+test "classifyListenerDrain keeps a settling listener on a same-peer promise" {
+    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .settling_only };
     const action = pipeline.classifyListenerDrain(
         entry,
         .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
@@ -174,13 +174,12 @@ test "classifyListenerDrain re-anchors (no fire) on a partial-promise without wa
     try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
 }
 
-test "classifyListenerDrain fires and re-anchors on a partial-promise with wants_partial" {
-    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .wants_partial = true };
+test "classifyListenerDrain keeps a combined listener on a same-peer promise" {
+    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .shortening_or_settling };
     const action = pipeline.classifyListenerDrain(
         entry,
         .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
     );
-    try std.testing.expect(action == .fire_and_reinstall);
-    try std.testing.expectEqual(@as(u64, 2), action.fire_and_reinstall.fire);
-    try std.testing.expectEqual(@as(u64, 8), action.fire_and_reinstall.next_answer.int());
+    try std.testing.expect(action == .reinstall);
+    try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
 }

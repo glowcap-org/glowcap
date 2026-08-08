@@ -56,14 +56,17 @@
 ;; `host-publish-giftable` is lazily discoverable through each accepted partner.
 (struct server (listener host))
 
-(define (listen host [port 0] #:codec [codec 'syrup])
+(define (listen host [port 0] #:codec [codec 'syrup] #:captp-version [captp-version 'v1_0]
+                #:features [features 'full])
   (define l (tcp-listen port 64 #t host))
-  (define m (make-fresh-host #:codec codec))
+  (define m (make-fresh-host #:codec codec #:captp-version captp-version #:features features))
   ;; This host also dials (the gifter side of a handoff), and its dials sign
   ;; the listener's own address so a partner's crossed-hellos table can
   ;; recognize it.
   (define-values (local-host local-port _rh _rp) (tcp-addresses l #t))
-  (host-set-self-designator! m (socket-addr-designator local-host local-port))
+  (define designator (socket-addr-designator local-host local-port))
+  (host-set-self-designator! m designator)
+  (host-set-advertised-locator! m (encode-peer-locator TRANSPORT-TCP designator))
   (server l m))
 
 ;; A keyed-tcp listening server: TCP sockets under a durable key designator
@@ -71,14 +74,21 @@
 ;; session signing key — one seed, not a second minted identity.
 (struct keyed-tcp-server (listener host designator))
 
-(define (listen-keyed-tcp host [port 0] #:seed [seed #f] #:codec [codec 'syrup])
+(define (listen-keyed-tcp host [port 0] #:seed [seed #f] #:codec [codec 'syrup]
+                          #:captp-version [captp-version 'v1_0]
+                          #:features [features 'full])
   (define seed* (or seed (crypto-random-bytes 32)))
   (unless (= (bytes-length seed*) 32)
     (raise-pancake 'listen-keyed-tcp ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
   (define designator (designator-from-seed seed*))
-  (define m (make-host seed* #:codec codec))
+  (define m (make-host seed* #:codec codec #:captp-version captp-version #:features features))
   (define l (tcp-listen port 64 #t host))
   (host-set-self-designator! m designator)
+  (define-values (local-host local-port _rh _rp) (tcp-addresses l #t))
+  (host-set-advertised-locator!
+   m
+   (encode-peer-locator TRANSPORT-KEYED-TCP designator
+                        (socket-addr-designator local-host local-port)))
   (keyed-tcp-server l m designator))
 
 (define (keyed-tcp-server-port s)
@@ -97,8 +107,11 @@
                           (lambda ()
                             (define-values (in out) (tcp-accept (keyed-tcp-server-listener s)))
                             (define-values (local-host local-port _rh _rp) (tcp-addresses out #t))
+                            ;; keyed-tcp names peers by key, but the socket
+                            ;; proves none of it.
                             (values (port-transport in out)
-                                    (socket-addr-designator local-host local-port)))
+                                    (socket-addr-designator local-host local-port)
+                                    #f))
                           #:time-travel? time-travel?))
 
 (define (keyed-tcp-server-close! s) (tcp-close (keyed-tcp-server-listener s)))
@@ -112,8 +125,11 @@
                           (lambda ()
                             (define-values (in out) (tcp-accept (server-listener s)))
                             (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
+                            ;; A socket proves nothing about who is on the
+                            ;; other end.
                             (values (port-transport in out)
-                                    (socket-addr-designator local-host local-port)))
+                                    (socket-addr-designator local-host local-port)
+                                    #f))
                           #:time-travel? time-travel?))
 
 ;; Stop accepting new partners. Connections already accepted are unaffected.

@@ -61,16 +61,6 @@ export fn pancake_wasm_free(ptr: usize, len: usize) void {
 // browser actually loads. A field reorder regenerates these values instead of
 // silently invalidating a copied constant.
 
-/// One struct the descriptor reports. `T` supplies every layout number by
-/// reflection: `@sizeOf(T)` and each `@offsetOf(T, field)` in declaration
-/// order, so the struct definition is the single owner of its field order and
-/// nothing here restates it. `name` is the manifest prefix
-/// (`WASM_LAYOUT_STRUCTS` in `@pancake/abi`); its FNV-1a hash leads the
-/// struct's descriptor block, so a decoder proves it is reading the struct it
-/// thinks it is — an order swap between this list and the manifest fails
-/// loud instead of marshalling every equal-field-count struct wrong.
-const LayoutSpec = struct { name: []const u8, T: type };
-
 /// FNV-1a over the spec name, the struct-identity word the descriptor leads
 /// each block with. The JS decoders recompute it from the manifest prefix.
 fn nameHash(comptime name: []const u8) u32 {
@@ -84,28 +74,14 @@ fn nameHash(comptime name: []const u8) u32 {
 
 /// The structs `pancake_wasm_abi_layout` reports, in canonical order. The
 /// descriptor's blob is these structs concatenated in this exact order, and the
-/// JS marshaller keys on this index. Appending a struct is one row here; it
-/// never renumbers an earlier struct, so a JS decoder built against index N
-/// keeps working when index N+1 lands.
+/// JS marshaller keys on this index.
 ///
-/// The set and order mirror the generated `WASM_LAYOUT_STRUCTS` manifest in
-/// `@pancake/abi` (`tools/gen/binding/ts_abi.zig`), which names each struct's
-/// fields in declaration order so the browser adapter can zip these offsets
-/// with names. `zig build wasm-abi-layout-check` holds the two in lockstep.
-const layout_specs = [_]LayoutSpec{
-    .{ .name = "MANAGED_FRAME", .T = shared.PancakeManagedFrame },
-    .{ .name = "REF", .T = shared.PancakeReference },
-    .{ .name = "ARG", .T = shared.PancakeArgument },
-    .{ .name = "FRAME", .T = shared.PancakeFrame },
-    .{ .name = "LAST_ABORT", .T = shared.PancakeLastAbort },
-    .{ .name = "ALLOCATOR", .T = shared.PancakeAllocator },
-    .{ .name = "HOST_ACTION", .T = driver.PancakeHostAction },
-    .{ .name = "HOST_PUMP_HOOKS", .T = driver.PancakeHostPumpHooks },
-    .{ .name = "DIAL_PLAN", .T = driver.PancakeDialPlan },
-    .{ .name = "ACCEPT_PLAN", .T = driver.PancakeAcceptPlan },
-    .{ .name = "PENDING_DIAL", .T = driver.PancakePendingDial },
-    .{ .name = "PARTNER_IDENTITY", .T = driver.PancakePartnerIdentity },
-};
+/// The table itself lives in `c_abi_host` (`wasm_layout_manifest`) — the one
+/// authority this exporter and the TypeScript-manifest generator both walk,
+/// so a struct cannot reach one mirror and miss the other. `zig build
+/// wasm-abi-layout-check` still proves the built module against the
+/// generated manifest end to end.
+const layout_specs = driver.wasm_layout_manifest;
 
 /// Total u32 words the descriptor writes: per struct, three header words
 /// (name hash, size, field count) plus one offset word per field.
@@ -130,7 +106,7 @@ export fn pancake_wasm_abi_layout(out: [*]u32, cap: u32) u32 {
     var i: usize = 0;
     inline for (layout_specs) |spec| {
         const fields = @typeInfo(spec.T).@"struct".fields;
-        out[i] = comptime nameHash(spec.name);
+        out[i] = comptime nameHash(spec.prefix);
         i += 1;
         out[i] = @sizeOf(spec.T);
         i += 1;

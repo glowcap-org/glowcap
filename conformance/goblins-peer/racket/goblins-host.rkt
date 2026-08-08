@@ -37,6 +37,7 @@
          goblins/vat
          goblins/ocapn/captp
          goblins/ocapn/structs-urls
+         goblins/utils/url-base64
          "tcp-netlayer.rkt")
 
 ;; Line-buffer stdout so the bridge plugin sees the readiness lines
@@ -72,6 +73,23 @@
   (lambda (name)
     (hash "kind" "record"
           "name" name)))
+
+;; Swiss-num for the tally cap. A one-way deliver carries no answer, so
+;; the only way a partner can prove its `tell` arrived is to change
+;; something and read it back: `bump` takes no answer and increments,
+;; `read` answers with the count so far.
+(define TALLY-SWISS-NUM
+  (string->bytes/latin-1 "pancakeTallySwissnumABCDEF123456"))
+
+;; Tally behavior. `bump` is what a partner's one-way deliver targets;
+;; it returns a new behavior with the count raised, so the effect
+;; outlives the delivery that caused it. `read` answers the count.
+(define (^tally bcom [n 0])
+  (lambda (verb . args)
+    (case verb
+      [(bump) (bcom (^tally bcom (add1 n)))]
+      [(read) n]
+      [else (error '^tally "no such method: ~a" verb)])))
 
 ;; ─── CLI ─────────────────────────────────────────────────────────
 
@@ -146,6 +164,8 @@
      ($ nonce-registry 'register echo ECHO-SWISS-NUM)
      (define record (spawn ^record))
      ($ nonce-registry 'register record RECORD-SWISS-NUM)
+     (define tally (spawn ^tally))
+     ($ nonce-registry 'register tally TALLY-SWISS-NUM)
      (on (<- tcp-netlayer 'our-location)
          (lambda (_location)
            (emit-ndjson
@@ -156,14 +176,20 @@
             `(("event" . "cap-published")
               ("vat" . ,vat-id)
               ("name" . "echo")
-              ("swiss" . ,(bytes->string/latin-1 ECHO-SWISS-NUM))))
-           ;; Emitted after echo's line on purpose: every interop
-           ;; client takes the first `swiss` line as the echo cap.
+              ("swiss" . ,(bytes->string/latin-1 ECHO-SWISS-NUM))
+              ("sturdyref-path" . ,(url-base64-encode ECHO-SWISS-NUM))))
+           ;; Emitted after echo's line on purpose: raw-swiss consumers take
+           ;; the first `swiss` line as the echo cap.
            (emit-ndjson
             `(("event" . "cap-published")
               ("vat" . ,vat-id)
               ("name" . "record")
-              ("swiss" . ,(bytes->string/latin-1 RECORD-SWISS-NUM)))))))))
+              ("swiss" . ,(bytes->string/latin-1 RECORD-SWISS-NUM))))
+           (emit-ndjson
+            `(("event" . "cap-published")
+              ("vat" . ,vat-id)
+              ("name" . "tally")
+              ("swiss" . ,(bytes->string/latin-1 TALLY-SWISS-NUM)))))))))
 
 ;; ─── Boot all vats ───────────────────────────────────────────────
 

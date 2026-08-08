@@ -16,8 +16,9 @@ export const MAX_LINE = 8192;
  * host giftable, so each inbox a member offers costs a bootstrap row and an
  * export on every session it ever opens, for the life of the process. The peer
  * asking is the one who chose the name, so the count needs a ceiling that peer
- * cannot argue with. `max_dm_inboxes` in `cli/app/rooms_peer/common.zig` is the
- * same bound for the Zig peer. */
+ * cannot argue with. `max_dm_inboxes` in `cli/app/rooms_peer/common.zig` and in
+ * `conformance/goblins-peer/racket/rooms-dm.rkt` are the same bound for the Zig
+ * peer and the Goblins one. */
 export const MAX_DM_INBOXES = 256;
 
 /** How many WebRTC signaling exchanges the directory holds at once. An

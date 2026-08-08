@@ -7,9 +7,8 @@
 .draft = false,
 ---
 
-pancake speaks [OCapN](https://github.com/ocapn/ocapn), and the quickest way to
-understand OCapN is to hold it against the protocols you already run. If you
-know what a bearer token is, you have all the background this page assumes.
+pancake speaks [OCapN](https://github.com/ocapn/ocapn). If you know what a bearer
+token is, this page has the background it assumes.
 
 ## How today's protocols authorize
 

@@ -21,8 +21,8 @@
 (require ffi/unsafe
          racket/tcp
          racket/lazy-require
-         racket/runtime-path
          "constants.rkt"
+         "iroh-companion.rkt"
          "ffi-host.rkt"
          "ffi-shared.rkt"
          "errors.rkt"
@@ -30,6 +30,7 @@
          "locator.rkt"
          "async.rkt"
          "host.rkt"
+         (only-in "codec.rkt" feature-mask)
          "action.rkt"
          ;; The handshake bound lives with the deadline machinery it feeds, so
          ;; the dial and the accept rule spell their default with one constant.
@@ -64,9 +65,8 @@
 ;; bare node id resolves under the host's configured redeem posture (default Discovery;
 ;; `set-host-redeem-reachability!` lowers it), so one give shape covers an
 ;; offline direct dial and an internet dial-by-id alike. The iroh companion
-;; loads lazily, only for an iroh give.
-(define-runtime-path iroh-companion-path "../pancake-iroh.rkt")
-(define (iroh-dial-mod) `(submod ,iroh-companion-path dial))
+;; loads on demand, only for an iroh give; `iroh-companion.rkt` owns where it
+;; lives and loads it exactly once even when several threads dial at once.
 
 ;; A resolved dial from `pancake_host_plan_dial`: language sum over the C
 ;; shape flag (mirrors Zig DialPlan). Plan views alias the pinned input
@@ -146,10 +146,10 @@
     [(peer-id-dial? plan)
      (define reach-kind (peer-id-dial-reach-kind plan))
      (define reach*
-       (cond [(= reach-kind DIAL-REACH-DIRECT) (dynamic-require iroh-companion-path 'IROH-REACH-DIRECT)]
+       (cond [(= reach-kind DIAL-REACH-DIRECT) (iroh-ref 'IROH-REACH-DIRECT)]
              [(= reach-kind DIAL-REACH-CONFIGURED) (host-redeem-reachability-value m)]
              [else (peer-id-dial-reach-value plan)]))
-     ((dynamic-require (iroh-dial-mod) 'connect-iroh/node)
+     ((iroh-ref 'connect-iroh/node)
       designator (peer-id-dial-addresses plan) reach* m
       #:handshake-timeout-ms handshake-timeout-ms)]
     [(rendezvous-dial? plan)
@@ -221,16 +221,29 @@
 ;; costs this dial an ERR-TIMEOUT rather than the calling thread; pass #f (or 0)
 ;; to wait forever.
 (define (connect uri [reachability #f] #:host [shared-host #f] #:codec [codec #f]
+                 #:captp-version [captp-version #f] #:features [features #f]
                  #:handshake-timeout-ms [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (define loc (parse-locator uri))
   (define transport (locator-transport loc))
-  ;; Fail closed on a conflicting codec: the codec is the host's, so a fresh
-  ;; host is minted with `#:codec`, and a shared host already carries one.
+  ;; Fail closed on conflicting Host-owned protocol options: a fresh host is
+  ;; minted with them, and a shared host already carries them.
   (when (and shared-host codec (not (eq? codec (host-codec shared-host))))
     (raise-pancake 'connect ERR-INVALID-ARGUMENT
                    "#:codec ~a conflicts with the shared host's ~a" codec (host-codec shared-host)))
+  (when (and shared-host captp-version (not (eq? captp-version (host-captp-version shared-host))))
+    (raise-pancake 'connect ERR-INVALID-ARGUMENT
+                   "#:captp-version ~a conflicts with the shared host's ~a"
+                   captp-version (host-captp-version shared-host)))
+  (when (and shared-host features
+             (not (= (feature-mask features)
+                     (feature-mask (host-features shared-host)))))
+    (raise-pancake 'connect ERR-INVALID-ARGUMENT
+                   "#:features ~a conflicts with the shared host's ~a"
+                   features (host-features shared-host)))
   (define addrs (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
-  (define m (or shared-host (make-fresh-host #:codec (or codec 'syrup))))
+  (define m (or shared-host (make-fresh-host #:codec (or codec 'syrup)
+                                             #:captp-version (or captp-version 'v1_0)
+                                             #:features (or features 'full))))
   (define c (dial-parsed-locator m transport (locator-designator loc) addrs
                                  #:reachability reachability
                                  #:handshake-timeout-ms handshake-timeout-ms))

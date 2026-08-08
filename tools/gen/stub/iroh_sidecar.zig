@@ -113,6 +113,10 @@ export fn pancake_iroh_sidecar_conn_id(conn: *const anyopaque) usize {
     _ = conn;
     @panic(msg);
 }
+export fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const anyopaque, out_key32: [*]u8) i32 {
+    _ = .{ conn, out_key32 };
+    @panic(msg);
+}
 export fn pancake_iroh_sidecar_conn_try_read(conn: *anyopaque, buf: [*]u8, len: usize) isize {
     _ = .{ conn, buf, len };
     @panic(msg);

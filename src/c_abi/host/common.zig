@@ -27,6 +27,7 @@ const shared = @import("c_abi_shared");
 // opaque handles and the behavior callback typedefs (a lazy cyclic import, the
 // same shape `src/c_abi/ocapn` uses between its root and handle-family files).
 const c = @import("mod.zig");
+pub const trace_queue = @import("trace_queue.zig");
 
 pub const crypto = foundation.crypto;
 pub const Host = driver_core.Host;
@@ -57,6 +58,14 @@ pub const steady_scratch_bytes = 4096;
 pub const Instance = struct {
     core: Host,
     allocator: std.mem.Allocator,
+    /// The C trace callback (`pancake_host_set_trace`), bridged onto the
+    /// core's sink; null when tracing is off.
+    trace_cb: ?c.PancakeTraceCallback = null,
+    trace_ctx: ?*anyopaque = null,
+    /// The drained trace ring (`pancake_host_set_trace_queue`), for an
+    /// embedder that cannot take the callback; null when none is installed.
+    /// Host-scope, so a session pays nothing for it.
+    trace_queue: ?*trace_queue.TraceQueue = null,
     /// Scratch for one call's inbound argument marshalling (`argsFromC`),
     /// reset at the head of each *top-level* send-shaped call. A nested
     /// (in-callback) verb bumps without resetting: a composed `turn_forward`
@@ -133,6 +142,10 @@ pub fn errToCode(err: anyerror) i32 {
         // identity is a session-state refusal, not caller misuse of arguments.
         error.PartnerUnverified => shared.PANCAKE_ERR_SESSION,
         error.PeerIdentityUnverified => shared.PANCAKE_ERR_SESSION,
+        // A realizer's proof offered after the partner's handshake was applied:
+        // the session has moved past the point the proof was evidence for, which
+        // is session state rather than a malformed argument.
+        error.HandshakeAlreadyApplied => shared.PANCAKE_ERR_SESSION,
         // Caller misuse: re-entering a host-driving verb from a callback, a
         // foreign-homed argument, an enroll that contradicts the kind on an
         // already-enrolled row, a non-callable target, a projection on a local
@@ -150,7 +163,11 @@ pub fn errToCode(err: anyerror) i32 {
         error.NotAToken,
         error.NotAWirePosition,
         error.DesignatorTooLong,
+        error.InvalidChannelKey,
+        error.ChannelKeyConflict,
+        error.UnheldIdentity,
         error.MissingDirectAddressesHint,
+        error.MissingAdvertisedLocator,
         error.SessionPairExists,
         error.UncallableTarget,
         error.NotPipelineable,
@@ -167,6 +184,7 @@ pub fn errToCode(err: anyerror) i32 {
         error.EmptyComponent,
         error.MalformedPath,
         error.MalformedHint,
+        error.DuplicateHintName,
         error.UnsupportedHintValue,
         error.UriParseError,
         error.InvalidHostPort,
@@ -557,4 +575,16 @@ pub fn turnTarget(session: *HostSession, reference: model.Reference, args: []con
         },
         else => return driver_core.Error.UncallableTarget,
     }
+}
+
+/// One `DurableProvenance` in its C spelling.
+///
+/// Two surfaces report this fact — the partner-identity query and the trace's
+/// session-open — and they must agree, so the mapping lives here once rather
+/// than being spelled at each of them.
+pub fn provenanceToC(provenance: driver_core.DurableProvenance) u32 {
+    return switch (provenance) {
+        .authenticated_transport => c.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
+        .unauthenticated => c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
+    };
 }

@@ -26,7 +26,7 @@ test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (next)" 
     try std.testing.expectEqual(@as(usize, 2), deliver.args.len);
     try std.testing.expectEqualStrings("fetch", deliver.args[0].symbol);
     try std.testing.expectEqualStrings("abc", deliver.args[1].bytes);
-    try std.testing.expect(s.hasExport(prepared.resolver_export));
+    try std.testing.expectEqual(@as(?model.ExportPosition, null), prepared.resolver_export);
 }
 
 test "prepareFetchSwissnum carries a promise resolver desc on V1.0" {
@@ -42,7 +42,7 @@ test "prepareFetchSwissnum carries a promise resolver desc on V1.0" {
 
     const rmd = prepared.message.deliver.resolve_me_desc orelse return error.TestUnexpectedResult;
     try std.testing.expect(rmd == .near);
-    try std.testing.expectEqual(prepared.resolver_export, rmd.near.export_position);
+    try std.testing.expectEqual(prepared.resolver_export.?, rmd.near.export_position);
     try std.testing.expectEqual(model.RefKind.promise, rmd.near.kind);
 }
 

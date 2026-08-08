@@ -26,6 +26,8 @@ guidance:
   rules by `.mdc` file.
 - `.claude/skills` and `.cursor/skills` are directory symlinks to
   `.agents/skills`.
+- Codex reads `AGENTS.md` and `.agents/skills` directly; `.codex/README.md`
+  records that no `.codex/skills` mirror is needed.
 
 `zig build meta-check` verifies this topology and every scaffolding claim it can
 reach mechanically, symlink shape, the rule and skill indexes, Markdown links,
@@ -42,6 +44,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [cli](rules/cli.md)                                 | Zig gates, generated state, git posture, live CapTP via pancake-cli, product CapTP wait budgets        |
 | [debugging](rules/debugging.md)                     | A failure is data: evidence before theory, ordered suspects, halved search, a fix that explains it     |
 | [doc-drift](rules/doc-drift.md)                     | Living-state docs must match current code or drop the state claim                                      |
+| [described-vs-built](rules/described-vs-built.md)   | A comment describing a mechanism reads as one that exists; the indicative is for what the code does    |
 | [doc-voice](rules/doc-voice.md)                     | Human-readable prose for first-read docs and public examples                                           |
 | [memory](rules/memory.md)                           | Frame ownership, bounded borrows, copy budget, allocator discipline                                    |
 | [prerelease](rules/prerelease.md)                   | No compatibility debt yet, so the default verdict is fix the root now, not defer it                    |
@@ -73,6 +76,7 @@ file shape: [`personas/README.md`](personas/README.md).
 | Persona | Purpose |
 | ------- | ------- |
 | [agentic-lead](personas/agentic-lead.md) | Multi-agent orchestration lead (default rooms-team lead) |
+| [engineering-steward](personas/engineering-steward.md) | Domain-neutral engineering judgment: root fixes, evidence, automation, and economy without lower standards |
 | [fresh-eyes](personas/fresh-eyes.md) | Seasoned engineer, zero OCapN exposure — does the doc teach a newcomer, or is it rehearsed? |
 | [scaffold-rigor](personas/scaffold-rigor.md) | Agent scaffolding sharpness — short skills, gates over folklore |
 | [stability-steward](personas/stability-steward.md) | Support tiers a consumer can plan against — a claim is the evidence that runs for it |

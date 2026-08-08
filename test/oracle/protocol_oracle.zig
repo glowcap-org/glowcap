@@ -9,7 +9,6 @@ pub const message_arms = [_]MessageArm{
     .{ .name = "Resolve" },
     .{ .name = "GcExport" },
     .{ .name = "GcAnswer" },
-    .{ .name = "Handoff" },
     .{ .name = "StartSession" },
     .{ .name = "Abort" },
     .{ .name = "Listen" },
@@ -30,8 +29,6 @@ pub const OracleFixture = struct {
 const fixture_root = "corpus/";
 
 pub const corpus = [_]OracleFixture{
-    fixture("cred_locator_keyed_tcp_hint.bin"),
-    fixture("cred_session_key_attestation_v1.bin"),
     fixture("op_abort.bin"),
     fixture("op_abort_connection_lost.bin"),
     fixture("op_abort_crossed_hellos.bin"),
@@ -51,8 +48,8 @@ pub const corpus = [_]OracleFixture{
     fixture("op_gc_answers.bin"),
     fixture("op_gc_exports.bin"),
     fixture("op_get.bin"),
-    fixture("op_handoff_give.bin"),
-    fixture("op_handoff_receive.bin"),
+    fixture("desc_handoff_give_signed.bin"),
+    fixture("desc_handoff_receive_signed.bin"),
     fixture("op_index.bin"),
     fixture("op_listen_export_target.bin"),
     fixture("op_listen_promise_target.bin"),

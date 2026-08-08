@@ -29,6 +29,6 @@ test "protocol oracle exposes the checked-in Syrup fixture corpus" {
     try std.testing.expectEqualStrings("op_abort.bin", abort.name);
     try std.testing.expect(abort.bytes().len > 0);
 
-    const handoff = protocol_oracle.fixtureByName("op_handoff_give.bin").?;
+    const handoff = protocol_oracle.fixtureByName("desc_handoff_give_signed.bin").?;
     try std.testing.expect(handoff.bytes().len > 0);
 }

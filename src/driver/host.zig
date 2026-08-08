@@ -7,15 +7,15 @@
 //! are views over it. Every blocking wait runs one loop: drain the core's
 //! action queue (write flushes, answer redeem dials, draw gift-id entropy),
 //! wait for any live wire to become readable under the caller's `Budget`, feed
-//! what arrives through `Host.feedBytes`, and repeat until the wait's capture
+//! those outer-framed bytes through `Host.feedBytes`, and repeat until the wait's capture
 //! fires. Because the wait spans every live wire, a sibling session's inbound
 //! (a deposit arriving while this session waits on a withdraw) is served
 //! inside the same wait, which is what makes same-host gifter and exporter
 //! roles work on one fiber with no thread.
 //!
 //! The wires are `net.Connection`s used through their byte-stream face only —
-//! raw reads off `conn.r` into `core.feedBytes` (the core owns framing,
-//! ADR-0076) and `takeOutbound` frames written to `conn.w`; the parse-into-peer
+//! raw reads off `conn.r` into the core's outer framer, and
+//! `takeOutbound` frames wrapped onto `conn.w`; the parse-into-peer
 //! half (`pump`, the spill) stays the borrowing tier's vocabulary. Multiplexed
 //! blocking waits need readiness, so a transport with no pollable fd is
 //! refused at open (`Error.TransportNotPollable`); the completion loop is the
@@ -88,9 +88,8 @@ pub const PollHost = struct {
     /// `frame_cap` sizes the owned read/write buffers and the session's
     /// `max_frame_bytes` limit together, so the buffers and the limit cannot
     /// drift apart. `codec` is the wire grammar the negotiating peer encodes
-    /// in; it defaults to `.syrup`, the v1.0 interop floor. There is
-    /// deliberately no `verify_partner` knob: the application tier always
-    /// verifies.
+    /// in. There is deliberately no `verify_partner` knob: the application
+    /// tier always verifies.
     ///
     /// The two wait budgets are `driver.Budget` and have no default: every
     /// other option has a wrong value that costs memory or speed, but a wait
@@ -100,7 +99,18 @@ pub const PollHost = struct {
     /// `.unbounded`.
     pub const Options = struct {
         frame_cap: usize = 1 << 16,
-        codec: model.CodecId = .syrup,
+        codec: model.CodecId = model.Preference.baseline.codec,
+        /// The CapTP profile this host offers in `op:start-session`, beside
+        /// the codec above. The two fields name one offered profile, and a
+        /// host normally sets them together, but they are negotiated as
+        /// independent axes: `engine.negotiation` settles the version and the
+        /// codec separately, so a partner can follow this host on one axis and
+        /// not the other (ADR-0003). Both default to
+        /// `model.Preference.baseline`, the profile every conforming peer
+        /// speaks. A pancake-to-pancake fleet sets `.next` here and `.capnp`
+        /// above; a partner that cannot follow settles each axis back to the
+        /// baseline on its own session (ADR-0103).
+        captp_version: model.CaptpVersion = model.Preference.baseline.captp_version,
         /// Per-read deadline for the keyed handshake, and for each redeem
         /// dial's handshake inside a wait. Breaks with
         /// `Error.HandshakeTimedOut` when a partner connects then goes
@@ -154,6 +164,7 @@ pub const PollHost = struct {
             .io = io,
             .core = driver_core.Host.init(allocator, seed, .{
                 .codec = opts.codec,
+                .captp_version = opts.captp_version,
                 .session_seeds = .{ .rooted = session_root },
             }),
             .netlayers = netlayers,
@@ -161,9 +172,12 @@ pub const PollHost = struct {
         };
         host.core.setSessionLimits(opts.frame_cap, null);
         if (identity == .keyed) {
+            // Both arms are named, and the set is
+            // `Host.SetSelfDesignatorError` rather than the whole `HostError`,
+            // so a refusal added there becomes a compile error here instead of
+            // an `else` arm that would panic on it.
             host.core.setSelfDesignator(identity.keyed.designator) catch |err| switch (err) {
                 error.DesignatorTooLong => return Error.DesignatorUnavailable,
-                else => unreachable,
             };
         }
         return host;
@@ -195,6 +209,7 @@ pub const PollHost = struct {
     /// budget. On any failure the wire, the shell, and the hello registration
     /// unwind together.
     pub fn connectLocator(self: *PollHost, locator: model.PeerLocator) !*driver_core.HostSession {
+        try self.core.ensureAdvertisedLocator(locator.transport);
         const session = try self.core.openDialedLocator(locator);
         errdefer {
             self.dropWire(session.peer_id);
@@ -214,10 +229,8 @@ pub const PollHost = struct {
         self: *PollHost,
         listener: net.netlayer.Listener,
         transport: []const u8,
-        designator: []const u8,
-        direct_addresses_hint: []const u8,
     ) !*driver_core.HostSession {
-        const session = try self.core.openAccepted(transport, designator, direct_addresses_hint);
+        const session = try self.core.openAcceptedAdvertised(transport);
         errdefer {
             self.dropWire(session.peer_id);
             self.core.releaseSession(session) catch {};
@@ -396,7 +409,7 @@ pub const PollHost = struct {
         while (try wire.session.takeOutbound()) |frame| {
             var owned = frame;
             defer owned.deinit();
-            try wire.conn.w.writeAll(owned.bytes());
+            _ = try net.writeFrameBytes(wire.conn.w, owned.bytes());
         }
         try wire.conn.w.flush();
     }
@@ -495,6 +508,7 @@ pub const PollHost = struct {
             .designator = designator,
             .hints = model.Hints.forDirectAddresses(direct_addresses_hint, &entry_buf),
         };
+        try self.core.ensureAdvertisedLocator(transport);
         const session = try self.core.openDialedLocator(locator);
         errdefer {
             self.dropWire(session.peer_id);
@@ -546,11 +560,13 @@ pub const PollHost = struct {
             const wire = entry.*;
             if (wire.closed) continue;
             if (wire.session == skip) continue;
-            if (!wire.session.feed_tail.isActive()) continue;
-            self.core.feedBytes(wire.session, &.{}) catch {
-                self.drainActions() catch {};
-                self.closeWire(wire);
-            };
+            if (wire.session.feed_tail.isActive()) {
+                self.core.feedBytes(wire.session, &.{}) catch {
+                    self.drainActions() catch {};
+                    self.closeWire(wire);
+                    continue;
+                };
+            }
         }
     }
 
@@ -564,6 +580,14 @@ pub const PollHost = struct {
             .ms => |v| net.clock.nowMs(self.io) + v,
         };
         while (true) {
+            // Apply posted settles before anything else can consume the
+            // iteration. The wake fd rides the poll set too, but a poll
+            // reports the first ready row and a busy wire always precedes
+            // it, so relying on that alone would starve the mailbox exactly
+            // under the sustained traffic it exists for. This is one
+            // uncontended lock and a count check, next to nothing beside the
+            // poll below.
+            try self.applySettleMailbox();
             try self.resumeFeedTails(probe.resumeSkip());
             try self.drainActions();
             if (probe.done()) return;
@@ -595,7 +619,7 @@ pub const PollHost = struct {
     /// not a reason to abort an innocent caller's wait.
     fn feedReadable(self: *PollHost, wire: *Wire, own: *driver_core.HostSession) !FeedOutcome {
         const fed = self.readAndFeed(wire) catch |err| switch (err) {
-            error.ConnectionLost, error.EndOfStream => {
+            error.ConnectionLost, error.EndOfStream, error.TruncatedFrame => {
                 self.closeWire(wire);
                 return .closed;
             },
@@ -630,6 +654,16 @@ pub const PollHost = struct {
         return mb;
     }
 
+    /// Apply whatever a worker thread posted, on this owning thread. Cheap
+    /// and unconditional: the mailbox is empty in the ordinary case, and the
+    /// check is one lock acquisition.
+    fn applySettleMailbox(self: *PollHost) !void {
+        const mb = self.mailbox orelse return;
+        mb.drainWake();
+        mb.apply(&self.core);
+        try self.drainActions();
+    }
+
     /// Fill the scratch lists with the live wires and wait for the first with
     /// readable progress. Null on timeout.
     fn waitAnyReadable(self: *PollHost, timeout_ms: i32) !?usize {
@@ -651,26 +685,21 @@ pub const PollHost = struct {
         for (self.conn_scratch.items, 0..) |wire, i| self.borrow_scratch.items[i] = &wire.conn;
         const idx = try net.waitAnyReadable(self.borrow_scratch.items, self.poll_scratch.items, timeout_ms, wake_fd) orelse return null;
         if (idx == n) {
-            // The settle mailbox woke us (ADR-0102 stage 4): apply the
-            // posted settles on this owning thread and write what they
-            // flushed, then report a quiet wait — every pump re-checks its
-            // probe at the loop top, so a settle that completed the wait
-            // terminates it there.
-            const mb = self.mailbox.?;
-            mb.drainWake();
-            mb.apply(&self.core);
-            self.drainActions() catch {};
+            // The mailbox ended the wait. Applying is the loop top's job
+            // (`applySettleMailbox`), which runs whether or not the poll
+            // happened to select this row; reporting a quiet wait sends us
+            // straight there.
             return null;
         }
         return idx;
     }
 
-    /// One raw read off `wire` fed through the core's stream delimiter.
+    /// One raw read off `wire`; the core owns outer framing and its tail.
     fn readAndFeed(self: *PollHost, wire: *Wire) !usize {
         const r = wire.conn.r;
         if (r.bufferedLen() == 0) {
             r.fillMore() catch |err| switch (err) {
-                error.EndOfStream => return error.EndOfStream,
+                error.EndOfStream => return if (wire.session.feed_tail.isActive()) error.TruncatedFrame else error.EndOfStream,
                 error.ReadFailed => return error.ConnectionLost,
             };
         }
@@ -682,6 +711,7 @@ pub const PollHost = struct {
             // blocking waits see `ProtocolAbort`, not the raw refusal.
             r.toss(chunk.len);
             self.drainActions() catch {};
+            self.writeOutbound(wire) catch {};
             self.closeWire(wire);
             return net.classifyApplyError(err);
         };
@@ -713,6 +743,10 @@ pub const PollHost = struct {
     /// actions, wait up to `timeout_ms`, feed one readable wire. Reports
     /// progress from `session`'s perspective.
     pub fn stepSession(self: *PollHost, session: *driver_core.HostSession, timeout_ms: i32) !?net.Progress {
+        // Every wait on this face applies the mailbox first; `serve` runs
+        // this one rather than `pumpUntilProbe`, and a settle must not wait
+        // for whichever loop the caller happened to pick.
+        try self.applySettleMailbox();
         try self.resumeFeedTails(null);
         try self.drainActions();
         const session_wire = self.wires.get(session.peer_id) orelse return .closed;

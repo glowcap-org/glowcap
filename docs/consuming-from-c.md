@@ -41,7 +41,12 @@ it with a transport connection, and repeats three operations:
 
 1. feed received bytes with `pancake_host_session_feed_bytes`;
 2. run resulting work with `pancake_host_pump_drain`;
-3. take frames with `pancake_host_session_take_outbound` and write them.
+3. take bare frames with `pancake_host_session_take_outbound`; for a byte
+   stream, write the decimal byte length and `:`, then the frame bytes.
+
+`feed_bytes` accepts canonical Syrup byte strings (`length:body`) and owns split
+or coalesced input plus the bounded tail. Whole-frame `feed` and
+`take_outbound` stay bare for intrinsically message-framed transports.
 
 The pump hooks handle flushes, completed promises, handoff dials, and gift-id
 requests. Hosted behavior callbacks run synchronously while the Host is being
@@ -101,9 +106,11 @@ helpers instead of parsing `ocapn://` strings yourself. Use
 `pancake_locator_record_encode` when a Host verb needs the encoded
 `<ocapn-peer>` record.
 
-TCP, in-process, iroh, and WebRTC connections all carry bytes for a Host
-session. They do not own CapTP state. iroh and WebRTC use Rust sidecars and
-therefore require Cargo when those optional archives are built.
+The C transport archives today are TCP, in-process, iroh, and WebRTC. Each
+carries bytes for a Host session and does not own CapTP state. Keyed TCP and
+keyed relay are dialed through Host locator plans rather than dedicated C
+archives. iroh and WebRTC use Rust sidecars and therefore require Cargo when
+those optional archives are built.
 
 ## Ownership
 

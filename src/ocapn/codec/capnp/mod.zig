@@ -12,7 +12,10 @@ pub const Kind = shared.Kind;
 
 pub const decodeMessageView = decode.decodeMessageView;
 pub const decodeBody = decode.decodeBody;
+pub const decodeBodyForProfile = decode.decodeBodyForProfile;
 pub const decodePrefix = decode.decodePrefix;
+pub const decodePrefixForProfile = decode.decodePrefixForProfile;
+pub const framePrefix = decode.framePrefix;
 // A Cap'n Proto frame's length is computable from its segment table, so there
 // is no incremental `scanStream`; the registry checks this declaration against
 // that absence.

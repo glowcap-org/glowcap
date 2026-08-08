@@ -210,7 +210,7 @@ function reachOf(
 export async function dialResolved(host: Host, req: DialRequest): Promise<Session> {
 	const [policy, value] = req.redeem
 		? [DIAL_POSTURE_REDEEM, 0]
-		: req.reachability !== undefined
+		: req.reachability != null
 		? [DIAL_POSTURE_EXPLICIT, req.reachability]
 		: [DIAL_POSTURE_EXPLICIT_NONE, 0];
 	const plan = planDial(req.transport, req.designator, req.directAddresses, policy, value);
@@ -331,7 +331,7 @@ export async function dialParsedLocator(
 	let dialHost: Host;
 	let ownsHost = false;
 	if (redeem) {
-		if (host === undefined) {
+		if (host == null) {
 			throw new PancakeError(
 				INVALID_ARGUMENT,
 				"handoff redeem requires a shared host",
@@ -340,7 +340,7 @@ export async function dialParsedLocator(
 		dialHost = host;
 	} else {
 		dialHost = host ?? new Host(undefined, { codec: opts.codec });
-		ownsHost = host === undefined;
+		ownsHost = host == null;
 	}
 	const session = await dialResolved(dialHost, {
 		transport,
@@ -429,7 +429,7 @@ export async function connect(
 ): Promise<Session> {
 	await ensureRuntimeReady();
 	const loc = parseLocator(uri);
-	if (host !== undefined && codec !== undefined && codec !== host.codec) {
+	if (host != null && codec != null && codec != host.codec) {
 		throw new PancakeError(
 			INVALID_ARGUMENT,
 			`codec "${codec}" conflicts with the shared host's "${host.codec}"`,

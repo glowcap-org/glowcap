@@ -113,6 +113,28 @@ export const PARTNER_IDENTITY_LOCATOR_RECORD_OFF = 32;
 export const PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF = 40;
 export const PARTNER_IDENTITY_PROVENANCE_OFF = 48;
 
+// PancakeTraceEvent (libpancake_host, pancake_host_set_trace)
+export const TRACE_EVENT_SIZE = 144;
+export const TRACE_EVENT_KIND_OFF = 0;
+export const TRACE_EVENT_SESSION_OFF = 8;
+export const TRACE_EVENT_OUTBOUND_OFF = 16;
+export const TRACE_EVENT_PROVENANCE_OFF = 20;
+export const TRACE_EVENT_CODEC_OFF = 24;
+export const TRACE_EVENT_CAPTP_VERSION_OFF = 28;
+export const TRACE_EVENT_DESIGNATOR_OFF = 32;
+export const TRACE_EVENT_DESIGNATOR_LEN_OFF = 40;
+export const TRACE_EVENT_TRANSPORT_OFF = 48;
+export const TRACE_EVENT_TRANSPORT_LEN_OFF = 56;
+export const TRACE_EVENT_SESSION_ID_OFF = 64;
+export const TRACE_EVENT_SESSION_ID_LEN_OFF = 72;
+export const TRACE_EVENT_VERB_OFF = 80;
+export const TRACE_EVENT_VERB_LEN_OFF = 88;
+export const TRACE_EVENT_FRAME_OFF = 96;
+export const TRACE_EVENT_FRAME_LEN_OFF = 104;
+export const TRACE_EVENT_FRAME_TOTAL_LEN_OFF = 112;
+export const TRACE_EVENT_DROPPED_OFF = 120;
+export const TRACE_EVENT_DIGEST_OFF = 128;
+
 // PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;
 export const IROH_READY_EVENT_SUBJECT_OFF = 0;
@@ -122,4 +144,18 @@ export const IROH_READY_EVENT_EVENTS_OFF = 8;
 export const WEBRTC_READY_EVENT_SIZE = 16;
 export const WEBRTC_READY_EVENT_SUBJECT_OFF = 0;
 export const WEBRTC_READY_EVENT_EVENTS_OFF = 8;
+
+// PancakeIrohConfig (libpancake_net_transport_iroh, pancake_iroh_netlayer_new)
+export const IROH_CONFIG_SIZE = 32;
+export const IROH_CONFIG_REACHABILITY_OFF = 0;
+export const IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF = 8;
+export const IROH_CONFIG_IDLE_TIMEOUT_MS_OFF = 16;
+export const IROH_CONFIG_WORKER_THREADS_OFF = 24;
+
+// PancakeWebrtcConfig (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_new)
+export const WEBRTC_CONFIG_SIZE = 24;
+export const WEBRTC_CONFIG_ICE_SERVERS_OFF = 0;
+export const WEBRTC_CONFIG_ICE_SERVERS_LEN_OFF = 8;
+export const WEBRTC_CONFIG_INCLUDE_LOOPBACK_CANDIDATES_OFF = 16;
+export const WEBRTC_CONFIG_WORKER_THREADS_OFF = 20;
 

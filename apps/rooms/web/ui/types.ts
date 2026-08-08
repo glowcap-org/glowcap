@@ -61,8 +61,8 @@ export interface ConvBase {
 	unread: Unread;
 }
 // A conversation is either a public room or a direct message, and the two carry
-// different state: a room has members and typing indicators, a DM has an
-// introduction that is or is not yet live. Modelling them as a discriminated
+// different state: a room has members, a DM has an introduction that is or is
+// not yet live; both carry typing indicators. Modelling them as a discriminated
 // union keeps each kind's fields off the other — a DM can't hold a member map,
 // a room can't be "ready" — so the compiler enforces at every use what a mode
 // flag would only ask a reader to remember.
@@ -72,7 +72,11 @@ export type Conv =
 		members: ReadonlyMap<string, boolean>; // name -> online
 		typers: ReadonlySet<string>; // nicks currently typing (auto-cleared by net.ts)
 	})
-	| (ConvBase & { type: "dm"; line: DmLine });
+	| (ConvBase & {
+		type: "dm";
+		line: DmLine;
+		typers: ReadonlySet<string>; // the peer, while typing (auto-cleared by net.ts)
+	});
 
 /** Where a direct line stands.
  *

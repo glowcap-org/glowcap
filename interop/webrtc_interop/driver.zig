@@ -217,14 +217,13 @@ fn offererHalf(
     var engine_peer = engine.Peer.initNegotiating(allocator);
     defer engine_peer.deinit();
     engine_peer.session_state.limits.max_frame_bytes = frame_cap;
-    // Pin the answerer's durable identity: the engine refuses a hello claiming
-    // any other one before the session opens, so the DataChannel's far end
-    // must advertise the identity we expect. The channel's DTLS handshake,
-    // brought up through capability-authorized signaling, is what proves it
-    // (ADR-0097), so this is a transport-verified binding.
-    engine_peer.expectPartnerDurableKey(
+    // Demand the answerer's durable identity: the engine refuses a hello that
+    // does not claim it, before the session opens. What *proves* the claim is
+    // the DataChannel's DTLS handshake under capability-authorized signaling,
+    // and the resident asserts that itself when it hands back a connection
+    // (ADR-0105), so this side states only what it asked for.
+    engine_peer.demandPartnerDurableKey(
         crypto.PeerKey.fromDesignator(expect_designator) orelse return error.InvalidDesignator,
-        .transport_verified,
     );
 
     const read_buf = try allocator.alloc(u8, frame_cap);
@@ -271,16 +270,16 @@ pub fn main(init: std.process.Init) !void {
     const offerer_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES);
     const answerer_designator = answerer_secret.publicKey().toDesignator();
 
-    var offerer_resident = try webrtc.Resident.init();
+    var offerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer offerer_resident.deinit();
-    var answerer_resident = try webrtc.Resident.init();
+    var answerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer answerer_resident.deinit();
     var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();
     var answerer = try answerer_resident.newPeer(false);
     defer answerer.deinit();
 
-    // The capability-authorized binding (ADR-0097): the in-process signaling
+    // The capability-authorized binding (ADR-0105): the in-process signaling
     // ferry stands in for a signaling capability scoped to each peer, so each
     // side authorizes the identity it exchanged SDP with, and the adapter
     // installs the binding before the first CapTP byte.

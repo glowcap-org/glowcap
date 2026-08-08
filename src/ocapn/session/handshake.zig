@@ -21,6 +21,18 @@ pub fn handshakeComplete(self: *const Session) bool {
     return self.handshake_local_sent and self.handshake_remote_received;
 }
 
+/// Whether an inbound `op:start-session` would be the partner's handshake
+/// half, rather than a duplicate or a hello arriving on an already-open or
+/// closed session. `validateStartSession` refuses those two cases with their
+/// own typed errors and is the authority that stops them; this reads the same
+/// two fields as a plain question, for the engine's pre-open checks. They ask
+/// it because signature verification and the durable-claim demand are
+/// expensive and stateful, and neither belongs to a frame the session will
+/// refuse a few steps later (`engine.inbound.applyDecodedOwnedFrame`).
+pub fn awaitsPartnerHello(self: *const Session) bool {
+    return self.state == .negotiating and !self.handshake_remote_received;
+}
+
 /// Moves the session from `Negotiating` to `Open`. It installs the fixed
 /// bootstrap export at
 /// `BOOTSTRAP_POSITION` (the only fallible step) then flips state, so a

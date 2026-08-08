@@ -1,7 +1,12 @@
 # Waiting on upstream
 
-These are open questions in OCapN and Spritely Goblins. pancake cannot close
-them by writing code, so they are not on [the roadmap](roadmap.md).
+These are open questions in OCapN and Spritely Goblins. pancake cannot settle
+any of them alone, so they are not on [the roadmap](roadmap.md). A few already
+have an answer pancake meets; those say so, and say what holds it.
+
+Each section names the proposal that owns the question, because `pancake-next`
+follows current direction rather than only merged text. Every number below was
+open at the last review of this page.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and
@@ -19,12 +24,14 @@ model arm, codec round trips, and a live Goblins check.
 The responder and fixtures ship. Goblins has no live marshaller for the
 operation, so there is nothing to check against yet.
 
-## `op:listen` arity
+## Promise-listening proposal
 
-The draft shows two operands; Goblins and the upstream test suite use a third,
-`wants_partial`. pancake follows the working implementations. That is a choice
-about interoperating with what runs today, not a claim about which shape is
-correct.
+The settled draft shows two operands, while Goblins and the upstream test suite
+use a third Boolean, `wants_partial`. OCapN PR 282 instead proposes integer
+listen modes, removes the inline resolver from next-profile delivers, and makes
+shortening listens mandatory. V1.0 follows Goblins. `pancake-next` follows the
+proposal while it is under review. The reviewed proposal revision is
+`9ee6bb20e25fdd358b2c408fe76d38e4dd151d34`.
 
 ## Locator hints type
 
@@ -33,30 +40,102 @@ accepts only false or a string. The wire unmarshaller builds nodes through the
 raw constructor, so a mapping-shaped hints field does decode in practice, which
 `zig build goblins-gift-hints` observes live.
 
-This one has a dependent: ADR-0097's `session-key-attestation` credential rides
-the hints extension point, so its wire shape stays provisional until the type
-question settles upstream. Canonical vectors and live foreign-decode evidence
-are committed; the proposal itself has not been sent.
+`zig build goblins-gift-hints` keeps this pinned with opaque route metadata; no
+pancake authentication mechanism depends on the extension point.
 
 ## Handoff withdrawal lookup
 
 Goblins resolves a give's session by the full node value including hints, while
-its own node equality deliberately ignores hints. A give therefore redeems only
-when its exporter locator matches the exporter's hello-declared location
-hints-and-all. pancake satisfies this by embedding the exporter's signed
-location record verbatim.
+its own node equality deliberately ignores hints. pancake embeds the peer-owned
+acceptable-location claim verbatim. That selected route may differ from the
+transport carrying the session. Onion uses the stable hint-less locator; an
+iroh direct-address refresh applies to subsequent sessions and gifts. This is
+pinned interop behavior, not a pancake architecture boundary.
 
-## Settlement encoding
+## Handoff count across independent receiver sessions
 
-Draft discussion sometimes names a separate `op:break`. Goblins CapTP 1.0 uses
-resolver-callback fulfill and break, while the pancake-native profile carries
-both under `op:resolve`. Revisit the native profile if the specification and
-Goblins converge.
+Goblins records an accepted `handoff-count` on the Gifter-Exporter session.
+The count belongs to the Receiver-Exporter session named by the receive
+certificate. Two independent receivers may therefore each use zero on their
+first session, but Goblins compares the second receiver's value with the first
+receiver's count retained on their shared Gifter-Exporter session and rejects
+the valid certificate. The same mismatch appears when one receiver closes and
+reconnects with a fresh session-local counter.
+
+pancake's automatic V1 redeem path issues from one Node-lifetime monotonic
+cursor, which keeps replacement sessions from moving backward against Goblins.
+`zig build goblins-rooms-dm-iroh` closes the first browser DM, opens a distinct
+replacement, and requires its first message and reply to cross the live Goblins
+session. Accepted replay state and all next-profile issuance remain scoped to
+the Receiver-Exporter session. Independent receivers cannot coordinate a
+counter the protocol assigns to separate sessions. The pinned source evidence
+lives in `conformance/ocapn-findings/`; `zig build goblins-rooms-matrix-iroh`
+reproduces the live rejection before running its clean four-peer matrix.
+
+## Promise settlement
+
+Goblins CapTP 1.0 uses resolver-callback fulfill and break. OCapN PR 282 also
+uses resolver callbacks, but obtains them through a following `op:listen`.
+`pancake-next` follows that proposal and sends no wire `op:resolve`. Revisit the
+next profile when the proposal changes or settles.
+
+## Message ordering
+
+OCapN PR 281 would write down an end-to-end reference FIFO order: messages one
+peer sends to a particular object or promise arrive in the order they were sent,
+and that order survives promise shortening. pancake's local invariant matches
+that shape: every shortening edge names an import on the same session, so a
+retargeted deliver leaves on the same wire its predecessors left on. A test in
+`test/engine/peer_test.zig` pins the retargeting and same-wire emission.
+
+The receiver's half of that claim has no in-tree scenario, and it cannot get one
+between two pancake peers. Shortening starts from a promise this peer imported,
+and `src/ocapn/engine/pipeline.zig` refuses a listen on a bare promise export,
+because pancake mints no free-standing resolvable promise for a partner to
+listen on. The peer that shortens is therefore always some other implementation,
+so watching the arrival order is an interop question for a live Goblins vat
+rather than a scenario the oracle can drive. Watch the proposal, too, for a
+requirement that reaches across sessions, which this session-local forest cannot
+express.
+
+## An error value
+
+OCapN PR 248 proposes a first-class Error, and issue 142 collects the invariants
+one would have to keep. pancake breaks a promise with a bare Symbol reason,
+because the pinned Goblins unmarshaller refuses records it does not know and an
+`<error>` payload would kill the break on a live peer. Converging would mean a
+model arm, both codecs, and a live Goblins check.
+
+## Sets, keywords, and one concrete encoding
+
+The draft model lists neither Set nor Keyword. Goblins marshals both, so pancake
+follows the Goblins wire, including canonical set order and duplicate refusal.
+Issue 283 asks whether the model should carry maps and sets, and issue 275 asks
+the wider question of a single concrete encoding. Either could move pancake's
+Syrup surface, and neither is settled.
+
+## Sturdyrefs and tagged values in the model
+
+PR 227 would add sturdy references to the model document, and PR 247 proposes a
+Syrup representation for Tagged. pancake ships both today, following Goblins.
+What to watch for is a chosen representation that differs from the one on the
+wire now.
+
+## Deposit-gift descriptor direction
+
+The CapTP text's `deposit-gift` example shows the gifted reference as a
+`desc:import-object`. PR 244 reports that it should be a `desc:export`, because
+the gifter is naming an object the exporter itself exported. pancake sends the
+exported form, which is what the live Goblins gift checks redeem, and accepts
+either shape on receive.
 
 ## Goblins over iroh
 
-pancake's iroh transport is complete for native peers and bindings, but Goblins
-ships no iroh netlayer, so there is no live Goblins-over-iroh check to write.
+Goblins ships no netlayer at all, so this repository writes the ones its
+conformance vats use. `conformance/goblins-peer/racket/iroh-netlayer.rkt` is the
+iroh one, and `zig build goblins-iroh` holds a live session over it in both
+directions. Watch upstream for a netlayer of its own: if Spritely ships one, the
+locator value and the hint names are what have to agree.
 
 ## Native Zig QUIC
 

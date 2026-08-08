@@ -22,7 +22,7 @@ The native owning `Session` facade also ships on the opaque identity: every
 verb takes and returns `driver.Capability`, arguments and replies are the
 Host-shaped `Value`/`Reply` vocabulary with lift/lower fused at the Host
 boundary, hosted behaviors answer through the `Hosting` adapter, and the
-`enroll` / `fetchReference` / `callReference` / `sendReference` spellings are
+`enroll` / `fetchReference` / `callReference` / `sendReference` names are
 deleted; wire references remain only on the explicit `engine.Peer` and
 `BlockingSession` tiers. The discriminating production-Host scenario proves
 that a mutated actor deposited on one exporter Port remains the redeemed
@@ -464,7 +464,7 @@ target storage, verified withdrawal ordering, and the production Host mutation
 and replacement scenario. The native owning facade migration ships: opaque
 `driver.Capability` on every `driver.Session` verb, the `Value`/`Reply`
 vocabulary, the `Hosting` behavior adapter, and deletion of the explicit
-enrollment and bare-position spellings. The unnamed-target, remote-equality,
+enrollment and bare-position forms. The unnamed-target, remote-equality,
 and outside-peer portions remain acceptance work rather than implementation
 claims.
 

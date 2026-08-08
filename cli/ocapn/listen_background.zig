@@ -29,6 +29,11 @@ const Ctx = ctx_mod.Ctx;
 /// the two atomics the fronts read. Freed only through `shutdown`.
 pub const Handle = struct {
     gpa: std.mem.Allocator,
+    /// The listening transport's residents. They live here rather than on
+    /// `start`'s frame because the server borrows one for the accept thread's
+    /// whole life; which one is chosen is `ocapn.listenNetlayer`'s decision.
+    tcp: pancake.net.tcp.Resident = undefined,
+    relay: pancake.net.keyed_relay.Resident = undefined,
     server: driver.Server,
     thread: std.Thread = undefined,
     stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -38,14 +43,37 @@ pub const Handle = struct {
     once: bool,
     /// Owned copy of the bound locator, for `info` and refusal messages.
     locator: []u8,
+    /// Owned copy of the `--rendezvous` URL. The relay resident's `RelayUrl`
+    /// holds subslices of it and re-reads them on every re-registration, so
+    /// the bytes must outlive the accept thread — and this front's flags do
+    /// not (an MCP request frees them as soon as it is answered).
+    rendezvous_url: ?[]u8,
+    /// Why the accept loop stopped, when it stopped by itself — a fault's
+    /// error name, or `served_stop` after a `--once`/`--publish` listener
+    /// answered its one partner. Read by the fronts so a listener that is no
+    /// longer accepting, for either reason, cannot keep reporting itself as
+    /// listening. The bound socket stays held either way, so the locator in
+    /// `info` stays honest.
+    stop_reason: std.atomic.Value(?[*:0]const u8) = std.atomic.Value(?[*:0]const u8).init(null),
+
+    /// The benign stop: the one-partner listener served its partner and went
+    /// quiet by design.
+    pub const served_stop: [*:0]const u8 = "served its one partner";
 
     /// Stop the accept thread through the latch, join it, and free
     /// everything. Callable from the front's own thread only.
+    ///
+    /// The join can outlast the latch's poll cadence: the thread may be
+    /// inside an accept, whose keyed handshake runs under the session
+    /// handshake budget and does not consult the latch. A partner that
+    /// connects and then says nothing therefore delays a `close` by that
+    /// budget rather than by a poll interval.
     pub fn shutdown(handle: *Handle) void {
         handle.stop.store(true, .release);
         handle.thread.join();
         handle.server.close() catch {};
         if (handle.publish) |name| handle.gpa.free(name);
+        if (handle.rendezvous_url) |url| handle.gpa.free(url);
         handle.gpa.free(handle.locator);
         handle.gpa.destroy(handle);
     }
@@ -74,10 +102,32 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         }
     }
 
-    var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
     const accept_id = try ctx.acceptIdentity();
-    var server = try driver.listen(ctx.gpa, tcp.netlayer(), .{ .designator = bind }, accept_id, ocapn.sessionOpts());
-    errdefer server.close() catch {};
+
+    // The handle is allocated before the server because it owns the
+    // transport residents the server will borrow, and a resident must not
+    // move once a netlayer points at it.
+    const handle = try ctx.gpa.create(Handle);
+    // `errdefer` fires only on an error return, and this verb reports its
+    // refusals as exit codes — a plain `return`. So ownership is tracked with
+    // a flag and released by `defer`, which covers every exit.
+    var handed_over = false;
+    var rendezvous_copy: ?[]u8 = null;
+    defer if (!handed_over) {
+        if (rendezvous_copy) |url| ctx.gpa.free(url);
+        ctx.gpa.destroy(handle);
+    };
+    if (parsed.flagString("rendezvous")) |url| rendezvous_copy = try ctx.gpa.dupe(u8, url);
+    const netlayer = ocapn.listenNetlayer(ctx, rendezvous_copy, &handle.tcp, &handle.relay) catch |err| switch (err) {
+        error.Usage => return exit_codes.usage,
+        else => return err,
+    };
+    var server = driver.listen(ctx.gpa, netlayer, .{ .designator = bind }, accept_id, ocapn.sessionOpts()) catch |err| {
+        ctx.logErr("listen: {s}", .{@errorName(err)});
+        return exit_codes.dial;
+    };
+    var server_owned = true;
+    defer if (server_owned) server.close() catch {};
 
     var addr_buf: [128]u8 = undefined;
     const designator = server.localDesignator(&addr_buf) catch {
@@ -85,29 +135,38 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         return exit_codes.internal;
     };
     const uri = try model.uri.writePeer(ctx.gpa, .{
-        .transport = "tcp",
+        .transport = server.listener.transportName(),
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     });
     defer ctx.gpa.free(uri);
 
-    const handle = try ctx.gpa.create(Handle);
-    errdefer ctx.gpa.destroy(handle);
+    // Flag-guarded like the handle: once the thread is live these belong to
+    // it, and an `errdefer` firing afterwards would free memory the thread is
+    // still reading and `shutdown` will free again.
     const locator_copy = try ctx.gpa.dupe(u8, uri);
-    errdefer ctx.gpa.free(locator_copy);
+    defer if (!handed_over) ctx.gpa.free(locator_copy);
     const publish_copy: ?[]u8 = if (publish_name) |name| try ctx.gpa.dupe(u8, name) else null;
-    errdefer if (publish_copy) |name| ctx.gpa.free(name);
-    handle.* = .{
-        .gpa = ctx.gpa,
-        .server = server,
-        .publish = publish_copy,
-        .once = once,
-        .locator = locator_copy,
-    };
+    defer if (!handed_over) if (publish_copy) |name| ctx.gpa.free(name);
+    // Field-wise: `tcp`/`relay` already hold the residents the netlayer
+    // above points at, so the whole struct must not be overwritten.
+    handle.gpa = ctx.gpa;
+    handle.server = server;
+    handle.stop = .init(false);
+    handle.accepted = .init(0);
+    handle.publish = publish_copy;
+    handle.once = once;
+    handle.locator = locator_copy;
+    handle.rendezvous_url = rendezvous_copy;
+    handle.stop_reason = .init(null);
     handle.thread = try std.Thread.spawn(.{}, acceptLoop, .{handle});
+    // The handle now owns the server and itself; the accept thread is live.
+    server_owned = false;
+    handed_over = true;
     ctx.background_listener = handle;
 
-    // `last_locator` is what `info` reports and what the argv front sets too.
+    // From here nothing may fail into a cleanup the live thread owns; the
+    // flags above are already flipped, so the defers are inert.
     const last_copy = try ctx.gpa.dupe(u8, uri);
     if (ctx.last_locator) |old| ctx.gpa.free(old);
     ctx.last_locator = last_copy;
@@ -132,19 +191,28 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
 /// signal-latched loop, latched on the handle's stop flag instead.
 fn acceptLoop(handle: *Handle) void {
     while (!handle.stop.load(.acquire)) {
-        const ready = handle.server.waitAcceptable(signals.poll_ms) catch return;
+        const ready = handle.server.waitAcceptable(signals.poll_ms) catch |err| {
+            // The listener is finished and nobody asked it to be. Record why,
+            // so `info` reports a dead listener instead of a live one.
+            handle.stop_reason.store(@errorName(err), .release);
+            return;
+        };
         if (!ready) continue;
         if (handle.stop.load(.acquire)) return;
         var conn = handle.server.accept() catch continue;
         defer conn.deinit();
         if (handle.publish) |name| {
-            // The name was validated at `start`; a publish that still fails
-            // (a torn connection) just ends this partner.
-            ocapn.publishBuiltin(conn, name) catch {};
+            // The name was validated at `start`, so a failure here is a torn
+            // connection. Serving a partner with nothing published would only
+            // give it a session that answers no fetch, so drop it instead.
+            ocapn.publishBuiltin(conn, name) catch continue;
         }
         _ = handle.accepted.fetchAdd(1, .monotonic);
         serveUntilStop(conn, &handle.stop);
-        if (handle.once or handle.publish != null) return;
+        if (handle.once or handle.publish != null) {
+            handle.stop_reason.store(Handle.served_stop, .release);
+            return;
+        }
     }
 }
 

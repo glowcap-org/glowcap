@@ -28,8 +28,9 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from . import _constants as _abi
 from ._action import _park_actions, _run_action
-from ._codec import _arg_to_c, _codec_id, _ref_to_c
+from ._codec import _arg_to_c, _captp_version_id, _codec_id, _feature_mask, _ref_to_c
 from ._errors import PancakeError, _check_host, _host_last_error
+from . import _trace
 
 if TYPE_CHECKING:
     from ._context import Context
@@ -108,36 +109,23 @@ class Host:
 
     ``seed`` is the Host's 32-byte Ed25519 identity (``None`` draws a fresh
     random one — entropy at the binding boundary, never inside the sans-io
-    host). ``codec`` picks the wire grammar every session this Host mints
-    negotiates in (``"syrup"`` by default; both ends of a session must
-    carry the same value). ``context`` routes every byte the host owns through
-    a caller-supplied allocation scope (:class:`Context`).
+    host). ``codec``, ``captp_version``, and ``features`` are the Host's
+    signed profile offer. Each session settles version and codec with its
+    partner, falling back to v1.0/Syrup when needed, and runs only the
+    intersection of the two offered feature sets. Omitted ``features`` means
+    the full feature set. ``context`` routes every byte the host owns through a
+    caller-supplied allocation scope (:class:`Context`).
     ``local_turn_budget`` is ``0`` for unbounded (the default) or a nonzero
     cap on local-turn amplification per drive (ADR-0076)."""
 
     def __init__(self, seed: Optional[bytes] = None, *, codec: str = "syrup",
+                 captp_version: str = "v1_0", features="full",
                  context: "Optional[Context]" = None, local_turn_budget: int = 0):
+        self._raw: ctypes.c_void_p | None = None
         self.seed = seed if seed is not None else secrets.token_bytes(32)
         self.codec = codec
-        out = ctypes.c_void_p()
-        # The durable identity followed by a session-key root drawn here, at
-        # this binding's entropy boundary, because the library draws none
-        # (ADR-0097). The root is fresh per process, so every CapTP session
-        # signs with its own key and a restart cannot recreate a prior
-        # session's handoff names; the durable half stays exactly ``seed``,
-        # since a keyed locator's designator derives from it.
-        sbuf, sptr = _byte_buf(self.seed + secrets.token_bytes(32))
-        if context is not None:
-            _check_host(_host.pancake_host_new_in(
-                context._raw, sptr, 64,
-                _HOST_FRAME_CAP, 1, _codec_id(codec), local_turn_budget, ctypes.byref(out),
-            ))
-        else:
-            _check_host(_host.pancake_host_new(
-                sptr, 64,
-                _HOST_FRAME_CAP, 1, _codec_id(codec), local_turn_budget, ctypes.byref(out),
-            ))
-        self._raw: ctypes.c_void_p | None = out
+        self.captp_version = captp_version
+        self.features = features
         # Host-scoped references outlive the session that delivered them; their
         # finalizer queue therefore belongs here, beside the authority registry.
         self._gc = HostGc()
@@ -145,7 +133,6 @@ class Host:
             self._loop: "Optional[asyncio.AbstractEventLoop]" = asyncio.get_running_loop()
         except RuntimeError:
             self._loop = None
-        bind_host(self._gc, self)
         # A node in a caller-supplied context must not outlive it: hold the
         # context so it cannot be collected (and its allocator released) first.
         self._context = context
@@ -184,6 +171,34 @@ class Host:
         # module.
         self._rendezvous_url = None
         self._redeem_reachability = _abi.IROH_REACH_REDEEM_DEFAULT
+        out = ctypes.c_void_p()
+        # The durable identity followed by a session-key root drawn here, at
+        # this binding's entropy boundary, because the library draws none
+        # (ADR-0097). The root is fresh per process, so every CapTP session
+        # signs with its own key and a restart cannot recreate a prior
+        # session's handoff names; the durable half stays exactly ``seed``,
+        # since a keyed locator's designator derives from it.
+        sbuf, sptr = _byte_buf(self.seed + secrets.token_bytes(32))
+        if context is not None:
+            _check_host(_host.pancake_host_new_in(
+                context._raw, sptr, 64,
+                _HOST_FRAME_CAP, 1, _codec_id(codec),
+                _captp_version_id(captp_version), _feature_mask(features),
+                local_turn_budget, ctypes.byref(out),
+            ))
+        else:
+            _check_host(_host.pancake_host_new(
+                sptr, 64,
+                _HOST_FRAME_CAP, 1, _codec_id(codec),
+                _captp_version_id(captp_version), _feature_mask(features),
+                local_turn_budget, ctypes.byref(out),
+            ))
+        self._raw = out
+        # The host's own key designator, which is what a partner names it by:
+        # the live trace reports it as this host's endpoint so one peer stays
+        # one node in a feed several producers share.
+        _trace._attach_host(out, self.designator())
+        bind_host(self._gc, self)
 
     @property
     def raw(self) -> ctypes.c_void_p:
@@ -286,6 +301,7 @@ class Host:
             # outliving the Host it belongs to is a free of freed memory.
             self.close_sessions()
             raw, self._raw = self._raw, None
+            _trace._detach_host(raw)
             def release_host() -> None:
                 _host.pancake_host_release(raw)
                 for ctx in self._giftables.values():
@@ -367,6 +383,28 @@ class Host:
         # header documents for that arm.
         buf, ptr = _byte_buf(data) if data else (None, None)
         _check_host(_host.pancake_host_set_self_designator(self._raw, ptr, len(data)))
+
+    def set_advertised_locator(self, raw_locator: bytes) -> None:
+        """Retain and select this Host's complete acceptable location.
+        ``raw_locator`` is one Syrup ``ocapn-peer`` record. Binding-internal."""
+        buf, ptr = _byte_buf(raw_locator)
+        _check_host(_host.pancake_host_set_advertised_locator(
+            self.raw, ptr, len(raw_locator)))
+
+    def ensure_advertised_locator(self, transport: str) -> None:
+        """Retain the dial fallback for ``transport`` without displacing an
+        existing acceptable location. Binding-internal."""
+        data = transport.encode()
+        buf, ptr = _byte_buf(data)
+        _check_host(_host.pancake_host_ensure_advertised_locator(
+            self.raw, ptr, len(data)))
+
+    def remove_advertised_locator(self, transport: str) -> None:
+        """Remove this Host's retained locator for ``transport``."""
+        data = transport.encode()
+        buf, ptr = _byte_buf(data)
+        _check_host(_host.pancake_host_remove_advertised_locator(
+            self.raw, ptr, len(data)))
 
     def set_session_limits(self, max_frame_bytes: int = 0, queue_cap: int = 0) -> None:
         """Selective session-limit knobs (ADR-0082). Pass 0 to leave a field

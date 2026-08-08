@@ -412,7 +412,11 @@ pub const Session = struct {
 
     /// `enliven` from an `ocapn://…/s/…` sturdyref URI string.
     pub fn enlivenUri(self: *Session, uri_str: []const u8) !Capability {
-        const sturdy = try model.uri.parseSturdyref(self.allocator, uri_str);
+        const sturdy = try model.uri.parseSturdyrefForProfile(
+            self.allocator,
+            self.hs.served.port.peer.session_state.captp_version,
+            uri_str,
+        );
         defer model.uri.freeSturdyref(self.allocator, sturdy);
         return self.enliven(sturdy);
     }
@@ -539,6 +543,23 @@ pub const Server = struct {
         return designator;
     }
 
+    /// Replace the complete locator this server advertises on subsequent
+    /// sessions and in handoffs. `listen` installs a listener-derived default;
+    /// deployments use this override when peers should dial an ingress, proxy,
+    /// externally mapped address, or another adapter-owned route instead.
+    /// Already-open sessions retain the snapshot their hello signed.
+    pub fn setAdvertisedLocator(self: *Server, locator: model.PeerLocator) !void {
+        if (!std.mem.eql(u8, locator.transport, self.listener.transportName()))
+            return error.TransportMismatch;
+        try self.host.core.setAdvertisedLocator(locator);
+    }
+
+    /// Borrow the currently advertised locator. The view remains valid until
+    /// `setAdvertisedLocator`, removal through the lower host tier, or close.
+    pub fn advertisedLocator(self: *const Server) model.PeerLocator {
+        return self.host.core.advertisedLocator(self.listener.transportName()).?;
+    }
+
     /// Accept one partner into its own `*Session` view of the shared host.
     /// The responder keyed handshake completes inside, under the handshake
     /// budget. Freed by `Session.deinit` (which leaves the siblings serving).
@@ -568,14 +589,10 @@ pub const Server = struct {
         var entropy: [engine.durable_swiss_entropy_len]u8 = undefined;
         self.host.io.randomSecure(&entropy) catch return driver.Error.MintEntropyFailed;
         const swiss = try self.host.core.publishDurable(entropy, driver_core.Hosting(Behavior), .{ .inner = initial });
-        var designator_buf: [128]u8 = undefined;
-        const designator = try self.localDesignator(&designator_buf);
-        return model.uri.writeSturdyref(allocator, .{
-            .peer = .{
-                .transport = self.listener.transportName(),
-                .designator = designator,
-                .hints = model.Hints.emptyFalse(),
-            },
+        const advertised = self.host.core.acceptableLocator() orelse
+            return error.MissingAdvertisedLocator;
+        return model.uri.writeSturdyrefForProfile(allocator, self.host.opts.captp_version, .{
+            .peer = advertised,
             .swissnum = swiss.slice(),
         });
     }
@@ -588,15 +605,7 @@ pub const Server = struct {
     }
 
     pub fn accept(self: *Server) !*Session {
-        var designator_buf: [128]u8 = undefined;
-        const designator = try self.localDesignator(&designator_buf);
-        // Designator and hint are different locator dimensions: on keyed-tcp
-        // the designator is the key and the dialable `host:port` rides the
-        // hint, which `localHint` surfaces (empty on address transports,
-        // which ignore it).
-        var hint_buf: [128]u8 = undefined;
-        const hint = self.listener.localHint(&hint_buf);
-        const hs = try self.host.acceptWire(self.listener, self.listener.transportName(), designator, hint);
+        const hs = try self.host.acceptWire(self.listener, self.listener.transportName());
         const session = try self.allocator.create(Session);
         errdefer self.allocator.destroy(session);
         session.* = .{ .host = self.host, .hs = hs, .owner = .accepted, .allocator = self.allocator };
@@ -654,7 +663,15 @@ pub fn listen(
 
     var designator_buf: [128]u8 = undefined;
     const bound = listener.localDesignator(&designator_buf);
-    if (bound.len > 0) host.core.setSelfDesignator(bound) catch {};
+    const direct_buf = try allocator.alloc(u8, opts.frame_cap);
+    defer allocator.free(direct_buf);
+    const direct = try listener.localDirectAddresses(direct_buf);
+    var hint_entries: [1]model.HintEntry = undefined;
+    try host.core.setAdvertisedLocator(.{
+        .transport = listener.transportName(),
+        .designator = bound,
+        .hints = model.Hints.forDirectAddresses(direct, &hint_entries),
+    });
 
     return .{ .host = host, .listener = listener, .allocator = allocator };
 }

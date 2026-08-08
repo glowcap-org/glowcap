@@ -18,12 +18,6 @@
 
 const std = @import("std");
 
-// Force sidecar stubs so reflecting the iroh archive stays cargo-free.
-comptime {
-    _ = @import("iroh_sidecar_stub");
-    _ = @import("webrtc_sidecar_stub");
-}
-
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
@@ -393,6 +387,7 @@ fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
         .specials = &.{
             .{ .T = cd.PancakeHostBehavior, .spelling = "_PancakeHostBehavior" },
             .{ .T = cd.PancakeHostCtxFree, .spelling = "_pointer" },
+            .{ .T = cd.PancakeTraceCallback, .spelling = "_PancakeTraceCallback" },
         },
     });
 }

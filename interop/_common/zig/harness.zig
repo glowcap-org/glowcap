@@ -38,6 +38,26 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
     };
 }
 
+/// An actor a live Goblins peer calls, for a driver whose partner invokes a cap
+/// **positionally**: `(<- actor "world")` carries no method symbol, so the first
+/// argument is the name rather than the verb. `template` is a format string with
+/// one `{s}` for that name; the reply is built on `turn.arena`, the per-turn
+/// allocator the vat reclaims. A partner that names a verb wants
+/// `StaticReplyActor` instead.
+pub fn PositionalReplyActor(comptime template: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
+            _ = self;
+            const name: []const u8 = switch (try msg.arg(0)) {
+                .string => |s| s,
+                .bytes => |b| b,
+                else => "stranger",
+            };
+            return .{ .string = try std.fmt.allocPrint(turn.arena, template, .{name}) };
+        }
+    };
+}
+
 /// A publish callback for `driver.Bridge` options: publishes one fresh `Actor`
 /// behind `swiss` on every adopted connection.
 pub fn publisher(comptime swiss: []const u8, comptime Actor: type) fn (?*anyopaque, *driver.Served, *actors.Vat) anyerror!void {

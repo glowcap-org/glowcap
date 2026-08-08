@@ -52,29 +52,49 @@ pub fn dispatchOwnedFrame(self: *Peer, frame_in: foundation.Frame) !void {
 
 /// Best-effort emit of the outbound `op:abort` an inbound failure projects to
 /// (`abort_projection.abortForError`). Shares `Peer.commitAbortOutbound` with
-/// app-queued aborts so a successful queue push applies the projected CapTP
-/// disposition. Bypasses `recordSend`, which would reject against post-failure
+/// app-queued aborts so a successful queue push closes CapTP. Bypasses
+/// `recordSend`, which would reject against post-failure
 /// session state. Swallows encode/push failures so the original dispatch
-/// error is never masked; when the disposition is `.close`, still closes
-/// even if the abort frame could not be queued.
+/// error is never masked, but still closes if the abort frame cannot be queued.
 pub fn emitAbortForError(self: *Peer, err: anyerror) void {
     self.recordFailure(err);
     const projected = abort_projection.abortForError(err) orelse return;
     self.commitAbortOutbound(.{
         .kind = projected.kind,
         .message = projected.message,
-    }, projected.disposition) catch {
-        if (projected.disposition == .close) self.closeSession();
-    };
+    }) catch self.closeSession();
 }
 
 pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
-    const decoded_body = codec.dispatch.decodeBody(self.session_state.codec, frame_in.view()) catch |err| {
+    const decoded_body = codec.dispatch.decodeBodyForProfile(
+        self.inboundCodec(),
+        self.session_state.captp_version,
+        frame_in.view(),
+    ) catch |err| {
         var frame = frame_in;
         frame.deinit();
         return err;
     };
     try applyDecodedOwnedFrame(self, frame_in, decoded_body);
+}
+
+/// Enforce the durable identity a dial named against the partner's hello claim.
+/// This is target matching, not authentication: channel authentication is a
+/// separate fact supplied by the realizer and reported through provenance.
+fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
+    if (self.demandedPartnerKey()) |demanded| {
+        // The hello's locator is the partner's selected route, not a record of
+        // this channel. Only a key-designator route makes a durable identity
+        // claim to compare with the key this dial named. An address route is a
+        // legitimate proxy or ingress; authenticated realizers prove the
+        // channel separately, while raw keyed transports trust their netlayer
+        // to have honored the dial target (ADR-0109).
+        if (model.transport.designatorScheme(ss.acceptable_location.transport) != .key) return;
+        const claimed_key = foundation.crypto.PeerKey.fromDesignator(
+            ss.acceptable_location.designator,
+        ) orelse return error.PartnerDesignatorMismatch;
+        if (!demanded.eql(claimed_key)) return error.PartnerDesignatorMismatch;
+    }
 }
 
 /// Apply an already-decoded inbound frame: install listeners, enqueue a
@@ -106,33 +126,23 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     // handshake; a failure returns `InvalidStartSessionSignature`, which
     // projects an abort and leaves the session un-opened (the key is never
     // learned, since `recordRecvView` below does not run).
-    if (decoded_body == .start_session) {
+    //
+    // Both checks below weigh the handshake hello this session is still
+    // waiting for, and only that one. A duplicate or post-open hello is
+    // refused by `validateStartSession` in `recordRecvView` further down, so
+    // weighing it here would spend an Ed25519 verification on a frame already
+    // destined for refusal, and let it revise identity state the accepted
+    // hello had already decided.
+    if (decoded_body == .start_session and self.session_state.awaitsPartnerHello()) {
         if (self.verify_partner_handshake) {
             try engine.verifyPartnerStartSession(self.allocator, decoded_body.start_session);
         }
-        // The durable-key-attestation contract (ADR-0097): on a transport
-        // whose key designator has no lower-layer proof, a hello claiming a
-        // key-designator location must prove the durable key authorized this
-        // session key. Same chokepoint, same one-chunk rationale as the pin.
-        if (self.require_partner_attestation) {
-            try engine.verifyPartnerAttestation(decoded_body.start_session);
-        }
-        // The durable-identity claim check (ADR-0097): a hello may claim the
-        // identity this session expects, or none at all — never someone
-        // else's. Checked at this same pre-open chokepoint because one
-        // byte-fed `feed` can carry the start-session and later frames in a
-        // single chunk, and a post-open check would let those frames apply
-        // under the wrong identity before anyone looked. `session_pubkey` is
-        // deliberately unconstrained: each connection signs with its own key,
-        // so comparing it against a durable name proves nothing.
-        if (self.expected_durable_key) |verified| {
-            const claimed = decoded_body.start_session.acceptable_location.designator;
-            if (foundation.crypto.PeerKey.fromDesignator(claimed) != null and
-                !std.mem.eql(u8, claimed, &verified.toDesignator()))
-            {
-                return error.PartnerDesignatorMismatch;
-            }
-        }
+        // What this side demands of the partner's durable claim (ADR-0105),
+        // at this same pre-open chokepoint: one byte-fed `feed` can carry the
+        // start-session and later frames in a single chunk, and a post-open
+        // check would let those frames apply under the wrong identity before
+        // anyone looked.
+        try checkPartnerDurableClaim(self, decoded_body.start_session);
     }
 
     // An inbound `op:listen` against one of our pending inbound answers
@@ -144,15 +154,27 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         try pipeline.maybeInstallInboundListener(self, decoded_body.listen);
     }
 
+    // The introduced-import record is filled by deliver validation before any
+    // deliver-specific authority mutation and consumed by ordinary/bootstrap
+    // apply below. It also survives long enough to annotate the surfaced event
+    // for stateless GC without walking the argument tree again.
+    var introduced: session.validate.IntroducedImports = .init(self.allocator, self.session_state.limits);
+    defer introduced.deinit();
+
     // An inbound deliver takes exactly one of four routes; the classifier
-    // holds the probe order, so the precedence is data here, not call-site
-    // ordering (see `classifyInboundDeliver`).
+    // holds the probe order and the validate-before-mutate boundary.
     var tag = eventKindFromBody(decoded_body);
     var answer_override: events.AnswerOverride = .none;
     var resolver_callback_resolve: ?model.view.Resolve = null;
+    var shortening_callback: ?struct {
+        resolver: model.ExportPosition,
+        shortened_to: model.FarRef,
+    } = null;
+    var retired_resolver_callback: ?model.ExportPosition = null;
+    var node_resolver_callback: ?model.ExportPosition = null;
     var bootstrap_request: ?bootstrap.Request = null;
     if (decoded_body == .deliver) {
-        switch (try classifyInboundDeliver(self, decoded_body.deliver)) {
+        switch (try classifyInboundDeliver(self, decoded_body.deliver, &introduced)) {
             // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
             // a *borrowed* view over the deliver's args, applied through the
             // session's resolver-callback seam below — no owned
@@ -169,7 +191,27 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
                     .answer = answer,
                     .resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args),
                 };
+                try self.session_state.validateResolverCallbackResolve(resolver_callback_resolve.?, &introduced);
+                try self.session_state.validatePromiseSettlingFollowers(answer);
             },
+            .shortening_callback => |resolver| {
+                const resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args);
+                const shortened_to: model.FarRef = switch (resolution) {
+                    .fulfill => |arg| switch (arg) {
+                        .reference => |reference| switch (reference) {
+                            .far => |far| if (far.kind == .promise) far else return session.Error.UnexpectedMessage,
+                            else => return session.Error.UnexpectedMessage,
+                        },
+                        else => return session.Error.UnexpectedMessage,
+                    },
+                    .@"break" => return session.Error.UnexpectedMessage,
+                };
+                try self.session_state.validateShorteningCompletion(resolver, shortened_to);
+                try self.session_state.validateInboundDeliverView(decoded_body.deliver, &introduced);
+                shortening_callback = .{ .resolver = resolver, .shortened_to = shortened_to };
+            },
+            .retired_resolver_callback => |resolver| retired_resolver_callback = resolver,
+            .node_resolver_callback => |resolver| node_resolver_callback = resolver,
             // Queued or redirected against the answer it pipelined on
             // (ADR-0007); nothing surfaces for this frame.
             .pipelined => {
@@ -188,11 +230,106 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         }
     }
 
+    const shortening_source = if (shortening_callback) |callback| switch (self.session_state.sourceForShorteningResolver(callback.resolver).?) {
+        .pending => |source| source,
+        .complete => unreachable,
+    } else null;
+    const shortening_source_is_held = if (shortening_callback) |callback|
+        self.session_state.shorteningSourceIsHeld(callback.resolver)
+    else
+        false;
+    const shortening_source_has_settling = if (shortening_source) |source|
+        self.session_state.promiseSettlingListenerClaimed(source)
+    else
+        false;
+    const shortening_source_has_settling_consumer = if (shortening_source) |source|
+        self.session_state.promiseSettlingConsumerClaimed(source)
+    else
+        false;
+
+    // Acquire every resolver row, queue slot, and owned GC slice before apply.
+    // Once the received frame commits, the required protocol maintenance must
+    // not become optional under allocator pressure.
+    var prepared_shortening: ?PreparedShortening = null;
+    var prepared_late_release: ?model.Message = null;
+    var prepared_retired_release: ?model.Message = null;
+    if (retired_resolver_callback != null) {
+        prepared_shortening = .{};
+        prepared_retired_release = try prepareIntroducedImportReleases(self, introduced.mentions.items);
+    } else if (shortening_callback != null and !shortening_source_is_held and !shortening_source_has_settling_consumer) {
+        prepared_late_release = try prepareIntroducedPromiseRelease(self, shortening_callback.?.shortened_to.import_position);
+    } else {
+        prepared_shortening = try prepareIntroducedPromiseShortening(self, &introduced);
+        if (shortening_callback != null and !shortening_source_is_held)
+            prepared_late_release = try prepareIntroducedPromiseRelease(self, shortening_callback.?.shortened_to.import_position);
+    }
+    var settling_rearm = if (shortening_source_has_settling_consumer)
+        try prepareSettlingRearm(
+            self,
+            shortening_source.?,
+            shortening_callback.?.shortened_to.import_position,
+            prepared_shortening.?.nominations.items.len + @intFromBool(prepared_late_release != null),
+        )
+    else
+        null;
+    defer {
+        if (settling_rearm) |*prepared| prepared.deinit(self.allocator);
+        if (prepared_shortening) |*prepared| prepared.abandon(self);
+        if (prepared_late_release) |message| model.freeMessage(self.allocator, message);
+        if (prepared_retired_release) |message| model.freeMessage(self.allocator, message);
+    }
+
+    if (shortening_callback) |callback| {
+        try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
+        self.session_state.completeShortening(callback.resolver, callback.shortened_to);
+        if (shortening_source_is_held or shortening_source_has_settling_consumer) {
+            commitPreparedShortening(self, &prepared_shortening.?);
+            prepared_shortening = null;
+            if (settling_rearm) |prepared| {
+                commitSettlingRearm(self, shortening_source.?, callback.shortened_to, prepared);
+                settling_rearm = null;
+            }
+            if (shortening_source_has_settling and !shortening_source_has_settling_consumer)
+                self.session_state.discardUnconsumedPromiseSettlingListener(shortening_source.?);
+            if (prepared_late_release) |message| {
+                commitPreparedImportRelease(self, message);
+                prepared_late_release = null;
+                self.session_state.releaseShorteningSourceAuthority(shortening_source.?);
+            }
+        } else {
+            if (shortening_source_has_settling)
+                self.session_state.discardUnconsumedPromiseSettlingListener(shortening_source.?);
+            commitPreparedImportRelease(self, prepared_late_release.?);
+            prepared_late_release = null;
+            self.session_state.releaseShorteningSourceAuthority(shortening_source.?);
+        }
+        frame.deinit();
+        return;
+    }
+
+    if (retired_resolver_callback) |resolver| {
+        try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
+        self.session_state.completeRetiredResolverCallback(resolver);
+        if (prepared_retired_release) |message| {
+            commitPreparedImportRelease(self, message);
+            prepared_retired_release = null;
+        }
+        frame.deinit();
+        return;
+    }
+
     try self.events.push(self.allocator, .{
         .frame = frame,
         .tag = tag,
         .answer_override = answer_override,
-        .codec = self.session_state.codec,
+        // The codec this frame arrived in, not the session's. A handshake
+        // frame is Syrup on a session that settles on something else, and an
+        // event is decoded again by whoever drains it — after the settle. Ask
+        // the session for its codec there and a hello re-reads as the codec it
+        // just negotiated, which fails silently at the drain and skips
+        // everything the hello was supposed to trigger.
+        .codec = self.inboundCodec(),
+        .captp_version = self.session_state.captp_version,
         .allocator = self.allocator,
     });
     stored = true;
@@ -202,29 +339,28 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         removed.frame.deinit();
     };
 
-    // The introduced-import record the validate walk fills and apply
-    // consumes for an ordinary deliver (`session.validate.IntroducedImports`),
-    // captured here so its far positions can be patched onto the event just
-    // pushed above, for post-dispatch stateless GC
-    // (`driver.core.gc.emitExportsForDeliver`) instead of a second walk of
-    // the same argument tree once the event is polled. Backed by
-    // `self.allocator`, not `recv_scratch`: `recordRecvView`'s own turn-
-    // scratch record resets before that call even returns, too short-lived
-    // to reach the event. Every other surfaced kind still runs through
-    // `recordRecvView`'s throwaway record, unchanged.
-    var introduced: session.validate.IntroducedImports = .init(self.allocator, self.session_state.limits);
-    defer introduced.deinit();
-
     const was_closed = self.session_state.state == .closed;
     if (resolver_callback_resolve) |resolve| {
-        try self.session_state.recordResolverCallbackResolve(resolve);
+        try self.session_state.applyValidatedResolverCallbackResolve(resolve, &introduced);
+        self.session_state.applyPromiseSettlingFollowers(resolve.answer, resolve.resolution);
+        self.events.backPtr().?.resolve_aliases = self.session_state.takePromiseSettlingFollowers(resolve.answer);
     } else if (tag == .deliver) {
-        try self.session_state.recordInboundDeliverView(decoded_body, &introduced);
+        try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
+        if (node_resolver_callback) |resolver|
+            self.session_state.completeNodeSettlingResolverCallback(resolver);
     } else {
         try self.session_state.recordRecvView(decoded_body);
     }
     if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
+    if (decoded_body == .start_session) self.settleNegotiatedProfile();
     appended = false;
+
+    commitPreparedShortening(self, &prepared_shortening.?);
+    prepared_shortening = null;
+    if (settling_rearm) |prepared| {
+        commitSettlingRearm(self, shortening_source.?, shortening_callback.?.shortened_to, prepared);
+        settling_rearm = null;
+    }
 
     // Patch the far mentions onto the just-pushed event when the deliver
     // introduced at least one (the common case introduces none, so no
@@ -246,7 +382,12 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     // dupe happens here, while the borrow is still valid.
     switch (decoded_body) {
         .get => |get| try pipeline.respondToProjection(self, get.receiver, .{ .field = get.field }, get.answer),
-        .index => |idx| try pipeline.respondToProjection(self, idx.receiver, .{ .index = idx.index }, idx.answer),
+        .index => |idx| try pipeline.respondToProjection(
+            self,
+            idx.receiver,
+            .{ .index = session.ProjectionIndex.fromInteger(idx.index) },
+            idx.answer,
+        ),
         .untag => |untag| try pipeline.respondToProjection(self, untag.receiver, .{ .untag = untag.tag }, untag.answer),
         else => {},
     }
@@ -303,6 +444,15 @@ const InboundDeliverClass = union(enum) {
     /// A deliver to one of our resolver exports, settling the outbound answer
     /// carried here; the frame surfaces as a semantic `Resolve`.
     resolver_callback_resolve: model.AnswerPosition,
+    /// A next-profile shortening-only callback. It advances private session
+    /// routing and is consumed before the application event queue.
+    shortening_callback: model.ExportPosition,
+    /// A resolver callback that raced with local answer release. Its arguments
+    /// are admitted and immediately released, with no application event.
+    retired_resolver_callback: model.ExportPosition,
+    /// A Node-only settling callback. It remains a deliver event for the Host's
+    /// Node composition hook, while session authority retires it as one-shot.
+    node_resolver_callback: model.ExportPosition,
     /// Pipelined against an answer we owe (ADR-0007): the call was queued or
     /// redirected during classification, so the frame surfaces nothing.
     pipelined,
@@ -328,18 +478,24 @@ const InboundDeliverClass = union(enum) {
 ///    (ADR-0095). A deliver to an export we minted as a resolver settles the
 ///    answer that export was bound to, whatever else the position might also
 ///    look like.
-/// 2. V1.0 resolver registration runs next. It installs the partner's
+/// 2. Ordinary deliver validation runs next, before any deliver-specific
+///    authority mutation.
+/// 3. V1.0 resolver registration then installs the partner's
 ///    advertised resolver as a side effect, and a pipelined deliver carrying
 ///    `resolve_me_desc` needs that resolver installed before its frame is
 ///    released, so the V1.0 translation finds it when the drained call
 ///    resolves later.
-/// 3. Pipelining runs after that registration: an inbound deliver whose target
+/// 4. Pipelining runs after that registration: an inbound deliver whose target
 ///    is a still-pending answer is queued until that answer resolves
 ///    (ADR-0007).
-/// 4. The bootstrap probe runs last, so a pipelined call is never mistaken
+/// 5. The bootstrap probe runs last, so a pipelined call is never mistaken
 ///    for a bootstrap fetch, and a resolver-only fetch has its virtual
 ///    answer installed before the bootstrap action is computed.
-fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeliverClass {
+fn classifyInboundDeliver(
+    self: *Peer,
+    deliver: model.view.Deliver,
+    introduced: *session.validate.IntroducedImports,
+) !InboundDeliverClass {
     // A resolver export settles by an `['fulfill|'break, payload]` deliver on
     // every negotiated version, so this probe carries no version gate: the
     // V1.0 resolver callback and the `op:listen` notification a listener
@@ -347,10 +503,31 @@ fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeli
     // reaches the link, so a partner-named `.far` in the same integer space
     // cannot key it.
     if (deliver.target.exportPosition()) |position| {
+        if (self.session_state.sourceForShorteningResolver(position)) |state| {
+            return switch (state) {
+                .pending => .{ .shortening_callback = position },
+                .complete => session.Error.UnexpectedMessage,
+            };
+        }
+        if (self.session_state.isNodeSettlingResolver(position)) {
+            _ = try events.resolutionFromResolverCallback(deliver.args);
+            try self.session_state.validateInboundDeliverView(deliver, introduced);
+            return .{ .node_resolver_callback = position };
+        }
+        if (self.session_state.retiredResolverState(position)) |state| {
+            if (state == .complete) return session.Error.UnexpectedMessage;
+            _ = try events.resolutionFromResolverCallback(deliver.args);
+            try self.session_state.validateInboundDeliverView(deliver, introduced);
+            return .{ .retired_resolver_callback = position };
+        }
         if (self.session_state.answerForResolverExport(position)) |answer| {
             return .{ .resolver_callback_resolve = answer };
         }
     }
+    // Every remaining route has ordinary deliver semantics. Validate the full
+    // target, answer, resolver descriptor, and argument tree before resolver
+    // registration or pipeline retention can mutate session authority.
+    try self.session_state.validateInboundDeliverView(deliver, introduced);
     // A resolver-only deliver (no wire answer) has a virtual answer
     // allocated here; carry it to the `.ordinary` surface so a deliver to a
     // local object can be replied to. A pipelined or bootstrap deliver
@@ -369,6 +546,166 @@ fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeli
     return .{ .ordinary = ordinary_answer };
 }
 
+const PreparedShortening = struct {
+    nominations: std.ArrayListUnmanaged(session.ShorteningNomination) = .empty,
+
+    fn abandon(self: *PreparedShortening, peer: *Peer) void {
+        for (self.nominations.items) |nomination|
+            peer.session_state.abandonShorteningResolver(nomination);
+        self.nominations.deinit(peer.allocator);
+        self.* = .{};
+    }
+};
+
+fn prepareIntroducedPromiseShortening(
+    self: *Peer,
+    introduced: *const session.validate.IntroducedImports,
+) !PreparedShortening {
+    var prepared: PreparedShortening = .{};
+    errdefer prepared.abandon(self);
+    if (self.session_state.captp_version != .next) return prepared;
+
+    try prepared.nominations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.items.len);
+    for (introduced.promise_mentions.items) |source| {
+        const nomination = (try self.session_state.nominateShorteningResolver(source)) orelse continue;
+        prepared.nominations.appendAssumeCapacity(nomination);
+    }
+    try self.pending_send.ensureUnusedCapacity(self.allocator, prepared.nominations.items.len);
+    return prepared;
+}
+
+fn commitPreparedShortening(self: *Peer, prepared: *PreparedShortening) void {
+    for (prepared.nominations.items) |nomination| {
+        const message: model.Message = .{ .listen = .{
+            .target = .{ .far = model.FarRef.promise(nomination.source.int()) },
+            .listener = session.slot.toReference(self.session_state.exportSlot(nomination.resolver_export).?).?,
+            .mode = .shortening_only,
+        } };
+        self.session_state.recordSend(message) catch unreachable;
+        self.pending_send.pushAssumeCapacity(.{ .message = message });
+    }
+    prepared.nominations.deinit(self.allocator);
+    prepared.* = .{};
+}
+
+const PreparedSettlingRearm = struct {
+    listener_export: model.ExportPosition,
+    node_services: ?engine.NodeServices,
+    move: session.SettlingMovePlan,
+
+    fn deinit(self: *PreparedSettlingRearm, allocator: std.mem.Allocator) void {
+        self.move.deinit(allocator);
+    }
+};
+
+fn prepareSettlingRearm(
+    self: *Peer,
+    source: session.PromiseIncarnation,
+    target: model.ImportPosition,
+    shortening_send_count: usize,
+) !?PreparedSettlingRearm {
+    if (!self.session_state.promiseSettlingListenerClaimed(source)) return null;
+    var move = try self.session_state.preparePromiseSettlingMove(source, target);
+    errdefer move.deinit(self.allocator);
+
+    const answer = self.session_state.promiseSettlingAnswer(source);
+    const source_listener = self.session_state.promiseSettlingListenerExport(source) orelse
+        return session.Error.UnexpectedMessage;
+    const target_incarnation = self.session_state.shorteningIncarnationForImport(target) orelse
+        return session.Error.UnexpectedMessage;
+    const target_listener = if (move.converges)
+        self.session_state.promiseSettlingListenerExport(target_incarnation) orelse
+            return session.Error.UnexpectedMessage
+    else
+        source_listener;
+    const node_services = if (self.session_state.promiseSettlingNodeClaimed(source)) blk: {
+        const services = self.node_services orelse return session.Error.UnexpectedMessage;
+        try services.preparePromiseShortening(
+            source.position.int(),
+            target.int(),
+            target_listener.int(),
+            move.converges,
+        );
+        break :blk services;
+    } else null;
+    if (answer == null and node_services == null) return session.Error.UnexpectedMessage;
+    const prepared: PreparedSettlingRearm = .{
+        .listener_export = source_listener,
+        .node_services = node_services,
+        .move = move,
+    };
+
+    try self.pending_send.ensureUnusedCapacity(
+        self.allocator,
+        shortening_send_count + @intFromBool(!prepared.move.converges),
+    );
+    return prepared;
+}
+
+fn commitSettlingRearm(
+    self: *Peer,
+    source: session.PromiseIncarnation,
+    target: model.FarRef,
+    prepared_in: PreparedSettlingRearm,
+) void {
+    var prepared = prepared_in;
+    if (!prepared.move.converges) {
+        const message: model.Message = .{ .listen = .{
+            .target = .{ .far = target },
+            .listener = session.slot.toReference(self.session_state.exportSlot(prepared.listener_export).?).?,
+            .mode = .settling_only,
+        } };
+        self.session_state.recordSend(message) catch unreachable;
+        self.pending_send.pushAssumeCapacity(.{ .message = message });
+    }
+    self.session_state.commitPromiseSettlingMove(&prepared.move);
+    if (prepared.node_services) |services|
+        services.commitPromiseShortening(
+            source.position.int(),
+            target.import_position.int(),
+            if (prepared.move.converges)
+                self.session_state.promiseSettlingListenerExport(
+                    self.session_state.shorteningIncarnationForImport(target.import_position) orelse unreachable,
+                ).?.int()
+            else
+                prepared.listener_export.int(),
+            prepared.move.converges,
+        );
+}
+
+fn prepareIntroducedPromiseRelease(self: *Peer, position: model.ImportPosition) !model.Message {
+    const positions = try self.allocator.alloc(u64, 1);
+    errdefer self.allocator.free(positions);
+    const deltas = try self.allocator.alloc(u64, 1);
+    errdefer self.allocator.free(deltas);
+    positions[0] = position.int();
+    deltas[0] = 1;
+    try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+    return .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+}
+
+fn prepareIntroducedImportReleases(
+    self: *Peer,
+    imports: []const model.ImportPosition,
+) !?model.Message {
+    if (imports.len == 0) return null;
+    const positions = try self.allocator.alloc(u64, imports.len);
+    errdefer self.allocator.free(positions);
+    const deltas = try self.allocator.alloc(u64, imports.len);
+    errdefer self.allocator.free(deltas);
+    for (imports, positions, deltas) |import_position, *position, *delta| {
+        position.* = import_position.int();
+        delta.* = 1;
+    }
+    try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+    return .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+}
+
+fn commitPreparedImportRelease(self: *Peer, message: model.Message) void {
+    self.session_state.recordSend(message) catch unreachable;
+    self.pending_send.pushAssumeCapacity(.{ .message = message });
+}
+
 /// The `EventKind` a decoded body surfaces as, a 1:1 body-tag mapping. The one
 /// re-tag (a V1.0 resolver-callback deliver surfacing as `.resolve`) is decided
 /// by the inbound classifier (`classifyInboundDeliver`), not here.
@@ -378,7 +715,6 @@ fn eventKindFromBody(body: model.view.Body) events.EventKind {
         .resolve => .resolve,
         .gc_export => .gc_export,
         .gc_answer => .gc_answer,
-        .handoff => .handoff,
         .start_session => .start_session,
         .abort => .abort,
         .listen => .listen,

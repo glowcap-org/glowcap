@@ -3,9 +3,8 @@
 // `runDmHandoff`; this file supplies only the TCP flavour of standing Bob and
 // the rendezvous room up. Run by `zig build demo-rooms-dm`.
 
-import { Host, listen } from "@pancake/stack";
 import { runDmHandoff } from "../lib/dm_handoff.ts";
-import { loopbackTcpDesignator } from "../lib/locator.ts";
+import { loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 
 runDmHandoff({
 	label: "rooms-dm",
@@ -18,8 +17,8 @@ runDmHandoff({
 		"the DM arrived on the inbox Bob minted for Carol, so it named no sender",
 	],
 	async startMember(_who) {
-		const host = new Host();
-		const member = listen("127.0.0.1", 0, host);
+		const host = roomsHost();
+		const member = roomsListen("127.0.0.1", 0, host);
 		return {
 			host,
 			sessions: member,
@@ -28,7 +27,7 @@ runDmHandoff({
 		};
 	},
 	async startRoom() {
-		const room = listen("127.0.0.1", 0);
+		const room = roomsListen("127.0.0.1", 0);
 		return {
 			listener: room,
 			locator: loopbackTcpDesignator(await room.ready()),

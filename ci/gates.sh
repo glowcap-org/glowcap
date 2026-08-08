@@ -112,6 +112,10 @@ gate zig build goblins-handoff
 # that catches a pancake-side change to the signed give bytes (goblins-handoff
 # forwards a Goblins-minted give verbatim, so it cannot).
 gate zig build goblins-gift
+# The same gifter proof with an opaque route hint in the handoff locator. This
+# catches lossy hint decode/re-encode before a real Goblins recipient verifies
+# the signed give.
+gate zig build goblins-gift-hints
 # The gifter direction in its harder position: the give arrives in a listener
 # fire on a promise pancake introduced, rather than in an answer the recipient
 # asked for. Only a live partner can say whether it reads one there.

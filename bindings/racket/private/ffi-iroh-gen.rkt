@@ -36,6 +36,9 @@
    (get-ffi-obj 'pancake_iroh_conn_release L (_fun _pointer -> _void))
    'conn-id
    (get-ffi-obj 'pancake_iroh_conn_id L (_fun _pointer -> _size))
+   'conn-remote-node-id
+   (wrap-out1 (get-ffi-obj 'pancake_iroh_conn_remote_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
+              _size 0)
    'netlayer-readiness-fd
    (get-ffi-obj 'pancake_iroh_netlayer_readiness_fd L (_fun _pointer -> _int32))
    'netlayer-drain-ready

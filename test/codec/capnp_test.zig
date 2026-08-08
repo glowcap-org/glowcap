@@ -74,6 +74,53 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
     try std.testing.expectEqual(@as(i64, 7), (try inner.at(1)).integer);
 }
 
+test "Cap'n Proto rejects invalid UTF-8 String and Symbol values without allocating" {
+    const invalid = &.{@as(u8, 0xff)};
+    const invalid_arguments = [_]model.Argument{
+        .{ .string = invalid },
+        .{ .symbol = invalid },
+    };
+
+    for (invalid_arguments) |argument| {
+        const args = [_]model.Argument{argument};
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+        const before = failing.alloc_index;
+        try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(failing.allocator(), .{
+            .deliver = .{
+                .target = .{ .far = model.FarRef.object(7) },
+                .args = &args,
+            },
+        }));
+        try std.testing.expectEqual(before, failing.alloc_index);
+    }
+
+    const valid_args = [_]model.Argument{
+        .{ .string = "\xc3\xa9" },
+        .{ .symbol = "\xf0\x9f\x98\x80" },
+        .{ .bytes = invalid },
+    };
+    var frame = try capnp.encodeMessage(std.testing.allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &valid_args,
+    } });
+    defer frame.deinit();
+
+    const valid_body = try capnp.decodeBody(frame.view());
+    try std.testing.expectEqualSlices(u8, "\xc3\xa9", (try valid_body.deliver.args.at(0)).string);
+    try std.testing.expectEqualSlices(u8, "\xf0\x9f\x98\x80", (try valid_body.deliver.args.at(1)).symbol);
+    try std.testing.expectEqualSlices(u8, invalid, (try valid_body.deliver.args.at(2)).bytes);
+
+    for ([_][]const u8{ "\xc3\xa9", "\xf0\x9f\x98\x80" }) |needle| {
+        const bytes = try std.testing.allocator.dupe(u8, frame.bytes());
+        defer std.testing.allocator.free(bytes);
+        const offset = std.mem.indexOf(u8, bytes, needle) orelse return error.TestUnexpectedResult;
+        bytes[offset] = 0xff;
+        const view = pancake.foundation.FrameView{ .bytes = bytes, .shape = .word };
+        try std.testing.expectError(capnp.Error.MalformedFrame, capnp.decodeBody(view));
+        try std.testing.expectError(capnp.Error.MalformedFrame, capnp.decodeOwned(std.testing.allocator, view));
+    }
+}
+
 test "a Struct argument round-trips through the Cap'n Proto codec" {
     const allocator = std.testing.allocator;
 
@@ -433,11 +480,68 @@ test "listen, get, and index round-trip" {
     try expectRoundTrip(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(1) },
         .listener = .{ .near = model.NearRef.object(2) },
-        .wants_partial = true,
+        .mode = .shortening_or_settling,
     } });
     try expectRoundTrip(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = .from(8) } });
-    try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = .from(9) } });
+    try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = .{ .integer = -3 }, .answer = .from(9) } });
+    try expectRoundTrip(.{ .index = .{
+        .receiver = .{ .far = model.FarRef.object(6) },
+        .index = .{ .big_integer = .{ .negative = false, .digits = "9223372036854775808" } },
+        .answer = .from(10),
+    } });
     try expectRoundTrip(.{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = .from(8) } });
+}
+
+test "profile-less Cap'n Proto framing accepts next listen modes without projecting semantics" {
+    // FrameStream has no CaptpVersion. It must accept modes 2/3 structurally
+    // and return only their boundary; semantic decode stays V1 by default and
+    // profile-aware when a session applies the frame.
+    const allocator = std.testing.allocator;
+    for ([_]model.ListenMode{ .settling_only, .shortening_or_settling }) |mode| {
+        var frame = try capnp.encodeMessageForProfile(allocator, .next, .{ .listen = .{
+            .target = .{ .far = model.FarRef.promise(1) },
+            .listener = .{ .near = model.NearRef.object(2) },
+            .mode = mode,
+        } });
+        defer frame.deinit();
+
+        const boundary = capnp.framePrefix(frame.bytes(), frame.bytes().len);
+        try std.testing.expect(boundary == .complete);
+        try std.testing.expectEqual(frame.bytes().len, boundary.complete);
+
+        try std.testing.expect(capnp.decodePrefix(frame.bytes(), frame.bytes().len) == .malformed);
+        try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(frame.view()));
+        const next_body = try capnp.decodeBodyForProfile(.next, frame.view());
+        try std.testing.expectEqual(mode, next_body.listen.mode);
+    }
+}
+
+test "Cap'n Proto framing does not choose between the two meanings of listen mode one" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = model.FarRef.promise(1) };
+    const listener = model.Reference{ .near = model.NearRef.object(2) };
+    var v1 = try capnp.encodeMessageForProfile(allocator, .v1_0, .{ .listen = .{
+        .target = target,
+        .listener = listener,
+        .mode = .shortening_or_settling,
+    } });
+    defer v1.deinit();
+    var next = try capnp.encodeMessageForProfile(allocator, .next, .{ .listen = .{
+        .target = target,
+        .listener = listener,
+        .mode = .shortening_only,
+    } });
+    defer next.deinit();
+
+    try std.testing.expectEqualSlices(u8, v1.bytes(), next.bytes());
+    const boundary = capnp.framePrefix(v1.bytes(), v1.bytes().len);
+    try std.testing.expect(boundary == .complete);
+    try std.testing.expectEqual(v1.bytes().len, boundary.complete);
+
+    const v1_body = try capnp.decodeBodyForProfile(.v1_0, v1.view());
+    try std.testing.expectEqual(model.ListenMode.shortening_or_settling, v1_body.listen.mode);
+    const next_body = try capnp.decodeBodyForProfile(.next, next.view());
+    try std.testing.expectEqual(model.ListenMode.shortening_only, next_body.listen.mode);
 }
 
 test "start-session round-trips the four-operand handshake" {
@@ -449,7 +553,7 @@ test "start-session round-trips the four-operand handshake" {
     } });
 }
 
-test "handoff give and receive round-trip" {
+test "nested handoff give and receive round-trip" {
     const give = model.HandoffGive{
         .recipient_key = &([_]u8{0x01} ** 32),
         .exporter = .{ .transport = "tcp", .designator = "host" },
@@ -458,14 +562,19 @@ test "handoff give and receive round-trip" {
         .gift_id = &([_]u8{0x04} ** 32),
         .signature = &([_]u8{0x05} ** 64),
     };
-    try expectRoundTrip(.{ .handoff = .{ .give = give } });
-    try expectRoundTrip(.{ .handoff = .{ .receive = .{
+    var give_handoff = model.Handoff{ .give = give };
+    var receive_handoff = model.Handoff{ .receive = .{
         .receiving_session = &([_]u8{0x06} ** 32),
         .receiving_side = &([_]u8{0x07} ** 32),
         .handoff_count = 11,
         .signed_give = give,
         .signature = &([_]u8{0x08} ** 64),
-    } } });
+    } };
+    const args = [_]model.Argument{ .{ .handoff = &give_handoff }, .{ .handoff = &receive_handoff } };
+    try expectRoundTrip(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &args,
+    } });
 }
 
 test "decode rejects a byte-shaped frame" {
@@ -560,10 +669,10 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
         .{ .listen = .{
             .target = .{ .far = model.FarRef.promise(1) },
             .listener = .{ .near = model.NearRef.object(2) },
-            .wants_partial = true,
+            .mode = .shortening_or_settling,
         } },
         .{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = .from(8) } },
-        .{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = .from(9) } },
+        .{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = .{ .integer = -3 }, .answer = .from(9) } },
         .{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = .from(8) } },
         .{ .start_session = .{
             .captp_version = .v1_0,
@@ -571,14 +680,6 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
             .acceptable_location = .{ .transport = "tcp", .designator = "1.2.3.4:5" },
             .acceptable_location_sig = .{ .bytes = &([_]u8{0xcd} ** 64) },
         } },
-        .{ .handoff = .{ .give = give } },
-        .{ .handoff = .{ .receive = .{
-            .receiving_session = &([_]u8{0x06} ** 32),
-            .receiving_side = &([_]u8{0x07} ** 32),
-            .handoff_count = 11,
-            .signed_give = give,
-            .signature = &([_]u8{0x08} ** 64),
-        } } },
     };
 
     for (messages) |message| {

@@ -41,9 +41,11 @@ Cap'n Proto lays messages out in 8-byte words with fixed field offsets. That
 makes partial reads and random access cheap, but padding and pointer words make
 small messages larger.
 
-In pancake it belongs to the `pancake-next` profile and is only for two pancake
-peers. It never goes to Goblins. Select it with `codec = .capnp` in Zig
-`SessionOptions` in Zig or the matching Host/binding option.
+In pancake it is only for two pancake peers; Goblins does not speak it. Codec
+and CapTP version are separate choices. The native preference pairs Cap'n Proto
+with `pancake-next`, while Cap'n Proto can also carry V1.0 semantics between
+pancake peers. Set `codec = .capnp` and the version you need in Zig
+`SessionOptions`, or use the matching Host or binding preference.
 
 ## Choosing
 

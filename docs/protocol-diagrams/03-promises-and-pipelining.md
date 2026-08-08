@@ -1,7 +1,8 @@
 # Promises and pipelining
 
-Anchors: CapTP Specification § Promises, § Promise pipelining, § op:listen. The
-`wants-partial?` operand is `[goblins-canonical]`.
+Anchors: CapTP Specification § Promises, § Promise pipelining, § op:listen.
+The diagrams use next's integer listen modes. Goblins V1.0 translates its
+Boolean `wants-partial?` at the codec boundary.
 
 ## PP-1: Promise lifecycle
 
@@ -23,18 +24,22 @@ stateDiagram-v2
 
 A questioner may target `desc:answer N` before N has resolved. The answerer
 queues the pipelined call against the pending answer and runs it on settlement,
-saving the round-trip.
+saving the round-trip. On next, every answered operation carries a mandatory
+mode-3 listener (shortening or settling) so the questioner learns both partial
+and final results without a separate application listen.
 
 ```mermaid
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
     Q->>R: op:deliver (to desc:export 5, args, answer-pos 3)
+    Q->>R: op:listen (desc:answer 3, desc:import-object 8, mode 3)
     Q->>R: op:deliver (to desc:answer 3, args, answer-pos 4)
+    Q->>R: op:listen (desc:answer 4, desc:import-object 9, mode 3)
     Note over R: second call queues against pending answer 3
-    R->>Q: op:resolve (3, resolve:fulfill ref)
+    R->>Q: op:deliver (to desc:export 8, ['fulfill, far-promise], answer-pos false)
     Note over R: queued call runs against the fulfillment
-    R->>Q: op:resolve (4, resolve:fulfill result)
+    R->>Q: op:deliver (to desc:export 9, ['fulfill, result], answer-pos false)
 ```
 
 ## PP-3: Multi-hop chain
@@ -49,10 +54,13 @@ sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
     Q->>R: op:deliver (to desc:export 1, ['lookup, x], answer-pos 3)
+    Q->>R: op:listen (desc:answer 3, listener 8, mode 3)
     Q->>R: op:deliver (to desc:answer 3, ['getCalendar], answer-pos 4)
+    Q->>R: op:listen (desc:answer 4, listener 9, mode 3)
     Q->>R: op:deliver (to desc:answer 4, ['eventsToday], answer-pos 5)
+    Q->>R: op:listen (desc:answer 5, listener 10, mode 3)
     Note over R: each hop queues against the previous answer
-    R->>Q: op:resolve (5, resolve:fulfill events)
+    R->>Q: op:deliver (to listener 10, ['fulfill, events], answer-pos false)
 ```
 
 ## PP-4: Deliver to an already-resolved answer
@@ -69,39 +77,35 @@ flowchart TD
     ST -->|"broken"| BR["break the new answer with the inherited error"]
 ```
 
-## PP-5: op:listen, fire on settlement
+## PP-5: Settling listener
 
-The listener is an object the questioner exports. When the target settles, the
-answerer delivers the resolution to the listener as an ordinary call. With
-`wants-partial?` false (spec-strict), it fires exactly once, on the
-eventually-settled non-promise resolution.
+Mode 2 asks only for settlement. The answerer delivers the resolution to the
+listener as an ordinary call. A same-peer promise fulfillment re-anchors the
+listener without firing it.
 
 ```mermaid
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
-    Q->>R: op:listen (desc:answer 7, desc:import-object 9, wants-partial false)
+    Q->>R: op:listen (desc:answer 7, desc:import-object 9, mode 2)
     Note over R: listener installed on answer 7
     Note over R: answer 7 settles
     R->>Q: op:deliver (to desc:export 9, ['fulfill, value], answer-pos false)
 ```
 
-## PP-6: op:listen with wants-partial `[goblins-canonical]`
+## PP-6: Shortening listener
 
-With `wants-partial?` true, the listener also fires on each intermediate
-promise-shaped fulfillment, re-installing on the next link until a settled value
-arrives.
+Mode 1 asks only for shortening. A far-promise fulfillment fires the listener
+once. The receiving peer installs a new mode-1 listener on the returned promise.
 
 ```mermaid
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
-    Q->>R: op:listen (desc:answer 7, desc:import-object 9, wants-partial true)
-    Note over R: answer 7 fulfills with another promise
+    Q->>R: op:listen (desc:answer 7, desc:import-object 9, mode 1)
+    Note over R: answer 7 fulfills with a far promise
     R->>Q: op:deliver (to desc:export 9, ['fulfill, partial-promise], answer-pos false)
-    Note over R: listener re-installs on the new promise
-    Note over R: chain bottoms out in a settled value
-    R->>Q: op:deliver (to desc:export 9, ['fulfill, value], answer-pos false)
+    Q->>R: op:listen (partial-promise, desc:import-object 10, mode 1)
 ```
 
 ## PP-7: op:listen on an already-settled target
@@ -121,7 +125,7 @@ answer it already holds.
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
-    Q->>R: op:listen (desc:export 5, desc:import-object 9, wants-partial false)
+    Q->>R: op:listen (desc:export 5, desc:import-object 9, mode 2)
     Note over R: export 5 is a live object, nothing pending
     R->>Q: op:deliver (to desc:export 9, ['fulfill, desc:import-object 5], answer-pos false)
 ```

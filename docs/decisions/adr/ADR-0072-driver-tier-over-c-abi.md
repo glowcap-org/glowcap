@@ -7,7 +7,7 @@ decision: "The C ABI gains a `libpancake_driver` archive that projects `driver.c
 supersedes: [ADR-0071]
 superseded_by: []
 amends: []
-amended_by: [ADR-0096, ADR-0100]
+amended_by: [ADR-0096, ADR-0100, ADR-0110]
 ---
 
 # ADR-0072 The driver tier over the C ABI: host-configurable netlayers and loop
@@ -19,6 +19,10 @@ amended_by: [ADR-0096, ADR-0100]
 > `Host` / `PancakeHost` / binding `Host` over `pancake_host_*`. The
 > pancake_node_* C waist named in Context below is deleted; binding `Node` is
 > not current. Embedder-hosted behavior is `HostedActor` / `spawnHosted`.
+
+> **Framing amendment (ADR-0110).** `feed_bytes` accepts an outer-framed byte
+> stream and retains an incomplete envelope across calls. `_feed` still accepts
+> one bare codec frame from a message-framed transport.
 
 > **Vocabulary amendment (ADR-0096).** The shipped archive is
 > `libpancake_host`, and `PancakeHost` is now the sole C CapTP application
@@ -86,9 +90,10 @@ module, not the archive's name.
 queue, not callback vtables.** The embedder opens connections against its own
 sockets and registers each with the host (`pancake_host_session_open_dialed_locator` /
 `_open_accepted`, which sign the keyed hello under the host identity), then
-moves bytes: `pancake_host_session_feed_bytes` for a raw byte stream the core
-delimits internally (or `_feed` for an embedder whose transport already hands
-whole frames), `pancake_host_session_take_outbound` for what it must write. Every
+then moves bytes: `pancake_host_session_feed_bytes` for an outer-framed byte
+stream the core delimits internally (or `_feed` for an embedder whose transport
+already hands whole bare frames), and `pancake_host_session_take_outbound` for
+the bare frames it must write. The byte-stream pump adds the outbound envelope. Every
 host effect surfaces through one pollable queue, `pancake_host_next_action`:
 `DIAL` (open a connection to the named exporter: the action carries the full
 locator URI and its parsed transport/designator/direct-address-hint views,
@@ -103,12 +108,12 @@ and the first binding rewire proved the dropped callbacks were never needed:
 backpressure is inherent in a pull-based pump, and a blocking mode belongs to
 the loop's owner, not the library.
 
-**The core owns frame delimiting end to end.** `feed_bytes` threads the same
-engine stream-prefix path the socket tier uses, so the frame-boundary scan,
-both codecs' grammars, and the `FRAME_TOO_LARGE` cap live in one place: an
-embedder never parses hostile bytes. Zig's `tcp`/`iroh` netlayers remain the
-stream-shaped residents of ADR-0043/0062, untouched; the byte-fed seam is not
-a rewrite of the stream contract.
+**The core owns byte-stream delimiting end to end.** `feed_bytes` threads the
+same outer Syrup ByteArray parser the socket tier uses. The envelope parser
+owns the message boundary and frame cap; the active codec must consume the
+complete body as one frame. An embedder never parses hostile stream bytes.
+Zig's `tcp`/`iroh` netlayers remain the stream-shaped residents of
+ADR-0043/0062; the byte-fed seam is not a rewrite of the stream contract.
 
 **A published actor is embedder-hosted behavior, hosted through `spawnHosted`.**
 Hosting an actor over this archive reuses ADR-0071's hosted-actor contract:
@@ -356,7 +361,7 @@ the export earns its keep: that still drains through
 - replace the pull API or hide the one-loop rule,
 - reintroduce a netlayer / `schedule` vtable as the primary seam,
 - force an async-only model (Racket's sync `with-host-drain` stays a third
-  spelling beside the async Host kick).
+  form beside the async Host kick).
 
 Bindings may thin their `pump` / `action` modules onto the wrapper later; they
 may also keep owning the loop. Executor arm bodies (socket I/O, language
@@ -375,7 +380,7 @@ binding adoption. Every language action module drains through
 `pancake_host_pump_drain` with **synchronous park-only arms**: decode and
 append (or accumulate `drain-effects`), never await inside the C loop. Async
 bindings (Python / TypeScript / Rust) await parked arms after the C call
-returns; Racket keeps its sync `with-host-drain` spelling (flush / gift-id
+returns; Racket keeps its sync `with-host-drain` form (flush / gift-id
 under the host lock, dial / close / settle as post-lock fires).
 
 The pull-queue remains normative: `pancake_host_next_action` stays the C

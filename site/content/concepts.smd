@@ -7,10 +7,6 @@
 .draft = false,
 ---
 
-This page follows a reference through a session. It starts with what a
-reference is and how you get the first one, then moves through calls, promises,
-introductions, dialect choice, and cleanup.
-
 If capabilities are new, read [Why OCapN]($link.page('why')) first. This page
 assumes the why and explains the machinery. To see where `Session`, `Host`, and
 `Peer` fit, use [modules]($link.page('modules')).
@@ -69,9 +65,9 @@ process-local.
 
 | Word | What it is |
 | --- | --- |
-| locator | address of a peer (and how to dial it) |
-| swiss number | secret name of one object at that peer |
-| live reference | session authority you can call *now* |
+| locator | A peer address, and how to dial it. |
+| swiss number | The secret name of one object at that peer. |
+| live reference | Session authority you can call *now*. |
 
 [Everything left of the hints is an address, and none of it is authority. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
 

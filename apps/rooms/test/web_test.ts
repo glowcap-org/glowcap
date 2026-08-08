@@ -7,14 +7,17 @@
 // left to test here; reachability is checked the way the page reaches the
 // room: a keyed OCapN session established over `/relay`.
 
-import { classifyRelayTarget, Host as PancakeHost, Session } from "@pancake/stack";
+import { classifyRelayTarget, Session } from "@pancake/stack";
+import { roomsHost } from "../lib/locator.ts";
 import { webSocketChannel } from "@pancake/stack";
 import { DIRECTORY, LIST } from "../lib/protocol.ts";
 import {
+	parseTcpPeers,
 	relayAllowed,
 	relayOriginAllowed,
 	relaySessionAdmitted,
 	rendezvousAdmitted,
+	type TcpPeer,
 } from "../web/relay.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -30,6 +33,12 @@ const DENO_FLAGS = [
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
+}
+
+function assertEquals(actual: unknown, expected: unknown): void {
+	const a = JSON.stringify(actual);
+	const b = JSON.stringify(expected);
+	if (a !== b) throw new Error(`expected ${b}, got ${a}`);
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -87,7 +96,7 @@ async function reachRoomThroughRelay(httpPort: number, roomPort: number): Promis
 		ws.onopen = () => resolve();
 		ws.onerror = () => reject(new Error("relay ws failed to open"));
 	});
-	const host = new PancakeHost(crypto.getRandomValues(new Uint8Array(32)));
+	const host = roomsHost(crypto.getRandomValues(new Uint8Array(32)));
 	const session = await Session.establishDialedLocator(
 		host,
 		"tcp",
@@ -109,9 +118,9 @@ async function reachRoomThroughRelay(httpPort: number, roomPort: number): Promis
 Deno.test("the relay allow-list and origin check refuse what they must", () => {
 	// The web handler classifies the target through the shared core primitive,
 	// then admits it; an unparseable locator fails the classify and is refused.
-	const admits = (target: string, roomPort: number): boolean => {
+	const admits = (target: string, roomPort: number, peers: TcpPeer[] = []): boolean => {
 		try {
-			return relayAllowed(classifyRelayTarget(target), roomPort);
+			return relayAllowed(classifyRelayTarget(target), roomPort, peers);
 		} catch {
 			return false;
 		}
@@ -136,6 +145,28 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 		!admits(`ocapn://${key}.keyed-tcp?direct-addresses=10.0.0.8:9099`, 9099),
 		"a keyed-tcp URI naming a non-room address should be refused",
 	);
+
+	// An operator names the cleartext-TCP peers a browser may direct-message —
+	// a Goblins vat on a TCP netlayer is the ordinary one. Only the addresses
+	// named are opened, and naming one opens nothing else on that host.
+	const vat: TcpPeer[] = [{ hostname: "127.0.0.1", port: 9200 }];
+	assert(admits("127.0.0.1:9200", 9099, vat), "a named TCP peer should be allowed");
+	assert(!admits("127.0.0.1:9201", 9099, vat), "an unnamed port on that host should be refused");
+	assert(!admits("127.0.0.1:22", 9099, vat), "a local service should still be refused");
+	assert(admits("127.0.0.1:9099", 9099, vat), "the room server is still allowed beside them");
+
+	// The list is read from one `host:port,host:port` string, and an entry that
+	// cannot be read is dropped rather than taking the rest of the list with it.
+	assertEquals(parseTcpPeers("127.0.0.1:9200, 10.0.0.8:9201"), [
+		{ hostname: "127.0.0.1", port: 9200 },
+		{ hostname: "10.0.0.8", port: 9201 },
+	]);
+	assertEquals(parseTcpPeers("[::1]:9200"), [{ hostname: "[::1]", port: 9200 }]);
+	assertEquals(parseTcpPeers("nonsense,127.0.0.1:0,127.0.0.1:70000,,127.0.0.1:9200"), [
+		{ hostname: "127.0.0.1", port: 9200 },
+	]);
+	assertEquals(parseTcpPeers(""), []);
+	assertEquals(parseTcpPeers(undefined), []);
 
 	// Absent Origin (non-browser clients) passes; a mismatched or unparseable
 	// Origin is refused before the WebSocket upgrade.

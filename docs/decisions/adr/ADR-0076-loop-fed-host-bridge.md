@@ -3,7 +3,7 @@ id: ADR-0076
 status: accepted
 date: 2026-07-11
 tags: [driver, net, host, completion-loop, handoff]
-decision: "Feed the byte-fed Host from a completion loop through a translator (`driver.Bridge`): adoption via Host.openAcceptedOver / openDialedOver, per-event serving via Host.serveEvent, cross-connection flushes via Loop.armOutbound, and a budgeted drive whose breach condemns the flooded connection and queues a close action. TCP uses `net.TcpLoop`; iroh uses `completion.Loop(iroh.Backend, iroh.DialResolver)`: one CapTP spine (ADR-0057). Outbound dials use `Loop.dialLocator` over OCapN locator parts; a netlayer `Locator` owns resolve, the Backend owns `startDial` (platform Backends are connect-only). `Loop.dial` is private."
+decision: "Feed the byte-fed Host from a completion loop through a translator (`driver.Bridge`): adoption via Host.openAcceptedAdvertisedOver / openDialedOver, per-event serving via Host.serveEvent, cross-connection flushes via Loop.armOutbound, and a budgeted drive whose breach condemns the flooded connection and queues a close action. TCP uses `net.TcpLoop`; iroh uses `completion.Loop(iroh.Backend, iroh.DialResolver)`: one CapTP spine (ADR-0057). Outbound dials use `Loop.dialLocator` over OCapN locator parts; a netlayer `Locator` owns resolve, the Backend owns `startDial` (platform Backends are connect-only). `Loop.dial` is private."
 supersedes: []
 superseded_by: []
 ---
@@ -34,11 +34,11 @@ connections, the ladder's fan-out posture).
 
 Three verbs and one carrier, each at the layer that owns it:
 
-- **`Host.openAcceptedOver` (`src/driver/core/host.zig`)** adopts a peer the
-  embedder owns and pins (`engine.Node.registerConnOver` underneath) with
-  the identical keyed-responder wiring `openAccepted` has, minus ownership:
+- **`Host.openAcceptedAdvertisedOver` (`src/driver/core/host.zig`)** adopts a
+  peer the embedder owns and pins (`engine.Node.registerPeerOver` underneath)
+  with the same responder wiring `openAcceptedAdvertised` has, minus ownership:
   the node and host never free an adopted peer; the embedder frees it after
-  `releaseConn`. `Host.serveEvent` is the per-event feed verb for an
+  `releaseSession`. `Host.serveEvent` is the per-event feed verb for an
   embedder that polls its peers itself: structurally `pumped` for one event,
   with the callback latch and the node pump a raw `Served.serveEvent` would
   skip. Its unwind consumes the events still queued behind the one it was
@@ -155,7 +155,7 @@ transport symbols and `direct-addresses` live in `model.transport`.
   duplicated decisions the host already owns.
 - **Loop-owned peers handed to the host by value**: rejected: the loop's
   fixed slots hold each peer inline at a stable address, and
-  `registerConnOver` exists precisely so adoption never moves or re-owns a
+  `registerPeerOver` exists precisely so adoption never moves or re-owns a
   peer.
 - **Failing the fed verb on any budget breach**: rejected: the fed
   connection's work can flood a sibling, and closing the messenger punishes

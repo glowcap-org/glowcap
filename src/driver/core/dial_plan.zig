@@ -172,13 +172,22 @@ pub const AcceptPlan = struct {
 /// Resolve what an accepted CapTP session signs. `server_designator` is the
 /// listener's own signing designator (its key for a key transport; unused for
 /// an address transport, which signs the accepted address). `accepted_local_addr`
-/// is the address the accept reported, empty when unavailable.
+/// is where this side of the connection is reachable, empty when unavailable:
+/// the address the accept reported on an address or `keyed-tcp` transport, and
+/// the endpoint's own direct addresses on `iroh`, which has no per-accept
+/// address of its own.
 ///
 /// An address transport (`tcp`, `inproc`) signs the accepted address itself, or
 /// the unreachable-client placeholder when the accept reported none, and carries
-/// no hint. A key transport signs its own key designator; `keyed-tcp` puts the
-/// accepted address in the hint (a partner dials it there), while `iroh` carries
-/// no hint (discovery resolves the node id).
+/// no hint: its designator already says where to dial.
+///
+/// A key transport signs its own key designator and publishes whatever dial
+/// addresses the caller gave, because a key says who a peer is and not where it
+/// is. A partner that already arrived needed no address, but a third party handed
+/// this locator in a handoff has never spoken to the peer and still has to dial
+/// it, so a hello that knows its addresses publishes them. Where the netlayer
+/// has none to give — `webrtc` and `keyed-relay`, reached by signaling and by
+/// rendezvous — the hint stays empty on its own, with no table here to say so.
 pub fn planAccept(
     transport: []const u8,
     server_designator: []const u8,
@@ -193,10 +202,11 @@ pub fn planAccept(
         },
         .key => .{
             .designator = server_designator,
-            .direct_addresses_hint = if (vocab.requiresDirectAddressesHint(transport))
-                accepted_local_addr
-            else
-                &.{},
+            // Passed through, not filtered by transport: which hints a locator
+            // carries is the netlayer's business, and it has already answered by
+            // what it wrote here. See `vocab`, beside
+            // `requiresDirectAddressesHint`.
+            .direct_addresses_hint = accepted_local_addr,
         },
     };
 }

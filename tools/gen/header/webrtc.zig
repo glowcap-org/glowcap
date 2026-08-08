@@ -168,10 +168,44 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\  uintptr_t subject;
         \\  uint32_t events;
         \\} PancakeWebrtcReadyEvent;
+        \\
+        \\/* One WebRTC endpoint's configuration, passed to pancake_webrtc_netlayer_new /
+        \\   _new_in.
+        \\   ice_servers is a comma-separated list of ICE server URLs, borrowed for the
+        \\   call, and it decides how far a peer created from this endpoint can reach.
+        \\   NULL or empty offers host candidates only, which connects two peers on one
+        \\   network and nothing beyond it, because neither end can discover the address a
+        \\   NAT gave it. A deployment crossing NAT names STUN servers here
+        \\   (stun:host:port). Credentialed TURN relaying is not expressible yet; see
+        \\   ADR-0089.
+        \\   include_loopback_candidates (nonzero) offers loopback addresses too, which is
+        \\   what lets two peers in one process or on one host connect with no STUN. It is
+        \\   off unless asked for: a test wants it and says so, while a deployment neither
+        \\   needs it nor wants to advertise addresses a partner can never reach.
+        \\   worker_threads sizes this endpoint's runtime; 0 takes pancake's two, which is
+        \\   pancake's number rather than the runtime's own core-count. It is a per-endpoint
+        \\   cost, so a process holding many endpoints, or one endpoint
+        \\   holding many peers, is the caller that should name it.
+        \\   There is no establishment deadline here, unlike the iroh endpoint's
+        \\   connect_timeout_ms, and the difference is deliberate. That sidecar performs a
+        \\   dial on your behalf and is the only party that can see it fail, so it must
+        \\   bound it. This one runs a state machine you feed, and publishes every terminal
+        \\   outcome as a readiness event, including a connection that fails to establish.
+        \\   You already own the wall clock, and a second deadline here would be a second
+        \\   authority for the same fact.
+        \\   Zero-initialize the whole struct before filling the fields you set (e.g.
+        \\   `PancakeWebrtcConfig cfg = {0};`), so a field added in a later version
+        \\   defaults to 0 rather than reading stack garbage. */
+        \\typedef struct PancakeWebrtcConfig {
+        \\  const uint8_t *ice_servers;
+        \\  size_t ice_servers_len;
+        \\  uint32_t include_loopback_candidates;
+        \\  uint32_t worker_threads;
+        \\} PancakeWebrtcConfig;
     );
 
-    try emitFn(&b, gpa, "pancake_webrtc_netlayer_new", &.{"out_netlayer"}, "Create the shared WebRTC runtime/readiness endpoint. Release it after every peer\ncreated from it has been released.");
-    try emitFn(&b, gpa, "pancake_webrtc_netlayer_new_in", &.{ "context", "out_netlayer" }, "As pancake_webrtc_netlayer_new, allocating through context.");
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_new", &.{ "config", "out_netlayer" }, "Create the shared WebRTC runtime/readiness endpoint. Release it after every peer\ncreated from it has been released. config carries the endpoint's settings; a\nNULL one is PANCAKE_ERR_NULL_POINTER.");
+    try emitFn(&b, gpa, "pancake_webrtc_netlayer_new_in", &.{ "context", "config", "out_netlayer" }, "As pancake_webrtc_netlayer_new, allocating through context.");
     try emitFn(&b, gpa, "pancake_webrtc_netlayer_readiness_fd", &.{"netlayer"}, "Borrow the netlayer's single read-only OS readiness fd. Register it once; do not\nclose it. When it wakes, call pancake_webrtc_netlayer_drain_ready.");
     try emitFn(&b, gpa, "pancake_webrtc_netlayer_drain_ready", &.{ "netlayer", "out_events", "out_cap", "out_count" }, "Drain pending stable peer-id events without blocking. Call after the readiness fd\nwakes, then drive CANDIDATE/OPEN/READABLE/WRITABLE/CLOSED for each subject.");
     try emitFn(&b, gpa, "pancake_webrtc_netlayer_release", &.{"netlayer"}, "Release the endpoint after every peer created from it is released. NULL is a no-op.");

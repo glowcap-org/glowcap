@@ -236,7 +236,7 @@ fn exporterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, 
     defer threaded.deinit();
     const io = threaded.io();
 
-    var resident = try webrtc.Resident.init();
+    var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer resident.deinit();
     var node = Node{
         .designator = designatorOf(exporter_seed),
@@ -396,7 +396,7 @@ fn gifterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, re
     defer threaded.deinit();
     const io = threaded.io();
 
-    var resident = try webrtc.Resident.init();
+    var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer resident.deinit();
     var node = Node{
         .designator = designatorOf(gifter_seed),
@@ -553,7 +553,7 @@ pub fn main(init: std.process.Init) !void {
     const recipient_designator = designatorOf(recipient_seed);
 
     // R's loop starts first so G's dial-to-R cannot race a hub with no R row.
-    var recipient_resident = try webrtc.Resident.init();
+    var recipient_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer recipient_resident.deinit();
     var recipient_node = Node{
         .designator = recipient_designator,

@@ -94,8 +94,10 @@ export async function buildRust(
 		stdout: "inherit",
 		stderr: "inherit",
 	}).output();
-	if (!built.success) console.log("demo: skipping Rust, cargo build failed");
-	return built.success;
+	if (!built.success) {
+		throw new Error(`cargo is available but failed to build ${manifest}`);
+	}
+	return true;
 }
 
 async function readAnnouncePort(
@@ -159,16 +161,21 @@ export async function pythonCanImport(moduleImport: string): Promise<boolean> {
 	return check.code === 0;
 }
 
+/** Run a child to completion and answer with its exit code and everything it
+ * said on both pipes. `env` is added to the environment this process already
+ * has, so a caller names only what the child needs to be told. */
 export async function runChild(
 	cmd: string,
 	args: string[],
 	root: string,
+	env: Record<string, string> = {},
 ): Promise<{ code: number; out: string }> {
 	const out = await new Deno.Command(cmd, {
 		args,
 		stdout: "piped",
 		stderr: "piped",
 		cwd: root,
+		env,
 	}).output();
 	const text = new TextDecoder().decode(out.stdout) +
 		new TextDecoder().decode(out.stderr);

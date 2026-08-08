@@ -6,7 +6,7 @@
 //! fires a listener, and the projection of an `op:get` over the settled value.
 //! The functions here compute exactly those. Keeping them pure is what makes the
 //! whole matrix of cases testable without standing up a live session: resolution
-//! shape, path shape, and whether the listener asked for a partial. The stateful
+//! shape, path shape, and the listener mode. The stateful
 //! drain that applies these decisions lives in `pipeline.zig`, which re-exports
 //! this module's surface.
 //!
@@ -163,44 +163,40 @@ pub const ListenerDrainAction = union(enum) {
     /// resolution shape except `Fulfill(Promise(_))` lands here. The payload
     /// is the far export position the fire targets.
     fire: u64,
-    /// Fire the listener with the partial promise AND re-anchor the entry on
-    /// `next_answer`. `wants_partial` × `Fulfill(Promise(_))` only. The
-    /// listener both fires now and stays anchored — an entry is a plain
-    /// value, so keeping both costs nothing.
-    fire_and_reinstall: struct {
-        fire: u64,
-        next_answer: model.AnswerPosition,
-        entry: session.ListenerEntry,
-    },
     /// Re-anchor the entry on `next_answer` without firing. Spec-strict
-    /// `Fulfill(Promise(_))` (no `wants_partial`).
+    /// `Fulfill(Promise(_))`: a same-peer promise has not yet met any mode.
     reinstall: struct {
         next_answer: model.AnswerPosition,
         entry: session.ListenerEntry,
     },
+    /// The promise made a transition this subscription did not request.
+    discard,
 };
 
 /// Decide how `entry` drains against `resolution` (ADR-0007 § Listener fire matrix).
-/// `Fulfill(Promise(_))` re-anchors the listener on the promise's answer
-/// (firing first only when `wants_partial`); every other resolution fires
-/// once. Pure and infallible: listener entries are POD `FarRef` values, so
+/// `Fulfill(Promise(_))` re-anchors the listener on the same peer's answer
+/// without notification. A far promise is shortening and concludes listeners
+/// that requested it; settled values conclude listeners that requested
+/// settling. Pure and infallible: listener entries are POD `FarRef` values, so
 /// the decision moves values and touches no heap.
 pub fn classifyListenerDrain(
     entry: session.ListenerEntry,
     resolution: model.Resolution,
 ) ListenerDrainAction {
     const fire_position = entry.listener.import_position.int();
-    if (resolution == .fulfill and
-        resolution.fulfill == .reference and
+    if (resolution == .fulfill and resolution.fulfill == .reference and
         resolution.fulfill.reference == .promise)
     {
         const next_answer = resolution.fulfill.reference.promise.answer_position;
-        if (!entry.wants_partial) {
-            return .{ .reinstall = .{ .next_answer = next_answer, .entry = entry } };
-        }
-        return .{ .fire_and_reinstall = .{ .fire = fire_position, .next_answer = next_answer, .entry = entry } };
+        return .{ .reinstall = .{ .next_answer = next_answer, .entry = entry } };
     }
-    return .{ .fire = fire_position };
+    if (resolution == .fulfill and resolution.fulfill == .reference and
+        resolution.fulfill.reference == .far and
+        resolution.fulfill.reference.far.kind == .promise)
+    {
+        return if (entry.mode.wantsShortening()) .{ .fire = fire_position } else .discard;
+    }
+    return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .discard;
 }
 
 /// What `projectResolution` decided for one `op:get` / `op:index`
@@ -247,10 +243,16 @@ pub fn projectResolution(resolution: model.Resolution, kind: session.ProjectionK
             if (value != .list) return .{ .resolved = .{ .@"break" = .{
                 .message = "op:index receiver did not resolve to a List",
             } } };
-            if (index < 0 or index >= value.list.len) return .{ .resolved = .{ .@"break" = .{
+            const candidate = switch (index) {
+                .candidate => |candidate| candidate,
+                .out_of_bounds => return .{ .resolved = .{ .@"break" = .{
+                    .message = "op:index position is out of the List's bounds",
+                } } },
+            };
+            if (candidate >= value.list.len) return .{ .resolved = .{ .@"break" = .{
                 .message = "op:index position is out of the List's bounds",
             } } };
-            return .{ .resolved = .{ .fulfill = value.list[@intCast(index)] } };
+            return .{ .resolved = .{ .fulfill = value.list[candidate] } };
         },
         .untag => |tag| {
             if (value != .tagged) return .{ .resolved = .{ .@"break" = .{

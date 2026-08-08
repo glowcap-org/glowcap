@@ -28,7 +28,9 @@ const events = @import("events.zig");
 pub const PreparedFetch = struct {
     message: model.Message,
     answer_position: model.AnswerPosition,
-    resolver_export: model.ExportPosition,
+    /// V1.0's inline resolver export. Next mints its listener export when the
+    /// answered operation is enqueued, so preparing a fetch reserves no export.
+    resolver_export: ?model.ExportPosition,
 };
 
 /// How a fetch settles. Owned: `fulfilled` carries a cloned reference, `broken`
@@ -81,11 +83,11 @@ pub fn prepareFetchSwissnum(
     // unresolved so its slot is authoritative before the mention projects it
     // (ADR-0080). Earlier profiles never mention the resolver on the wire, so
     // it stays an ordinary object reservation.
-    const resolver_export = if (session.needsV1_0Translation())
+    const resolver_export: ?model.ExportPosition = if (session.needsV1_0Translation())
         try session.allocatePromiseExport()
     else
-        try session.allocateExport();
-    errdefer session.releaseUnsharedExport(resolver_export);
+        null;
+    errdefer if (resolver_export) |position| session.releaseUnsharedExport(position);
     // The deliver targets the partner's bootstrap export, our well-known
     // import 0. Track it here, where the fetch shape lives, so no caller
     // carries a pre-fetch registration ritual of its own.
@@ -96,7 +98,7 @@ pub fn prepareFetchSwissnum(
     // the kind: the row was minted `local_unresolved`, so it renders as
     // `desc:import-promise` by construction (ADR-0080).
     const resolve_me_desc: ?model.Reference = if (session.needsV1_0Translation())
-        session_mod.slot.toReference(session.exportSlot(resolver_export).?)
+        session_mod.slot.toReference(session.exportSlot(resolver_export.?).?)
     else
         null;
 
@@ -118,7 +120,7 @@ pub fn prepareFetchSwissnum(
 /// handed back unchanged for the caller to re-own.
 pub fn tryMatchFetchOutcome(
     allocator: std.mem.Allocator,
-    resolver_export: model.ExportPosition,
+    resolver_export: ?model.ExportPosition,
     answer_position: model.AnswerPosition,
     msg: model.Message,
 ) !FetchMatch {
@@ -134,8 +136,9 @@ pub fn tryMatchFetchOutcome(
             // settle the fetch (`exportPosition`); a `.far` deliver whose
             // partner-named import position collides with the resolver position is unrelated
             // traffic, not a settlement.
+            const expected = resolver_export orelse return .{ .unrelated = msg };
             const target_export = deliver.target.exportPosition() orelse return .{ .unrelated = msg };
-            if (target_export != resolver_export) return .{ .unrelated = msg };
+            if (target_export != expected) return .{ .unrelated = msg };
             const outcome = try decodeResolverCallback(allocator, deliver.args);
             model.freeMessage(allocator, msg);
             return .{ .settled = outcome };

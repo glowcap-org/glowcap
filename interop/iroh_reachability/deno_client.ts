@@ -51,7 +51,7 @@ async function acceptLoop(server: IrohServer, served: Session[]): Promise<void> 
 }
 
 // ── Server: a giftable greeter, dialable by node id alone over discovery ────
-const server = listenIroh(Reachability.Discovery);
+const server = listenIroh({ reachability: Reachability.Discovery });
 server.host.publishGiftable("greeter", greeter);
 const serverId = server.nodeId;
 const served: Session[] = [];

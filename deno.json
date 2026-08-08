@@ -5,14 +5,22 @@
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
     "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",
     "@pancake/relay": "./bindings/ts/relay/mod.ts",
-    "playwright": "npm:playwright@1.61.1",
-    "react": "npm:react@19.2.0",
-    "react/jsx-runtime": "npm:react@19.2.0/jsx-runtime",
-    "react-dom": "npm:react-dom@19.2.0",
-    "react-dom/client": "npm:react-dom@19.2.0/client",
-    "@types/react": "npm:@types/react@19.2.2",
-    "@types/react-dom": "npm:@types/react-dom@19.2.1"
+    "playwright": "npm:playwright@1.62.1",
+    "react": "npm:react@19.2.8",
+    "react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
+    "react-dom": "npm:react-dom@19.2.8",
+    "react-dom/client": "npm:react-dom@19.2.8/client",
+    "@types/react": "npm:@types/react@19.2.18",
+    "@types/react-dom": "npm:@types/react-dom@19.2.4",
+    "zod": "npm:zod@^4.4.3"
   },
+  // ocapnviz stays its own scope for everything else, but the rooms viz proofs
+  // load its real converter and its real `Observation` schema at run time
+  // instead of declaring a second copy of them, and both are built on zod. This
+  // is the one specifier the root scope has to resolve for a proof to run the
+  // viewer's own code. It is therefore one version with two homes, and
+  // `zig build meta-check` (`checkSharedNpmPins`) is what keeps the two in step
+  // rather than a reader remembering to.
   // The rooms browser page is the one TypeScript here that is JSX, and Deno reads
   // compilerOptions only from the root config of a scope, so its transform is
   // declared here rather than beside it in apps/rooms/web/ui/deno.json. It applies
@@ -20,8 +28,12 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "jsxImportSourceTypes": "npm:@types/react@19.2.2"
+    "jsxImportSourceTypes": "npm:@types/react@19.2.18"
   },
+  // ocapnviz is its own Deno scope: its imports resolve through its own
+  // deno.json, not this one, and its checks run through its own tasks. The
+  // top-level exclude keeps every root-scope walk (check, lint, fmt) out.
+  "exclude": ["apps/ocapnviz"],
   "fmt": {
     "useTabs": true,
     "indentWidth": 4,

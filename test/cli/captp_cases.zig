@@ -132,6 +132,18 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &call_parsed));
     try std.testing.expect(std.mem.indexOf(u8, client_capture.items, "Hello, background") != null);
     try std.testing.expect(host.background_listener.?.accepted.load(.acquire) == 1);
+
+    // A --publish listener goes quiet after its one partner, and records the
+    // benign stop so `info` reports it as no longer listening. The accept
+    // thread notices the client's close on its own cadence, so wait for the
+    // store rather than racing it.
+    var waited: usize = 0;
+    while (host.background_listener.?.stop_reason.load(.acquire) == null) : (waited += 1) {
+        if (waited > 200) return error.ListenerNeverRecordedItsStop;
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real) catch {};
+    }
+    const reason = host.background_listener.?.stop_reason.load(.acquire).?;
+    try std.testing.expectEqualStrings("served its one partner", std.mem.span(reason));
 }
 
 test "MCP locator call retains session for a follow-up call" {

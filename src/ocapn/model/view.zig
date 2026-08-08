@@ -507,7 +507,7 @@ pub const Resolve = struct {
 pub const Listen = struct {
     target: Reference,
     listener: Reference,
-    wants_partial: bool,
+    mode: model.ListenMode,
 };
 
 pub const Get = struct {
@@ -518,7 +518,7 @@ pub const Get = struct {
 
 pub const Index = struct {
     receiver: Reference,
-    index: i64,
+    index: model.Integer,
     answer: model.AnswerPosition,
 };
 
@@ -555,7 +555,6 @@ pub const Body = union(enum) {
     resolve: Resolve,
     gc_export: GcExport,
     gc_answer: GcAnswer,
-    handoff: Handoff,
     start_session: StartSession,
     abort: Abort,
     listen: Listen,
@@ -584,7 +583,6 @@ pub const Body = union(enum) {
             .gc_answer => |*gc| .{ .gc_answer = .{
                 .positions = PositionList.fromOwnedSlice(gc.positions),
             } },
-            .handoff => |*handoff| .{ .handoff = Handoff.fromOwned(handoff) },
             .start_session => |*ss| .{ .start_session = .{
                 .captp_version = ss.captp_version,
                 .session_pubkey = ss.session_pubkey.bytes,
@@ -595,7 +593,7 @@ pub const Body = union(enum) {
             .listen => |*listen| .{ .listen = .{
                 .target = Reference.fromOwned(&listen.target),
                 .listener = Reference.fromOwned(&listen.listener),
-                .wants_partial = listen.wants_partial,
+                .mode = listen.mode,
             } },
             .get => |*get| .{ .get = .{
                 .receiver = Reference.fromOwned(&get.receiver),
@@ -631,7 +629,6 @@ pub const Body = union(enum) {
                 break :blk .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
             },
             .gc_answer => |gc| .{ .gc_answer = .{ .positions = try gc.positions.toOwnedSlice(allocator) } },
-            .handoff => |handoff| .{ .handoff = try handoff.toOwned(allocator) },
             .start_session => |ss| blk: {
                 const session_pubkey = try allocator.dupe(u8, ss.session_pubkey);
                 errdefer allocator.free(session_pubkey);
@@ -650,7 +647,7 @@ pub const Body = union(enum) {
                 const target = try listen.target.toOwned(allocator);
                 errdefer model.freeReference(allocator, target);
                 const listener = try listen.listener.toOwned(allocator);
-                break :blk .{ .listen = .{ .target = target, .listener = listener, .wants_partial = listen.wants_partial } };
+                break :blk .{ .listen = .{ .target = target, .listener = listener, .mode = listen.mode } };
             },
             .get => |get| blk: {
                 const receiver = try get.receiver.toOwned(allocator);
@@ -658,11 +655,22 @@ pub const Body = union(enum) {
                 const field = try allocator.dupe(u8, get.field);
                 break :blk .{ .get = .{ .receiver = receiver, .field = field, .answer = get.answer } };
             },
-            .index => |index| .{ .index = .{
-                .receiver = try index.receiver.toOwned(allocator),
-                .index = index.index,
-                .answer = index.answer,
-            } },
+            .index => |index| blk: {
+                const receiver = try index.receiver.toOwned(allocator);
+                errdefer model.freeReference(allocator, receiver);
+                const owned_index: model.Integer = switch (index.index) {
+                    .integer => |value| .{ .integer = value },
+                    .big_integer => |big| .{ .big_integer = .{
+                        .negative = big.negative,
+                        .digits = try allocator.dupe(u8, big.digits),
+                    } },
+                };
+                break :blk .{ .index = .{
+                    .receiver = receiver,
+                    .index = owned_index,
+                    .answer = index.answer,
+                } };
+            },
             .untag => |untag| blk: {
                 const receiver = try untag.receiver.toOwned(allocator);
                 errdefer model.freeReference(allocator, receiver);

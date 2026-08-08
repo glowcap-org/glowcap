@@ -74,10 +74,10 @@ test "listen, get, index round-trip" {
     try expectRoundTrip(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(7) },
         .listener = .{ .near = model.NearRef.object(9) },
-        .wants_partial = true,
+        .mode = .shortening_or_settling,
     } });
     try expectRoundTrip(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(2) }, .field = "name", .answer = .from(3) } });
-    try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(2) }, .index = 5, .answer = .from(4) } });
+    try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(2) }, .index = .{ .integer = 5 }, .answer = .from(4) } });
 }
 
 test "start_session round-trips" {
@@ -89,7 +89,7 @@ test "start_session round-trips" {
     } });
 }
 
-test "handoff give and receive round-trip" {
+test "deliver with nested handoff give and receive round-trips" {
     const give = model.HandoffGive{
         .recipient_key = "rk",
         .exporter = .{ .transport = "memory", .designator = "el" },
@@ -98,14 +98,19 @@ test "handoff give and receive round-trip" {
         .gift_id = "gid",
         .signature = "sig",
     };
-    try expectRoundTrip(.{ .handoff = .{ .give = give } });
-    try expectRoundTrip(.{ .handoff = .{ .receive = .{
+    var give_handoff = model.Handoff{ .give = give };
+    var receive_handoff = model.Handoff{ .receive = .{
         .receiving_session = "rs",
         .receiving_side = "rside",
         .handoff_count = 2,
         .signed_give = give,
         .signature = "rsig",
-    } } });
+    } };
+    const args = [_]model.Argument{ .{ .handoff = &give_handoff }, .{ .handoff = &receive_handoff } };
+    try expectRoundTrip(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &args,
+    } });
 }
 
 test "Args slice backing reports len and projects each element" {

@@ -29,6 +29,7 @@ const irohSymbolDefs = {
 	pancake_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_release: { parameters: [P], result: V },
 	pancake_iroh_conn_id: { parameters: [P], result: U },
+	pancake_iroh_conn_remote_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	// The event-driven loop surface: the netlayer's one I/O model.
 	// `readiness_fd` hands back the endpoint's single OS readiness fd, which the
 	// event loop parks on (a `node:net` Socket over a dup of it); `drain_ready`,

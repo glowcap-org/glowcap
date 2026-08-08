@@ -177,7 +177,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
     try pair.p1.sendCopying(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .listener = .{ .near = .{ .export_position = .from(9) } },
-        .wants_partial = false,
+        .mode = .settling_only,
     } });
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:listen:answer=42\n");
@@ -315,7 +315,11 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
 /// trio as whole-conversation behavior, not just per-frame fixtures;
 /// codec-parameterized like `runDrivenDeliverResolve`.
 pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
-    var pair = try engine.pairing.pairedWithCodec(allocator, codec);
+    var pair = try engine.pairing.pairedNegotiated(allocator, .{
+        .captp_version = .next,
+        .codec = codec,
+        .features = model.FeatureSet.full(),
+    });
     defer pair.deinit();
 
     var out: std.ArrayList(u8) = .empty;
@@ -341,7 +345,7 @@ pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) 
 
     const projections = [_]model.Message{
         .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(11) } }, .field = "name", .answer = .from(12) } },
-        .{ .index = .{ .receiver = .{ .promise = .{ .answer_position = .from(21) } }, .index = 1, .answer = .from(22) } },
+        .{ .index = .{ .receiver = .{ .promise = .{ .answer_position = .from(21) } }, .index = .{ .integer = 1 }, .answer = .from(22) } },
         .{ .untag = .{ .receiver = .{ .promise = .{ .answer_position = .from(31) } }, .tag = "cm", .answer = .from(32) } },
     };
     for (projections) |message| {
@@ -750,8 +754,16 @@ fn openKeyedSession(
     p2_secret: foundation.crypto.SecretKey,
     p2_designator: []const u8,
 ) !void {
-    try p1.sendKeyedStartSession(.v1_0, .{ .transport = "tcp", .designator = p1_designator, .hints = model.Hints.emptyFalse() }, p1_secret);
-    try p2.sendKeyedStartSession(.v1_0, .{ .transport = "tcp", .designator = p2_designator, .hints = model.Hints.emptyFalse() }, p2_secret);
+    // Both designators are `tcp` addresses, so neither hello claims a durable
+    // identity.
+    try p1.sendKeyedStartSession(
+        .{ .transport = "tcp", .designator = p1_designator, .hints = model.Hints.emptyFalse() },
+        p1_secret,
+    );
+    try p2.sendKeyedStartSession(
+        .{ .transport = "tcp", .designator = p2_designator, .hints = model.Hints.emptyFalse() },
+        p2_secret,
+    );
     if (try engine.pairing.shuttleUntilQuiescent(p1, p2) != .quiescent) return error.HandshakeDidNotQuiesce;
     drainEvents(p1);
     drainEvents(p2);
@@ -784,15 +796,15 @@ fn shuttleAndTraceEvents(
 /// resolve, an auto-served fetch) may encode on a later step, so keep stepping
 /// the sender until a step yields no new frame.
 fn shuttleFrames(sender: *engine.Peer, receiver: *engine.Peer) !void {
-    var moved = true;
-    while (moved) {
-        moved = false;
-        _ = try sender.step();
+    while (true) {
+        const result = try sender.step();
+        var moved = false;
         while (sender.takeOutbound()) |frame| {
             try receiver.feedOwned(frame);
             _ = try receiver.step();
             moved = true;
         }
+        if (result == .idle and !moved) return;
     }
 }
 

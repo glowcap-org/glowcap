@@ -46,14 +46,22 @@ use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use webrtc::data_channel::RTCDataChannel;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 
 /// The label of the one data channel a pancake `webrtc` session runs over. Both
 /// peers agree on it out of band; the offerer creates it under this name.
 const CHANNEL_LABEL: &str = "ocapn";
+
+/// Worker threads for one endpoint's runtime when the caller names none. Two is
+/// enough for the callback and send work of a handful of channels, and it is a
+/// per-endpoint cost, so a process holding many endpoints, or one endpoint
+/// holding many peers, should say what it wants instead.
+const WORKER_THREADS: usize = 2;
 
 /// Return codes shared with the Zig resident and the header. `0` is success;
 /// negatives name the failure family the resident maps to a Zig error.
@@ -74,6 +82,23 @@ const EV_CANDIDATE: u32 = 2;
 const EV_READABLE: u32 = 4;
 const EV_WRITABLE: u32 = 8;
 const EV_CLOSED: u32 = 16;
+
+/// One endpoint's configuration, passed by pointer so a new setting is a field
+/// rather than a wider signature every caller has to agree on. What the setting
+/// means is documented once, on the C ABI's `PancakeWebrtcConfig`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeWebrtcEndpointConfig {
+	/// Comma-separated ICE server URLs, borrowed for the call. Null or empty is
+	/// host candidates only.
+	pub ice_servers: *const u8,
+	pub ice_servers_len: usize,
+	/// Nonzero offers loopback ICE candidates, which is what lets two peers in
+	/// one process or on one host connect with no STUN.
+	pub include_loopback_candidates: u32,
+	/// Worker threads for this endpoint's runtime; 0 takes the default.
+	pub worker_threads: u32,
+}
 
 /// One endpoint readiness record. `subject` is a stable peer id minted by the
 /// endpoint and never reused during its lifetime.
@@ -253,6 +278,13 @@ struct EndpointInner {
 	rt: RuntimeOwner,
 	readiness: Arc<Readiness>,
 	next_peer_id: AtomicUsize,
+	/// ICE server URLs every peer this endpoint creates offers to ICE. Empty is
+	/// host candidates only, which reaches a peer on the same host or the same
+	/// network and nothing beyond it.
+	ice_servers: Vec<String>,
+	/// Whether peers offer loopback ICE candidates, which is what connects two
+	/// peers on one host with no STUN.
+	include_loopback: bool,
 }
 
 impl EndpointInner {
@@ -289,13 +321,20 @@ pub struct PancakeWebrtcPeer {
 	outbound_ready: Arc<Notify>,
 }
 
-/// Build the data-channel-only WebRTC API, mirroring the phase-1 probe: default
-/// codecs and interceptors, plus loopback ICE candidates so two peers on one
-/// host connect with no STUN. Higher layers add STUN/TURN when a deployment
-/// needs NAT traversal (ADR-0089); the sidecar itself stays relay-less.
-fn build_peer_connection(rt: &Runtime) -> Result<Arc<RTCPeerConnection>, webrtc::Error> {
+/// Build the data-channel-only WebRTC API: default codecs and interceptors,
+/// plus loopback ICE candidates so two peers on one host connect with no STUN.
+///
+/// `ice_servers` is the endpoint's, and it decides how far this peer can reach.
+/// Empty offers host candidates only, which is enough for one host or one
+/// network; a deployment crossing NAT names STUN servers through the
+/// endpoint's config.
+fn build_peer_connection(
+	rt: &Runtime,
+	ice_servers: &[String],
+	include_loopback: bool,
+) -> Result<Arc<RTCPeerConnection>, webrtc::Error> {
 	let mut setting_engine = SettingEngine::default();
-	setting_engine.set_include_loopback_candidate(true);
+	setting_engine.set_include_loopback_candidate(include_loopback);
 
 	let mut media_engine = MediaEngine::default();
 	media_engine.register_default_codecs()?;
@@ -308,7 +347,17 @@ fn build_peer_connection(rt: &Runtime) -> Result<Arc<RTCPeerConnection>, webrtc:
 		.with_setting_engine(setting_engine)
 		.build();
 
-	let config = RTCConfiguration::default();
+	let config = RTCConfiguration {
+		ice_servers: if ice_servers.is_empty() {
+			Vec::new()
+		} else {
+			vec![RTCIceServer {
+				urls: ice_servers.to_vec(),
+				..Default::default()
+			}]
+		},
+		..Default::default()
+	};
 	let pc = rt.block_on(api.new_peer_connection(config))?;
 	Ok(Arc::new(pc))
 }
@@ -587,14 +636,41 @@ fn mint_peer_id(endpoint: &EndpointInner) -> Option<usize> {
 /// Create one endpoint: the runtime and readiness namespace shared by all peers
 /// a resident multiplexes. Returns null if either resource cannot be created.
 #[no_mangle]
-pub extern "C" fn pancake_webrtc_sidecar_endpoint_new() -> *mut PancakeWebrtcEndpoint {
+pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
+	config: *const PancakeWebrtcEndpointConfig,
+) -> *mut PancakeWebrtcEndpoint {
 	catch_unwind(AssertUnwindSafe(|| {
+		if config.is_null() {
+			return std::ptr::null_mut();
+		}
+		// Safety: the contract requires a readable config when non-null, and a
+		// non-empty URL list to be that many readable bytes.
+		let cfg = unsafe { &*config };
+		let ice_servers: Vec<String> = if cfg.ice_servers.is_null() || cfg.ice_servers_len == 0 {
+			Vec::new()
+		} else {
+			let bytes = unsafe { std::slice::from_raw_parts(cfg.ice_servers, cfg.ice_servers_len) };
+			match std::str::from_utf8(bytes) {
+				Ok(urls) => urls
+					.split(',')
+					.map(str::trim)
+					.filter(|url| !url.is_empty())
+					.map(str::to_owned)
+					.collect(),
+				Err(_) => return std::ptr::null_mut(),
+			}
+		};
 		let readiness = match Readiness::new() {
 			Some(readiness) => readiness,
 			None => return std::ptr::null_mut(),
 		};
+		let workers = if cfg.worker_threads == 0 {
+			WORKER_THREADS
+		} else {
+			cfg.worker_threads as usize
+		};
 		let rt = match tokio::runtime::Builder::new_multi_thread()
-			.worker_threads(2)
+			.worker_threads(workers)
 			.thread_name("pancake-webrtc")
 			.enable_all()
 			.build()
@@ -607,6 +683,8 @@ pub extern "C" fn pancake_webrtc_sidecar_endpoint_new() -> *mut PancakeWebrtcEnd
 				rt: RuntimeOwner(Some(rt)),
 				readiness,
 				next_peer_id: AtomicUsize::new(1),
+				ice_servers,
+				include_loopback: cfg.include_loopback_candidates != 0,
 			}),
 		}))
 	}))
@@ -681,7 +759,11 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			Some(id) => id,
 			None => return std::ptr::null_mut(),
 		};
-		let pc = match build_peer_connection(endpoint.runtime()) {
+		let pc = match build_peer_connection(
+			endpoint.runtime(),
+			&endpoint.ice_servers,
+			endpoint.include_loopback,
+		) {
 			Ok(pc) => pc,
 			Err(_) => return std::ptr::null_mut(),
 		};
@@ -797,6 +879,46 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 						outbound_ready,
 					);
 				})
+			}));
+		}
+
+		// The connection's own terminal state, which is the only thing that ever
+		// reports a peer that never connects at all.
+		//
+		// Every other terminal path runs through the data channel: it opens,
+		// then something closes it. ICE failing before a channel exists closes
+		// nothing, so without this a caller waits on readiness that will never
+		// come. `Failed` is terminal; `Disconnected` is not, because ICE
+		// recovers from it, and reporting it would end sessions that were about
+		// to resume.
+		//
+		// What the suite proves here is the publish, which `publish_peer_closed`
+		// and its once-only test already cover. Reaching this arm through a real
+		// ICE failure is not proven: making ICE give up takes tens of seconds of
+		// connectivity checks, which no hermetic test should wait for.
+		{
+			let inbound_for_state = inbound.clone();
+			let open_for_state = open.clone();
+			let drained_for_state = drained.clone();
+			let outbound_for_state = outbound.clone();
+			let outbound_ready_for_state = outbound_ready.clone();
+			let readiness_for_state = endpoint.readiness.clone();
+			pc.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
+				if matches!(
+					state,
+					RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
+				) {
+					publish_peer_closed(
+						&inbound_for_state,
+						&open_for_state,
+						&drained_for_state,
+						&outbound_for_state,
+						&outbound_ready_for_state,
+						&readiness_for_state,
+						id,
+					);
+				}
+				Box::pin(async {})
 			}));
 		}
 
@@ -1511,5 +1633,54 @@ mod tests {
 		assert!(inbound.0.lock().unwrap().closed);
 		assert!(open.lock().unwrap().closed);
 		assert!(outbound.lock().unwrap().closed);
+	}
+
+	/// The ICE servers a caller names reach the endpoint, and a caller that
+	/// names none still gets one.
+	///
+	/// A live STUN server cannot be reached from a hermetic test, so what this
+	/// holds is the seam rather than the traversal: the URLs are parsed, split,
+	/// and carried onto the endpoint every peer is built from. Without it the
+	/// setting would be a claim nothing exercises.
+	#[test]
+	fn ice_servers_reach_the_endpoint() {
+		let urls = b"stun:stun.example:3478, stun:other.example:3478";
+		let cfg = PancakeWebrtcEndpointConfig {
+			ice_servers: urls.as_ptr(),
+			ice_servers_len: urls.len(),
+			include_loopback_candidates: 0,
+			worker_threads: 0,
+		};
+		let ep = pancake_webrtc_sidecar_endpoint_new(&cfg);
+		assert!(!ep.is_null());
+		// The comma-separated list splits, and surrounding space is not part of
+		// a URL.
+		assert_eq!(
+			unsafe { &*ep }.inner.ice_servers,
+			vec![
+				"stun:stun.example:3478".to_string(),
+				"stun:other.example:3478".to_string()
+			]
+		);
+		unsafe { pancake_webrtc_sidecar_endpoint_free(ep) };
+
+		let empty = PancakeWebrtcEndpointConfig {
+			ice_servers: std::ptr::null(),
+			ice_servers_len: 0,
+			include_loopback_candidates: 0,
+			worker_threads: 0,
+		};
+		let host_only = pancake_webrtc_sidecar_endpoint_new(&empty);
+		assert!(!host_only.is_null());
+		assert!(unsafe { &*host_only }.inner.ice_servers.is_empty());
+		unsafe { pancake_webrtc_sidecar_endpoint_free(host_only) };
+	}
+
+	/// A null config is refused rather than silently taken as "no ICE servers",
+	/// so a caller that forgot to pass one finds out here instead of in a
+	/// deployment where nothing can traverse NAT.
+	#[test]
+	fn a_null_config_is_refused() {
+		assert!(pancake_webrtc_sidecar_endpoint_new(std::ptr::null()).is_null());
 	}
 }

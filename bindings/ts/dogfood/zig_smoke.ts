@@ -18,6 +18,7 @@ import {
 	Context,
 	type ContextAllocator,
 	durableIdentityAuthenticated,
+	encodePeerLocator,
 	ensureRuntimeReady,
 	FetchFailed,
 	Host,
@@ -179,6 +180,120 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	ok("drove a published counter round-trip from a context-backed host");
 }
 
+// The live timeline producer: the veneer stamps and forwards the native
+// tap's facts, one flat record per fact — session-opened with the codec the
+// handshake actually negotiated, the same verb outbound at the client and
+// inbound at the server, and session-closed. Endpoint labeling belongs to
+// the consumer (ocapnviz resolves src/dst from the opens), so the records
+// carry only the session and direction.
+{
+	const { annotateSession, enableTrace } = await import("@pancake/stack");
+	const events: import("@pancake/stack").TraceEvent[] = [];
+	const uninstall = enableTrace((ev) => events.push(ev), {
+		selfLabel: "smoke",
+	});
+
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+	const hosted = (async () => {
+		for await (const session of server) {
+			session.publish("greeter", (verb) => `hello ${verb}`);
+			session.serve().catch(() => {});
+			break;
+		}
+	})();
+	const session = await connect(tcpLocator("127.0.0.1", port));
+	session.serve().catch(() => {});
+	const greeter = await session.fetch("greeter");
+	const reply = await session.send(greeter, "trace-me", []);
+	assert(reply === "hello trace-me", `traced call still answers, got ${String(reply)}`);
+	// The annotation channel: the application states which partner a
+	// session carries, named for the same session row the tap names.
+	annotateSession(session, { label: "greeter-server" });
+	session.close();
+	await hosted;
+	uninstall();
+
+	const opened = events.filter((ev) => ev.kind === "ocapn.session-opened");
+	assert(opened.length >= 2, "both hosts' opens reached the one sink");
+	assert(
+		opened.every((ev) => ev.codec === "syrup" && ev.a_label === "smoke"),
+		"opens carry the negotiated codec and the application's display label",
+	);
+	// And what this producer RUNS, because this schema is not pancake's alone:
+	// a consumer must not read an implementation off the fact that a record
+	// arrived, so a pancake host says so in words.
+	assert(
+		opened.every((ev) => ev.a_profile === "pancake"),
+		"an open states the implementation this producer runs",
+	);
+	// Identity and label are two facts. `a` is the host's own key designator —
+	// the name a partner knows it by, and so the only name two producers can
+	// agree on — and the label never stands in for it.
+	assert(
+		opened.every((ev) => /^[0-9a-f]{64}$/.test(ev.a ?? "")),
+		"an open's `a` endpoint is the reporting host's key designator",
+	);
+	// The OCapN Session ID is what lets a consumer merging two producers'
+	// feeds tell one session watched twice from two unrelated ones: both
+	// peers of this session derive it, so the two opens agree on it.
+	assert(
+		opened.every((ev) =>
+			ev.session_id === opened[0].session_id &&
+			/^[0-9a-f]{64}$/.test(ev.session_id ?? "")
+		),
+		"both peers of one session report the same OCapN Session ID",
+	);
+	const outbound = events.find(
+		(ev) =>
+			ev.kind === "ocapn.message-decoded" && ev.op === "trace-me" &&
+			ev.outbound === true,
+	);
+	assert(outbound !== undefined, "the client's send traced outbound");
+	const inbound = events.find(
+		(ev) =>
+			ev.kind === "ocapn.message-decoded" && ev.op === "trace-me" &&
+			ev.outbound === false,
+	);
+	assert(inbound !== undefined, "the server's deliver traced inbound");
+	assert(
+		inbound!.session !== outbound!.session,
+		"each host names its own session row",
+	);
+	// Payload: both fact sites sit at the wire boundary (inbound
+	// dispatch, the outbound drain), so both records carry the whole
+	// (sub-cap) frame with its true length and the verb inside it.
+	for (const rec of [inbound!, outbound!]) {
+		assert(
+			rec.bytes_b64 !== undefined && rec.len === atob(rec.bytes_b64).length,
+			"the record carries its whole frame with its true length",
+		);
+		assert(
+			atob(rec.bytes_b64!).includes("trace-me"),
+			"the frame bytes contain the delivered verb",
+		);
+	}
+	assert(
+		events.some((ev) => ev.kind === "ocapn.session-closed"),
+		"the close reached the sink",
+	);
+	const meta = events.find((ev) => ev.kind === "ocapn.session-meta");
+	assert(
+		meta !== undefined && meta.meta?.label === "greeter-server",
+		"the annotation reached the sink with its label",
+	);
+	assert(
+		meta!.session === outbound!.session,
+		"the annotation names the same session row the tap names",
+	);
+	let last = -1;
+	for (const ev of events) {
+		assert(ev.sim_t_ns >= last, "sim_t_ns is monotone");
+		last = ev.sim_t_ns;
+	}
+	ok("the live trace produced the timeline schema for a whole conversation");
+}
+
 // An async behavior (off-turn settlement): the worker returns a promise, the
 // binding defers the turn's answer onto a resolver vow, and the settle
 // re-enters from the microtask queue after real awaited work, so the host's
@@ -289,13 +404,16 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	const port = await server.ready();
 	let serverClosed!: () => void;
 	const closed = new Promise<void>((r) => (serverClosed = r));
+	let firstReplyObserved!: () => void;
+	const firstReply = new Promise<void>((r) => (firstReplyObserved = r));
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
 			session.publish("svc", () => null);
 			session.serve().catch(() => {});
-			// Serve exactly one call, then hang up without warning.
-			await new Promise((r) => setTimeout(r, 50));
+			// Close only after the client observed the first reply. A timer makes
+			// this a scheduler race, not a disconnect contract test.
+			await firstReply;
 			session.close();
 			serverClosed();
 			break;
@@ -307,7 +425,11 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		const session = await connect(tcpLocator("127.0.0.1", port));
 		session.serve().catch(() => {}); // a disconnect ends the serve loop; expected here
 		const svc = await session.fetch("svc");
-		await session.send(svc, "ping", []);
+		try {
+			await session.send(svc, "ping", []);
+		} finally {
+			firstReplyObserved();
+		}
 		await closed;
 		let rejected = false;
 		try {
@@ -433,13 +555,13 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		session.serve().catch(() => {});
 		let mismatchRefused = false;
 		try {
-			await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/greeter");
+			await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg");
 		} catch (err) {
 			mismatchRefused = err instanceof PancakeError && err.code === INVALID_ARGUMENT;
 		}
 		assert(mismatchRefused, "enliven accepted a sturdyref for another peer");
 		// The complete sturdyref must name this selected session's peer.
-		const sturdyref = `${locator}/s/greeter`;
+		const sturdyref = `${locator}/s/Z3JlZXRlcg`;
 		const cap = await session.enliven(sturdyref);
 		const greeting = await session.send(cap, "hello", []);
 		assert(
@@ -484,7 +606,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		const shared = new Host();
 		const session = await connect(locator, undefined, shared);
 		session.serve().catch(() => {});
-		const cap = await shared.enliven(`${locator}/s/beacon`);
+		const cap = await shared.enliven(`${locator}/s/YmVhY29u`);
 		const greeting = await session.send(cap, "hello", []);
 		assert(
 			greeting instanceof Sym && (greeting as Sym).value === "lit",
@@ -707,7 +829,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // *late* (after a sibling projection already pumped the loop) still settles
 // from the recorded outcome.
 {
-	const server = listen("127.0.0.1", 0);
+	const nextHost = () => new Host(undefined, { captpVersion: "next" });
+	const server = listen("127.0.0.1", 0, nextHost());
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
@@ -725,7 +848,11 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const session = await connect(tcpLocator("127.0.0.1", port));
+		const session = await connect(
+			tcpLocator("127.0.0.1", port),
+			undefined,
+			nextHost(),
+		);
 		session.serve().catch(() => {});
 		const root = await session.fetch("root");
 		// None of these await a prior reply: the projections ride the unresolved
@@ -838,7 +965,9 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	let retargeted = false;
 	let capturing = false;
 	let observedWire = "";
+	let pending = new Uint8Array();
 	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
 	function observe(chunk: Uint8Array): void {
 		if (!capturing || plainExport >= 0n) return;
 		observedWire += decoder.decode(chunk, { stream: true });
@@ -846,21 +975,68 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		if (match !== null) plainExport = BigInt(match[1]);
 	}
 	function retarget(chunk: Uint8Array): Uint8Array {
-		if (!armed || retargeted || plainExport < 0n) return chunk;
-		const needle = new TextEncoder().encode("desc:export0+");
-		outer: for (let i = 0; i + needle.length <= chunk.length; i++) {
-			for (let j = 0; j < needle.length; j++) {
-				if (chunk[i + j] !== needle[j]) continue outer;
+		if (!armed || plainExport < 0n) return chunk;
+		if (retargeted && pending.length === 0) return chunk;
+		const joined = new Uint8Array(pending.length + chunk.length);
+		joined.set(pending);
+		joined.set(chunk, pending.length);
+		pending = joined;
+
+		const frames: Uint8Array[] = [];
+		while (pending.length > 0) {
+			let colon = -1;
+			let bodyLength = 0;
+			for (let i = 0; i < pending.length; i++) {
+				const byte = pending[i];
+				if (byte === 58) {
+					colon = i;
+					break;
+				}
+				if (byte < 48 || byte > 57) {
+					const malformed = pending;
+					pending = new Uint8Array();
+					return malformed;
+				}
+				bodyLength = bodyLength * 10 + byte - 48;
 			}
-			const spliced = new TextEncoder().encode(`desc:export${plainExport}+`);
-			const out = new Uint8Array(chunk.length - needle.length + spliced.length);
-			out.set(chunk.subarray(0, i), 0);
-			out.set(spliced, i);
-			out.set(chunk.subarray(i + needle.length), i + spliced.length);
-			retargeted = true;
-			return out;
+			if (colon < 0 || pending.length < colon + 1 + bodyLength) break;
+
+			const frameEnd = colon + 1 + bodyLength;
+			let body = pending.slice(colon + 1, frameEnd);
+			pending = pending.slice(frameEnd);
+			if (!retargeted) {
+				const needle = encoder.encode("desc:export0+");
+				outer: for (let i = 0; i + needle.length <= body.length; i++) {
+					for (let j = 0; j < needle.length; j++) {
+						if (body[i + j] !== needle[j]) continue outer;
+					}
+					const replacement = encoder.encode(`desc:export${plainExport}+`);
+					const spliced = new Uint8Array(
+						body.length - needle.length + replacement.length,
+					);
+					spliced.set(body.subarray(0, i));
+					spliced.set(replacement, i);
+					spliced.set(body.subarray(i + needle.length), i + replacement.length);
+					body = spliced;
+					retargeted = true;
+					break;
+				}
+			}
+			const prefix = encoder.encode(`${body.length}:`);
+			const frame = new Uint8Array(prefix.length + body.length);
+			frame.set(prefix);
+			frame.set(body, prefix.length);
+			frames.push(frame);
 		}
-		return chunk;
+
+		const size = frames.reduce((total, frame) => total + frame.length, 0);
+		const output = new Uint8Array(size);
+		let offset = 0;
+		for (const frame of frames) {
+			output.set(frame, offset);
+			offset += frame.length;
+		}
+		return output;
 	}
 	const relay = await startRelay(targetPort, retarget, observe);
 
@@ -1322,10 +1498,9 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	ok("a callback-time Host release frees two Sessions before their Host");
 }
 
-// The partner identity the handshake proved, and the refusal an application
-// builds on it. A directory that takes a locator from the wire and believes it
-// will point introductions wherever a caller says; the fix is to compare the
-// name a caller claims against the one it actually signed.
+// The verified session identity and locator claim the handshake reports. A
+// directory may compare a caller's claimed locator to this signed claim, but
+// only authenticated-channel provenance proves a durable designator.
 //
 // A dialing client that does not listen has no dialable name of its own, so it
 // signs the unreachable-client placeholder. That is the sharpest case: whatever
@@ -1375,11 +1550,11 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	async function client(): Promise<void> {
 		const session = await connect(tcpLocator("127.0.0.1", port));
 		const seen = session.partnerIdentity();
-		// The dialer verified the listener's signature, so it holds the
-		// listener's key and the address that key signed.
+		// The dialer verified the listener's fresh session key and the locator
+		// claim signed by that key.
 		assert(
 			seen.sessionKey.length === 32,
-			"partner identity: the client sees the server's proved key",
+			"partner identity: the client sees the server's verified session key",
 		);
 		assert(
 			seen.designator === `127.0.0.1:${port}`,
@@ -1389,11 +1564,21 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			seen.locatorRecord.length > 0,
 			"partner identity: the verbatim location record came back",
 		);
+		assert(
+			eqBytes(
+				seen.locatorRecord,
+				encodePeerLocator({
+					transport: "tcp",
+					designator: `127.0.0.1:${port}`,
+				}),
+			),
+			"partner identity: the listener advertises the accept plan's complete locator",
+		);
 		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
-	ok("the handshake's proved partner identity refuses a locator the caller never signed");
+	ok("the handshake reports a verified session identity and its signed locator claim");
 }
 
 ok("drove OCapN through the idiomatic pancake API");

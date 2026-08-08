@@ -39,15 +39,16 @@ layer.
    `demo` (or remain examples), not CapTP roots.
 5. **`zig build`** is the only developer gate. The same graph installs and
    release-packs the `pancake` binary. There is no `pancake check`.
-6. **Deferred runtimes:** A2A-on-CapTP + optional HTTP facade; griddle **sim
-   runtime** / ocapnviz; OTEL export. Day-one ops observability is stderr
-   structured logs plus CapTP introspection. Active plans:
-   [`pancake-a2a-on-captp-design.md`](../../planning/pancake-a2a-on-captp-design.md),
-   [`observability-family.md`](../../planning/observability-family.md).
-   **Brand placeholder:** `pancake griddle` is a subtree of this CLI (status/help
-   only today). argv[0] remains `pancake`; CapTP ops stay under `ocapn` / `repl`.
-   An optional `griddle` → `pancake griddle` shim may land later. Sim/timeline
-   implementation is still deferred.
+6. **Deferred runtimes:** A2A-on-CapTP + optional HTTP facade; OTEL export.
+   Day-one ops observability is stderr structured logs plus CapTP
+   introspection. The A2A sketch is
+   [`pancake-a2a-on-captp-design.md`](../../planning/pancake-a2a-on-captp-design.md);
+   the griddle sim runtime and ocapnviz have shipped, and what remains of the
+   observability family is recorded in [`docs/roadmap.md`](../../roadmap.md)
+   and [ADR-0106](ADR-0106-viz-control-capability.md).
+   **Brand:** `pancake griddle` is a subtree of this CLI (`run`, `status`,
+   `help`). argv[0] remains `pancake`; CapTP ops stay under `ocapn` / `repl`.
+   An optional `griddle` → `pancake griddle` shim may land later.
 7. **Operability** (identity, signals, exit codes, XDG state dir, MCP lifecycle,
    POSIX argv/`--`/`-V`, scoped help + completion) is part of the product
    contract. Present edges live in `docs/shipped.md` and `docs/boundaries.md`.
@@ -66,7 +67,7 @@ layer.
 - **Everything under `pancake` including `check` / A2A as CapTP roots.**
   Rejected: conflates gates and CapTP; drifts from `build.zig`. Griddle as a
   **named CLI subtree** (not a CapTP root, not a second argv[0]) is allowed for
-  brand locking; the sim runtime stays deferred.
+  brand locking; the sim runtime ships under that subtree.
 - **Rename argv[0] to `griddle` for CapTP + sim.** Rejected: CapTP ops and the
   library brand stay `pancake`; sim brand is the `griddle` subtree.
 - **CLI inside `src/cli` as a library layer.** Rejected: product binary must not

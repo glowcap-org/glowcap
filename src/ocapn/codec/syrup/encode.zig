@@ -123,7 +123,8 @@ pub fn renderRecordExact(
 }
 
 pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) EncodeError!foundation.Frame {
-    return encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
+    const storage = try renderRecordExact(allocator, writeMessage, .{ allocator, null, message });
+    return try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
 }
 
 pub fn encodeMessageForProfile(
@@ -140,7 +141,7 @@ pub fn encodeMessageForProfile(
 fn writeMessage(
     sink: anytype,
     allocator: std.mem.Allocator,
-    profile: model.CaptpVersion,
+    profile: ?model.CaptpVersion,
     message: model.Message,
 ) WalkError!void {
     switch (message) {
@@ -163,14 +164,19 @@ fn writeMessage(
             } else {
                 try writeBool(sink, false);
             }
-            if (profile == .v1_0 and deliver.resolve_me_desc != null) {
-                try writePayloadReference(allocator, sink, deliver.resolve_me_desc.?);
-            } else {
-                try writeBool(sink, false);
+            switch (profile orelse .v1_0) {
+                .v1_0 => if (deliver.resolve_me_desc) |resolver|
+                    try writePayloadReference(allocator, sink, resolver)
+                else
+                    try writeBool(sink, false),
+                .next => {
+                    if (deliver.resolve_me_desc != null) return Error.UnsupportedMessage;
+                },
             }
             try endRecord(sink);
         },
         .resolve => |resolve| {
+            if (profile == .next) return Error.UnsupportedMessage;
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.resolve));
             try writePositiveInt(sink, resolve.answer.int());
@@ -217,7 +223,7 @@ fn writeMessage(
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.index));
             try writeTargetReference(allocator, sink, index.receiver);
-            try writeInteger(sink, index.index);
+            try writeIntegerValue(sink, index.index);
             try writePositiveInt(sink, index.answer.int());
             try endRecord(sink);
         },
@@ -236,15 +242,19 @@ fn writeMessage(
             try writeSymbol(sink, shared.messageOp(.listen));
             try writePayloadReference(allocator, sink, listen.target);
             try writePayloadReference(allocator, sink, listen.listener);
-            if (profile == .v1_0) {
-                try writeBool(sink, listen.wants_partial);
+            switch (profile orelse .v1_0) {
+                .v1_0 => try writeBool(sink, listen.mode.toV1_0WantsPartial() orelse return Error.UnsupportedMessage),
+                .next => try writePositiveInt(sink, @intFromEnum(listen.mode)),
             }
             try endRecord(sink);
         },
         .start_session => |start_session| {
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.start_session));
-            try writeString(sink, start_session.captp_version.wireString());
+            // As in the capnp encoder: outbound the version is ours, so a
+            // null is a message this codebase never builds. Refuse it.
+            const version = start_session.captp_version orelse return Error.MalformedFrame;
+            try writeString(sink, version.wireString());
             try writePeerKey(sink, start_session.session_pubkey.bytes);
             // The entry-carrying locator writer: a keyed-tcp responder's
             // location carries its bound address as a `direct-addresses`
@@ -254,7 +264,6 @@ fn writeMessage(
             try writeSignature(sink, start_session.acceptable_location_sig.bytes);
             try endRecord(sink);
         },
-        .handoff => |handoff| try writeHandoff(allocator, sink, handoff),
     }
 }
 
@@ -267,12 +276,14 @@ fn endRecord(sink: anytype) !void {
 }
 
 fn writeSymbol(sink: anytype, symbol: []const u8) !void {
+    if (!std.unicode.utf8ValidateSlice(symbol)) return Error.UnsupportedArgument;
     try writeUnsigned(sink, symbol.len);
     try sink.append('\'');
     try sink.appendSlice(symbol);
 }
 
 fn writeString(sink: anytype, string: []const u8) !void {
+    if (!std.unicode.utf8ValidateSlice(string)) return Error.UnsupportedArgument;
     try writeUnsigned(sink, string.len);
     try sink.append('"');
     try sink.appendSlice(string);
@@ -284,6 +295,7 @@ fn writeAbortWireString(sink: anytype, abort: model.AbortReason) !void {
         return;
     }
 
+    if (!std.unicode.utf8ValidateSlice(abort.message)) return Error.UnsupportedArgument;
     const label = abort.kind.wireName();
     try writeUnsigned(sink, label.len + ": ".len + abort.message.len);
     try sink.append('"');
@@ -394,15 +406,23 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: model.Argumen
         // The load-bearing case is a V1.0 resolver-callback `break`
         // resolution, which ships its `model.BreakReason` as a deliver argument.
         .@"error" => |err| try writeError(sink, err),
-        .big_integer => |big| {
-            // Symmetric refusal (ADR-0003): a non-canonical big integer —
-            // leading zeros, non-digits, or a magnitude that belongs to the
-            // `integer` arm — never reaches the wire.
-            if (!big.isCanonical()) return Error.UnsupportedArgument;
-            try sink.appendSlice(big.digits);
-            try sink.append(if (big.negative) '-' else '+');
-        },
+        .big_integer => |big| try writeBigInteger(sink, big),
     }
+}
+
+fn writeIntegerValue(sink: anytype, integer: model.Integer) WalkError!void {
+    switch (integer) {
+        .integer => |value| try writeInteger(sink, value),
+        .big_integer => |big| try writeBigInteger(sink, big),
+    }
+}
+
+fn writeBigInteger(sink: anytype, big: model.BigInteger) WalkError!void {
+    // A non-canonical big integer could duplicate the compact arm or assign
+    // multiple byte forms to one value, so it never reaches the wire.
+    if (!big.isCanonical()) return Error.UnsupportedArgument;
+    try sink.appendSlice(big.digits);
+    try sink.append(if (big.negative) '-' else '+');
 }
 
 /// Encode a canonical unordered collection: each element is encoded

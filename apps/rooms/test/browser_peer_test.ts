@@ -1,4 +1,4 @@
-// The rooms-web browser-peer proof in a REAL browser. A headless Chromium loads
+// The rooms browser-peer proof in a REAL browser. A headless Chromium loads
 // a page that bundles `@pancake/web`
 // (`browser_peer_probe.ts`) and drives the room directory through serve.ts's
 // `/relay` byte pipe — the full path the shipped page takes: browser wasm Host,
@@ -19,7 +19,7 @@
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's children are native), and a Playwright Chromium
-// (`npx playwright install chromium && sudo npx playwright install-deps`). Run
+// (the devcontainer image ships one). Run
 // it directly: `deno run --allow-all apps/rooms/test/browser_peer_test.ts`.
 //
 // The stack now bundles for a browser: `internal/ffi/runtime.ts` and

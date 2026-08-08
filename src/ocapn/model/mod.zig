@@ -88,6 +88,7 @@ pub const max_value_depth: usize = 256;
 pub const CodecId = negotiated.CodecId;
 pub const CaptpVersion = negotiated.CaptpVersion;
 pub const FeatureSet = negotiated.FeatureSet;
+pub const Preference = negotiated.Preference;
 
 /// The three position spaces a session keys on, one zero-cost newtype each, so a
 /// partner-named import position can never be passed where a local export position is meant
@@ -340,6 +341,22 @@ pub const BigInteger = struct {
     }
 };
 
+/// One arbitrary-precision OCapN Integer. Values in the `i64` range use the
+/// compact arm; larger magnitudes borrow or own canonical decimal digits.
+pub const Integer = union(enum) {
+    integer: i64,
+    big_integer: BigInteger,
+
+    pub fn eql(a: Integer, b: Integer) bool {
+        if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+        return switch (a) {
+            .integer => |value| value == b.integer,
+            .big_integer => |big| big.negative == b.big_integer.negative and
+                std.mem.eql(u8, big.digits, b.big_integer.digits),
+        };
+    }
+};
+
 pub const Resolution = union(enum) {
     fulfill: Argument,
     @"break": BreakReason,
@@ -377,6 +394,44 @@ pub const Deliver = struct {
     resolve_me_desc: ?Reference = null,
 };
 
+/// Which promise transition an `op:listen` asks to observe. The current OCapN
+/// proposal assigns these exact integers on the next-profile wire. V1.0 keeps
+/// its Boolean `wants-partial?` operand and is translated at the codec edge.
+pub const ListenMode = enum(u2) {
+    shortening_only = 1,
+    settling_only = 2,
+    shortening_or_settling = 3,
+
+    pub fn fromInt(value: u64) ?ListenMode {
+        return switch (value) {
+            1 => .shortening_only,
+            2 => .settling_only,
+            3 => .shortening_or_settling,
+            else => null,
+        };
+    }
+
+    pub fn wantsShortening(self: ListenMode) bool {
+        return self != .settling_only;
+    }
+
+    pub fn wantsSettling(self: ListenMode) bool {
+        return self != .shortening_only;
+    }
+
+    pub fn fromV1_0WantsPartial(wants_partial: bool) ListenMode {
+        return if (wants_partial) .shortening_or_settling else .settling_only;
+    }
+
+    pub fn toV1_0WantsPartial(self: ListenMode) ?bool {
+        return switch (self) {
+            .shortening_only => null,
+            .settling_only => false,
+            .shortening_or_settling => true,
+        };
+    }
+};
+
 pub const Resolve = struct {
     answer: AnswerPosition,
     resolution: Resolution,
@@ -396,9 +451,17 @@ pub const GcAnswer = struct {
 pub const HandoffGive = handoff_types.HandoffGive;
 pub const HandoffReceive = handoff_types.HandoffReceive;
 pub const Handoff = handoff_types.Handoff;
+pub const HANDOFF_GIFT_ID_BYTES = handoff_types.GIFT_ID_BYTES;
 
 pub const StartSession = struct {
-    captp_version: CaptpVersion,
+    /// Optional for one reason: this type is also what a decoded hello
+    /// materializes into, and a partner may name a version this build does
+    /// not know. Outbound it is always set — the version is ours to choose —
+    /// and the encoders refuse a null they could not have produced.
+    /// `session.validate` is the one place that decides an unknown version is
+    /// unacceptable, and it reads this shape and the borrowed view's
+    /// identically because they agree.
+    captp_version: ?CaptpVersion,
     session_pubkey: SessionPubkey,
     acceptable_location: PeerLocator,
     acceptable_location_sig: LocationSig,
@@ -407,7 +470,7 @@ pub const StartSession = struct {
 pub const Listen = struct {
     target: Reference,
     listener: Reference,
-    wants_partial: bool,
+    mode: ListenMode,
 };
 
 pub const Get = struct {
@@ -418,7 +481,7 @@ pub const Get = struct {
 
 pub const Index = struct {
     receiver: Reference,
-    index: i64,
+    index: Integer,
     answer: AnswerPosition,
 };
 
@@ -435,7 +498,6 @@ pub const Message = union(enum) {
     resolve: Resolve,
     gc_export: GcExport,
     gc_answer: GcAnswer,
-    handoff: Handoff,
     start_session: StartSession,
     abort: AbortReason,
     listen: Listen,
@@ -454,7 +516,6 @@ pub const message_kinds = [_]MessageKind{
     .{ .tag_name = "resolve", .model_name = "Resolve" },
     .{ .tag_name = "gc_export", .model_name = "GcExport" },
     .{ .tag_name = "gc_answer", .model_name = "GcAnswer" },
-    .{ .tag_name = "handoff", .model_name = "Handoff" },
     .{ .tag_name = "start_session", .model_name = "StartSession" },
     .{ .tag_name = "abort", .model_name = "Abort" },
     .{ .tag_name = "listen", .model_name = "Listen" },

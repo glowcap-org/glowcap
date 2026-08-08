@@ -101,7 +101,17 @@ pub const node_id_len = crypto.PeerKey.designator_len;
 const CEndpoint = opaque {};
 const CConn = opaque {};
 
-extern fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32, connect_timeout_ms: u64) ?*CEndpoint;
+/// The sidecar's endpoint config, field-for-field with its `#[repr(C)]`
+/// counterpart. Passed by pointer so a new endpoint knob is a field here rather
+/// than a wider signature every caller has to agree on.
+const CEndpointConfig = extern struct {
+    reachability: u32,
+    connect_timeout_ms: u64,
+    idle_timeout_ms: u64,
+    worker_threads: u32,
+};
+
+extern fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, config: *const CEndpointConfig) ?*CEndpoint;
 extern fn pancake_iroh_sidecar_endpoint_node_id(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_endpoint_direct_addrs(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_connect_blocking(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize, out_code: *i32) ?*CConn;
@@ -219,9 +229,19 @@ pub const Resident = struct {
     /// `connect_timeout_ms` is the per-endpoint stream-establishment deadline
     /// (0 keeps the sidecar's built-in default). A single config so a future
     /// endpoint knob rides it without growing the constructor's arity.
+    ///
+    /// `idle_timeout_ms` bounds how long a connection survives without a packet
+    /// from the far end, which is what ends one whose peer was killed rather
+    /// than closed. 0 keeps the sidecar's default. The C ABI's
+    /// `PancakeIrohConfig` is the authority on what to set it to and why.
     pub const Config = struct {
         reachability: Reachability,
         connect_timeout_ms: u64 = 0,
+        idle_timeout_ms: u64 = 0,
+        /// Worker threads for this endpoint's runtime; 0 takes the sidecar's
+        /// default. A per-endpoint cost, so a process holding many endpoints is
+        /// the caller that should name it.
+        worker_threads: u32 = 0,
     };
 
     /// Bind an iroh endpoint. `secret_seed` is either null (a fresh random
@@ -230,7 +250,13 @@ pub const Resident = struct {
     /// optional dial/accept timeout. `io` is captured for the connections this
     /// resident mints.
     pub fn init(io: Io, secret_seed: ?*const [32]u8, config: Config) InitError!Resident {
-        const endpoint = pancake_iroh_sidecar_endpoint_new(secret_seed, @intFromEnum(config.reachability), config.connect_timeout_ms) orelse return error.EndpointBindFailed;
+        const c_config: CEndpointConfig = .{
+            .reachability = @intFromEnum(config.reachability),
+            .connect_timeout_ms = config.connect_timeout_ms,
+            .idle_timeout_ms = config.idle_timeout_ms,
+            .worker_threads = config.worker_threads,
+        };
+        const endpoint = pancake_iroh_sidecar_endpoint_new(secret_seed, &c_config) orelse return error.EndpointBindFailed;
         return .{ .io = io, .endpoint = endpoint, .reachability = config.reachability };
     }
 
@@ -454,7 +480,30 @@ pub const Resident = struct {
         _ = self;
         pancake_iroh_sidecar_conn_free(@ptrCast(conn));
     }
+
+    /// The key QUIC verified for the far end of a loop connection, or null
+    /// when the handle is gone or the sidecar could not read it. This is the
+    /// transport proof of ADR-0105 at the loop surface, for a host that drives
+    /// the loop itself: the blocking accept and dial paths above assert it to
+    /// their peer directly, while a loop host (`iroh.Backend`, or a language
+    /// binding through `pancake_iroh_conn_remote_node_id`) owns the connection
+    /// and has to ask.
+    pub fn loopConnRemoteKey(self: *const Resident, conn: *const anyopaque) ?crypto.PeerKey {
+        _ = self;
+        return connRemoteKey(@ptrCast(conn));
+    }
 };
+
+/// The key QUIC verified for the far end of `conn` during the TLS handshake,
+/// or null when the sidecar could not read it. Every path that speaks the
+/// transport proof of ADR-0105 — the blocking accept and dial, the completion
+/// backend, and the loop surface a language binding drives — reads it here, so
+/// one function decides what "the connection proved" means for iroh.
+fn connRemoteKey(conn: *const CConn) ?crypto.PeerKey {
+    var remote: [crypto.PEER_KEY_BYTES]u8 = undefined;
+    if (pancake_iroh_sidecar_conn_remote_node_id(conn, &remote) != 0) return null;
+    return crypto.PeerKey.fromBytes(remote);
+}
 
 /// `loopTryRead` / `loopTryWrite` return this when the operation cannot make
 /// progress without blocking, the resident-surface spelling of the sidecar's
@@ -470,21 +519,17 @@ pub const loop_ev_closed: u32 = ev_closed;
 pub const loop_ev_accept: u32 = ev_accept;
 pub const loop_ev_connect: u32 = ev_connect;
 
+const resident_ctx = net.netlayer.ResidentContext(Resident);
+
 const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
     // The designator is the endpoint's Ed25519 key, so a driver dial pins the
     // partner's session identity to it (`net.netlayer.DesignatorScheme`).
     .designator_scheme = .key,
-    .authentication = .authenticated_transport,
     .dial = residentDial,
     .listen = residentListen,
-    .io = residentIo,
+    .io = resident_ctx.io,
 };
-
-fn residentIo(ctx: *anyopaque) ?std.Io {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
-    return self.io;
-}
 
 /// The canonical designator shape `Resident.nodeId` produces: exactly
 /// `node_id_len` lowercase hex digits. One spelling, owned by
@@ -504,7 +549,7 @@ fn residentDial(
     locator: model.PeerLocator,
     bufs: Buffers,
 ) net.netlayer.DialError!Connection {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     // Same admission as the completion loop: DialResolver.resolve owns transport +
     // canonical node-id; dialRawConn owns reachability hint policy (needs
     // resident posture).
@@ -512,6 +557,10 @@ fn residentDial(
     const target = DialResolver.resolve(locator.transport, locator.designator, hints) catch return error.InvalidAddress;
     const conn = try self.dialRawConn(target.id, target.hints);
     errdefer pancake_iroh_sidecar_conn_free(conn);
+    // The dial half of the same proof the accept half makes (ADR-0105): QUIC
+    // authenticated the endpoint this connection reached, so read it back off
+    // the connection rather than assuming the dial got what it asked for.
+    peer.bindVerifiedChannelKey(connRemoteKey(conn) orelse return error.ConnectionLost);
     const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     return stream.intoConnection(self.io, peer);
 }
@@ -521,7 +570,7 @@ fn residentListen(
     allocator: std.mem.Allocator,
     config: net.netlayer.ListenConfig,
 ) net.netlayer.ListenError!Listener {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     // The endpoint bound at `Resident.init` is the listener; iroh has no
     // per-listen address. The node default is the empty designator; a caller
     // may also name this endpoint's own id.
@@ -571,14 +620,14 @@ const ListenerBox = struct {
 const listener_vtable: Listener.VTable = .{
     .transport_name = transport_name,
     // Key scheme, like the netlayer: the responder's signed designator derives
-    // from its identity key. `localHint` stays null — an iroh accept signs a
-    // hint-less locator (the partner already reached us; discovery or the
-    // application's own locator record carries dial addresses).
+    // from its identity key, and `localDirectAddresses` publishes the endpoint's direct
+    // addresses so the signed locator is dialable by somebody who has not
+    // reached us yet. `listenerLocalDirectAddresses` states why a third party is the reason.
     .designator_scheme = .key,
-    .authentication = .authenticated_transport,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
+    .localDirectAddresses = listenerLocalDirectAddresses,
     .close = listenerClose,
 };
 
@@ -597,18 +646,35 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
     const conn = box.stashed orelse pancake_iroh_sidecar_accept(box.resident.endpoint) orelse return error.ConnectionLost;
     box.stashed = null;
     errdefer pancake_iroh_sidecar_conn_free(conn);
-    // The authenticated-transport binding (ADR-0097): QUIC verified the
-    // remote endpoint key during the TLS handshake, so bind the CapTP hello
-    // to it before any byte is fed — a hello may claim that durable identity
-    // or an address, never someone else's key. The accept half of the
-    // identity the dial side already gets by asking iroh for a specific node
-    // id. A connection whose proof cannot be read is refused rather than
-    // admitted unbound.
-    var remote: [crypto.PEER_KEY_BYTES]u8 = undefined;
-    if (pancake_iroh_sidecar_conn_remote_node_id(conn, &remote) != 0) return error.ConnectionLost;
-    peer.expectPartnerDurableKey(crypto.PeerKey.fromBytes(remote), .transport_verified);
+    // The transport proof (ADR-0105): QUIC verified the remote endpoint key
+    // during the TLS handshake, and this resident is the code that realized
+    // the connection, so it is the one that may say so. Bound before any byte
+    // is fed, so the pre-open chokepoint sees the evidence when the partner's
+    // claim arrives. A connection whose proof cannot be read is refused rather
+    // than admitted unbound.
+    peer.bindVerifiedChannelKey(connRemoteKey(conn) orelse return error.ConnectionLost);
     const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     return stream.intoConnection(box.resident.io, peer);
+}
+
+/// This endpoint's direct addresses, the `hint_direct_addresses` value a partner
+/// dials with, published in the hello the way `keyed-tcp` publishes its bound
+/// address.
+///
+/// A key designator says who this peer is, not where it is, so a locator without
+/// addresses is only usable by someone who can resolve the node id. For a
+/// **third party** handed this locator in a handoff that means a relay round
+/// trip, and for an endpoint with no relay of its own it means not at all.
+/// Publishing what we know costs nothing: a dialer given addresses uses them,
+/// and one given none falls back to discovery.
+///
+/// Empty when the endpoint has learned no address yet, which is `localDirectAddresses`'s
+/// ordinary empty case here rather than a defect: `iroh` is not in
+/// `driver_core.vocab.requiresDirectAddressesHint`, so an empty hint is a slower
+/// dial and not an impossible one.
+fn listenerLocalDirectAddresses(ctx: *anyopaque, out: []u8) error{OutputBufferTooSmall}![]const u8 {
+    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    return box.resident.directAddrs(out);
 }
 
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
@@ -824,16 +890,15 @@ pub const Backend = struct {
     }
 
     /// The QUIC-authenticated remote endpoint key for `fd`'s connection, or
-    /// null when the connection is gone or the proof cannot be read. The
-    /// authenticated-transport capability `completion.Loop.remotePartnerKey`
-    /// forwards to the bridge, so an accepted loop-tier peer is pinned before
-    /// its first byte feeds (ADR-0097). Socket backends have no such decl and
-    /// the loop answers null for them.
-    pub fn remotePartnerKey(self: *Backend, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+    /// null when the connection is gone or the proof cannot be read. This is
+    /// the evidence `completion.Loop.verifiedChannelKey` forwards to the bridge,
+    /// which asserts it to the engine before the connection's first byte feeds
+    /// (ADR-0105). Socket backends have no such decl and the loop answers null
+    /// for them.
+    pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
         const entry = self.conns.getPtr(fd) orelse return null;
-        var out: [crypto.PEER_KEY_BYTES]u8 = undefined;
-        if (pancake_iroh_sidecar_conn_remote_node_id(entry.cconn, &out) != 0) return null;
-        return out;
+        const key = connRemoteKey(entry.cconn) orelse return null;
+        return key.bytes;
     }
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen: Fd) !void {

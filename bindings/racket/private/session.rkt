@@ -43,6 +43,7 @@
          "locator.rkt"
          "async.rkt"
          "host.rkt"
+         "trace.rkt"
          "trampoline.rkt"
          "pump.rkt"
          "action.rkt"
@@ -275,6 +276,8 @@
 ;; cancellation passes #f (or 0) to wait forever.
 (define (establish-dialed-locator-session m transport-name designator transport
                                              #:time-travel? [time-travel? #f]
+                                             #:verified-channel-key
+                                             [verified-channel-key #f]
                                              #:handshake-timeout-ms
                                              [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (establish-closing-transport transport
@@ -284,6 +287,7 @@
       (define c
         (call-with-host m
           (lambda ()
+            (host-ensure-advertised-locator! m transport-name)
             (define-values (rc ptr)
               (pancake_host_session_open_dialed_locator
                (host-ptr m)
@@ -291,6 +295,10 @@
                (pin-immobile db) (bytes-length db)))
             (check/host rc)
             (build-session m ptr transport time-travel?))))
+      ;; Before the first partner byte, which is the only window a realizer's
+      ;; proof can be weighed in.
+      (when verified-channel-key
+        (session-bind-verified-channel-key! c verified-channel-key))
       (finish-establish! c handshake-timeout-ms))))
 
 ;; Mint the accepting half over a connection the caller's own listener
@@ -302,6 +310,8 @@
 (define (establish-accepted-session m transport-name server-designator transport
                                        #:accepted-local-addr [accepted-local-addr ""]
                                        #:time-travel? [time-travel? #f]
+                                       #:verified-channel-key
+                                       [verified-channel-key #f]
                                        #:handshake-timeout-ms
                                        [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (establish-closing-transport transport
@@ -324,15 +334,27 @@
                          spin (bytes-length sb)
                          lpin (bytes-length lb)
                          plan))
+            (define (plan-text ptr len)
+              (if (or (not ptr) (zero? len))
+                  ""
+                  (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
+            (host-set-advertised-locator!
+             m
+             (encode-peer-locator
+              transport-name
+              (plan-text (PancakeAcceptPlan-designator plan)
+                         (PancakeAcceptPlan-designator-len plan))
+              (plan-text (PancakeAcceptPlan-direct-addresses-hint plan)
+                         (PancakeAcceptPlan-direct-addresses-hint-len plan))))
             (define-values (rc ptr)
               (pancake_host_session_open_accepted (host-ptr m)
-                                               tpin (bytes-length tb)
-                                               (PancakeAcceptPlan-designator plan)
-                                               (PancakeAcceptPlan-designator-len plan)
-                                               (PancakeAcceptPlan-direct-addresses-hint plan)
-                                               (PancakeAcceptPlan-direct-addresses-hint-len plan)))
+                                                   tpin (bytes-length tb)))
             (check/host rc)
             (build-session m ptr transport time-travel?))))
+      ;; Before the first partner byte, which is the only window a realizer's
+      ;; proof can be weighed in.
+      (when verified-channel-key
+        (session-bind-verified-channel-key! c verified-channel-key))
       (finish-establish! c handshake-timeout-ms))))
 
 ;; The one accept rule every listening surface shares — tcp, keyed-tcp, and
@@ -359,12 +381,17 @@
                                 #:handshake-timeout-ms
                                 [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
   (let loop ()
-    (define-values (transport accepted-local-addr) (next-partner))
+    ;; Three facts come out of an accept: the byte channel, where it came from,
+    ;; and what the code that accepted it proved about the far end (`#f` on a
+    ;; socket, which proves nothing; an endpoint id on iroh).
+    (define-values (transport accepted-local-addr verified-channel-key)
+      (next-partner))
     (define c
       (with-handlers ([converts-to-broken? (lambda (_e) #f)])
         (establish-accepted-session m transport-name server-designator transport
                                        #:accepted-local-addr accepted-local-addr
                                        #:time-travel? time-travel?
+                                       #:verified-channel-key verified-channel-key
                                        #:handshake-timeout-ms handshake-timeout-ms)))
     (or c (loop))))
 
@@ -415,12 +442,31 @@
                  (PancakePartnerIdentity-locator-record-len out))
        (provenance<-abi (PancakePartnerIdentity-provenance out))))))
 
-;; The ADR-0097 provenance symbol for one reflected ABI value.
-(define (provenance<-abi raw)
-  (cond
-    [(= raw DURABLE-PROVENANCE-AUTHENTICATED-TRANSPORT) 'authenticated-transport]
-    [(= raw DURABLE-PROVENANCE-DURABLE-KEY-ATTESTATION) 'durable-key-attestation]
-    [else 'unauthenticated]))
+;; Testify what proved this connection's far end, when your own transport proved
+;; one.
+;;
+;; pancake does not open your sockets, so it cannot see what opening them
+;; established. An iroh connection completes only with the holder of the node id
+;; you dialed or accepted, and that is a stronger fact than anything a partner
+;; can claim about itself, but only you hold it. Pass the node id here and
+;; `session-partner-identity` reports `authenticated-transport`; withhold it and
+;; the same session reports `unauthenticated`.
+;;
+;; `designator` is that identity as a locator writes it, which is exactly what
+;; the iroh transport's remote node id hands you.
+;;
+;; Call it after opening the session and before feeding the first byte from the
+;; partner. It raises afterwards, because by then the handshake this evidence
+;; was for has already been judged. Naming a second, different identity raises
+;; too: one connection has one far end. Naming the same one twice is the same
+;; statement made twice and is fine.
+(define (session-bind-verified-channel-key! c designator)
+  (guard-open 'session-bind-verified-channel-key! c)
+  (define raw (string->bytes/utf-8 designator))
+  (call-with-host (session-host c)
+    (lambda ()
+      (check/host (pancake_host_session_bind_verified_channel_key
+                   (session-ptr c) (pin-immobile raw) (bytes-length raw))))))
 
 ;; Flush whatever is already queued on the host's outbound to the wire. A `<-`
 ;; far-send only enqueues; the bytes leave when something drains. The blocking
@@ -533,10 +579,11 @@
 ;; as the Python and Rust `send`s fail. Single-threaded: it pumps events
 ;; itself, matching the rest of the Racket binding. The local arm is
 ;; `session-send-local` in `trampoline.rkt`.
-;; Listen on a promise capability this session holds (CapTP op:listen): the
-;; returned vow settles with the promise's resolution, which may be any value,
-;; not only a capability. A re-gifted promise routes to its exporter session
-;; transparently.
+;; Listen on a far capability this session holds (CapTP op:listen): the
+;; returned vow settles with the listen notification, which may be any value,
+;; not only a capability. In 1.0, the target may be a far promise or live far
+;; object; in pancake-next, the target must be a promise. A re-gifted promise
+;; routes to its exporter session transparently.
 (define (session-listen c target)
   (guard-open 'session-listen c)
   (drain-gc! c)
@@ -649,6 +696,13 @@
 ;; reply comes back, so a notification or broadcast costs one deliver. A
 ;; self-spawned target runs its turn in-process (like `session-send`); a far one
 ;; flushes the deliver to the wire.
+;; Annotate this session for the live trace: the application states
+;; which partner it carries (a chat nick), a claim about naming
+;; carried beside the protocol facts. Fire-and-forget like every
+;; trace emit.
+(define (session-annotate! c #:label label)
+  (trace-annotate-session! (host-ptr (session-host c)) (session-ptr c) label))
+
 (define (session-tell c target verb . args)
   (guard-open 'session-tell c)
   (dispatch-tell c target verb args))

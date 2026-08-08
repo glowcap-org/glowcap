@@ -38,24 +38,22 @@
 //          ROOMS_TRANSPORT=iroh ROOMS_REACHABILITY=discovery deno run -A --unstable-ffi server.ts
 
 import {
+	annotateSession,
 	type Argument,
 	designatorHostPort,
 	durableIdentityAuthenticated,
-	encodePeerLocator,
+	enableTrace,
 	formatPeerUri,
-	HINT_DIRECT_ADDRESSES,
-	Host,
-	listen,
 	parseLocator,
 	Ref,
 	type Session,
 	socketAddrDesignator,
 	TRANSPORT_IROH,
-	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
 } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
-import { isUriLocator } from "../lib/locator.ts";
+import { isUriLocator, roomsHost, roomsListen } from "../lib/locator.ts";
+import { startViz } from "./viz.ts";
 import {
 	INTRODUCTION_PENDING,
 	NICK_TAKEN,
@@ -128,9 +126,11 @@ const rooms = new Map<string, RoomState>();
  * for them. `inbox` is the member's register inbox, where the directory asks for
  * an inbox it needs and tells a waiting caller one has arrived.
  *
- * The registered locator is stamped as the registrar session's exporter location
- * so redeem dials the member's listen endpoint, not its ephemeral room-dial
- * address. */
+ * The registered locator is not what a redeem dials. A member's own hello already
+ * claims where it is reachable, and that claim is what the gifter relays when it
+ * introduces this member, so the locator here is the member's advertised address
+ * for the directory's own use: refusing a registration it cannot tie to the
+ * caller, and routing `webrtc` signaling by designator. */
 interface Introduction {
 	nick: string;
 	inbox: Ref;
@@ -186,9 +186,12 @@ function originatedExchange(session: Session, designator: string): string | null
 /** Whether `locator` names the connection registering it — or, where that cannot
  * be known, whether the directory has any grounds to refuse.
  *
- * The directory repeats this locator to everyone it introduces, and they dial
- * it. One it cannot tie to the caller is therefore a dial aimed on their behalf
- * at an address the caller chose, worth closing wherever it can be closed.
+ * The directory shows this locator to other members and routes `webrtc`
+ * signaling by its designator. One it cannot tie to the caller is therefore a
+ * name claimed on somebody else's behalf, worth closing wherever it can be
+ * closed. An introduction no longer dials it — the gifter relays what the
+ * member's own hello claimed — so this is a claim about identity rather than the
+ * dial target it once was.
  *
  * It can be closed exactly when the registering connection is keyed: the
  * handshake has verified the partner holds the key its designator names, so a
@@ -234,23 +237,13 @@ function registerMember(
 	session: Session,
 ): void {
 	const key = nickKey(nick);
-	// Stamp advertised locator: redeem must dial the listen endpoint, not the
-	// member's outbound client address from the room dial. The verb refused any
-	// locator this connection could not be tied to before getting here.
-	if (isUriLocator(locator)) {
-		const loc = parseLocator(locator);
-		session.setExporterLocator(encodePeerLocator({
-			transport: loc.transport,
-			designator: loc.designator,
-			directAddresses: loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "",
-		}));
-	} else {
-		const { hostname, port } = designatorHostPort(locator);
-		session.setExporterLocator(encodePeerLocator({
-			transport: TRANSPORT_TCP,
-			designator: socketAddrDesignator(hostname, port),
-		}));
-	}
+	// No advertised-locator override here. A member's own hello already claims
+	// where it is reachable — its listen address, or its key plus the dial
+	// addresses a key-scheme netlayer publishes — so the gifter relays that claim
+	// verbatim when it introduces this member. Stamping a locator built from the
+	// `register` argument instead replaced a complete claim with a partial one,
+	// and a recipient that matches an exporter location against what the exporter
+	// itself said then finds two different documents.
 	// A connection holds one name at a time, so `registeredNickOf` is a function
 	// and not a guess at which row means "you". A nick change re-registers on the
 	// live session, and a row left behind would keep answering with the name it
@@ -345,6 +338,22 @@ function registeredNickOf(session: Session): string | null {
 		if (intro.registrar === session) return intro.nick;
 	}
 	return null;
+}
+
+/** Whether another live connection holds `nick` for direct messages.
+ *
+ * A name has one holder here, and the holding lasts as long as the connection —
+ * longer than any one room membership, because a member who leaves a room stays
+ * reachable by direct message under the name they registered.
+ *
+ * That longer life is why both doors ask this. A room frees a nick the moment
+ * its holder leaves the room, so without this the room would grant a name the
+ * directory still answers for: the roster shows one person and an introduction
+ * under that name reaches another, with nothing on either side saying so. One
+ * name, one holder, one lifetime — the connection's. */
+function registeredByAnother(session: Session, nick: string): boolean {
+	const holder = introductions.get(nickKey(nick));
+	return holder !== undefined && holder.registrar !== session && holder.registrar.sessionOpen;
 }
 
 /** Withdraw every introduction a closing connection registered. */
@@ -452,6 +461,28 @@ function broadcastTyping(
 	}
 }
 
+/** The nick this connection is in a room under, or null when it is in none.
+ * One authority for what the room server calls a connection: a membership is
+ * a presence, and presence is the fact a timeline viewer wants. A DM
+ * registration is a directory entry rather than a presence, and naming a
+ * connection by one would keep calling a member present after it left. */
+function membershipNick(session: Session): string | null {
+	for (const state of rooms.values()) {
+		const member = findBySession(state, session);
+		if (member !== null) return member.nick;
+	}
+	return null;
+}
+
+/** State this connection's room presence on the live trace, or withdraw the
+ * claim when it holds none. A claim, not identity — the viewer only displays
+ * it — and stating it here means a member joining, changing rooms, or leaving
+ * is one visible change in the picture rather than a name frozen at whatever
+ * was said first. */
+function statePresence(session: Session): void {
+	annotateSession(session, { label: membershipNick(session) });
+}
+
 /** Remove `session`'s membership from one room, announcing its departure, and
  * delete the room if that emptied it. The `silent` path is for resubscribe,
  * which drops the prior membership and immediately adds a new one, so it must
@@ -482,6 +513,10 @@ function leaveRoom(
 	if (!silent && removed && state.members.length === 0) {
 		rooms.delete(roomKey(state.name));
 	}
+	// A real departure also changes what this connection IS: the member is
+	// gone but the connection stays, which is exactly the moment the room
+	// stops knowing it by that name.
+	if (!silent && removed) statePresence(session);
 	// A real departure changes the live room list: the room closed if it emptied,
 	// else its count dropped. A silent resubscribe leaves the count unchanged.
 	if (!silent && removed) {
@@ -519,11 +554,26 @@ function roomBehavior(state: RoomState, session: Session) {
 			if (claimedByAnother(state, session, nick)) {
 				throw new RoomError(NICK_TAKEN, `name "${nick}" is already claimed`);
 			}
+			// The room is not the only holder of a name. Someone who left this room
+			// but stayed connected still answers to theirs for direct messages, so
+			// granting it here would put one name on two people: the roster would
+			// show the newcomer while an introduction under that name reached the
+			// member who left.
+			if (registeredByAnother(session, nick)) {
+				throw new RoomError(
+					NICK_TAKEN,
+					`name "${nick}" is held for direct messages by a member who is still connected`,
+				);
+			}
 			// A resubscribe (same connection re-claiming) nets no count change, so it
 			// must not fire a discovery event; a fresh membership does.
 			const wasMember = findBySession(state, session) !== null;
 			if (wasMember) leaveRoom(state, session, true);
 			state.members.push({ nick, inbox, session });
+			// The one moment this process KNOWS which member a session
+			// carries: state it for the trace, so a viewer can name the peer
+			// instead of showing its claimed address.
+			statePresence(session);
 			broadcast(state, "room", `${nick} joined (${state.members.length} here)`, "join", nick);
 			if (!wasMember) {
 				notifyWatchers(
@@ -610,10 +660,7 @@ export function directoryBehavior(session: Session) {
 					`the locator "${locator}" does not name the connection registering it`,
 				);
 			}
-			const holder = introductions.get(nickKey(nick));
-			if (
-				holder !== undefined && holder.registrar !== session && holder.registrar.sessionOpen
-			) {
+			if (registeredByAnother(session, nick)) {
 				throw new RoomError(
 					NICK_TAKEN,
 					`"${nick}" is registered by another member; it frees when they disconnect`,
@@ -824,6 +871,30 @@ function optionalEnv(name: string): string | undefined {
 	return value && value.length > 0 ? value : undefined;
 }
 
+// The live timeline endpoint (ocapnviz Live mode): set ROOMS_VIZ_PORT to serve
+// it on that port. Opt-in and read only when env access is granted, like
+// ROOMS_TRANSPORT beside it; without it the tap stays cold and every emit site
+// is one null check. `0` takes an ephemeral port, the way the room's own
+// positional port argument does; either way the port it actually bound is the
+// one it announces.
+//
+// The room's own trace goes in through the same door every other peer's does,
+// so a member's direct messages — sessions the room never carries — appear on
+// the same timeline. Each session's `a` endpoint is this host's own key
+// designator, the name a partner knows it by and so the one name two producers
+// can agree on; "rooms" rides beside it as what a reader should see.
+function maybeStartViz(): void {
+	const raw = optionalEnv("ROOMS_VIZ_PORT");
+	if (!raw) return;
+	const port = Number(raw);
+	if (!Number.isInteger(port) || port < 0) {
+		console.error(`server.ts: ROOMS_VIZ_PORT is not a port: "${raw}"`);
+		Deno.exit(2);
+	}
+	const viz = startViz(port);
+	enableTrace(viz.sink, { selfLabel: "rooms" });
+}
+
 function transportArg(): "tcp" | "iroh" {
 	const flag = Deno.args.find((a) => a.startsWith("--transport="));
 	// ROOMS_TRANSPORT is a convenience for manual runs; only read it when env
@@ -866,6 +937,7 @@ export async function serveDirectory(server: AsyncIterable<Session>): Promise<vo
 if (import.meta.main) {
 	// Positional args are the port (TCP only); iroh has no port to pin.
 	const positional = Deno.args.filter((a) => !a.startsWith("--"));
+	maybeStartViz();
 	const transport = transportArg();
 
 	// The harness and the web bridge parse the announce line: a bare port is a TCP
@@ -874,9 +946,16 @@ if (import.meta.main) {
 		// One seed for the host identity AND the endpoint, so every accepted
 		// session signs with the endpoint's own key.
 		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const host = new Host(seed);
+		const host = roomsHost(seed);
 		const reach = reachabilityArg();
-		const iroh = listenIroh(reach, seed, host);
+		// A room reads a live session as presence: a member holds its nickname
+		// for exactly as long as its connection is open. Over TCP a member that
+		// is killed is gone at once, because the operating system sends a FIN
+		// as the process dies. UDP has no equivalent, so here the connection
+		// ends only when QUIC gives up on a peer that stopped answering, and
+		// until then the room still holds the nickname of somebody who left.
+		// Eight seconds is the room's answer to how long that may take.
+		const iroh = listenIroh({ reachability: reach, idleTimeoutMs: 8_000 }, seed, host);
 		const announce = reach === Reachability.Discovery
 			? formatPeerUri(TRANSPORT_IROH, iroh.nodeId)
 			: iroh.uri;
@@ -885,7 +964,15 @@ if (import.meta.main) {
 	} else {
 		const bindHost = optionalEnv("ROOMS_BIND") ?? "127.0.0.1";
 		const announceHost = optionalEnv("ROOMS_ANNOUNCE_HOST");
-		const tcp = listen(bindHost, Number(positional[0] ?? "0"));
+		// The host is minted here rather than left to `listen`'s default,
+		// so this branch names the rooms codec exactly as the iroh branch
+		// above does. A default host would speak the Syrup interop floor
+		// and refuse every rooms peer's frames.
+		const tcp = roomsListen(
+			bindHost,
+			Number(positional[0] ?? "0"),
+			roomsHost(),
+		);
 		const boundPort = await tcp.ready();
 		if (announceHost) {
 			const designator = socketAddrDesignator(announceHost, boundPort);

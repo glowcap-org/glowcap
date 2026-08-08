@@ -49,10 +49,8 @@ pub fn lowerMessage(services: NodeServices, message: *model.Message) services_mo
         .get => |*get| get.receiver = try services.lower(get.receiver),
         .index => |*index| index.receiver = try services.lower(index.receiver),
         .untag => |*untag| untag.receiver = try services.lower(untag.receiver),
-        // No reference positions (gc, start-session, abort), or references the
-        // node minted from wire data rather than a token (a handoff's gifted
-        // reference is resolved through `Node.provideGiftId` before origination).
-        .gc_export, .gc_answer, .handoff, .start_session, .abort => {},
+        // No reference positions.
+        .gc_export, .gc_answer, .start_session, .abort => {},
     }
 }
 

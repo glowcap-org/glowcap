@@ -20,11 +20,6 @@ const std = @import("std");
 const c = @import("c_abi_net_transport_iroh");
 const header_emit = @import("header_emit.zig");
 
-// Force sidecar stubs so reflection-only gen links cargo-free.
-comptime {
-    _ = @import("iroh_sidecar_stub");
-}
-
 const Output = @import("output").Output;
 pub const outputs = [_]Output{
     .{ .path = "include/pancake_net_transport_iroh.h", .generate = generate },
@@ -45,6 +40,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_iroh_netlayer_direct_addrs",
     "pancake_iroh_conn_release",
     "pancake_iroh_conn_id",
+    "pancake_iroh_conn_remote_node_id",
     "pancake_iroh_netlayer_readiness_fd",
     "pancake_iroh_netlayer_drain_ready",
     "pancake_iroh_netlayer_try_accept",
@@ -229,19 +225,30 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   _new_in. reachability is mandatory (one of PANCAKE_IROH_REACH_*; an unknown
         \\   value is refused). connect_timeout_ms is the per-endpoint stream-
         \\   establishment deadline in milliseconds — the dial's connect + first-stream
-        \\   open and each accepted stream ride it — with 0 meaning the built-in default.
+        \\   open and each accepted stream ride it — with 0 meaning pancake's thirty seconds. Every 0 here is
+        \\   pancake's number, never the QUIC stack's own, a distinction that matters most
+        \\   for idle_timeout_ms, where pancake's replaces a longer one the stack would
+        \\   otherwise use.
+        \\   idle_timeout_ms bounds how long a connection survives without a packet from
+        \\   the far end, which decides how quickly a peer that was killed rather than
+        \\   closed stops counting as present: such a peer sends nothing, and UDP has no
+        \\   equivalent of the FIN a dying TCP process gets from the operating system, so
+        \\   nothing else ends the connection. 0 keeps pancake's fifteen seconds; read a live
+        \\   session as presence and you want a shorter one of your own.
         \\   Zero-initialize the whole struct before filling the fields you set (e.g.
         \\   `PancakeIrohConfig cfg = {0};`), so a field added in a later version
         \\   defaults to 0 rather than reading stack garbage. */
         \\typedef struct PancakeIrohConfig {
         \\  uint32_t reachability;
         \\  uint64_t connect_timeout_ms;
+        \\  uint64_t idle_timeout_ms;
+        \\  uint32_t worker_threads;
         \\} PancakeIrohConfig;
         \\
         \\
     );
 
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_new", &.{ "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "Create an iroh netlayer (one bound endpoint) allocating through the library\nallocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key\n(borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other\nlength is PANCAKE_ERR_INVALID_ARGUMENT. config carries the mandatory reachability\n(PANCAKE_IROH_REACH_*; an unknown value or a NULL config is\nPANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional\nconnect_timeout_ms (0 = the built-in default). Binds the endpoint and arms the\nreadiness loop, so the netlayer is immediately driveable through\npancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)\nif the endpoint cannot bind or the loop cannot arm. Release with\npancake_iroh_netlayer_release after releasing every connection made from it.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_new", &.{ "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "Create an iroh netlayer (one bound endpoint) allocating through the library\nallocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key\n(borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other\nlength is PANCAKE_ERR_INVALID_ARGUMENT. config carries the mandatory reachability\n(PANCAKE_IROH_REACH_*; an unknown value or a NULL config is\nPANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional\nconnect_timeout_ms (0 = pancake's own default). Binds the endpoint and arms the\nreadiness loop, so the netlayer is immediately driveable through\npancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)\nif the endpoint cannot bind or the loop cannot arm. Release with\npancake_iroh_netlayer_release after releasing every connection made from it.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_new_in", &.{ "context", "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "As pancake_iroh_netlayer_new, allocating the netlayer, endpoint, and every\nper-connection buffer through context.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_close", &.{"netlayer"}, "Close the endpoint without releasing the handle: subsequent dials fail and the\nreadiness loop winds down. Idempotent. The shutdown lever for a host whose\nreadiness wait parks on another thread.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_release", &.{"netlayer"}, "Release the netlayer, its endpoint, and the runtime. Every connection made\nfrom it must already be released. NULL is a no-op.");
@@ -249,6 +256,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_iroh_netlayer_direct_addrs", &.{ "netlayer", "out", "cap", "out_len" }, "Write this endpoint's comma-separated direct socket addresses into out (the\nhint string a partner passes to pancake_iroh_netlayer_start_connect) and the\nbyte count into out_len. A buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL; an\nendpoint with no direct addresses writes zero bytes and returns PANCAKE_OK. No\nterminator is written.");
     try emitFn(&b, gpa, "pancake_iroh_conn_release", &.{"conn"}, "Close the connection and free the handle; do not use conn afterward. A later\nreadiness record may still carry its stable id; the host drops it after removing\nits own id-to-connection row. No call parks on the connection, so this free\ncannot race a read.");
     try emitFn(&b, gpa, "pancake_iroh_conn_id", &.{"conn"}, "Return this connection's stable readiness identity, unique for the netlayer's\nlifetime and never derived from the handle allocation address. Returns 0 for a\nNULL handle.");
+    try emitFn(&b, gpa, "pancake_iroh_conn_remote_node_id", &.{ "conn", "out", "cap", "out_len" }, "Write the far end's QUIC-verified endpoint id into out as lowercase hex, and the\nbyte count into out_len. The TLS handshake authenticated the key at the other end\nof this connection, on an accepted connection exactly as on a dialed one, so the\nhost that owns the connection may say so about it. The spelling is the designator\npancake_iroh_netlayer_node_id prints: compare it against the location a partner's\nCapTP hello claims, and treat an equal pair — and only an equal pair — as a proved\ndurable name. cap must be at least the id length (64) or the call is\nPANCAKE_ERR_BUFFER_TOO_SMALL. No terminator is written. A connection whose remote\ncannot be read (the handle is gone, or the sidecar faulted) is PANCAKE_ERR_IO (see\npancake_iroh_last_error) with out_len untouched; the call never returns PANCAKE_OK\nwith a zero length, so a missing proof cannot be mistaken for a designator.");
 
     try emitFn(&b, gpa, "pancake_iroh_netlayer_readiness_fd", &.{"netlayer"}, "The netlayer's single read-only OS readiness fd — the borrowed read end of the\nsidecar's wakeup channel, readable whenever fresh readiness records are pending.\nRegister it once with your poller (poll/epoll/kqueue, or a runtime's reactor);\nwhen it signals, call pancake_iroh_netlayer_drain_ready. The fd is owned by the\nnetlayer and valid until pancake_iroh_netlayer_release — do not close it; dup it\nif your runtime needs its own copy. Negative only for a null handle.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_drain_ready", &.{ "netlayer", "out_events", "out_cap", "out_count" }, "Clear the fd's coalesced wake bytes, then drain pending readiness records into\nout_events (out_cap entries, caller-owned) without blocking: PANCAKE_OK with the\ndrained count (0 when none) in out_count, or a PANCAKE_ERR_* on fault (out_count\nuntouched). Call it when readiness_fd signals, then again until it drains fewer\nthan out_cap records (more may be queued than one call drains), before re-parking\non the fd. A record for a connection already released still carries only its\nstable id, so the host can discard it without dereferencing freed storage. The\ndrain touches only the endpoint, never a per-connection buffer. Run it on one\nthread per netlayer, serialized against pancake_iroh_netlayer_release.");

@@ -17,7 +17,8 @@
 
 const msg = "webrtc sidecar stub: build-time only (header generation); link libpancake_webrtc_sidecar.a to run";
 
-export fn pancake_webrtc_sidecar_endpoint_new() ?*anyopaque {
+export fn pancake_webrtc_sidecar_endpoint_new(config: *const anyopaque) ?*anyopaque {
+    _ = config;
     @panic(msg);
 }
 export fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const anyopaque) i32 {

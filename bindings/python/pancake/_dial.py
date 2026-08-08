@@ -170,7 +170,9 @@ async def dial_parsed_locator(
         owns_host = False
         policy, value = _abi.DIAL_POSTURE_REDEEM, 0
     else:
-        dial_host = host if host is not None else Host(codec=codec or "syrup")
+        dial_host = host if host is not None else Host(
+            codec=codec if codec is not None else "syrup"
+        )
         owns_host = host is None
         if reachability is not None:
             policy, value = _abi.DIAL_POSTURE_EXPLICIT, int(reachability)

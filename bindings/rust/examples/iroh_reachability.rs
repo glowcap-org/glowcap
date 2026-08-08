@@ -22,7 +22,8 @@
 use std::rc::Rc;
 
 use pancake_rust_dogfood::{
-	connect, format_peer_uri, listen_iroh, Argument, Reachability, Session, TRANSPORT_IROH,
+	connect, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability, Session,
+	TRANSPORT_IROH,
 };
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -42,7 +43,7 @@ async fn main() -> Result<(), Fail> {
 
 async fn run() -> Result<(), Fail> {
 	// ── Server: a giftable greeter, dialable by node id alone over discovery ──────
-	let server = Rc::new(listen_iroh(Reachability::Discovery)?);
+	let server = Rc::new(listen_iroh(IrohConfig::new(Reachability::Discovery))?);
 	server
 		.host()
 		.publish_giftable("greeter", || Box::new(greeter));

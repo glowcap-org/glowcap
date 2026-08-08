@@ -12,7 +12,7 @@ explicitly dials over iroh adds this module. The transport-neutral dialer
 here only when it parses an ``iroh`` locator, so the core never hard-depends on
 the iroh artifact.
 
-    server = listen_iroh(Reachability.DIRECT)
+    server = listen_iroh(IrohConfig(Reachability.DIRECT))
     print(server.uri)                       # hand this to a partner
     async for conn in server:
         conn.serve()
@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ctypes
+from dataclasses import dataclass
 import enum
 import secrets
 from typing import Optional, Union
@@ -46,7 +47,7 @@ from . import _constants as _c
 from ._constants import ERR_CLOSED as _ERR_CLOSED, ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT, HINT_DIRECT_ADDRESSES, OK as _OK, TRANSPORT_IROH, WOULD_BLOCK as _WOULD_BLOCK
 from ._errors import PancakeError
 from ._host import Host
-from ._locator import format_peer_uri
+from ._locator import encode_peer_locator, format_peer_uri
 from ._ffi_ocapn import _byte_buf, _read_last_error
 from ._ffi_iroh import _iroh, _IrohConfig, _IrohReadyEvent
 
@@ -69,6 +70,7 @@ __all__ = [
     "Reachability",
     "IrohServer",
     "IrohNetlayer",
+    "IrohConfig",
     "IrohConn",
     "listen_iroh",
     "dial_locator_for_relay",
@@ -129,6 +131,27 @@ class IrohConn:
         """This connection's stable readiness identity."""
         return int(_iroh().pancake_iroh_conn_id(self._raw)) if self._raw else 0
 
+    def remote_node_id(self) -> "str | None":
+        """The far end's node id, as QUIC proved it: this connection completed
+        only because the peer held the secret for this key. ``None`` when the
+        connection is gone or the handshake proved nothing.
+
+        This is the fact a session is otherwise missing. pancake cannot see it
+        -- it did not open this connection -- so whoever did passes it on with
+        :meth:`Session.bind_verified_channel_key`, which the accept and dial
+        paths below do for every session this module establishes."""
+        if not self._raw:
+            return None
+        cap = 64
+        buf = ctypes.create_string_buffer(cap)
+        out_len = ctypes.c_size_t(0)
+        code = _iroh().pancake_iroh_conn_remote_node_id(
+            self._raw, buf, cap, ctypes.byref(out_len),
+        )
+        if code != _OK:
+            return None
+        return buf.raw[:out_len.value].decode()
+
     def try_read_into(self, buf) -> int:
         """Non-blocking read of raw inbound bytes into the ctypes ``buf``: the
         byte count (>0), ``_WOULD_BLOCK`` when nothing is buffered yet,
@@ -168,6 +191,24 @@ class IrohConn:
             self._raw = None
 
 
+@dataclass(frozen=True)
+class IrohConfig:
+    """One iroh endpoint's configuration, field-for-field with the header's
+    ``PancakeIrohConfig``, which documents what each setting means. ``None``
+    for a timeout takes the transport's default.
+
+    ``reachability`` is mandatory: enabling relays or a discovery service is
+    always the caller's visible choice. ``connect_timeout_ms`` bounds getting a
+    connection up, ``idle_timeout_ms`` bounds keeping one. Set
+    ``idle_timeout_ms`` if you read a live session as presence, because it is
+    what ends a connection whose peer was killed rather than closed.
+    """
+
+    reachability: "Union[int, Reachability]"
+    connect_timeout_ms: "Optional[int]" = None
+    idle_timeout_ms: "Optional[int]" = None
+
+
 class IrohNetlayer:
     """A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
     sibling of :class:`pancake.tcp.TcpNetlayer`, and its own listener (there is no
@@ -177,15 +218,19 @@ class IrohNetlayer:
     ``reachability`` (a :class:`Reachability`) is required, it sets the
     endpoint's addressing posture and has no default."""
 
-    def __init__(self, reachability: "Union[int, Reachability]", secret_seed: "Optional[bytes]" = None):
+    def __init__(self, config: IrohConfig, secret_seed: "Optional[bytes]" = None):
         seed = secret_seed or b""
         # Empty means "draw a fresh random key"; keep the NULL the header
         # documents for that arm.
         buf, ptr = _byte_buf(seed) if seed else (None, None)
         out = ctypes.c_void_p()
-        # Zero-initialized by `ctypes.Structure`; `connect_timeout_ms` stays 0
-        # (the built-in default) — the header's zero-init contract.
-        cfg = _IrohConfig(reachability=int(reachability))
+        # Zero-initialized by `ctypes.Structure`, and 0 means the built-in
+        # default for every timeout — the header's zero-init contract.
+        cfg = _IrohConfig(reachability=int(config.reachability))
+        if config.connect_timeout_ms is not None:
+            cfg.connect_timeout_ms = config.connect_timeout_ms
+        if config.idle_timeout_ms is not None:
+            cfg.idle_timeout_ms = config.idle_timeout_ms
         _check_iroh(_iroh().pancake_iroh_netlayer_new(
             ptr, len(seed), ctypes.byref(cfg), ctypes.byref(out),
         ))
@@ -639,7 +684,7 @@ async def _connect_iroh_with_host(
 ) -> Session:
     """Binding-internal Host-keyed iroh dial behind a handoff redeem.
     Application code uses ``connect(locator, reachability, host=…)``."""
-    netlayer = IrohNetlayer(reachability)
+    netlayer = IrohNetlayer(IrohConfig(reachability))
     loop = _IrohLoop(netlayer)
     loop.start()
     try:
@@ -665,8 +710,11 @@ async def _connect_iroh_with_host(
     # and hole-punching a path is `_dial_resolving`'s own retry budget above,
     # already finished by the time the handshake starts.
     try:
+        # This module opened the connection, so it is the one place that can
+        # say what QUIC proved about the far end.
         return await Session.establish_dialed_locator(
             host, TRANSPORT_IROH, node_id, transport, handshake_timeout_ms,
+            conn.remote_node_id(),
         )
     except BaseException:
         # establish can fail after register; close the transport so the conn,
@@ -695,7 +743,7 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
     node_id = parsed.designator
     direct_addresses = parsed.hints.get(HINT_DIRECT_ADDRESSES, "")
 
-    netlayer = IrohNetlayer(reachability)
+    netlayer = IrohNetlayer(IrohConfig(reachability))
     loop = _IrohLoop(netlayer)
     loop.start()
     try:
@@ -713,7 +761,13 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
     return _IrohTransport(conn, loop, netlayer, owns_loop=True)
 
 
-async def _accept_iroh(conn: IrohConn, local_node_id: str, loop: _IrohLoop, host: Host) -> Session:
+async def _accept_iroh(
+    conn: IrohConn,
+    local_node_id: str,
+    direct_addresses: str,
+    loop: _IrohLoop,
+    host: Host,
+) -> Session:
     """Complete the responder handshake over an accepted iroh connection, signing
     the server's endpoint id as the locator designator (used by
     :class:`IrohServer`). The accepted connection's loop and netlayer belong to
@@ -722,7 +776,13 @@ async def _accept_iroh(conn: IrohConn, local_node_id: str, loop: _IrohLoop, host
     on it by the open itself, before a dialer's pipelined fetch is answered
     (the exporter half of a three-party handoff, ADR-0009), exactly as the TCP
     responder does."""
-    return await Session.establish_accepted(host, TRANSPORT_IROH, local_node_id, _IrohTransport(conn, loop))
+    # As the dial side: this module accepted the connection, so it is the one
+    # place that can say what QUIC proved about the peer that reached it.
+    return await Session.establish_accepted(
+        host, TRANSPORT_IROH, local_node_id, _IrohTransport(conn, loop),
+        accepted_local_addr=direct_addresses,
+        verified_channel_key=conn.remote_node_id(),
+    )
 
 
 class IrohServer:
@@ -741,7 +801,7 @@ class IrohServer:
 
     def __init__(
         self,
-        reachability: "Union[int, Reachability]",
+        config: IrohConfig,
         secret_seed: "Optional[bytes]" = None,
         host: "Optional[Host]" = None,
     ):
@@ -757,7 +817,7 @@ class IrohServer:
         seed = secret_seed if secret_seed is not None else (
             host.seed if host is not None else secrets.token_bytes(32)
         )
-        self._netlayer = IrohNetlayer(reachability, seed)
+        self._netlayer = IrohNetlayer(config, seed)
         self._node_id = self._netlayer.node_id()
         # Serve every accepted connection from one readiness loop instead of a
         # blocking accept and a blocking read parked per connection (ADR-0057).
@@ -772,6 +832,8 @@ class IrohServer:
         # Dials from this Host sign the endpoint's own id so a partner's
         # crossed-hellos table can recognize it.
         self._host.set_self_designator(self._node_id)
+        self._advertised_direct_addresses: Optional[str] = None
+        self._refresh_advertised_locator()
         self._closed = False
         # Accepted sessions still borrow the endpoint through their loop
         # connections; release them before the netlayer.
@@ -794,7 +856,16 @@ class IrohServer:
     @property
     def direct_addresses(self) -> str:
         """This endpoint's comma-separated direct-address hints."""
-        return self._netlayer.direct_addresses()
+        return self._refresh_advertised_locator()
+
+    def _refresh_advertised_locator(self) -> str:
+        direct_addresses = self._netlayer.direct_addresses()
+        if direct_addresses != self._advertised_direct_addresses:
+            self._host.set_advertised_locator(encode_peer_locator(
+                TRANSPORT_IROH, self._node_id, direct_addresses,
+            ))
+            self._advertised_direct_addresses = direct_addresses
+        return direct_addresses
 
     @property
     def uri(self) -> str:
@@ -825,7 +896,9 @@ class IrohServer:
             # `connect_timeout` bounds only the QUIC `accept_bi` below it, not
             # the OCapN handshake over the accepted stream.
             try:
-                session = await _accept_iroh(conn, self._node_id, self._loop, self._host)
+                session = await _accept_iroh(
+                    conn, self._node_id, self.direct_addresses, self._loop, self._host,
+                )
             except Exception:
                 self._loop.unregister(conn)
                 conn.release()
@@ -857,7 +930,7 @@ class IrohServer:
 
 
 def listen_iroh(
-    reachability: "Union[int, Reachability]",
+    config: IrohConfig,
     secret_seed: "Optional[bytes]" = None,
     host: "Optional[Host]" = None,
 ) -> IrohServer:
@@ -867,6 +940,9 @@ def listen_iroh(
     posture. There is no default. ``secret_seed`` is a 32-byte Ed25519 secret
     for a stable endpoint id, or ``None`` for a fresh random one shared with
     the :class:`Host`. Pass ``host`` only when it was built from the same seed
-    (one identity for netlayer and session). Needs the iroh ABI library
-    (``zig build iroh-abi``)."""
-    return IrohServer(reachability, secret_seed, host)
+    (one identity for netlayer and session). ``config`` carries the endpoint's
+    timeouts (see :class:`IrohConfig`); a server that treats a live session as
+    presence should set ``idle_timeout_ms``, because that is what ends a
+    connection whose peer was killed rather than closed. Needs the iroh ABI
+    library (``zig build iroh-abi``)."""
+    return IrohServer(config, secret_seed, host)

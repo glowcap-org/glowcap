@@ -8,10 +8,8 @@
 ---
 
 Every conversation pancake has on the wire uses a small, fixed vocabulary from the
-[OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications):
-CapTP messages, the descriptors they carry, and the locators that say where a peer
-lives. This page is the one-glance map. [Concepts]($link.page('concepts')) tells the
-story behind each part, and the
+[OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications).
+[Concepts]($link.page('concepts')) tells the story behind each part, and the
 [protocol diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
@@ -33,7 +31,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
 | `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
 | `op:index` | Projects a positional element off an answer. |
-| `op:untag` | Unwraps a tagged value projected off an answer. |
+| `op:untag` | Unwraps a tagged value projected off an answer. Default `1.0` refuses it; only the `pancake-next` profile speaks it, and Goblins has no equivalent. |
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
 

@@ -328,17 +328,14 @@ pub const Resident = struct {
     }
 };
 
+const resident_ctx = netlayer.ResidentContext(Resident);
+
 const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
     .dial = residentDial,
     .listen = residentListen,
-    .io = residentIo,
+    .io = resident_ctx.io,
 };
-
-fn residentIo(ctx: *anyopaque) ?std.Io {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
-    return self.io;
-}
 
 fn residentDial(
     ctx: *anyopaque,
@@ -346,7 +343,7 @@ fn residentDial(
     loc: model.PeerLocator,
     bufs: Buffers,
 ) netlayer.DialError!Connection {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     const address = DialResolver.resolve(loc.transport, loc.designator, &.{}) catch return error.InvalidAddress;
     return connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| classifyConnect(err);
 }
@@ -369,7 +366,7 @@ fn residentListen(
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
 ) netlayer.ListenError!NetLayerListener {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     const address = parseDesignator(config.designator) catch return error.InvalidAddress;
     const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
     errdefer allocator.destroy(box);
@@ -415,7 +412,7 @@ pub fn acceptOnListener(listener: *Listener, peer: *engine.Peer, bufs: Buffers) 
 }
 
 /// Shared local-address designator / dial-hint formatter for tcp listener
-/// vtables (`localDesignator` on plain tcp; `localHint` on keyed-tcp).
+/// vtables (`localDesignator` on plain tcp; `localDirectAddresses` on keyed-tcp).
 pub fn designatorOnListener(listener: *const Listener, out: []u8) []const u8 {
     return std.fmt.bufPrint(out, "{f}", .{listener.localAddress()}) catch out[0..0];
 }

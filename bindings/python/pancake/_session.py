@@ -22,7 +22,6 @@ package.
 from __future__ import annotations
 
 import asyncio
-import enum
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
@@ -30,6 +29,7 @@ import ctypes
 
 from . import _constants as _abi
 from . import _pump
+from ._constants import DurableProvenance, _provenance_from_abi
 from ._errors import (
     AbortDetail,
     PancakeError,
@@ -39,6 +39,7 @@ from ._errors import (
 from ._ffi_host import _AcceptPlan, _PartnerIdentity, _host
 from ._ffi_ocapn import _byte_buf, _Reference
 from ._host import Host
+from ._locator import encode_peer_locator
 from ._promise import RemotePromise, _fetch_like, _listen_far
 from ._gc import release_ref
 from ._trampoline import (
@@ -73,35 +74,6 @@ class RedeemedReply(NamedTuple):
     via: Optional["Session"]
 
 
-class DurableProvenance(enum.Enum):
-    """How a partner's advertised durable identity was authenticated, the third
-    fact :class:`PartnerIdentity` reports beside session key and designator
-    (ADR-0097).
-
-    ``AUTHENTICATED_TRANSPORT`` means the transport layer proved the partner's
-    durable key: iroh's QUIC handshake, or WebRTC's DTLS binding under
-    capability-authorized signaling. ``DURABLE_KEY_ATTESTATION`` means the
-    hello carried a ``session-key-attestation`` signed by the durable key its
-    designator names and it verified (``keyed-tcp``, ``keyed-relay``), which is
-    static authorization rather than proof the signer is live on this
-    connection. ``UNAUTHENTICATED`` means no durable identity was proved: an
-    address transport designates a socket address rather than a key, and a
-    partner that advertised an address on a key transport claimed no durable
-    identity.
-    """
-
-    AUTHENTICATED_TRANSPORT = _abi.DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT
-    DURABLE_KEY_ATTESTATION = _abi.DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION
-    UNAUTHENTICATED = _abi.DURABLE_PROVENANCE_UNAUTHENTICATED
-
-
-def _provenance_from_abi(raw: int) -> DurableProvenance:
-    try:
-        return DurableProvenance(raw)
-    except ValueError:
-        return DurableProvenance.UNAUTHENTICATED
-
-
 @dataclass(frozen=True)
 class PartnerIdentity:
     """The identity :meth:`Session.partner_identity` proves about the peer on
@@ -124,7 +96,7 @@ class PartnerIdentity:
 
     def durable_identity_authenticated(self) -> bool:
         """Whether the durable identity this partner advertised was
-        cryptographically authenticated, by either mechanism.
+        cryptographically authenticated by the realized channel.
 
         This is the predicate to ask when an operation requires a proved
         durable peer. It stays correct once each connection draws a fresh
@@ -191,6 +163,7 @@ class Session:
         # driving the handshake — the signed op:start-session is encoded (its
         # FLUSH queued) but nothing has moved. A DIAL action's binding half
         # borrows the pending URI before calling here.
+        host.ensure_advertised_locator(transport_name)
         t = transport_name.encode()
         d = designator.encode()
         tbuf, tptr = _byte_buf(t)
@@ -205,6 +178,7 @@ class Session:
     async def establish_dialed_locator(
         cls, host: Host, transport_name: str, designator: str, transport,
         handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
+        verified_channel_key: "Optional[str]" = None,
     ) -> "Session":
         """Mint the dialing half from already-parsed locator pieces. A DIAL
         action's binding half borrows the pending URI first. The handshake is
@@ -212,9 +186,14 @@ class Session:
         default; ``None`` or ``0`` waits unbounded); overrunning it raises
         ``PancakeError`` with ``ERR_TIMEOUT`` and abandons the half-built
         connection, exactly as a failed handshake does. Binding-internal."""
-        return await cls._open_dialed_locator(
+        session = cls._open_dialed_locator(
             host, transport_name, designator, transport,
-        )._establish(handshake_timeout_ms)
+        )
+        # Before the first partner byte, which is the only window a realizer's
+        # proof can be weighed in.
+        if verified_channel_key:
+            session.bind_verified_channel_key(verified_channel_key)
+        return await session._establish(handshake_timeout_ms)
 
     @classmethod
     async def establish_accepted(
@@ -225,6 +204,7 @@ class Session:
         transport,
         accepted_local_addr: str = "",
         handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
+        verified_channel_key: "Optional[str]" = None,
     ) -> "Session":
         """Mint the accepting half over a connection the caller's own listener
         produced. ``server_designator`` is the listener's signing designator
@@ -245,20 +225,31 @@ class Session:
         _check_host(_host.pancake_host_plan_accept(
             tptr, len(t), sptr, len(server), lptr, len(local), ctypes.byref(plan),
         ))
+        plan_designator = ctypes.string_at(
+            plan.designator, plan.designator_len).decode("utf-8")
+        plan_hint = ctypes.string_at(
+            plan.direct_addresses_hint,
+            plan.direct_addresses_hint_len,
+        ).decode("utf-8")
+        host.set_advertised_locator(encode_peer_locator(
+            transport_name, plan_designator, plan_hint,
+        ))
         # Plan views borrow the caller buffers (or the static unreachable
         # placeholder); keep tbuf/sbuf/lbuf alive and pass those pointers
         # through — no second materialize (ADR-0078 / Rust establish_accepted).
         out = ctypes.c_void_p()
         _check_host(_host.pancake_host_session_open_accepted(
-            host.raw, tptr, len(t),
-            plan.designator, plan.designator_len,
-            plan.direct_addresses_hint, plan.direct_addresses_hint_len,
-            ctypes.byref(out),
+            host.raw, tptr, len(t), ctypes.byref(out),
         ))
         # Every accept path lands here, and each runs the handshake inline in
         # its accept loop, so a silent partner must not park the loop; the
         # bound lives in `_establish`, which both halves reach.
-        return await cls(out, host, transport)._establish(handshake_timeout_ms)
+        session = cls(out, host, transport)
+        # Before the first partner byte, which is the only window a realizer's
+        # proof can be weighed in.
+        if verified_channel_key:
+            session.bind_verified_channel_key(verified_channel_key)
+        return await session._establish(handshake_timeout_ms)
 
     async def _establish(
         self, handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
@@ -584,10 +575,12 @@ class Session:
             return RemotePromise.failed(err)
 
     def listen(self, target: Ref) -> RemotePromise:
-        """Listen on a promise capability this session holds (CapTP
-        ``op:listen``): the returned handle settles with the promise's
-        resolution, which may be any value, not only a capability. A re-gifted
-        promise routes to its exporter session transparently."""
+        """Listen on a far capability this session holds (CapTP
+        ``op:listen``): the returned handle settles with the listen
+        notification, which may be any value, not only a capability. In 1.0,
+        the target may be a far promise or live far object; in pancake-next,
+        the target must be a promise. A re-gifted promise routes to its
+        exporter session transparently."""
         try:
             self.guard_open()
             self._host.gc.drain_gc()
@@ -695,6 +688,34 @@ class Session:
             locator_record=owned(info.locator_record, info.locator_record_len),
             provenance=_provenance_from_abi(info.provenance),
         )
+
+    def bind_verified_channel_key(self, designator: str) -> None:
+        """Testify what proved this connection's far end, when your own
+        transport proved one.
+
+        pancake does not open your sockets, so it cannot see what opening them
+        established. An iroh connection completes only with the holder of the
+        node id you dialed or accepted, and that is a stronger fact than
+        anything a partner can claim about itself -- but only you hold it. Pass
+        the node id here and :meth:`partner_identity` reports
+        ``authenticated-transport``; withhold it and the same session reports
+        ``unauthenticated``.
+
+        ``designator`` is that identity as a locator writes it, which is
+        exactly what the iroh transport's remote node id hands you.
+
+        Call it after opening the session and before feeding the first byte
+        from the partner. It raises afterwards, because by then the handshake
+        this evidence was for has already been judged. Naming a second,
+        different identity raises too: one connection has one far end. Naming
+        the same one twice is the same statement made twice and is fine.
+        """
+        self.guard_open()
+        raw = designator.encode()
+        buf, ptr = _byte_buf(raw)
+        _check_host(_host.pancake_host_session_bind_verified_channel_key(
+            self._ptr, ptr, len(raw),
+        ))
 
     # ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 

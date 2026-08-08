@@ -14,10 +14,10 @@
 //! (`stepInner` interleaves inbound dispatch between them) leaves nothing to
 //! encode rather than a dangling pointer. The carrier holds only a `u64`.
 //!
-//! The measured window therefore sees exactly one allocation — the answer's
-//! lazily-created payload row — and **zero** resolution copies. If a clone ever
-//! creeps back onto this path, the count rises and this fails; that is the whole
-//! point of pinning it.
+//! The mandatory listener creates the answer payload row before this measured
+//! window, so recording sees exactly zero allocations and zero resolution
+//! copies. If a clone or a second owner ever returns, the count rises and this
+//! fails.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -38,11 +38,7 @@ test "recording an outbound resolve moves the resolution into the store, copying
     // The inbound answer the resolve settles: a question the partner posed
     // (`op:deliver` to our export 7) that we now owe. Installed and drained
     // before the window so its install traffic is not counted.
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]11+f>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
 
     // An *owned* resolution, exactly as a caller hands to `Peer.send`: the move
     // transfers this heap into the store, which frees it at teardown. (Allocated
@@ -54,7 +50,7 @@ test "recording an outbound resolve moves the resolution into the store, copying
     counter.allocs = 0;
     try peer.session_state.recordSend(.{ .resolve = .{ .answer = .from(11), .resolution = resolution } });
 
-    // One allocation: the answer's lazily-created payload row. Zero resolution
-    // copies, the resolution moved. A reintroduced clone would read 2 here.
-    try std.testing.expectEqual(@as(usize, 1), counter.allocs);
+    // The listener installed the payload row before the window. Recording only
+    // moves the resolution into it; any allocation here is a regression.
+    try std.testing.expectEqual(@as(usize, 0), counter.allocs);
 }

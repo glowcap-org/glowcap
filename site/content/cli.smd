@@ -1,15 +1,14 @@
 ---
 .title = "CapTP CLI",
-.description = "Call a capability from your shell, host a short-lived peer, open a REPL, or wire CapTP into an agent over MCP — the same library the Zig package holds.",
+.description = "Call a capability from your shell, host a short-lived peer, open a REPL, or wire CapTP into an agent over MCP.",
 .date = @date("2026-07-16T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Call a capability from your shell, host a short-lived peer, open a REPL, or
-wire CapTP into an agent via MCP. The binary holds the same library as the Zig
-package, not a second stack. More recipes live in
+The binary holds the same library as the Zig package, not a second stack. More
+recipes live in
 [docs/cli.md](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md).
 
 ```sh

@@ -443,7 +443,7 @@ fn buildStarted(
     try doc.string("loop_cmd", std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 120", .{ exe, prefix, dir }) catch "");
     try doc.string("reply_cmd", std.fmt.bufPrint(&cb, "{s} {s}reply --dir {s} --id <ID> --text '…'", .{ exe, prefix, dir }) catch "");
     try doc.string("stop_cmd", std.fmt.bufPrint(&cb, "{s} {s}stop --dir {s}", .{ exe, prefix, dir }) catch "");
-    try doc.string("next", "Run loop_cmd repeatedly: it returns pending messages (waits up to 120s); reply to each with its prefilled reply command, then loop. Do your own work between ticks. Run stop_cmd when done. registered=true means DM introduce works.");
+    try doc.string("next", "Run loop_cmd repeatedly and wait for each return (up to 120s): reply/dismiss pending, then loop. A durable member Task must not final-answer after arming tick — that orphans the wake. Run stop_cmd only when human/lead ends the session. registered=true means DM introduce works.");
     try doc.end();
     return doc.line();
 }

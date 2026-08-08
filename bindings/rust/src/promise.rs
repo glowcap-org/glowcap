@@ -53,10 +53,10 @@ pub(crate) async fn fetch_like(
 /// The send spine both `Session::send` and a local `Forward`'s far arm
 /// ride: mint the vow (which IS the registration) under the same synchronous
 /// call stack, then hand back the promise.
-/// `Session::listen`'s wire half: mint the listen vow over a held far promise
+/// `Session::listen`'s wire half: mint the listen vow over a held far reference
 /// (CapTP `op:listen`) and hand back the settle handle. The vow is plain — a
 /// listen may settle to any value, not only a capability.
-pub(crate) fn listen_promise(shared: &Rc<SessionShared>, target: &crate::Ref) -> RemotePromise {
+pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> RemotePromise {
 	let failed =
 		|error: Error, conn: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(conn));
 	if let Err(error) = shared.guard_open() {
@@ -281,17 +281,23 @@ impl RemotePromise {
 	// promise for the projected value. By `&self`, so a handle can be projected
 	// *and* still awaited later for its own value (the late-source-await case).
 	fn project(&self, op: ProjectOp<'_>) -> RemotePromise {
-		let PromiseState::Far(source) = self.state else {
-			// A local-send promise has no wire answer to project against; the
-			// refusal surfaces when the projected handle is awaited, the same
-			// path an unknown pipeline target takes.
-			return RemotePromise::failed(
-				Error::with_detail(
-					sys::ERR_INVALID_ARGUMENT,
-					"cannot project a local-send promise; await it for a value".to_string(),
-				),
-				Rc::clone(&self.conn),
-			);
+		let source = match &self.state {
+			PromiseState::Far(source) => *source,
+			// Preserve the first refusal. Reclassifying it as a local promise
+			// hides the operation that actually failed and sends callers debugging
+			// the projection instead of the rejected send.
+			PromiseState::Failed(error) => {
+				return RemotePromise::failed(error.clone(), Rc::clone(&self.conn))
+			}
+			PromiseState::Local { .. } => {
+				return RemotePromise::failed(
+					Error::with_detail(
+						sys::ERR_INVALID_ARGUMENT,
+						"cannot project a local-send promise; await it for a value".to_string(),
+					),
+					Rc::clone(&self.conn),
+				)
+			}
 		};
 		let mut vow: u64 = 0;
 		let rc = match &op {

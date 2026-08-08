@@ -1,21 +1,39 @@
 //! The verdict a codec gives back when it tries to frame a byte stream.
 //!
-//! A CapTP transport is just a stream of self-delimiting frames. The netlayer
-//! never adds a length prefix of its own; the codec's grammar is what marks where
-//! a frame ends. So to pull a frame off the front of a read buffer, we run the
-//! active codec's decoder over it, and it answers with one of these verdicts.
+//! A codec frame is self-delimiting: the codec's grammar is what marks where the
+//! frame ends. So to say where one ends inside a buffer, we run the active
+//! codec's parser over it, and it answers with one of these verdicts.
 //!
-//! The same code that decodes the body is the code that says where the frame
-//! ends, so the two can't disagree and let trailing bytes slip past validation.
-//! A resumable scan does run ahead of the decoder (`StreamScan` below), but it
-//! answers only whether a whole frame could be there yet and never names where
-//! one ends, so there is still exactly one source of that verdict. A stream
-//! consumer reaches both through `codec.dispatch.framePrefix`, which is the
-//! only framing entry point it needs.
+//! A byte-stream netlayer wraps each such frame in one more envelope, the Syrup
+//! byte string `foundation.stream_framing` owns, and `net.frame_stream` runs
+//! this parser over that envelope's body. The two agree or the frame is refused:
+//! a body whose codec frame ends short of the declared length is malformed.
+//! Intrinsically message-framed transports carry the bare codec frame and reach
+//! this parser directly.
+//!
+//! The codec's structural parser says where the frame ends, so framing cannot
+//! disagree with decoding and let trailing bytes slip past validation. It does
+//! not project a `Body`: peer-less streams do not know the negotiated CapTP
+//! profile. A resumable scan may run ahead of that parser (`StreamScan` below),
+//! but it only says whether a whole frame could be present and never names the
+//! boundary. A stream consumer reaches both through
+//! `codec.dispatch.framePrefix`.
 
 const model = @import("model");
 
-/// Verdict of decoding the front of a byte buffer as one frame.
+/// Structural verdict for the front of a byte stream. Unlike `Prefix`, this
+/// does not project protocol semantics: a peer-less stream knows the codec but
+/// not the negotiated CapTP profile, so it may name the frame boundary and
+/// nothing more.
+pub const Boundary = union(enum) {
+    /// One complete, structurally valid frame occupies `consumed` bytes.
+    complete: usize,
+    incomplete,
+    malformed,
+    too_large,
+};
+
+/// Profile-aware verdict of decoding the front of a byte buffer as one frame.
 pub const Prefix = union(enum) {
     /// A complete frame was decoded; `body` borrows from the input buffer and
     /// `consumed` bytes form the frame (the caller advances past them).

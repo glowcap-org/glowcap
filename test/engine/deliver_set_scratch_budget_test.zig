@@ -3,7 +3,7 @@
 //! The borrowed inbound-deliver path validates a set argument by materializing
 //! its elements into the session's `recv_scratch` arena to hash them for
 //! duplicate refusal (`session.validate.checkInboundSetUniqueness`). That arena
-//! is turn-scratch: `Session.recordInboundDeliverView` must reset it every turn,
+//! is turn-scratch: `Session.validateInboundDeliverView` must reset it every turn,
 //! exactly as the other recv entry points do. Without the reset a partner
 //! streaming set-carrying `op:deliver` frames grows `recv_scratch` for the
 //! session's whole life — attacker-controlled unbounded growth on the hottest
@@ -14,6 +14,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
+const session = pancake.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 /// A no-answer (`#f` answer position) `op:deliver` to local export 7 carrying one
@@ -54,7 +55,7 @@ test "a stream of set-carrying delivers holds a flat per-turn scratch budget" {
     // Budget for a one-set-arg inbound deliver to a live export: a single
     // allocation, the owned-frame copy the retained event requires. The set's
     // uniqueness-fold scratch is reclaimed each turn by the `recv_scratch` reset
-    // in `recordInboundDeliverView`, so it reuses the warmed arena block and
+    // in `validateInboundDeliverView`, so it reuses the warmed arena block and
     // adds nothing after warmup. A dropped reset leaves scratch accumulating and
     // this budget grows.
     const budget = 1;
@@ -81,17 +82,12 @@ fn buildBigSetDeliver(allocator: std.mem.Allocator, n: usize) ![]u8 {
 }
 
 test "a big-set inbound frame trims recv_scratch back under its steady bound" {
-    // Mirrors `session/mod.zig`'s private `steady_recv_scratch_bytes`; a drift
-    // between the two literals is a bug in one of them, the same mirroring the
-    // vat footprint test uses for its arena bounds.
-    const steady_recv_scratch_bytes: usize = 384;
-
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // One inbound deliver carrying a set of 200 distinct symbols drives the
-    // borrowed deliver path (`recordInboundDeliverView`); the set-uniqueness
+    // borrowed deliver path (`validateInboundDeliverView`); the set-uniqueness
     // fold materializes every element into `recv_scratch`, growing it to many
     // kilobytes for that single turn.
     const frame = try buildBigSetDeliver(std.testing.allocator, 200);
@@ -106,5 +102,5 @@ test "a big-set inbound frame trims recv_scratch back under its steady bound" {
     // than pin the burst's peak for the session's life. With `.retain_capacity`
     // it would stay at the multi-kilobyte peak and this fails; the
     // `.retain_with_limit` reset returns the burst capacity.
-    try std.testing.expect(peer.session_state.recv_scratch.queryCapacity() <= steady_recv_scratch_bytes);
+    try std.testing.expect(peer.session_state.recv_scratch.queryCapacity() <= session.Session.steady_recv_scratch_bytes);
 }

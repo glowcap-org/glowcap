@@ -9,8 +9,8 @@
 # content. We have repeatedly seen such orphans outlive the session.
 #
 # This launcher makes the teardown explicit. It runs the inner build in its own
-# session/process group and reaps that whole group — TERM, then KILL after a
-# short grace — on two triggers:
+# process group and reaps that whole group — TERM, then KILL after a short
+# grace — on two triggers:
 #   1. a stop signal delivered to this launcher (INT/TERM/HUP) — the terminal
 #      Ctrl-C / close case, where the signal reaches every member of the
 #      foreground process group, this launcher included; and
@@ -36,13 +36,25 @@ set -u
 zig="${1:?usage: docs-serve.sh <zig-exe> <build-args...>}"
 shift
 
-# setsid puts the inner build in a fresh session: it becomes its own
-# process-group leader, so its pid equals the new process-group id. The inner
-# zig build runner and the Zine server it spawns inherit that group, letting us
-# signal the entire subtree as a unit without touching this launcher's own group
-# (so we never signal the user's shell).
-setsid "${zig}" build "$@" &
+# The inner build needs its own process group, so that the reap below can signal
+# the whole subtree — the inner zig build runner and the Zine server it spawns —
+# as a unit, without touching this launcher's own group and so never signalling
+# the user's shell. Bash's job control does exactly that: with `set -m`, every
+# job bash starts becomes a process-group leader, so the child's pid is also the
+# new process-group id. That is available in any bash, which is what this script
+# already requires, so it works the same on Linux and on macOS. `setsid` would
+# only be available on Linux.
+#
+# Job control is on for the launch alone. The inner group stays in this
+# launcher's session and keeps its controlling terminal, where `setsid` would
+# have detached it. Nothing here wants that detachment: a terminal signal goes
+# to the foreground process group, which is this launcher's and not the inner
+# one, so the traps below are still what tears the server down, and a terminal
+# that disappears entirely can now reach the inner group too, which only helps.
+set -m
+"${zig}" build "$@" &
 inner_pgid=$!
+set +m
 
 reap() {
   # Stop the whole inner group: TERM first, then KILL whatever has not exited

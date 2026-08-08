@@ -300,11 +300,16 @@ fn sendStartSession(
     pubkey: []const u8,
     sig: []const u8,
 ) !void {
+    var hint_storage: Peer.HelloHints = .{};
+    defer hint_storage.deinit(peer.allocator);
+    const advertised = try peer.advertisedLocator(locator, &hint_storage);
     try peer.sendCopying(.{
         .start_session = .{
-            .captp_version = peer.session_state.captp_version,
+            // The baseline, like every hello: the preference rides the hints
+            // `advertisedLocator` just stamped.
+            .captp_version = model.Preference.baseline.captp_version,
             .session_pubkey = .{ .bytes = pubkey },
-            .acceptable_location = locator,
+            .acceptable_location = advertised,
             .acceptable_location_sig = .{ .bytes = sig },
         },
     });

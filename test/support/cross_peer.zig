@@ -67,7 +67,11 @@ pub fn deliverGive(
         give.gift_id,
         give.recipient_key,
     );
-    try gifter.sendCopying(.{ .handoff = .{ .give = give } });
+    var handoff = model.Handoff{ .give = give };
+    try gifter.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(0) },
+        .args = &.{.{ .handoff = &handoff }},
+    } });
     try pumpOne(gifter, recipient);
 }
 
@@ -116,17 +120,24 @@ pub fn withdrawGift(
         return Error.SignatureRejected;
     }
 
-    // Authority moves here, behind the verification above, not on the exporter's
-    // generic inbound path, which refuses to consume a gift from an unauthenticated
-    // handoff frame. The frame is still pumped so the exporter surfaces the
-    // `.handoff` event, but the withdrawal is applied explicitly against the
-    // exporter's gift registry.
+    // Authority moves here, behind the verification above, not from observing a
+    // certificate as an ordinary passable value.
     const registry = exporter.giftRegistry();
     const expected = try expectedReceiver(exporter);
     try registry.validateWithdraw(receive, expected);
     _ = try registry.applyWithdraw(registry, exporter.allocator, null, receive);
 
-    try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
+    // Production withdrawal uses the bootstrap `withdraw-gift` deliver. This
+    // harness applies the registry explicitly above, so its observation leg
+    // carries the certificate to an ordinary export instead.
+    const observation_export = model.ExportPosition.from(777);
+    try exporter.session_state.registerExport(observation_export);
+    try recipient.session_state.registerImport(model.ImportPosition.from(observation_export.int()));
+    var handoff = model.Handoff{ .receive = receive };
+    try recipient.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(observation_export.int()) },
+        .args = &.{.{ .handoff = &handoff }},
+    } });
     try pumpOne(recipient, exporter);
 }
 
@@ -148,7 +159,7 @@ pub fn pumpOne(from: *Peer, to: *Peer) !void {
 
 /// Drain every pending outbound message from `from` and dispatch each on `to`.
 pub fn pumpAll(from: *Peer, to: *Peer) !void {
-    _ = try from.step();
+    while ((try from.step()) != .idle) {}
     while (from.takeOutbound()) |frame| try to.feedOwned(frame);
-    _ = try to.step();
+    while ((try to.step()) != .idle) {}
 }

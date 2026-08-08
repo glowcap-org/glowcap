@@ -8,11 +8,12 @@
 #
 # Usage:
 #   bash conformance/ocapn-conformance/run-against-pancake.sh [all|test-module] [--port=N] [--peer PATH]
-# Default is `all`: every module in the upstream tree (derived from
-# upstream/tests/*.py, so a submodule bump cannot silently shrink coverage),
-# each with a 5s cap (raise with OCAPN_MODULE_TIMEOUT), plus the handshake-abort
-# probe (10s cap, OCAPN_PROBE_TIMEOUT). Pass one module (e.g.
-# `tests.op_deliver`) to probe one surface.
+# Default is `all`: every module in the upstream tree except the non-portable
+# `tests.op_abort` case replaced by the stricter local probe below. The list is
+# derived from upstream/tests/*.py, so a submodule bump cannot silently shrink
+# coverage. Each module has a 5s cap (raise with OCAPN_MODULE_TIMEOUT), and the
+# abort probe has a 10s cap (OCAPN_PROBE_TIMEOUT). Pass one module (e.g.
+# `tests.op_deliver`) to run the raw upstream surface.
 # --port=N (threaded from `zig build ocapn-conformance -Dport=N`) moves the
 # peer off its default 22055 when that port is taken.
 set -uo pipefail
@@ -71,7 +72,7 @@ for _ in $(seq 1 100); do
 done
 
 run_handshake_abort_probe() {
-  echo "ocapn-conformance: handshake-abort probe (invalid signature + invalid version)"
+  echo "ocapn-conformance: handshake-abort probe (pre-setup abort + invalid signature + invalid version)"
   # Same dependency pins as run.sh: the probe imports the suite's own message
   # types, which need cryptography on the uv-provided interpreter.
   python3 tools/run-with-timeout.py --kill-after 5s "$PROBE_TIMEOUT" uv run --python 3.12 --with 'cryptography>=42' --with 'stem>=1.8' \
@@ -109,7 +110,16 @@ if [ "$MODULE" = "all" ]; then
   # Derive the module list from the upstream tree itself, so a submodule bump
   # that adds a module fails loud here (untargeted = failure) instead of
   # silently shrinking what "all targeted modules" means.
-  modules="$(cd conformance/ocapn-conformance/upstream/tests && ls -- *.py | sed 's/\.py$//' | grep -v '^__init__$' | sort | sed 's/^/tests./')"
+  # `tests.op_abort` rejects Linux's ConnectionResetError even though that is
+  # the observable result of the required teardown when its own extra hello is
+  # unread. The probe above checks that case more strictly: timeout is not a
+  # pass. Keep the raw upstream module available as an explicit diagnostic,
+  # while the aggregate substitutes the portable protocol check.
+  test -f conformance/ocapn-conformance/upstream/tests/op_abort.py || {
+    echo "ocapn-conformance: upstream tests.op_abort disappeared; re-evaluate the local probe" >&2
+    exit 1
+  }
+  modules="$(cd conformance/ocapn-conformance/upstream/tests && ls -- *.py | sed 's/\.py$//' | grep -v '^__init__$' | grep -v '^op_abort$' | sort | sed 's/^/tests./')"
   if [ -z "$modules" ]; then
     echo "ocapn-conformance: no upstream test modules under conformance/ocapn-conformance/upstream/tests" >&2
   echo "ocapn-conformance: run 'bash conformance/bootstrap-submodules.sh' to initialize the pinned submodules" >&2
@@ -118,7 +128,7 @@ if [ "$MODULE" = "all" ]; then
   for module in $modules; do
     run_module "$module" || exit $?
   done
-  echo "ocapn-conformance: pancake PASSES all upstream OCapN test modules"
+  echo "ocapn-conformance: pancake PASSES every portable upstream module plus the strict abort probe"
   exit 0
 fi
 

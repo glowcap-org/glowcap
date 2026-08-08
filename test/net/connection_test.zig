@@ -40,6 +40,10 @@ fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !panc
     });
 }
 
+fn appendStreamFrame(list: *std.ArrayList(u8), allocator: std.mem.Allocator, bytes: []const u8) !void {
+    _ = try net.appendFrameBytes(list, allocator, bytes);
+}
+
 test "pumpOver frames one buffered frame, applies it, then reports graceful close" {
     const allocator = std.testing.allocator;
 
@@ -49,7 +53,10 @@ test "pumpOver frames one buffered frame, applies it, then reports graceful clos
     var frame = try startSessionFrame(allocator, "remote");
     defer frame.deinit();
 
-    var reader = std.Io.Reader.fixed(frame.bytes());
+    var stream_bytes: std.ArrayList(u8) = .empty;
+    defer stream_bytes.deinit(allocator);
+    try appendStreamFrame(&stream_bytes, allocator, frame.bytes());
+    var reader = std.Io.Reader.fixed(stream_bytes.items);
     var write_buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&write_buf);
     var spill: net.Spill = .{};
@@ -57,7 +64,7 @@ test "pumpOver frames one buffered frame, applies it, then reports graceful clos
 
     const first = try net.pumpOver(&peer, &reader, &writer, &spill);
     try std.testing.expect(first == .received);
-    try std.testing.expectEqual(frame.bytes().len, first.received);
+    try std.testing.expectEqual(stream_bytes.items.len, first.received);
 
     var event = peer.pollEvent() orelse return error.TestExpectedEvent;
     defer event.deinit();
@@ -81,8 +88,8 @@ test "pumpOver frames each frame of a concatenation in order" {
 
     var stream_bytes: std.ArrayList(u8) = .empty;
     defer stream_bytes.deinit(allocator);
-    try stream_bytes.appendSlice(allocator, f1.bytes());
-    try stream_bytes.appendSlice(allocator, f2.bytes());
+    try appendStreamFrame(&stream_bytes, allocator, f1.bytes());
+    try appendStreamFrame(&stream_bytes, allocator, f2.bytes());
 
     var reader = std.Io.Reader.fixed(stream_bytes.items);
     var write_buf: [256]u8 = undefined;
@@ -92,7 +99,8 @@ test "pumpOver frames each frame of a concatenation in order" {
 
     const p1 = try net.pumpOver(&peer, &reader, &writer, &spill);
     try std.testing.expect(p1 == .received);
-    try std.testing.expectEqual(f1.bytes().len, p1.received);
+    const first_outer = net.outerPrefix(stream_bytes.items, peer.limits().max_frame_bytes).decoded;
+    try std.testing.expectEqual(first_outer.consumed, p1.received);
 
     // The duplicate start-session is a protocol violation (already received one),
     // so the second frame is *framed* (one parse) but refused by authority,
@@ -117,10 +125,13 @@ test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
     defer frame.deinit();
 
     // One whole frame followed by the first half of another.
-    const half = frame.bytes()[0 .. frame.bytes().len / 2];
+    var framed: std.ArrayList(u8) = .empty;
+    defer framed.deinit(allocator);
+    try appendStreamFrame(&framed, allocator, frame.bytes());
+    const half = framed.items[0 .. framed.items.len / 2];
     var stream_bytes: std.ArrayList(u8) = .empty;
     defer stream_bytes.deinit(allocator);
-    try stream_bytes.appendSlice(allocator, frame.bytes());
+    try appendStreamFrame(&stream_bytes, allocator, frame.bytes());
     try stream_bytes.appendSlice(allocator, half);
 
     var reader = std.Io.Reader.fixed(stream_bytes.items);
@@ -142,8 +153,8 @@ test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
     var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
 
-    var reader = std.Io.Reader.fixed("<7'op:foo>");
-    var write_buf: [256]u8 = undefined;
+    var reader = std.Io.Reader.fixed("1:x");
+    var write_buf: [512]u8 = undefined;
     var writer = std.Io.Writer.fixed(&write_buf);
     var spill: net.Spill = .{};
     defer spill.deinit(allocator);
@@ -162,7 +173,10 @@ test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
     var frame = try startSessionFrame(allocator, "remote");
     defer frame.deinit();
 
-    var reader = std.Io.Reader.fixed(frame.bytes());
+    var stream_bytes: std.ArrayList(u8) = .empty;
+    defer stream_bytes.deinit(allocator);
+    try appendStreamFrame(&stream_bytes, allocator, frame.bytes());
+    var reader = std.Io.Reader.fixed(stream_bytes.items);
     var write_buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&write_buf);
     var spill: net.Spill = .{};
@@ -183,8 +197,11 @@ test "pumpOver carries an admissible frame larger than the read buffer through t
 
     // A 16-byte read buffer streams the frame in slices, so the frame must
     // assemble in the spill before it can decode.
+    var framed: std.ArrayList(u8) = .empty;
+    defer framed.deinit(allocator);
+    try appendStreamFrame(&framed, allocator, frame.bytes());
     var read_buf: [16]u8 = undefined;
-    var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = frame.bytes() }});
+    var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = framed.items }});
     var write_buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&write_buf);
     var spill: net.Spill = .{};
@@ -193,7 +210,7 @@ test "pumpOver carries an admissible frame larger than the read buffer through t
     while (true) {
         const progress = try net.pumpOver(&peer, &small.interface, &writer, &spill);
         if (progress == .received) {
-            try std.testing.expectEqual(frame.bytes().len, progress.received);
+            try std.testing.expectEqual(framed.items.len, progress.received);
             break;
         }
         try std.testing.expect(progress == .idle);
@@ -223,7 +240,10 @@ test "pumpOver surfaces a mid-frame EOF as TruncatedFrame while the spill is act
 
     // Most of a frame, then EOF: the prefix outgrows the 16-byte buffer (so it
     // is mid-assembly in the spill) and can never complete.
-    const partial = frame.bytes()[0 .. frame.bytes().len - 8];
+    var framed: std.ArrayList(u8) = .empty;
+    defer framed.deinit(allocator);
+    try appendStreamFrame(&framed, allocator, frame.bytes());
+    const partial = framed.items[0 .. framed.items.len - 8];
     var read_buf: [16]u8 = undefined;
     var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = partial }});
     var write_buf: [256]u8 = undefined;
@@ -254,8 +274,11 @@ test "pumpOver surfaces an over-cap frame as FrameTooLarge while spilling" {
     defer frame.deinit();
     try std.testing.expect(frame.bytes().len > 64);
 
+    var framed: std.ArrayList(u8) = .empty;
+    defer framed.deinit(allocator);
+    try appendStreamFrame(&framed, allocator, frame.bytes());
     var read_buf: [16]u8 = undefined;
-    var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = frame.bytes() }});
+    var small = std.testing.Reader.init(&read_buf, &.{.{ .buffer = framed.items }});
     var write_buf: [256]u8 = undefined;
     var writer = std.Io.Writer.fixed(&write_buf);
     var spill: net.Spill = .{};
@@ -291,7 +314,7 @@ test "pumpOver flushes the peer's queued outbound frames" {
     });
 
     var reader = std.Io.Reader.fixed(&.{}); // nothing inbound
-    var write_buf: [256]u8 = undefined;
+    var write_buf: [512]u8 = undefined;
     var writer = std.Io.Writer.fixed(&write_buf);
     var spill: net.Spill = .{};
     defer spill.deinit(allocator);
@@ -300,6 +323,9 @@ test "pumpOver flushes the peer's queued outbound frames" {
     try std.testing.expect(progress == .sent);
     try std.testing.expect(progress.sent > 0);
     try std.testing.expectEqual(progress.sent, writer.buffered().len);
+    const outer = net.outerPrefix(writer.buffered(), peer.limits().max_frame_bytes).decoded;
+    try std.testing.expectEqual(writer.buffered().len, outer.consumed);
+    try std.testing.expect(outer.body.len > 0);
 }
 
 // R2 apex: the write-half abort-flush contract `Connection.flush` and `pumpOver`

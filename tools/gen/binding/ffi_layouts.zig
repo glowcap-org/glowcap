@@ -16,18 +16,22 @@
 //! numbers and `zig build gen-binding-ffi-layouts-check` (part of `check`)
 //! rejects a binding whose pin has gone stale.
 //!
-//! Racket's `pin-layout!` already re-derives field order and types from
-//! `ctype->layout`, a stronger check than an offset list, so only its
-//! `want-size` argument is generated; the kind-based layout list
-//! (`pointer`/`fpointer`/…) stays hand-authored in `ffi-shared.rkt` /
-//! `ffi-host.rkt` / `ffi-iroh.rkt`.
+//! Racket's `pin-layout!` re-derives each cstruct's field order and widths
+//! from `ctype->layout`, so what it needs is a kind list rather than an
+//! offset list, and that list is generated here too. Hand-authoring it was
+//! the last hand-copy in this family, and it drifted: a cstruct swept
+//! correctly to a changed `PancakeTraceEvent` failed against an expectation
+//! nobody had swept, and the message blamed the mirror. An expectation
+//! reflected off the Zig type cannot disagree with the Zig type.
+//!
+//! Both pointers and function pointers are emitted as `pointer`, and
+//! `pin-layout!` normalizes `fpointer` to `pointer` before comparing: a
+//! binding's choice between Racket's `_pointer` and `_fpointer` is a
+//! convenience at the declaration, not an ABI fact, and the ABI fact is that
+//! the slot is one pointer wide.
 
 const std = @import("std");
 
-comptime {
-    _ = @import("iroh_sidecar_stub");
-    _ = @import("webrtc_sidecar_stub");
-}
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
@@ -45,11 +49,55 @@ pub const outputs = [_]Output{
 
 /// One reflected struct field: `name` is the field's SCREAMING_SNAKE spelling
 /// (the mechanical uppercase of the Zig field name, matching `ts_abi_gen`'s
-/// convention) and `off` is `@offsetOf`.
+/// convention), `lower` is the Zig spelling a mirror declares its own field
+/// by, `off` is `@offsetOf`, `size` is `@sizeOf` of the field's own type, and
+/// `racket` is the field's `ctype->layout` kind.
 const FieldOff = struct {
     name: []const u8,
+    lower: []const u8,
     off: usize,
+    size: usize,
+    racket: []const u8,
 };
+
+/// The `ctype->layout` kind Racket reports for a slot of this Zig type.
+/// Unmapped types are a build error rather than a guess, because a guess here
+/// would be an expectation that agrees with nothing.
+fn racketKind(comptime T: type) []const u8 {
+    return switch (@typeInfo(T)) {
+        .int => |info| std.fmt.comptimePrint("{s}{d}", .{
+            if (info.signedness == .signed) "int" else "uint",
+            info.bits,
+        }),
+        .float => |info| switch (info.bits) {
+            32 => "float",
+            64 => "double",
+            else => @compileError("no Racket ctype kind for " ++ @typeName(T)),
+        },
+        // Data pointer or function pointer alike: one pointer-wide slot.
+        .pointer => "pointer",
+        // An optional pointer is the null-pointer representation, one
+        // pointer-wide slot with no tag, so it reports what its child does.
+        // Any other optional carries a tag byte the child never had, and
+        // answering with the child's kind would state a width the ABI does not
+        // have. An extern struct cannot hold one, so this is a guard rather
+        // than a case, and it fails the build rather than guessing.
+        .optional => |info| switch (@typeInfo(info.child)) {
+            .pointer => "pointer",
+            else => @compileError("no Racket ctype kind for the tagged optional " ++ @typeName(T)),
+        },
+        .array => |info| "#(" ++ racketKind(info.child) ++
+            std.fmt.comptimePrint(" {d})", .{info.len}),
+        .@"struct" => |info| blk: {
+            comptime var text: []const u8 = "(";
+            inline for (info.fields, 0..) |field, i| {
+                text = text ++ (if (i == 0) "" else " ") ++ racketKind(field.type);
+            }
+            break :blk text ++ ")";
+        },
+        else => @compileError("no Racket ctype kind for " ++ @typeName(T)),
+    };
+}
 
 /// One reflected struct: `stem` is the SCREAMING_SNAKE prefix every
 /// language's constants share, derived by hand from the Zig type name so the
@@ -61,7 +109,7 @@ const Layout = struct {
 };
 
 fn upperName(comptime name: []const u8) []const u8 {
-    @setEvalBranchQuota(10_000);
+    @setEvalBranchQuota(100_000);
     comptime var buf: [name.len]u8 = undefined;
     for (name, 0..) |ch, i| buf[i] = std.ascii.toUpper(ch);
     // Rebind through a fresh `const` so the returned slice points at an
@@ -75,7 +123,13 @@ fn layoutOf(comptime stem: []const u8, comptime T: type) Layout {
     const type_fields = @typeInfo(T).@"struct".fields;
     comptime var offs: [type_fields.len]FieldOff = undefined;
     for (type_fields, 0..) |field, i| {
-        offs[i] = .{ .name = upperName(field.name), .off = @offsetOf(T, field.name) };
+        offs[i] = .{
+            .name = upperName(field.name),
+            .lower = field.name,
+            .off = @offsetOf(T, field.name),
+            .size = @sizeOf(field.type),
+            .racket = racketKind(field.type),
+        };
     }
     const frozen: [type_fields.len]FieldOff = offs;
     return .{ .stem = stem, .size = @sizeOf(T), .fields = &frozen };
@@ -98,6 +152,7 @@ const layouts = [_]Layout{
     layoutOf("PANCAKE_ACCEPT_PLAN", cd.PancakeAcceptPlan),
     layoutOf("PANCAKE_PENDING_DIAL", cd.PancakePendingDial),
     layoutOf("PANCAKE_PARTNER_IDENTITY", cd.PancakePartnerIdentity),
+    layoutOf("PANCAKE_TRACE_EVENT", cd.PancakeTraceEvent),
     layoutOf("PANCAKE_HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks),
     layoutOf("PANCAKE_IROH_READY_EVENT", ci.PancakeIrohReadyEvent),
     layoutOf("PANCAKE_WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent),
@@ -141,21 +196,26 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\# `zig build gen-binding-ffi-layouts-check` (part of `check`) fails when
         \\# this is stale.
         \\#
-        \\# Expected sizes and field offsets the hand-mirrored ctypes.Structure
-        \\# types in _ffi_ocapn, _ffi_host, and _ffi_iroh pin against in their
-        \\# _pin_layout() checks: values come from @sizeOf/@offsetOf on the real
-        \\# Zig C ABI types, so a Zig-side field change moves a number here and
-        \\# the pin fails loudly at import time instead of silently misparsing a
-        \\# frame or an action.
+        \\# The whole shape of every C ABI struct the hand-mirrored
+        \\# ctypes.Structure types in _ffi_ocapn, _ffi_host, _ffi_iroh, and
+        \\# _ffi_webrtc declare: struct size, then one row per field carrying
+        \\# its name, its offset, and its own width. Values come from
+        \\# @sizeOf/@offsetOf on the real Zig C ABI types, so a Zig-side field
+        \\# change moves a row here and `pancake._pin.pin_struct` fails loudly
+        \\# at import time instead of silently misparsing a frame, an action,
+        \\# or a trace fact.
         \\
+        \\LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         \\
     );
     inline for (layouts) |layout| {
-        try out.print(gpa, "{s}_SIZE = {d}\n", .{ layout.stem, layout.size });
+        try out.print(gpa, "    \"{s}\": ({d}, (\n", .{ layout.stem, layout.size });
         inline for (layout.fields) |field| {
-            try out.print(gpa, "{s}_{s}_OFF = {d}\n", .{ layout.stem, field.name, field.off });
+            try out.print(gpa, "        (\"{s}\", {d}, {d}),\n", .{ field.lower, field.off, field.size });
         }
+        try out.appendSlice(gpa, "    )),\n");
     }
+    try out.appendSlice(gpa, "}\n");
     return out.toOwnedSlice(gpa);
 }
 
@@ -169,33 +229,48 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\;; `zig build gen-binding-ffi-layouts-check` (part of `check`) fails when
         \\;; this is stale.
         \\;;
-        \\;; Expected sizes the hand-mirrored cstructs in ffi-shared.rkt,
-        \\;; ffi-host.rkt, and ffi-iroh.rkt pass as pin-layout!'s want-size: values
-        \\;; come from @sizeOf on the real Zig C ABI types. pin-layout! also
-        \\;; re-derives each cstruct's field order and types from ctype->layout, a
-        \\;; stronger check than an offset list, so the kind-based layout
-        \\;; (pointer/fpointer/…) stays hand-authored and only want-size is
-        \\;; generated here.
+        \\;; The size and the ctype->layout kind list the hand-mirrored cstructs
+        \\;; in ffi-shared.rkt, ffi-iroh.rkt, and ffi-webrtc.rkt pass to
+        \\;; pin-layout!. Both come off @sizeOf/@offsetOf on the real Zig C ABI
+        \\;; types, so pin-layout! compares a cstruct against the ABI itself
+        \\;; rather than against a hand-copied expectation beside it. Function
+        \\;; pointers are stated as `pointer`; pin-layout! normalizes the
+        \\;; cstruct's `fpointer` slots the same way.
         \\
         \\(provide
         \\
     );
     inline for (layouts) |layout| {
         try out.appendSlice(gpa, "  ");
-        try writeSizeName(&out, gpa, layout.stem);
+        try writeConstName(&out, gpa, layout.stem, "-SIZE");
+        try out.appendSlice(gpa, "\n  ");
+        try writeConstName(&out, gpa, layout.stem, "-LAYOUT");
         try out.append(gpa, '\n');
     }
     try out.appendSlice(gpa, ")\n\n");
     inline for (layouts) |layout| {
         try out.appendSlice(gpa, "(define ");
-        try writeSizeName(&out, gpa, layout.stem);
+        try writeConstName(&out, gpa, layout.stem, "-SIZE");
         try out.print(gpa, " {d})\n", .{layout.size});
+        try out.appendSlice(gpa, "(define ");
+        try writeConstName(&out, gpa, layout.stem, "-LAYOUT");
+        try out.appendSlice(gpa, " '(");
+        inline for (layout.fields, 0..) |field, i| {
+            if (i != 0) try out.append(gpa, ' ');
+            try out.appendSlice(gpa, field.racket);
+        }
+        try out.appendSlice(gpa, "))\n");
     }
     return out.toOwnedSlice(gpa);
 }
 
 /// Racket names read kebab, not SCREAMING_SNAKE: `PANCAKE-REFERENCE-SIZE`.
-fn writeSizeName(out: *std.ArrayList(u8), gpa: std.mem.Allocator, stem: []const u8) !void {
+fn writeConstName(
+    out: *std.ArrayList(u8),
+    gpa: std.mem.Allocator,
+    stem: []const u8,
+    suffix: []const u8,
+) !void {
     for (stem) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
-    try out.appendSlice(gpa, "-SIZE");
+    try out.appendSlice(gpa, suffix);
 }

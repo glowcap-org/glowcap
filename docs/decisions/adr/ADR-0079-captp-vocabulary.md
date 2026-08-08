@@ -7,7 +7,7 @@ decision: "CapTP vocabulary is one sticky note across Zig, C, and bindings: Host
 supersedes: []
 superseded_by: []
 amends: [ADR-0066, ADR-0067, ADR-0069]
-amended_by: []
+amended_by: [ADR-0109]
 ---
 
 # ADR-0079 CapTP vocabulary. Host, Node, Session, sticky note
@@ -50,9 +50,9 @@ for living guidance; its router decision remains accepted.
 stream. `net.Connection`, and the transport handles `PancakeTcpConn`,
 `PancakeInprocConn`, `PancakeIrohConn`. A CapTP conversation with one partner is
 a `session` everywhere above `engine.Peer`: type names, fields, params, and C
-symbols alike. This is the rule the byte-fed host tier once broke by spelling its
+symbols alike. This is the rule the byte-fed host tier once broke by defining its
 per-partner session `Conn` / `PancakeHostConn`, which collided with the
-byte-stream `Conn` in the same C ABI: the old host-conn spelling even carried
+byte-stream `Conn` in the same C ABI: the old host-conn form even carried
 both words in one symbol, a conn whose check verb read session-open. The driver
 family is now `PancakeHostSession` /
 `pancake_host_session_*` and `driver_core.Session`; `checkCaptpVocabulary` in

@@ -70,30 +70,19 @@ pub export fn pancake_host_session_open_dialed_locator(
     return PANCAKE_OK;
 }
 
-/// Mint the accepting half of a connection the embedder's own listener
-/// produced: the keyed `op:start-session` signs the listener's own
-/// `transport`/`designator` — the address a partner can actually dial, and
-/// the locator a give made on this host names as the exporter location. On a
-/// key-designator transport (`keyed-tcp`) `direct_addresses_hint` is required
-/// (TCP has no discovery; nullable/zero length is none); an address-designator
-/// transport ignores it. Host-wide aliases remain lazily discoverable, with
-/// the same flush and release contract as `open_dialed_locator`.
+/// Mint the accepting half of a connection the embedder's listener produced.
+/// The Host must already have a selected acceptable location; this session
+/// signs that snapshot even when it names another transport.
 pub export fn pancake_host_session_open_accepted(
     host: ?*PancakeHost,
     transport: ?[*]const u8,
     transport_len: usize,
-    designator: ?[*]const u8,
-    designator_len: usize,
-    direct_addresses_hint: ?[*]const u8,
-    direct_addresses_hint_len: usize,
     out_session: ?*?*PancakeHostSession,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
-    const hint_bytes = shared.sliceFromC(direct_addresses_hint, direct_addresses_hint_len) catch |err| return shared.marshalErrorToCode(err);
-    const session = inst.core.openAccepted(transport_bytes, designator_bytes, hint_bytes) catch |err| return errToCode(err);
+    const session = inst.core.openAcceptedAdvertised(transport_bytes) catch |err| return errToCode(err);
     slot.* = @ptrCast(session);
     return PANCAKE_OK;
 }
@@ -122,6 +111,19 @@ pub export fn pancake_host_session_is_open(raw: ?*PancakeHostSession) i32 {
     return if (session.sessionOpen()) 1 else 0;
 }
 
+/// The id the live trace names this session's rows by (`PancakeTraceEvent`'s
+/// `session`), so an embedder can annotate the same session a trace consumer
+/// is watching. Stable for the session's life and never reused by this host.
+pub export fn pancake_host_session_trace_id(
+    raw: ?*PancakeHostSession,
+    out_id: ?*u64,
+) i32 {
+    const session = connFrom(raw) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const out = out_id orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    out.* = session.peer_id.int();
+    return PANCAKE_OK;
+}
+
 // ── The byte pump ────────────────────────────────────────────────────────────
 
 /// Feed one inbound frame the embedder read from its own transport (borrowed
@@ -143,17 +145,17 @@ pub export fn pancake_host_session_feed(raw: ?*PancakeHostSession, frame_in: ?*c
 }
 
 /// Feed a byte-stream chunk the embedder read from its own transport
-/// (borrowed for the call). The library owns framing *and the tail*: the
-/// session's codec delimits each complete frame at the front of `bytes` —
-/// both codecs, both frame shapes — and dispatches it exactly as
-/// `pancake_host_session_feed`, while a partial frame straddling two reads
-/// stays buffered in the session, so on success every byte was consumed and
-/// the embedder just reads and feeds. Dispatch also pauses at the frame that
+/// (borrowed for the call). The library owns outer framing and the tail: each
+/// bare codec frame is one canonical Syrup byte string (`length:body`). Split
+/// prefixes and bodies stay buffered in the session; coalesced byte strings
+/// dispatch in order, each body exactly as `pancake_host_session_feed`.
+/// Dispatch pauses at the frame that
 /// completes the keyed handshake: frames coalesced behind the hello wait in
 /// the session's tail while the embedder acts on the fresh session (publish,
 /// fetch), and the next call — an empty chunk (`len` 0, `bytes` may be NULL)
-/// works — feeds them. A frame exceeding the session's frame cap is refused
-/// `PANCAKE_ERR_FRAME_TOO_LARGE`; any other failure classifies as
+/// works — feeds them. A declared body exceeding the session's frame cap is
+/// refused `PANCAKE_ERR_FRAME_TOO_LARGE`; malformed or non-canonical outer
+/// syntax is refused as a codec error; any other failure classifies as
 /// `pancake_host_session_feed`'s do. After any failure the session is
 /// closing: drain `take_outbound` (a typed `op:abort` is queued for the
 /// partner) and release the session.
@@ -177,8 +179,10 @@ pub export fn pancake_host_session_feed_bytes(
     return PANCAKE_OK;
 }
 
-/// Drain one encoded outbound frame as an *owned* managed frame the caller
-/// writes to its transport and frees through `pancake_managed_frame_release`.
+/// Drain one bare encoded outbound frame as an *owned* managed frame. A
+/// byte-stream caller writes its canonical `length:` prefix and then these
+/// bytes; an intrinsically message-framed caller sends these bytes directly.
+/// Free through `pancake_managed_frame_release`.
 /// Returns `PANCAKE_OK` with `out_frame` set, or `PANCAKE_ERR_WOULD_BLOCK`
 /// (with `out_frame` untouched) when the queue is empty. Refused inside a
 /// callback.
@@ -295,17 +299,22 @@ pub export fn pancake_host_session_enliven(
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const inst = instOf(session.host);
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err| return shared.marshalErrorToCode(err);
-    const sturdyref = model.uri.parseSturdyref(inst.allocator, uri) catch |err| return errToCode(err);
+    const sturdyref = model.uri.parseSturdyrefForProfile(
+        inst.allocator,
+        session.served.port.peer.session_state.captp_version,
+        uri,
+    ) catch |err| return errToCode(err);
     defer model.uri.freeSturdyref(inst.allocator, sturdyref);
     slot.* = inst.core.enliven(session, sturdyref) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
-/// Listen on a promise capability this session holds (CapTP `op:listen`,
-/// ADR-0095) and mint a host vow that settles with the promise's resolution;
-/// the outcome arrives as that vow's SETTLE or FAIL action. The target must
-/// be a far promise; a non-promise far is refused
-/// `PANCAKE_ERR_INVALID_ARGUMENT`. A re-gifted promise routes to its exporter
+/// Listen on a far capability this session holds (CapTP `op:listen`, ADR-0095)
+/// and mint a host vow that settles with the listen notification; the outcome
+/// arrives as that vow's SETTLE or FAIL action. In 1.0, the target may be a
+/// far promise or live far object; a live object answers immediately. In
+/// pancake-next, the target must be a far promise because shortening and
+/// settling are promise-only. A re-gifted promise routes to its exporter
 /// session transparently, and a give in the settlement auto-redeems exactly
 /// as a fetch's would. The vow is plain — a listen makes no claim the result
 /// is a capability. Legal inside a callback.
@@ -530,14 +539,37 @@ pub export fn pancake_host_session_partner_identity(
         .designator_len = 0,
         .locator_record = null,
         .locator_record_len = 0,
-        .provenance = switch (identity.provenance) {
-            .authenticated_transport => c.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
-            .durable_key_attestation => c.PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION,
-            .unauthenticated => c.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED,
-        },
+        .provenance = common.provenanceToC(identity.provenance),
     };
     setView(identity.designator, &slot.designator, &slot.designator_len);
     setView(identity.locator_record, &slot.locator_record, &slot.locator_record_len);
+    return PANCAKE_OK;
+}
+
+/// Testify what this connection's realizer proved about its far end (ADR-0105):
+/// `designator` is the durable key that proof names, as a locator writes it. An
+/// iroh listener passes what `pancake_iroh_conn_remote_node_id` read off the
+/// QUIC handshake; a WebRTC peer passes the identity its signaling authorized.
+///
+/// This library realizes nothing at the byte-fed tier — the embedder owns the
+/// sockets, so the embedder is the realizer, and this is the only way that
+/// proof reaches a session. Without it the session reports unauthenticated
+/// durable provenance.
+///
+/// Call it after opening the session and before feeding the first partner byte.
+/// `PANCAKE_ERR_SESSION` means the partner's `op:start-session` was already
+/// applied, so the proof is too late to weigh. `PANCAKE_ERR_INVALID_ARGUMENT`
+/// means the designator does not spell a durable key, or names a different key
+/// from one this connection's realizer already asserted. Asserting the same key
+/// twice is the same statement made twice and succeeds.
+pub export fn pancake_host_session_bind_verified_channel_key(
+    raw: ?*PancakeHostSession,
+    designator: ?[*]const u8,
+    designator_len: usize,
+) i32 {
+    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
+    session.host.bindVerifiedChannelKey(session, designator_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 

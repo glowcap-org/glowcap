@@ -20,7 +20,9 @@
 // name is the directory's lookup key; the room itself is the capability the
 // directory returns.
 
-import { type Argument, connect, Ref, type Session } from "@pancake/stack";
+import { annotateSession, type Argument, Ref, type Session } from "@pancake/stack";
+// The one rooms dial: both transports, and the rooms codec.
+import { dial as roomsDial } from "./locator.ts";
 import type { Presence } from "./limits.ts";
 import { INTRODUCTION_PENDING, RoomError, roomErrorOf } from "./errors.ts";
 import {
@@ -117,7 +119,7 @@ export class Directory {
 	 * its injected adapter and needs no override. */
 	static async connect(
 		locator: string,
-		dial: (locator: string) => Promise<Session> = connect,
+		dial: (locator: string) => Promise<Session> = roomsDial,
 	): Promise<Directory> {
 		const session = await dial(locator);
 		// Start the inbound loop before fetching, so the fetch's resolution arrives.
@@ -412,6 +414,19 @@ export class Directory {
  * redeem opened and hands it to the member with each message, so the member
  * answers you back over that same connection — even though you never listen. An
  * `onReply` handler passed to `open` receives those replies. */
+/** How many live lines ride each redeemed exporter connection.
+ *
+ * A redeem to an exporter this host has already dialed resolves the *same*
+ * live session rather than opening a second one — `sendRedeeming` says so, and
+ * `zig build demo-rooms-dm-reredeem` proves it. So two lines to one member
+ * share one connection, and "did a route come back" is not the same question
+ * as "did this line open it". Closing on the first answer hangs up a
+ * connection the other line is still talking on.
+ *
+ * Held weakly and keyed by the session itself, so a connection dropped without
+ * a close takes its row with it rather than pinning one forever. */
+const linesOnSession = new WeakMap<Session, number>();
+
 export class DirectMessage {
 	#session: Session;
 	#dm: Ref;
@@ -420,6 +435,7 @@ export class DirectMessage {
 	// opens one to the member and owns it; a send-only line rides the directory's
 	// and must never close it, since everything else the tab is doing is on it.
 	#ownsSession: boolean;
+	#spent = false;
 	readonly peer: string;
 
 	/** Whether the connection this line rides is still open. A line outlives
@@ -456,8 +472,23 @@ export class DirectMessage {
 	 * The peer is unaffected: nothing was taken from them, and a later `open`
 	 * redeems a fresh introduction. */
 	close(): void {
+		// Spent once. A second close would decrement a count this line has
+		// already given up and hang up on whoever holds the connection now.
+		if (this.#spent) return;
+		this.#spent = true;
 		if (this.#ownsSession) {
-			// Closing the connection reclaims everything on it, imports included.
+			const rest = (linesOnSession.get(this.#session) ?? 1) - 1;
+			if (rest > 0) {
+				// Another line is still talking on this connection. Give back
+				// what was this line's — the imported capability — and leave the
+				// connection to the lines that are still using it.
+				linesOnSession.set(this.#session, rest);
+				this.#session.release(this.#dm);
+				return;
+			}
+			linesOnSession.delete(this.#session);
+			// Last line out. Closing the connection reclaims everything on it,
+			// imports included.
 			this.#session.close();
 			return;
 		}
@@ -492,7 +523,17 @@ export class DirectMessage {
 				return null;
 			});
 		}
-		return new DirectMessage(session, dm, peer, replyInbox, via !== undefined && via !== null);
+		// Name the direct connection for whoever is watching the live timeline.
+		// Only a redeemed one: a send-only line rides the directory's connection,
+		// whose partner is the room and not this member. The annotation is a
+		// claim about what the session carries, never identity — a consumer may
+		// display it and must not merge or split peers on it.
+		if (via) annotateSession(via, { label: peer });
+		const owns = via !== undefined && via !== null;
+		// Count this line onto the connection before handing it over, so a
+		// close knows whether it is the last one out.
+		if (owns) linesOnSession.set(session, (linesOnSession.get(session) ?? 0) + 1);
+		return new DirectMessage(session, dm, peer, replyInbox, owns);
 	}
 
 	/** Deliver one direct message to the peer. There is no sender argument (see
@@ -501,6 +542,14 @@ export class DirectMessage {
 	async say(text: string): Promise<void> {
 		const args: Argument[] = this.#replyInbox ? [text, this.#replyInbox] : [text];
 		await this.#session.send(this.#dm, DM, args);
+	}
+
+	/** Flag whether we are typing to this peer — the direct sibling of
+	 * `Room.setTyping`, with the same posture: fire-and-forget (`tell`), so a
+	 * lost flag costs nothing and never blocks a keystroke, and an inbox that
+	 * predates the verb breaks the tell silently. */
+	typing(on: boolean): Promise<void> {
+		return this.#session.tell(this.#dm, TYPING, [on]).catch(() => {});
 	}
 }
 

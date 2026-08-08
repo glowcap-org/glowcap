@@ -8,7 +8,6 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
 const session = pancake.ocapn.session;
 const syrup = pancake.ocapn.codec.syrup;
@@ -21,13 +20,8 @@ test "op:get on a pending answer resolves the projected answer to the Struct fie
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.get, event.kind());
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     // The projected answer is exported (installed) the moment the op:get lands.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
     try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswer(.from(11)).?.projections);
@@ -40,8 +34,8 @@ test "op:get on a pending answer resolves the projected answer to the Struct fie
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve11+") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5\"tabby>>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve") == null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
 }
 
@@ -51,20 +45,45 @@ test "op:index on a pending answer resolves the projected answer to the List ele
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
-    try peer.recvBorrowed(.{ .bytes = "<8'op:index<11'desc:answer21+>1+22+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.index, event.kind());
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer21+>1+22+>");
 
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .list = &.{
         .{ .string = "zero" }, .{ .string = "one" }, .{ .string = "two" },
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve22+<15'resolve:fulfill3\"one>>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "one") != null);
+}
+
+test "an arbitrary-precision op:index waits for the receiver then breaks out of bounds" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer.recvBorrowed(.{
+        .bytes = "<8'op:index<11'desc:answer21+>9223372036854775808+22+>",
+        .shape = .byte,
+    });
+    {
+        var event = peer.pollEvent().?;
+        defer event.deinit();
+        const index = (try event.view()).index.index;
+        try std.testing.expect(index == .big_integer);
+        try std.testing.expectEqualStrings("9223372036854775808", index.big_integer.digits);
+    }
+    try peer_fixture.receiveListenerForAnswer(&peer, .from(22));
+    try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswer(.from(21)).?.projections);
+
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .list = &.{
+        .{ .string = "only" },
+    } } } } });
+    const wire = try peer_fixture.drainOutbound(&peer, allocator);
+    defer allocator.free(wire);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "op:index position is out of the List's bounds") != null);
+    try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(22)).?.status);
 }
 
 test "op:untag on a pending answer unwraps the matching Tagged's single value" {
@@ -73,13 +92,8 @@ test "op:untag on a pending answer unwraps the matching Tagged's single value" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<8'op:untag<11'desc:answer11+>2\"cm12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        defer event.deinit();
-        try std.testing.expectEqual(engine.EventKind.untag, event.kind());
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>2\"cm12+>");
     // The projected answer is exported (installed) the moment the op:untag lands.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
     try std.testing.expectEqual(@as(usize, 1), peer.session_state.inboundAnswer(.from(11)).?.projections);
@@ -90,7 +104,10 @@ test "op:untag on a pending answer unwraps the matching Tagged's single value" {
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5+>") != null);
+    try std.testing.expect(wire.len != 0);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve") == null);
+    const projected = peer.session_state.peekResolution(.from(12)).?.fulfill;
+    try std.testing.expectEqual(@as(i64, 5), projected.integer);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
 }
 
@@ -102,19 +119,19 @@ test "op:untag unwraps a variadic Goblins-shaped payload as its value List" {
 
     // pancake's Tagged carries the user-record payload as a slice (ADR-0021);
     // a two-value payload unwraps to the List it is rather than guessing one.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
-    try peer.recvBorrowed(.{ .bytes = "<8'op:untag<11'desc:answer21+>5\"point22+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer21+>5\"point22+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "point",
         .value = &.{ .{ .integer = 1 }, .{ .integer = 2 } },
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve22+<15'resolve:fulfill[1+2+]>") != null);
+    try std.testing.expect(wire.len != 0);
+    const projected = peer.session_state.peekResolution(.from(22)).?.fulfill.list;
+    try std.testing.expectEqual(@as(usize, 2), projected.len);
+    try std.testing.expectEqual(@as(i64, 1), projected[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), projected[1].integer);
 }
 
 test "op:untag breaks on a mismatched tag and on a non-Tagged receiver" {
@@ -124,31 +141,22 @@ test "op:untag breaks on a mismatched tag and on a non-Tagged receiver" {
     try peer.session_state.registerExport(.from(7));
 
     // The asserted tag does not match the settled Tagged: spec-mandated break.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<8'op:untag<11'desc:answer11+>2\"cm12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>2\"cm12+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "inches",
         .value = &.{.{ .integer = 5 }},
     } } } } });
 
     // The receiver settles to something that is not Tagged at all.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
-    try peer.recvBorrowed(.{ .bytes = "<8'op:untag<11'desc:answer21+>2\"cm22+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer21+>2\"cm22+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .integer = 9 } } } });
 
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve12+<13'resolve:break") != null);
     try std.testing.expect(std.mem.indexOf(u8, wire, "does not match") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve22+<13'resolve:break") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "did not resolve to a Tagged") != null);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(22)).?.status);
 }
@@ -165,8 +173,11 @@ test "sending op:untag installs the outbound answer so the partner's resolve adm
         .answer = .from(5),
     } });
     try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) != null);
-
-    try peer.recvBorrowed(.{ .bytes = "<10'op:resolve5+<15'resolve:fulfill5+>>", .shape = .byte });
+    {
+        const sent = try peer_fixture.drainOutbound(&peer, allocator);
+        allocator.free(sent);
+    }
+    try peer_fixture.receiveResolverCallback(&peer, .from(5), .{ .fulfill = .{ .integer = 5 } });
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(.from(5)).?.status);
 }
 
@@ -176,7 +187,7 @@ test "a late op:get against an already-settled answer resolves immediately" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "name", .value = .{ .string = "tabby" } },
     } } } } });
@@ -185,14 +196,10 @@ test "a late op:get against an already-settled answer resolves immediately" {
         allocator.free(first);
     }
 
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5\"tabby>>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
 }
 
 test "projection breaks: wrong shape, absent field, out-of-bounds, inherited break, non-promise receiver" {
@@ -202,57 +209,37 @@ test "projection breaks: wrong shape, absent field, out-of-bounds, inherited bre
     try peer.session_state.registerExport(.from(7));
 
     // Receiver resolves to a non-Struct: the get breaks.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .integer = 5 } } } });
 
     // Absent field on a Struct.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer21+>4\"name22+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer21+>4\"name22+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "age", .value = .{ .integer = 12 } },
     } } } } });
 
     // Out-of-bounds index on a List.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]31+f>");
-    try peer.recvBorrowed(.{ .bytes = "<8'op:index<11'desc:answer31+>9+32+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]31+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer31+>9+32+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(31), .resolution = .{ .fulfill = .{ .list = &.{.{ .integer = 1 }} } } } });
 
     // The receiver itself breaks: the projection inherits the reason.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]41+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer41+>4\"name42+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]41+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer41+>4\"name42+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .@"break" = .{ .message = "upstream broke" } } } });
 
     // A receiver that is a plain export (not a promise) breaks immediately.
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:export7+>4\"name52+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:export7+>4\"name52+>");
 
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve12+<13'resolve:break") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve22+<13'resolve:break") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve32+<13'resolve:break") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "did not resolve to a Struct") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "field is absent") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "out of the List's bounds") != null);
     try std.testing.expect(std.mem.indexOf(u8, wire, "upstream broke") != null);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "op:resolve52+<13'resolve:break") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "projection receiver is not a promise") != null);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(52)).?.status);
 }
@@ -265,13 +252,9 @@ test "a projection follows a resolution that is itself a promise" {
 
     // Two pending answers; the projection anchors on 11, which resolves to the
     // promise for 21, so the projection re-anchors and settles when 21 does.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
 
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(21) } },
@@ -290,7 +273,7 @@ test "a projection follows a resolution that is itself a promise" {
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5\"tabby>>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
 }
 
 test "sending op:get installs the outbound answer so the partner's resolve admits" {
@@ -306,9 +289,13 @@ test "sending op:get installs the outbound answer so the partner's resolve admit
     } });
     try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) != null);
 
-    // The partner resolves the projected answer; an unknown answer would be
-    // refused (`InvalidReference`), so admission proves the install.
-    try peer.recvBorrowed(.{ .bytes = "<10'op:resolve5+<15'resolve:fulfill5\"tabby>>", .shape = .byte });
+    // The partner invokes the mandatory listener; an unknown resolver would be
+    // refused, so admission proves both the answer and resolver link install.
+    {
+        const sent = try peer_fixture.drainOutbound(&peer, allocator);
+        allocator.free(sent);
+    }
+    try peer_fixture.receiveResolverCallback(&peer, .from(5), .{ .fulfill = .{ .string = "tabby" } });
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(.from(5)).?.status);
 }
 
@@ -321,14 +308,10 @@ test "projections chained on projections all settle, one queued message per step
     // Each projected answer carries the next projection; encode deferral makes
     // the drain iterative (a projected resolve is queued, never recursed), so
     // the whole chain settles without growing the native stack.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>1\"a12+>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer12+>1\"a13+>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer13+>1\"a14+>", .shape = .byte });
-    while (peer.pollEvent()) |event_value| {
-        var event = event_value;
-        event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>1\"a12+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer12+>1\"a13+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer13+>1\"a14+>");
 
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "a", .value = .{ .@"struct" = &.{
@@ -343,7 +326,8 @@ test "projections chained on projections all settle, one queued message per step
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(13)).?.status);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(14)).?.status);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve14+<15'resolve:fulfill5+>") != null);
+    try std.testing.expect(wire.len != 0);
+    try std.testing.expectEqual(@as(i64, 5), peer.session_state.peekResolution(.from(14)).?.fulfill.integer);
 }
 
 test "a cyclic stored-resolution walk breaks at max_projection_chain hops" {
@@ -355,8 +339,8 @@ test "a cyclic stored-resolution walk breaks at max_projection_chain hops" {
     // Two answers settled into a promise cycle: 11 stored promise(21), 21
     // stored promise(11). A late get anchoring on 11 walks the stored
     // resolutions synchronously; the hop bound breaks it instead of spinning.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(21) } },
     } } } });
@@ -368,11 +352,7 @@ test "a cyclic stored-resolution walk breaks at max_projection_chain hops" {
         allocator.free(settled);
     }
 
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expectEqual(session.AnswerStatus.broken, peer.session_state.inboundAnswer(.from(12)).?.status);
@@ -386,7 +366,7 @@ test "the projection cap refuses the overflowing op:get loudly" {
     peer.session_state.limits.max_listeners_per_target = 2;
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
     try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>1\"a12+>", .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>1\"b13+>", .shape = .byte });
     try std.testing.expectError(
@@ -403,12 +383,8 @@ test "a projection is dropped when its answer position was released and reasked"
 
     // The partner asks a question (answer 11), then projects a field of it
     // onto answer 12.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>4\"name12+>", .shape = .byte });
-    {
-        var event = peer.pollEvent().?;
-        defer event.deinit();
-    }
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
     // It then releases 12 and asks something else at the same number. A partner
@@ -419,7 +395,7 @@ test "a projection is dropped when its answer position was released and reasked"
         e.deinit();
     }
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) == null);
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]12+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]12+>");
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
     // Now the projected-from answer settles. The projection is moot: answering
@@ -431,10 +407,9 @@ test "a projection is dropped when its answer position was released and reasked"
     } } } } });
     const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve11+") != null);
-    // Answer 11's own resolve carries the struct, so the tell is that nothing
-    // resolves 12 — the position the partner reasked.
-    try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+") == null);
+    // Answer 11's listener receives the struct, while answer 12 remains the
+    // partner's new pending question.
+    try std.testing.expect(std.mem.indexOf(u8, wire, "tabby") != null);
     try std.testing.expectEqual(session.AnswerStatus.pending, peer.session_state.inboundAnswer(.from(12)).?.status);
 
     // And the new question can still be answered, which is the whole point.

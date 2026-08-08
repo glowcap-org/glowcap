@@ -14,8 +14,8 @@ test "value-tree types stay within their documented size budget" {
     // that). That spend is deliberate, but it must not grow silently: a new
     // field on any record under the handoff arm moves these numbers. Both
     // bounds rose by one pointer (312 → 320, 120 → 128) when `view.HintList`
-    // gained its borrowed `find` fn pointer (the allocation-free attestation
-    // lookup, ADR-0097), carried under every borrowed locator's hints.
+    // gained its allocation-free borrowed `find` fn pointer, carried under
+    // every borrowed locator's hints.
     try std.testing.expect(@sizeOf(model.view.Argument) <= 320);
     try std.testing.expect(@sizeOf(model.view.Reference) <= 128);
 }

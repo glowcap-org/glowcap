@@ -97,6 +97,6 @@ wire.
 | designator | The part of a locator naming the peer, usually a public key. Hints say how to reach it. |
 | handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
 | give | The signed introduction presented to the exporting peer during handoff. |
-| netlayer | A transport bound to a byte stream. pancake ships TCP, keyed TCP, in-process, iroh, and WebRTC netlayers. |
+| netlayer | A transport bound to a byte stream. pancake ships TCP, keyed TCP, keyed relay, in-process, iroh, and WebRTC netlayers. |
 | codec | A wire encoding for the message model. pancake ships Syrup and Cap'n Proto. |
 | Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

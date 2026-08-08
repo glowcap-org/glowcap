@@ -1,18 +1,24 @@
 #lang racket
 ;; Shared helpers for Racket interop client scripts.
 
-(provide fail read-swiss await-greeter-ready parse-port ignore-port-args start-accept-loop)
+(provide fail read-swiss read-sturdyref-path await-greeter-ready parse-port ignore-port-args start-accept-loop)
 
 (define (fail gate msg)
   (eprintf "~a FAILED: ~a\n" gate msg)
   (exit 1))
 
 (define (read-swiss in [miss "never saw the readiness line"])
+  (read-readiness-field in "swiss" miss))
+
+(define (read-sturdyref-path in [miss "never saw the sturdyref path readiness field"])
+  (read-readiness-field in "sturdyref-path" miss))
+
+(define (read-readiness-field in field miss)
   (let loop ()
     (define line (read-line in))
     (cond
       [(eof-object? line) (fail "interop" miss)]
-      [(regexp-match #px"\"swiss\":\"([^\"]+)\"" line) => cadr]
+      [(regexp-match (pregexp (format "\"~a\":\"([^\"]+)\"" field)) line) => cadr]
       [else (loop)])))
 
 (define (await-greeter-ready in [miss "never saw the exporter's greeter readiness line"])

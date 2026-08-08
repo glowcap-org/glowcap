@@ -19,6 +19,7 @@
          "ffi-shared.rkt"
          "ffi-host.rkt"
          "errors.rkt"
+         "trace.rkt"
          "codec.rkt"
          "trampoline.rkt")
 
@@ -43,13 +44,18 @@
 ;; generated `IROH-REACH-REDEEM-DEFAULT`, Discovery;
 ;; `set-host-redeem-reachability!` lowers it for a relay-policy deployment);
 ;; `released?` guards the handle against use after release.
-(struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability rendezvous-url released? codec))
+(struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability rendezvous-url released? codec captp-version features))
 
-;; `#:codec` is the wire grammar every session this host mints negotiates
-;; in ('syrup by default, 'capnp for a Cap'n Proto session); both ends of a
-;; session must carry the same codec. The host remembers the symbol so
-;; `connect` can refuse an explicit codec that conflicts with a shared host's.
-(define (make-host seed #:codec [codec 'syrup] #:local-turn-budget [local-turn-budget 0])
+;; `#:codec`, `#:captp-version`, and `#:features` are this host's signed
+;; profile offer. Each session settles version and codec with its partner,
+;; falling back to v1.0/Syrup when needed, and runs only the intersection of the
+;; two offered feature sets. Omitted `#:features` means the full feature set.
+;; The host remembers the symbols so
+;; `connect` can refuse explicit profile options that conflict with a shared
+;; host's.
+(define (make-host seed #:codec [codec 'syrup] #:captp-version [captp-version 'v1_0]
+                   #:features [features 'full]
+                   #:local-turn-budget [local-turn-budget 0])
   ;; The durable identity followed by a session-key root drawn here, at this
   ;; binding's entropy boundary, because the library draws none (ADR-0097).
   ;; The root is fresh per process, so every CapTP session signs with its own
@@ -58,17 +64,28 @@
   ;; derives from it.
   (define seed+root (bytes-append seed (crypto-random-bytes 32)))
   (define sbuf (pin-immobile seed+root)) ; pin: the GC may move it mid-call
-  (define-values (rc ptr) (pancake_host_new sbuf 64 HOST-FRAME-CAP 1 (codec-id codec) local-turn-budget))
+  (define-values (rc ptr)
+    (pancake_host_new sbuf 64 HOST-FRAME-CAP 1 (codec-id codec)
+                     (captp-version-id captp-version) (feature-mask features)
+                     local-turn-budget))
   (check/host rc)
   (define m (host ptr (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
-                  (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) codec))
+                  (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) codec captp-version features))
+  ;; The host's own key designator, which is what a partner names it by: the
+  ;; live trace reports it as this host's endpoint so one peer stays one node
+  ;; in a feed several producers share.
+  (trace-attach-host! ptr (designator-from-seed seed))
   (register-finalizer m (lambda (q) (host-release! q #:close-sessions? #f)))
   m)
 
 ;; A host with a fresh random identity seed — entropy drawn at the binding
 ;; boundary, never inside the sans-io host.
-(define (make-fresh-host #:codec [codec 'syrup] #:local-turn-budget [local-turn-budget 0])
-  (make-host (crypto-random-bytes 32) #:codec codec #:local-turn-budget local-turn-budget))
+(define (make-fresh-host #:codec [codec 'syrup] #:captp-version [captp-version 'v1_0]
+                         #:features [features 'full]
+                         #:local-turn-budget [local-turn-budget 0])
+  (make-host (crypto-random-bytes 32) #:codec codec #:captp-version captp-version
+             #:features features
+             #:local-turn-budget local-turn-budget))
 
 ;; How `host-release!` closes the sessions it still holds. `session.rkt` fills
 ;; this in when it loads: it requires this module for CapTP verbs, so the
@@ -109,6 +126,7 @@
               (for ([c (in-list (hash-values (host-sessions m)))]) (close! c))))
           ;; A refusal leaves the wrapper live. Only successful native teardown
           ;; drops Racket's strong edges and crosses the terminal state.
+          (trace-detach-host! (host-ptr m))
           (check/host (pancake_host_release (host-ptr m)))
           (hash-clear! (host-keep m))
           (hash-clear! (host-vows m))
@@ -233,6 +251,30 @@
   (call-with-host m
     (lambda ()
       (check/host (pancake_host_set_self_designator (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
+
+;; Retain and select this Host's complete acceptable location. `raw` is one
+;; Syrup `ocapn-peer` record; the C Host deep-copies it.
+(define (host-set-advertised-locator! m raw)
+  (call-with-host m
+    (lambda ()
+      (check/host (pancake_host_set_advertised_locator
+                   (host-ptr m) (pin-immobile raw) (bytes-length raw))))))
+
+;; Retain the dial fallback without displacing an acceptable location already
+;; selected for another transport.
+(define (host-ensure-advertised-locator! m transport)
+  (define bs (string->bytes/utf-8 transport))
+  (call-with-host m
+    (lambda ()
+      (check/host (pancake_host_ensure_advertised_locator
+                   (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
+
+(define (host-remove-advertised-locator! m transport)
+  (define bs (string->bytes/utf-8 transport))
+  (call-with-host m
+    (lambda ()
+      (check/host (pancake_host_remove_advertised_locator
+                   (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
 
 ;; Selective session-limit knobs (ADR-0082). Pass 0 to leave a field unchanged.
 ;; Affects peers minted after this call.

@@ -19,7 +19,6 @@ pub const EventKind = enum {
     resolve,
     gc_export,
     gc_answer,
-    handoff,
     start_session,
     abort,
     listen,
@@ -61,6 +60,10 @@ pub const Event = struct {
     tag: EventKind,
     /// The codec that carried `frame` — the session's negotiated `model.CodecId`.
     codec: model.CodecId,
+    /// The CapTP profile that admitted `frame`. Event projection must use the
+    /// same profile as dispatch or a valid next frame can be reinterpreted as
+    /// V1.0 when the application later reads it.
+    captp_version: model.CaptpVersion,
     /// Off-wire answer translation when the wire frame alone cannot say
     /// (ADR-0010). A sum, not two optionals: illegal combinations (both set,
     /// or set under the wrong tag) are unrepresentable.
@@ -73,7 +76,7 @@ pub const Event = struct {
     /// For a `.deliver` event: the far import positions the session's
     /// validate walk introduced for this deliver
     /// (`session.validate.IntroducedImports.mentions`, threaded through
-    /// `session.recordInboundDeliverView`), captured while that record was
+    /// `session.validateInboundDeliverView`), captured while that record was
     /// still alive — its own backing arena resets before this event is ever
     /// polled. Null for every non-deliver kind, and for a deliver that
     /// introduced no far reference (the common case: no allocation then).
@@ -83,6 +86,10 @@ pub const Event = struct {
     /// (`engine.pipeline.deliverDrainedCallLocally`) — leaves this null, and
     /// `gc` falls back to its own walk.
     introduced_far_imports: ?[]model.ImportPosition = null,
+    /// Additional local answers sharing this resolve's one next-profile wire
+    /// callback. The originating frame remains single-owner; consumers project
+    /// the same borrowed resolution once per answer.
+    resolve_aliases: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
 
     pub fn kind(self: Event) EventKind {
         return self.tag;
@@ -92,9 +99,23 @@ pub const Event = struct {
         return self.frame.bytes();
     }
 
+    /// Additional local answers this resolve settles. The primary is available
+    /// from `view().resolve.answer`; this slice carries the rest.
+    pub fn resolveAliases(self: *const Event) []const model.AnswerPosition {
+        return self.resolve_aliases.items;
+    }
+
+    /// Decode the frame exactly as it arrived, before off-wire answer
+    /// translation. Composition hooks use this to recognize a Node-owned
+    /// listener callback even when the semantic event also resolves local
+    /// application answers.
+    pub fn wireView(self: *const Event) DecodeError!model.view.Body {
+        return codec.dispatch.decodeBodyForProfile(self.codec, self.captp_version, self.frame.view());
+    }
+
     /// Borrowed typed projection over the retained frame. No allocation, no copy.
     pub fn view(self: *const Event) DecodeError!model.view.Body {
-        const wire = try codec.dispatch.decodeBody(self.codec, self.frame.view());
+        const wire = try self.wireView();
         return switch (self.answer_override) {
             .none => wire,
             .resolver_callback => |answer| .{ .resolve = .{
@@ -119,6 +140,7 @@ pub const Event = struct {
     }
 
     pub fn deinit(self: *Event) void {
+        self.resolve_aliases.deinit(self.allocator);
         if (self.introduced_far_imports) |imports| self.allocator.free(imports);
         self.frame.deinit();
     }

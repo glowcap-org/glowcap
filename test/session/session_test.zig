@@ -3,6 +3,8 @@ const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 const session = pancake.ocapn.session;
+const syrup = pancake.ocapn.codec.syrup;
+const capnp = pancake.ocapn.codec.capnp;
 
 test "open session accepts outbound deliver to a registered import" {
     const allocator = std.testing.allocator;
@@ -87,6 +89,129 @@ test "session records outbound answers from sent deliver" {
 
     try std.testing.expect(s.outboundAnswer(.from(42)) != null);
     try std.testing.expectEqual(session.AnswerStatus.pending, s.outboundAnswer(.from(42)).?.status);
+}
+
+test "outbound deliver targets require the target descriptor role and a live answer" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    defer s.deinit();
+    try s.registerImport(.from(7));
+    try s.registerExport(.from(8));
+
+    // A near is one of our exports and would encode as `desc:import-*`, which is
+    // never a deliver target. Refuse before apply retains it or installs the
+    // answer carried by the invalid deliver.
+    const before = s.exportRefcount(.from(8));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(8) },
+        .args = &.{},
+        .answer = .from(40),
+    } }));
+    try std.testing.expectEqual(before, s.exportRefcount(.from(8)));
+    try std.testing.expect(s.outboundAnswer(.from(40)) == null);
+
+    // Next carries no inline resolver. Refuse it at session validation, before
+    // the codec can fail after the answer has already been installed.
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(41),
+        .resolve_me_desc = .{ .far = model.FarRef.object(7) },
+    } }));
+    try std.testing.expect(s.outboundAnswer(.from(41)) == null);
+
+    // `desc:answer` is a role, not an unchecked integer. An unknown answer is
+    // refused before the new answer on this deliver can alias session state.
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(99) } },
+        .args = &.{},
+        .answer = .from(41),
+    } }));
+    try std.testing.expect(s.outboundAnswer(.from(41)) == null);
+
+    // A prior call creates answer 11. It remains addressable after settlement
+    // and stops being addressable only when our op:gc-answers releases it.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(11),
+    } });
+    try s.recordRecv(.{ .resolve = .{
+        .answer = .from(11),
+        .resolution = .{ .fulfill = .{ .void = {} } },
+    } });
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(11) } },
+        .args = &.{},
+        .answer = .from(12),
+    } });
+    try s.recordSend(.{ .gc_answer = .{ .positions = &.{11} } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(11) } },
+        .args = &.{},
+        .answer = .from(42),
+    } }));
+    try std.testing.expect(s.outboundAnswer(.from(42)) == null);
+}
+
+test "outbound operations cannot reuse a live answer position" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(7));
+
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+    } });
+
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+    } }));
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{ .index = .{
+        .receiver = .{ .far = model.FarRef.object(7) },
+        .index = .{ .integer = 0 },
+        .answer = .from(42),
+    } }));
+}
+
+test "nested handoff values require the negotiated handoff feature" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{ .features = .{
+        .pipelining = true,
+        .handoff = false,
+        .wire_delta = true,
+        .sturdyref = true,
+    } });
+    defer s.deinit();
+    try s.registerImport(.from(7));
+    try s.registerExport(.from(8));
+
+    var handoff: model.Handoff = .{ .give = .{
+        .recipient_key = "recipient",
+        .exporter = .{ .transport = "onion", .designator = "exporter" },
+        .gifter_exporter_session = "session",
+        .gifter_side = "gifter",
+        .gift_id = "gift",
+        .signature = "signature",
+    } };
+    var args = [_]model.Argument{.{ .handoff = &handoff }};
+
+    const outbound = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+    } };
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(outbound));
+
+    const inbound = model.Message{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(8) },
+        .args = &args,
+    } };
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecv(inbound));
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
 }
 
 test "an inbound set carrying two Equal elements is refused on both walk shapes" {
@@ -450,51 +575,84 @@ test "a resolve fulfilling with an unheld far is refused, while a near still exp
     try std.testing.expect(s.exports.contains(.from(8)));
 }
 
-test "inbound deliver to an unheld far target is rejected on both recv paths" {
+test "inbound deliver targets enforce descriptor role and answer liveness atomically" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
+    try s.registerImport(.from(7));
 
-    // Import 7 is not held, so a deliver whose *target* is far import 7 names a
-    // capability that does not exist for us. The borrowed steady-state path
-    // (`recordRecvView`) and the owned retain path (`recordRecv`) share one
-    // target-reference rule, so both must reject it as `InvalidReference`. The
-    // view path previously accepted any far target; this is the regression guard.
-    const message = model.Message{
-        .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(7) } },
-            .args = &.{.{ .bytes = "x" }},
-            .answer = .from(1),
-        },
-    };
+    // Even held import 7 is the wrong role: inbound `.far` decoded from
+    // `desc:import-*`, while a deliver target must be `desc:export` (`near`) or
+    // `desc:answer` (`promise`). The message also carries an answer and a fresh
+    // import introduction; both must remain absent after either recv path
+    // refuses the target.
+    const introduced = model.Argument{ .reference = .{ .far = model.FarRef.object(9) } };
+    const wrong_role = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{introduced},
+        .answer = .from(1),
+    } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&wrong_role)));
+    try std.testing.expect(s.inboundAnswer(.from(1)) == null);
+    try std.testing.expect(!s.hasImport(.from(9)));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(wrong_role));
+    try std.testing.expect(s.inboundAnswer(.from(1)) == null);
+    try std.testing.expect(!s.hasImport(.from(9)));
 
-    try std.testing.expectError(
-        session.Error.InvalidReference,
-        s.recordRecvView(model.view.Body.fromOwned(&message)),
-    );
-    try std.testing.expectError(
-        session.Error.InvalidReference,
-        s.recordRecv(message),
-    );
+    // An answer descriptor must name a row the partner previously opened. As
+    // above, refusal is pre-commit on the owned and borrowed paths.
+    const dead_answer = model.Message{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(77) } },
+        .args = &.{.{ .reference = .{ .far = model.FarRef.object(10) } }},
+        .answer = .from(2),
+    } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&dead_answer)));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(dead_answer));
+    try std.testing.expect(s.inboundAnswer(.from(2)) == null);
+    try std.testing.expect(!s.hasImport(.from(10)));
+
+    // The same answer is valid while pending and settled, then invalid after
+    // the partner releases it with op:gc-answers.
+    try s.registerExport(.from(8));
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(8) },
+        .args = &.{},
+        .answer = .from(77),
+    } });
+    const live_answer = model.Message{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(77) } },
+        .args = &.{},
+    } };
+    try s.recordRecv(live_answer);
+    try s.recordRecvView(model.view.Body.fromOwned(&live_answer));
+    try s.recordSend(.{ .resolve = .{
+        .answer = .from(77),
+        .resolution = .{ .fulfill = .{ .void = {} } },
+    } });
+    try s.recordRecv(live_answer);
+    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{77} } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&live_answer)));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(live_answer));
 }
 
 test "a partner introduction in the reserved redeemed-token range is refused" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
-    try s.registerImport(.from(0)); // bootstrap, a held target to deliver to
+    // The pinned bootstrap export is always a valid inbound `desc:export 0`
+    // target, without a table grant.
 
     // A redeemed handoff token (>= REDEEMED_TOKEN_BASE) is minted by the
     // cross-connection node and never travels the wire, so a partner
     // *introducing* a far import in that range could only alias one — the
     // node's router would reroute the application's send to a different
     // connection's capability. The introduction gate refuses it. Here the
-    // partner delivers to the held bootstrap and hands us, in an argument, a
+    // partner delivers to the pinned bootstrap and hands us, in an argument, a
     // far import at exactly the token base.
     const token_far = model.Argument{ .reference = .{ .far = .{ .import_position = .from(session.REDEEMED_TOKEN_BASE) } } };
     const poisoned = model.Message{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(0) } },
+            .target = .{ .near = model.NearRef.object(session.BOOTSTRAP_POSITION) },
             .args = &.{token_far},
             .answer = .from(1),
         },
@@ -509,31 +667,12 @@ test "a partner introduction in the reserved redeemed-token range is refused" {
     const ok_far = model.Argument{ .reference = .{ .far = .{ .import_position = .from(session.REDEEMED_TOKEN_BASE - 1) } } };
     const clean = model.Message{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(0) } },
+            .target = .{ .near = model.NearRef.object(session.BOOTSTRAP_POSITION) },
             .args = &.{ok_far},
             .answer = .from(2),
         },
     };
     try s.recordRecvView(model.view.Body.fromOwned(&clean));
-}
-
-test "inbound deliver to a held far target is accepted through the borrowed path" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerImport(.from(7));
-
-    // The strict target rule accepts a far target we *do* hold, it rejects only
-    // unheld ones, so the borrowed walker is not simply refusing every far.
-    const message = model.Message{
-        .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(7) } },
-            .args = &.{.{ .bytes = "x" }},
-            .answer = .from(1),
-        },
-    };
-    try s.recordRecvView(model.view.Body.fromOwned(&message));
-    try std.testing.expect(s.inboundAnswer(.from(1)) != null);
 }
 
 test "a reference inside a Struct argument crosses every session walk" {
@@ -552,7 +691,7 @@ test "a reference inside a Struct argument crosses every session walk" {
         try s.registerImport(.from(7));
         try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{
             .deliver = .{
-                .target = .{ .far = .{ .import_position = .from(7) } },
+                .target = .{ .far = model.FarRef.object(7) },
                 .args = &.{.{ .@"struct" = &.{
                     .{ .key = "cap", .value = .{ .reference = .{ .near = .{ .export_position = .from(99) } } } },
                 } }},
@@ -586,10 +725,10 @@ test "a reference inside a Struct argument crosses every session walk" {
     {
         var s = session.Session.init(allocator);
         defer s.deinit();
-        try s.registerImport(.from(7));
+        try s.registerExport(.from(7));
         const message = model.Message{
             .deliver = .{
-                .target = .{ .far = .{ .import_position = .from(7) } },
+                .target = .{ .near = model.NearRef.object(7) },
                 .args = &.{.{ .@"struct" = &.{
                     .{ .key = "cap", .value = .{ .reference = .{ .far = .{ .import_position = .from(9) } } } },
                 } }},
@@ -684,10 +823,14 @@ test "session lifecycle moves from negotiating through open to closed" {
 }
 
 fn startSessionMessage(version: model.CaptpVersion) model.Message {
+    return startSessionMessageWithKey(version, &.{ 0xaa, 0xbb });
+}
+
+fn startSessionMessageWithKey(version: model.CaptpVersion, key: []const u8) model.Message {
     return .{
         .start_session = .{
             .captp_version = version,
-            .session_pubkey = .{ .bytes = &.{ 0xaa, 0xbb } },
+            .session_pubkey = .{ .bytes = key },
             .acceptable_location = .{
                 .transport = "memory",
                 .designator = "peer",
@@ -908,6 +1051,79 @@ test "wire-delta GC decrements export and import refcounts by direction" {
     try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
 }
 
+test "gc-exports zero delta is rejected by structural validation" {
+    try std.testing.expectError(session.Error.MalformedMessage, session.validateGcExport(.{
+        .positions = &.{7},
+        .deltas = &.{0},
+    }));
+    try std.testing.expectError(session.Error.MalformedMessage, session.validateGcExport(.{
+        .positions = &.{ 7, 8 },
+        .deltas = &.{ 1, 0 },
+    }));
+}
+
+test "gc-exports zero delta outbound refusal precedes import mutation in both profiles" {
+    inline for (.{ model.CaptpVersion.v1_0, model.CaptpVersion.next }) |profile| {
+        var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = profile });
+        defer s.deinit();
+        try s.registerImport(.from(7));
+        const before = s.importRefcount(.from(7));
+
+        try std.testing.expectError(session.Error.MalformedMessage, s.recordSend(.{
+            .gc_export = .{ .positions = &.{7}, .deltas = &.{0} },
+        }));
+
+        try std.testing.expectEqual(before, s.importRefcount(.from(7)));
+    }
+}
+
+test "gc-exports zero delta inbound refusal precedes export mutation in both profiles" {
+    inline for (.{ model.CaptpVersion.v1_0, model.CaptpVersion.next }) |profile| {
+        var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = profile });
+        defer s.deinit();
+        try s.registerExport(.from(7));
+        const before = s.exportRefcount(.from(7));
+
+        try std.testing.expectError(session.Error.MalformedMessage, s.recordRecv(.{
+            .gc_export = .{ .positions = &.{7}, .deltas = &.{0} },
+        }));
+
+        try std.testing.expectEqual(before, s.exportRefcount(.from(7)));
+    }
+}
+
+test "gc-exports zero delta from both codecs reaches session validation before mutation" {
+    const allocator = std.testing.allocator;
+    const message = model.Message{ .gc_export = .{ .positions = &.{7}, .deltas = &.{0} } };
+
+    inline for (.{ model.CaptpVersion.v1_0, model.CaptpVersion.next }) |profile| {
+        {
+            var s = session.Session.initWith(allocator, .{ .captp_version = profile, .codec = .syrup });
+            defer s.deinit();
+            try s.registerExport(.from(7));
+            const before = s.exportRefcount(.from(7));
+            var frame = try syrup.encodeMessageForProfile(allocator, profile, message);
+            defer frame.deinit();
+            const body = try syrup.decodeBody(frame.view());
+
+            try std.testing.expectError(session.Error.MalformedMessage, s.recordRecvView(body));
+            try std.testing.expectEqual(before, s.exportRefcount(.from(7)));
+        }
+        {
+            var s = session.Session.initWith(allocator, .{ .captp_version = profile, .codec = .capnp });
+            defer s.deinit();
+            try s.registerExport(.from(7));
+            const before = s.exportRefcount(.from(7));
+            var frame = try capnp.encodeMessage(allocator, message);
+            defer frame.deinit();
+            const body = try capnp.decodeBody(frame.view());
+
+            try std.testing.expectError(session.Error.MalformedMessage, s.recordRecvView(body));
+            try std.testing.expectEqual(before, s.exportRefcount(.from(7)));
+        }
+    }
+}
+
 test "wire-delta GC underflow is a loud error and leaves refcounts intact" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -1080,7 +1296,7 @@ test "registerExport is an explicit grant: the position is addressable with no m
 
 test "sending a projection op naming a near receiver retains its wire-delta" {
     const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
     defer s.deinit();
     try s.registerExport(.from(7));
     const baseline = s.exportRefcount(.from(7));
@@ -1089,7 +1305,7 @@ test "sending a projection op naming a near receiver retains its wire-delta" {
     // projection receiver, exactly like a deliver target. Each crossing must
     // retain the wire-delta, or the partner's later release underflows.
     try s.recordSend(.{ .get = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .field = "x", .answer = .from(1) } });
-    try s.recordSend(.{ .index = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .index = 0, .answer = .from(2) } });
+    try s.recordSend(.{ .index = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .index = .{ .integer = 0 }, .answer = .from(2) } });
     try s.recordSend(.{ .untag = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .tag = "t", .answer = .from(3) } });
     // The three wire references the partner now holds, on top of the baseline.
     try std.testing.expectEqual(baseline + 3, s.exportRefcount(.from(7)));
@@ -1101,27 +1317,100 @@ test "sending a projection op naming a near receiver retains its wire-delta" {
     try std.testing.expect(s.hasExport(.from(7)));
 }
 
-// Gift and handoff-count authority lives in the vat-scoped
-// `engine.bootstrap.GiftRegistry`; its authority tests live in
-// `test/engine/gift_registry_test.zig`. The session keeps only handoff
-// well-formedness.
-test "session rejects a malformed handoff give" {
+test "session rejects a malformed nested handoff give" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
+    try s.registerImport(.from(1));
 
-    try std.testing.expectError(session.Error.MalformedMessage, s.recordSend(.{
-        .handoff = .{
-            .give = .{
-                .recipient_key = &.{},
-                .exporter = .{ .transport = "memory", .designator = "exporter" },
-                .gifter_exporter_session = &.{},
-                .gifter_side = &.{},
-                .gift_id = &.{},
-                .signature = &.{},
-            },
-        },
-    }));
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &.{},
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = &.{},
+        .gifter_side = &.{},
+        .gift_id = &.{},
+        .signature = &.{},
+    } };
+    try std.testing.expectError(session.Error.MalformedMessage, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{.{ .handoff = &handoff }},
+    } }));
+}
+
+test "next inbound give admission rejects wrong recipient and gift width atomically" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .captp_version = .v1_0,
+    });
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        s.deinit();
+    }
+
+    const local_key = [_]u8{0x31} ** 32;
+    const remote_key = [_]u8{0x32} ** 32;
+    try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
+    try s.recordRecv(startSessionMessageWithKey(.v1_0, &remote_key));
+    s.captp_version = .next;
+
+    const session_name = [_]u8{0x41} ** 32;
+    const gifter_side = [_]u8{0x42} ** 32;
+    const valid_gift_id = [_]u8{0x43} ** model.HANDOFF_GIFT_ID_BYTES;
+    const wrong_key = [_]u8{0x44} ** 32;
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &wrong_key,
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = &session_name,
+        .gifter_side = &gifter_side,
+        .gift_id = &valid_gift_id,
+        .signature = "signature",
+    } };
+    var inbound = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
+        .args = &.{.{ .handoff = &handoff }},
+        .answer = .from(41),
+    } };
+
+    // No allocation is available after handshake. Admission must refuse before
+    // answer installation or any downstream Host locator/dial work.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(session.Error.InvalidGift, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(41)) == null);
+    try std.testing.expectError(session.Error.InvalidGift, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+    try std.testing.expect(s.inboundAnswer(.from(41)) == null);
+
+    handoff.give.recipient_key = &local_key;
+    handoff.give.gift_id = "short";
+    inbound.deliver.answer = .from(42);
+    try std.testing.expectError(session.Error.MalformedMessage, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(42)) == null);
+    try std.testing.expectError(session.Error.MalformedMessage, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+    try std.testing.expect(s.inboundAnswer(.from(42)) == null);
+}
+
+test "v1 inbound give admission preserves Goblins recipient and gift-id tolerance" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = "not-this-session-key",
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = "session",
+        .gifter_side = "gifter",
+        .gift_id = "short",
+        .signature = "signature",
+    } };
+    const inbound = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{.{ .handoff = &handoff }},
+    } };
+
+    try s.recordRecv(inbound);
+    try s.recordRecvView(model.view.Body.fromOwned(&inbound));
 }
 
 test "session feature gates listen and sturdyref-bearing payloads" {
@@ -1138,7 +1427,7 @@ test "session feature gates listen and sturdyref-bearing payloads" {
         .listen = .{
             .target = .{ .far = .{ .import_position = .from(1) } },
             .listener = .{ .near = .{ .export_position = .from(2) } },
-            .wants_partial = false,
+            .mode = .settling_only,
         },
     }));
 
@@ -1159,19 +1448,101 @@ test "session feature gates listen and sturdyref-bearing payloads" {
             .deltas = &.{1},
         },
     }));
+}
 
-    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(.{
-        .handoff = .{
-            .give = .{
-                .recipient_key = &.{},
-                .exporter = .{ .transport = "memory", .designator = "exporter" },
-                .gifter_exporter_session = &.{},
-                .gifter_side = &.{},
-                .gift_id = &.{},
-                .signature = &.{},
-            },
-        },
-    }));
+test "listen target and listener descriptor roles match on owned and borrowed paths" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+        .features = model.FeatureSet.full(),
+    });
+    defer s.deinit();
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(2));
+    try s.registerExport(.from(3));
+
+    // Open one answer in each direction. They are the only integers legal in a
+    // `desc:answer` target on their respective paths.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{},
+        .answer = .from(20),
+    } });
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(3) },
+        .args = &.{},
+        .answer = .from(30),
+    } });
+
+    // Outbound: target is the partner's export or our live answer; listener is
+    // our export and therefore encodes as desc:import-*.
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(1) },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } });
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(20) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .near = model.NearRef.object(3) },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } }));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(1) },
+        .listener = .{ .far = model.FarRef.object(1) },
+        .mode = .settling_only,
+    } }));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(99) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } }));
+
+    // Inbound roles are the exact perspective flip. A failed listen does not
+    // install the introduced listener import on either recv representation.
+    const valid_inbound = model.Message{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(30) } },
+        .listener = .{ .far = model.FarRef.object(4) },
+        .mode = .settling_only,
+    } };
+    const wrong_target = model.Message{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(1) },
+        .listener = .{ .far = model.FarRef.object(4) },
+        .mode = .settling_only,
+    } };
+    const wrong_listener = model.Message{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(30) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } };
+    const dead_answer = model.Message{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(99) } },
+        .listener = .{ .far = model.FarRef.object(4) },
+        .mode = .settling_only,
+    } };
+    inline for (.{ wrong_target, wrong_listener, dead_answer }) |invalid| {
+        try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&invalid)));
+        try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(invalid));
+        try std.testing.expect(!s.hasImport(.from(4)));
+    }
+    try s.recordRecvView(model.view.Body.fromOwned(&valid_inbound));
+    try s.recordRecv(valid_inbound);
+
+    // GC, rather than settlement, ends answer-target liveness in both
+    // directions.
+    try s.recordSend(.{ .gc_answer = .{ .positions = &.{20} } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(20) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } }));
+    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{30} } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&valid_inbound)));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(valid_inbound));
 }
 
 test "v1.0 session records and queries resolver-callback links" {
@@ -1214,7 +1585,7 @@ test "nominateResolverExport installs the answer it hands back, so no caller can
     );
     try std.testing.expectEqual(
         @as(?model.ExportPosition, nomination.resolver_export),
-        s.outbound_resolver_link.getByValue(nomination.answer),
+        s.outbound_resolver_link.getByValue(.{ .application_answer = nomination.answer }),
     );
 
     // A second nomination shares nothing with the first.
@@ -1314,7 +1685,7 @@ test "pipelining substrate owns queued calls, listeners, and stored resolution" 
     ));
 
     // A listener (POD listener cap) and a stored resolution.
-    try s.installListener(.from(5), .{ .listener = .{ .import_position = .from(1) }, .wants_partial = false });
+    try s.installListener(.from(5), .{ .listener = .{ .import_position = .from(1) }, .mode = .settling_only });
     try s.storeResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } });
     try std.testing.expect(s.answerResolved(.from(5)));
     const peeked = s.peekResolution(.from(5)) orelse return error.TestUnexpectedResult;
@@ -1363,10 +1734,10 @@ test "pipelining caps fail loud rather than silently dropping" {
         .{ .abort = .{ .kind = .other, .message = try allocator.dupe(u8, "3") } },
     ));
 
-    try s.installListener(.from(7), .{ .listener = .{ .import_position = .from(1) }, .wants_partial = false });
+    try s.installListener(.from(7), .{ .listener = .{ .import_position = .from(1) }, .mode = .settling_only });
     try std.testing.expectError(error.ListenerCapExceeded, s.installListener(
         .from(7),
-        .{ .listener = .{ .import_position = .from(1) }, .wants_partial = false },
+        .{ .listener = .{ .import_position = .from(1) }, .mode = .settling_only },
     ));
 }
 
@@ -1385,7 +1756,7 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
     try std.testing.expectError(error.HostMismatch, s.installThirdPartyImport(.from(5), "host-b"));
 
     // A listener (POD far listener cap) and a stored relayed resolution.
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
+    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
     try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
     const peeked = s.importedPromiseResolution(.from(5)) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqualStrings("v", peeked.fulfill.bytes);
@@ -1423,15 +1794,15 @@ test "imported-promise listener cap fails loud" {
     defer s.deinit();
 
     try s.installThirdPartyImport(.from(5), "h");
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
+    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
     try std.testing.expectError(error.ListenerCapExceeded, s.installImportedPromiseListener(
         .from(5),
-        .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false },
+        .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only },
     ));
     // A listener on an unknown (non-third-party) import errors.
     try std.testing.expectError(error.InvalidReference, s.installImportedPromiseListener(
         .from(99),
-        .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false },
+        .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only },
     ));
 }
 
@@ -1441,7 +1812,7 @@ test "outbound gc-export releasing a third-party import drops its imported-promi
     defer s.deinit();
 
     try s.installThirdPartyImport(.from(5), "h");
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
+    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
     try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
     try std.testing.expect(s.isThirdPartyImport(.from(5)));
 
@@ -1495,7 +1866,7 @@ test "next session needs no v1.0 resolver translation" {
     try std.testing.expect(!s.needsV1_0Translation());
 }
 
-test "gc-answers prunes the outbound resolver link when the answer is released" {
+test "gc-answers retires a resolver until its wire mention is released" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .captp_version = model.CaptpVersion.v1_0,
@@ -1513,14 +1884,107 @@ test "gc-answers prunes the outbound resolver link when the answer is released" 
             .answer = .from(5),
         },
     });
-    try s.installOutboundResolver(.from(5), .from(1));
-    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.answerForResolverExport(.from(1)));
+    const resolver = try s.mintMentionedResolverExport(.from(5), .object);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.answerForResolverExport(resolver));
+    try std.testing.expectEqual(@as(u64, 2), s.exportRefcount(resolver));
 
     // We allocated the question, so we are the side that GCs it: sending
-    // `op:gc-answers` for our own answer-pos releases the outbound answer and
-    // prunes the resolver link alongside it (CapTP spec § op:gc-answers).
+    // `op:gc-answers` for our own answer-pos releases the outbound answer. The
+    // resolver remains addressable for one callback already in flight, and its
+    // local baseline remains until the partner releases the wire mention.
     try s.recordSend(.{ .gc_answer = .{ .positions = &.{5} } });
-    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.answerForResolverExport(.from(1)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.answerForResolverExport(resolver));
+    try std.testing.expectEqual(session.RetiredResolverState.pending, s.retiredResolverState(resolver).?);
+    try std.testing.expectEqual(@as(u64, 2), s.exportRefcount(resolver));
+
+    try s.recordRecv(.{ .gc_export = .{
+        .positions = &.{resolver.int()},
+        .deltas = &.{1},
+    } });
+    try std.testing.expectEqual(@as(u64, 0), s.exportRefcount(resolver));
+    try std.testing.expect(s.retiredResolverState(resolver) == null);
+}
+
+test "Node listener teardown releases an already returned wire mention" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+    });
+    defer s.deinit();
+    try s.installThirdPartyImport(.from(5), "home");
+
+    const listener = try s.allocateExport();
+    try std.testing.expect(try s.claimPromiseSettlingListener(.from(5), listener, null));
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .listener = session.slot.toReference(s.exportSlot(listener).?).?,
+        .mode = .settling_only,
+    } });
+    try std.testing.expectEqual(@as(u64, 2), s.exportRefcount(listener));
+
+    try s.recordRecv(.{ .gc_export = .{
+        .positions = &.{listener.int()},
+        .deltas = &.{1},
+    } });
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(listener));
+
+    const source = s.shorteningIncarnationForImport(.from(5)).?;
+    s.detachPromiseSettlingNodeConsumer(source, listener);
+    try std.testing.expect(s.exportSlot(listener) == null);
+    try std.testing.expect(s.retiredResolverState(listener) == null);
+    try std.testing.expect(!s.promiseSettlingListenerClaimed(source));
+}
+
+test "settling convergence releases an already returned source listener" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+    });
+    defer s.deinit();
+    try s.installThirdPartyImport(.from(5), "home");
+    try s.installThirdPartyImport(.from(6), "home");
+
+    const source_nomination = try s.nominateResolverExport();
+    try std.testing.expect(try s.claimPromiseSettlingListener(
+        .from(5),
+        source_nomination.resolver_export,
+        source_nomination.answer,
+    ));
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .listener = session.slot.toReference(s.exportSlot(source_nomination.resolver_export).?).?,
+        .mode = .settling_only,
+    } });
+
+    const target_nomination = try s.nominateResolverExport();
+    try std.testing.expect(try s.claimPromiseSettlingListener(
+        .from(6),
+        target_nomination.resolver_export,
+        target_nomination.answer,
+    ));
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(6) },
+        .listener = session.slot.toReference(s.exportSlot(target_nomination.resolver_export).?).?,
+        .mode = .settling_only,
+    } });
+
+    try s.recordRecv(.{ .gc_export = .{
+        .positions = &.{source_nomination.resolver_export.int()},
+        .deltas = &.{1},
+    } });
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(source_nomination.resolver_export));
+
+    const source = s.shorteningIncarnationForImport(.from(5)).?;
+    var move = try s.preparePromiseSettlingMove(source, .from(6));
+    defer move.deinit(allocator);
+    s.commitPromiseSettlingMove(&move);
+
+    try std.testing.expect(s.exportSlot(source_nomination.resolver_export) == null);
+    try std.testing.expect(s.retiredResolverState(source_nomination.resolver_export) == null);
+    try std.testing.expectEqual(
+        target_nomination.resolver_export,
+        s.outbound_resolver_link.getByValue(.{ .application_answer = target_nomination.answer }).?,
+    );
 }
 
 test "import registration is bounded by max_imports (ADR-0025)" {
@@ -1583,6 +2047,7 @@ test "send-side deliver nested past max_nesting_depth is refused before any expo
         .limits = .{ .max_nesting_depth = 1 },
     });
     defer s.deinit();
+    try s.registerImport(.from(2));
     try s.registerExport(.from(1));
     const before = s.exportRefcount(.from(1));
 
@@ -1591,7 +2056,7 @@ test "send-side deliver nested past max_nesting_depth is refused before any expo
     // `NestingTooDeep` in validate — before apply mutates — keeps the retain
     // walk all-or-nothing: export 1's refcount must be untouched.
     const too_deep = model.Message{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(1) } },
+        .target = .{ .far = model.FarRef.object(2) },
         .args = &.{
             .{ .reference = .{ .near = .{ .export_position = .from(1) } } },
             .{ .list = &.{.{ .list = &.{} }} },
@@ -1718,7 +2183,7 @@ test "a session that exhausts its export range refuses rather than naming a neig
 
 test "a projection op answers to the same inbound answer-pos rules as a deliver" {
     const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
     defer s.deinit();
     try s.registerExport(.from(1));
 
@@ -1730,7 +2195,7 @@ test "a projection op answers to the same inbound answer-pos rules as a deliver"
     const reserved = model.AnswerPosition.from(session.VIRTUAL_INBOUND_ANSWER_BASE);
     const get = model.Message{ .get = .{ .receiver = receiver, .field = "field", .answer = reserved } };
     try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(get));
-    const index = model.Message{ .index = .{ .receiver = receiver, .index = 0, .answer = reserved } };
+    const index = model.Message{ .index = .{ .receiver = receiver, .index = .{ .integer = 0 }, .answer = reserved } };
     try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(index));
     const untag = model.Message{ .untag = .{ .receiver = receiver, .tag = "t", .answer = reserved } };
     try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(untag));
@@ -1744,6 +2209,30 @@ test "a projection op answers to the same inbound answer-pos rules as a deliver"
     } });
     const reuse = model.Message{ .get = .{ .receiver = receiver, .field = "field", .answer = ordinary } };
     try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(reuse));
+}
+
+test "V1.0 refuses next-only untag before mutating projection state" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{ .captp_version = .v1_0 });
+    defer s.deinit();
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(2));
+
+    const outbound = model.Message{ .untag = .{
+        .receiver = .{ .far = model.FarRef.object(1) },
+        .tag = "cm",
+        .answer = .from(7),
+    } };
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(outbound));
+    try std.testing.expect(s.outboundAnswer(.from(7)) == null);
+
+    const inbound = model.Message{ .untag = .{
+        .receiver = .{ .near = model.NearRef.object(2) },
+        .tag = "cm",
+        .answer = .from(8),
+    } };
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(8)) == null);
 }
 
 test "inbound gc-exports naming the pinned bootstrap position is a no-op" {
@@ -2110,4 +2599,74 @@ test "an export position from outside this session's range is refused at every d
     try std.testing.expect(s.next_export_position <= 1061);
     const fresh = try s.allocateExport();
     try std.testing.expect(fresh.int() >= 1000 and fresh.int() < 1100);
+}
+
+test "promise shortening rewrites through chains and refuses a cycle" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(5));
+    try s.registerImport(.from(6));
+    try s.registerImport(.from(7));
+
+    const first = (try s.nominateShorteningResolver(.from(5))).?;
+    try s.validateShorteningCompletion(first.resolver_export, model.FarRef.promise(6));
+    s.completeShortening(first.resolver_export, model.FarRef.promise(6));
+
+    const second = (try s.nominateShorteningResolver(.from(6))).?;
+    try s.validateShorteningCompletion(second.resolver_export, model.FarRef.promise(7));
+    s.completeShortening(second.resolver_export, model.FarRef.promise(7));
+
+    var message: model.Message = .{ .deliver = .{
+        .target = .{ .far = model.FarRef.promise(5) },
+        .args = &.{},
+    } };
+    s.rewriteShortenedMessage(&message);
+    try std.testing.expectEqual(model.FarRef.promise(7), message.deliver.target.far);
+
+    const cycle = (try s.nominateShorteningResolver(.from(7))).?;
+    try std.testing.expectError(
+        session.Error.UnexpectedMessage,
+        s.validateShorteningCompletion(cycle.resolver_export, model.FarRef.promise(5)),
+    );
+
+    var release: model.GcExport = .{
+        .positions = try allocator.dupe(u64, &.{5}),
+        .deltas = try allocator.dupe(u64, &.{1}),
+    };
+    defer allocator.free(release.positions);
+    defer allocator.free(release.deltas);
+    try s.expandShorteningGcExportReleases(allocator, &release);
+    try std.testing.expectEqualSlices(u64, &.{ 5, 6, 7 }, release.positions);
+    try std.testing.expectEqualSlices(u64, &.{ 1, 1, 1 }, release.deltas);
+    try s.recordSend(.{ .gc_export = release });
+    try std.testing.expect(!s.holdsImport(.from(5)));
+    try std.testing.expect(!s.holdsImport(.from(6)));
+    try std.testing.expect(!s.holdsImport(.from(7)));
+}
+
+test "resolver purpose replacement evicts a colliding resolver in both directions" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+
+    const first = try s.allocateExport();
+    const second = try s.allocateExport();
+    const source_five: session.PromiseIncarnation = .{ .position = .from(5), .row_id = 1 };
+    const source_six: session.PromiseIncarnation = .{ .position = .from(6), .row_id = 2 };
+    try s.outbound_resolver_link.put(allocator, first, .{ .shortening_pending = source_five });
+    try s.outbound_resolver_link.put(allocator, second, .{ .shortening_pending = source_six });
+
+    s.outbound_resolver_link.replaceValueForKey(first, .{ .shortening_pending = source_six });
+
+    try std.testing.expectEqual(
+        session.ResolverPurpose{ .shortening_pending = source_six },
+        s.outbound_resolver_link.getByKey(first).?,
+    );
+    try std.testing.expectEqual(
+        @as(?model.ExportPosition, first),
+        s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_six }),
+    );
+    try std.testing.expect(s.outbound_resolver_link.getByKey(second) == null);
+    try std.testing.expect(s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_five }) == null);
 }

@@ -12,8 +12,9 @@
 ;; Usage:
 ;;   racket pancake-projection-asker.rkt <target-port> <swiss-ascii> [local-port]
 ;;
-;; Prints `PROJECTION OK` and exits 0 when delivers resolve and both projection
-;; ops were written on the wire.
+;; Prints `PROJECTION OK` and exits 0 when delivers resolve, both projection
+;; ops were written on the wire, and pancake settled both projected answers
+;; with the expected payloads.
 
 (require goblins
          goblins/ocapn
@@ -39,14 +40,65 @@
 (define list-answer-pos 2)
 (define get-answer-pos 3)
 (define index-answer-pos 4)
+;; Export 0 is Goblins' bootstrap object and therefore a valid local export for
+;; a V1.0 listen callback descriptor. The probe observes pancake's callback on
+;; the wire; it does not claim Goblins has an application-level projection API.
+(define listener-export-pos 0)
 
 (define (put-err tag . parts)
   (async-channel-put response-ch (cons 'err (cons tag parts))))
 
+(define (record-label obj)
+  (and (struct? obj)
+       (let* ([vec (struct->vector obj)]
+              [raw (and (> (vector-length vec) 0) (vector-ref vec 0))]
+              [text (format "~a" raw)])
+         (cond
+           [(regexp-match #rx"^struct:(.+)$" text) => cadr]
+           [else text]))))
+
+(define (record-field obj idx)
+  (define vec (struct->vector obj))
+  (and (> (vector-length vec) idx) (vector-ref vec idx)))
+
+(define (answer-desc-pos desc)
+  (and (equal? (record-label desc) "desc:answer")
+       (record-field desc 1)))
+
+(define (export-desc-pos desc)
+  (and (equal? (record-label desc) "desc:export")
+       (record-field desc 1)))
+
+(define (payload->text payload)
+  (cond
+    [(string? payload) payload]
+    [(bytes? payload) (bytes->string/latin-1 payload)]
+    [(symbol? payload) (symbol->string payload)]
+    [else #f]))
+
+(define (observe-inbound msg)
+  (when (equal? (record-label msg) "op:deliver")
+    (define target-pos (export-desc-pos (record-field msg 1)))
+    (define args (record-field msg 2))
+    (when (and (equal? target-pos listener-export-pos) (list? args) (>= (length args) 2))
+      (define tag (payload->text (car args)))
+      (define payload (payload->text (cadr args)))
+      (cond
+        [(and (equal? payload "pancake-get")
+              (equal? tag "fulfill"))
+         (async-channel-put response-ch '(get-ok))]
+        [(and (equal? payload "alpha")
+              (equal? tag "fulfill"))
+         (async-channel-put response-ch '(index-ok))]
+        [(not (equal? tag "fulfill"))
+         (put-err 'projection-settlement tag payload)]))))
+
 (dialer-vat
  'run
  (lambda ()
-   (define netlayer (spawn ^tcp-netlayer "127.0.0.1" local-port))
+   (define netlayer
+     (spawn ^tcp-netlayer "127.0.0.1" local-port
+            #:interop-message-sink observe-inbound))
    (define mycapn (spawn-mycapn netlayer))
    (define target
      (ocapn-sturdyref
@@ -100,7 +152,25 @@
                                                   index-answer-pos)
                                    interop-marshallers)
                                (lambda (_index-sent)
-                                 (async-channel-put response-ch '(ok)))
+                                 (on (<- netlayer 'interop-send
+                                         (make-op:listen
+                                          (make-desc:answer get-answer-pos)
+                                          (make-desc:import-object listener-export-pos)
+                                          #f)
+                                         interop-marshallers)
+                                     (lambda (_get-listen-sent)
+                                       (on (<- netlayer 'interop-send
+                                               (make-op:listen
+                                                (make-desc:answer index-answer-pos)
+                                                (make-desc:import-object listener-export-pos)
+                                                #f)
+                                               interop-marshallers)
+                                           (lambda (_index-listen-sent)
+                                             (async-channel-put response-ch '(sent)))
+                                           #:catch
+                                           (lambda (err) (put-err 'index-listen-send err))))
+                                     #:catch
+                                     (lambda (err) (put-err 'get-listen-send err))))
                                #:catch
                                (lambda (err) (put-err 'index-send err))))
                          #:catch
@@ -112,14 +182,22 @@
        #:catch
        (lambda (err) (put-err 'enliven err)))))
 
-(define reply (sync/timeout 10.0 response-ch))
-(case (and (pair? reply) (car reply))
-  [(ok)
-   (printf "PROJECTION OK~n")
-   (exit 0)]
-  [(err)
-   (printf "PROJECTION ERR: ~v~n" (cdr reply))
-   (exit 1)]
-  [else
-   (printf "PROJECTION TIMEOUT~n")
-   (exit 1)])
+(let loop ([sent? #f] [got-get? #f] [got-index? #f] [deadline (+ (current-inexact-milliseconds) 10000.0)])
+  (cond
+    [(and sent? got-get? got-index?)
+     (printf "PROJECTION OK: op:get and op:index settled with expected payloads~n")
+     (exit 0)]
+    [else
+     (define remaining-ms (- deadline (current-inexact-milliseconds)))
+     (define reply (and (positive? remaining-ms)
+                        (sync/timeout (/ remaining-ms 1000.0) response-ch)))
+     (case (and (pair? reply) (car reply))
+       [(sent) (loop #t got-get? got-index? deadline)]
+       [(get-ok) (loop sent? #t got-index? deadline)]
+       [(index-ok) (loop sent? got-get? #t deadline)]
+       [(err)
+        (printf "PROJECTION ERR: ~v~n" (cdr reply))
+        (exit 1)]
+       [else
+        (printf "PROJECTION TIMEOUT sent=~v get=~v index=~v~n" sent? got-get? got-index?)
+        (exit 1)])]))

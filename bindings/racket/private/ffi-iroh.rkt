@@ -38,22 +38,30 @@
   #:malloc-mode 'atomic-interior)
 
 ;; The layout gate, as in `ffi-shared.rkt`: the hand-mirrored ready-event
-;; record is pinned at require time against `PANCAKE-IROH-READY-EVENT-SIZE`
-;; (from `layouts-gen.rkt`) and the field layout hand-copied here (conn at 0,
-;; events at 8, trailing pad to 16). The expected spelling is what
-;; `ctype->layout` reports, not the ctype the field is declared with:
-;; `_uintptr` is an alias that normalizes to `uint64` on a 64-bit target, and
-;; naming the alias here fails the gate on every load.
-(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE '(uint64 uint32))
+;; record is pinned at require time against the size and kind layout
+;; `layouts-gen.rkt` reflects off the real Zig type. The layout is what
+;; `ctype->layout` reports rather than the ctype a field is declared with, so
+;; `_uintptr` reads back as `uint64` on a 64-bit target.
+(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE
+             PANCAKE-IROH-READY-EVENT-LAYOUT)
 
 ;; One iroh endpoint's config, the cstruct counterpart of the header's
-;; PancakeIrohConfig: reachability (mandatory) + connect_timeout_ms (0 = the
-;; built-in default). `make-PancakeIrohConfig` sets both fields explicitly, so
-;; nothing rides on uninitialized memory (the zero-init contract).
-(define-cstruct _PancakeIrohConfig ([reachability _uint32] [connect_timeout_ms _uint64])
+;; PancakeIrohConfig: reachability (mandatory), connect_timeout_ms, and
+;; idle_timeout_ms, the last two 0 for the built-in default.
+;; `make-PancakeIrohConfig` sets every field explicitly, so nothing rides on
+;; uninitialized memory (the zero-init contract).
+;;
+;; idle_timeout_ms bounds how long a connection survives with nothing arriving
+;; on it, which decides how quickly a peer killed rather than closed stops
+;; counting as connected: it sends nothing, and UDP has no equivalent of the FIN
+;; a dying TCP process gets from the operating system.
+(define-cstruct _PancakeIrohConfig ([reachability _uint32]
+                                    [connect_timeout_ms _uint64]
+                                    [idle_timeout_ms _uint64]
+                                    [worker_threads _uint32])
   #:malloc-mode 'atomic-interior)
-;; layout (reachability at 0, 4 pad, connect_timeout_ms at 8, 16 total).
-(pin-layout! '_PancakeIrohConfig _PancakeIrohConfig PANCAKE-IROH-CONFIG-SIZE '(uint32 uint64))
+(pin-layout! '_PancakeIrohConfig _PancakeIrohConfig PANCAKE-IROH-CONFIG-SIZE
+             PANCAKE-IROH-CONFIG-LAYOUT)
 
 (define iroh-ffi-cache (box #f))
 

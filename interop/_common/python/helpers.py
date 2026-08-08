@@ -50,13 +50,32 @@ async def read_swiss(
     *,
     miss: str = "never saw the readiness line",
 ) -> str:
+    return await _read_readiness_field(proc, gate, "swiss", miss=miss)
+
+
+async def read_sturdyref_path(
+    proc: asyncio.subprocess.Process,
+    gate: str,
+    *,
+    miss: str = "never saw the sturdyref path readiness field",
+) -> str:
+    return await _read_readiness_field(proc, gate, "sturdyref-path", miss=miss)
+
+
+async def _read_readiness_field(
+    proc: asyncio.subprocess.Process,
+    gate: str,
+    field: str,
+    *,
+    miss: str,
+) -> str:
     assert proc.stdout is not None
     deadline = asyncio.get_running_loop().time() + 30.0
     while asyncio.get_running_loop().time() < deadline:
         line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
         if not line:
             break
-        m = re.search(rb'"swiss":"([^"]+)"', line)
+        m = re.search(rb'"' + field.encode() + rb'":"([^"]+)"', line)
         if m:
             return m.group(1).decode()
     fail(gate, miss)

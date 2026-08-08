@@ -25,20 +25,23 @@ pub const omitted_families = [_]OmittedFamily{};
 pub const symbols = [_]Symbol{
     .{
         .name = "pancake_host_new",
-        .out_params = &.{6},
+        .out_params = &.{8},
         .section = "Lifecycle. `outBuffers` marks the buffer params the callee writes, so\nthe wasm adapter copies back only true outputs (dlopen ignores it).",
     },
     .{
         .name = "pancake_host_new_in",
-        .out_params = &.{7},
+        .out_params = &.{9},
         .racket_omit = "unused: the Racket binding keeps its hosts on the library allocator",
     },
     .{ .name = "pancake_host_release" },
     .{ .name = "pancake_host_designator_from_seed", .out_params = &.{2} },
     .{ .name = "pancake_host_set_self_designator", .out_params = &.{} },
+    .{ .name = "pancake_host_set_advertised_locator", .out_params = &.{} },
+    .{ .name = "pancake_host_ensure_advertised_locator", .out_params = &.{} },
+    .{ .name = "pancake_host_remove_advertised_locator", .out_params = &.{} },
     .{ .name = "pancake_host_set_session_limits" },
     .{ .name = "pancake_host_session_open_dialed_locator", .out_params = &.{5} },
-    .{ .name = "pancake_host_session_open_accepted", .out_params = &.{7} },
+    .{ .name = "pancake_host_session_open_accepted", .out_params = &.{3} },
     .{
         .name = "pancake_host_plan_dial",
         .out_params = &.{8},
@@ -49,6 +52,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_host_plan_accept", .out_params = &.{6} },
     .{ .name = "pancake_host_session_release" },
     .{ .name = "pancake_host_session_is_open" },
+    .{ .name = "pancake_host_session_trace_id", .out_params = &.{1} },
     .{
         .name = "pancake_host_session_feed",
         .rust_omit = "the Rust pump feeds raw bytes (feed_bytes); no PancakeFrame is built binding-side",
@@ -95,6 +99,30 @@ pub const symbols = [_]Symbol{
     },
     .{ .name = "pancake_host_session_enliven", .out_params = &.{3} },
     .{ .name = "pancake_host_enliven", .out_params = &.{3} },
+    .{
+        .name = "pancake_host_set_trace",
+        .out_params = &.{},
+        .section = "Live trace: the host reports session opens, message verbs, and closes\nthrough one callback (null clears), or into a ring the embedder drains.",
+    },
+    // The drained trace seam exists for an embedder that cannot hand the
+    // library a C function pointer — the browser, whose wasm module declares
+    // exactly one import. Rust, Python, and Racket each install the callback
+    // beside it, which is lossless and needs no ring, so they take the queue's
+    // omission rather than a second way to say the same thing.
+    .{
+        .name = "pancake_host_set_trace_queue",
+        .out_params = &.{},
+        .rust_omit = "the Rust veneer installs the trace callback; the drained ring is the seam for an embedder that cannot take one",
+        .python_omit = "the Python veneer installs the trace callback; the drained ring is the seam for an embedder that cannot take one",
+        .racket_omit = "the Racket veneer installs the trace callback; the drained ring is the seam for an embedder that cannot take one",
+    },
+    .{
+        .name = "pancake_host_next_trace",
+        .out_params = &.{1},
+        .rust_omit = "no queue to drain: the Rust veneer installs the trace callback",
+        .python_omit = "no queue to drain: the Python veneer installs the trace callback",
+        .racket_omit = "no queue to drain: the Racket veneer installs the trace callback",
+    },
     .{
         .name = "pancake_host_spawn_resolver",
         .out_params = &.{ 1, 2 },
@@ -161,6 +189,7 @@ pub const symbols = [_]Symbol{
         .racket_omit = "the Racket surface reads the retained abort through session_last_abort's struct view alone",
     },
     .{ .name = "pancake_host_session_partner_identity", .out_params = &.{1} },
+    .{ .name = "pancake_host_session_bind_verified_channel_key", .out_params = &.{} },
     .{ .name = "pancake_host_last_error", .out_params = &.{0} },
     .{
         .name = "pancake_host_clear_last_error",

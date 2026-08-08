@@ -872,15 +872,20 @@ const deferral_markers: []const Ban = blk: {
     var rows: [dirs.len + 1]Ban = undefined;
     for (rows[0..dirs.len], dirs) |*row, dir| {
         row.* = .{
-            .where = .{ .tree = .{
-                .dir = dir,
-                .suffixes = &.{
-                    ".zig", ".rs", ".py", ".rkt", ".ts",   ".js",
-                    ".c",   ".h",  ".sh", ".css", ".html",
+            .where = .{
+                .tree = .{
+                    .dir = dir,
+                    .suffixes = &.{
+                        ".zig", ".rs", ".py", ".rkt", ".ts",   ".js",
+                        ".c",   ".h",  ".sh", ".css", ".html",
+                    },
+                    // Fragments match the walked tree's RELATIVE paths, so a
+                    // repo-rooted spelling here is dead config. Generated
+                    // output dirs only; first-party source is always held.
+                    .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".vite/", ".deno/", "dist/", ".zig-cache", "zig-out" },
+                    .exclude = &.{"tools/check/meta_check/bans.zig"},
                 },
-                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache", "zig-out" },
-                .exclude = &.{"tools/check/meta_check/bans.zig"},
-            } },
+            },
             .kind = .forbid,
             .needles = needles,
             .check = "deferral-markers",

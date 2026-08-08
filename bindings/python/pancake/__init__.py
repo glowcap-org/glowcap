@@ -65,9 +65,12 @@ from ._value import Forward, Keyword, Ref, Set, Symbol, Tagged
 from ._constants import (
     HANDSHAKE_TIMEOUT_MS,
     HINT_DIRECT_ADDRESSES,
+    TRANSPORT_INPROC,
     TRANSPORT_IROH,
+    TRANSPORT_KEYED_RELAY,
     TRANSPORT_KEYED_TCP,
     TRANSPORT_TCP,
+    TRANSPORT_WEBRTC,
 )
 from ._context import Context
 from ._locator import (
@@ -81,9 +84,10 @@ from ._locator import (
     tcp_locator,
 )
 from ._host import Host
+from ._trace import annotate_session, enable_trace
 from ._promise import RemotePromise
+from ._constants import DurableProvenance
 from ._session import (
-    DurableProvenance,
     PartnerIdentity,
     RedeemedReply,
     Session,
@@ -127,6 +131,8 @@ __all__ = [
     "Host",
     "Caretaker",
     "connect",
+    "annotate_session",
+    "enable_trace",
     "listen",
     "listen_keyed_tcp",
     "HANDSHAKE_TIMEOUT_MS",
@@ -142,7 +148,10 @@ __all__ = [
     # Transport symbols
     "TRANSPORT_TCP",
     "TRANSPORT_KEYED_TCP",
+    "TRANSPORT_INPROC",
     "TRANSPORT_IROH",
+    "TRANSPORT_KEYED_RELAY",
+    "TRANSPORT_WEBRTC",
     # Locator hint keys
     "HINT_DIRECT_ADDRESSES",
 ]

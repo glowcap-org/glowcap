@@ -9,9 +9,9 @@
 //! host's deployment configuration (`Resident.relay_url`), never locator
 //! bytes, so the same give redeems against whatever relay the redeeming host
 //! trusts. The relay carries bytes and parses nothing; the keyed CapTP
-//! handshake authenticates the designator end to end, with the same
-//! `session-key-attestation` posture as `keyed-tcp` (the channel is cleartext
-//! `ws://`; see `docs/boundaries.md`).
+//! handshake carries the claimed designator end to end with the same
+//! unauthenticated posture as `keyed-tcp` (the channel is cleartext `ws://`;
+//! see `docs/boundaries.md`).
 //!
 //! Both halves live here. `dial` opens `relay_url` with `?rendezvous=<key>`
 //! and yields a `Connection` over the socket. `listen` registers the host's
@@ -298,9 +298,20 @@ const RelayStream = struct {
     /// Wire the CapTP-facing reader/writer over the caller's buffers and weld
     /// to `peer`. Runs once, after the upgrade (and for a registered socket,
     /// after the parked wait).
-    fn intoConnection(rs: *RelayStream, peer: *engine.Peer, bufs: Buffers) Connection {
+    fn intoConnection(rs: *RelayStream, peer: *engine.Peer, bufs: Buffers) error{ConnectionLost}!Connection {
         rs.ws_reader = ShimT.Reader.init(.{ .rs = rs }, bufs.read);
         rs.ws_writer = ShimT.Writer.init(.{ .rs = rs }, bufs.write);
+        // The peer may send its hello while this leg is still reading the HTTP
+        // upgrade response. A socket fill can then leave the first WebSocket
+        // frame in the inner reader, beyond the bytes readUpgradeResponse
+        // consumed. Pull immediately available payload into the Connection
+        // reader: PollHost can observe that buffer before polling the socket,
+        // whereas bytes already removed from the kernel produce no readiness
+        // event of their own.
+        const buffered = probeParked(rs) catch return error.ConnectionLost;
+        if (buffered == .closed) return error.ConnectionLost;
+        if (buffered == .data_pending and rs.reader.interface.bufferedLen() > 0)
+            rs.ws_reader.interface.fillMore() catch return error.ConnectionLost;
         return Connection.init(rs.io, peer, &rs.ws_reader.interface, &rs.ws_writer.interface, .{
             .ctx = rs,
             .close_fn = close,
@@ -333,26 +344,50 @@ const RelayStream = struct {
     /// surfaces a close frame or a frame-boundary EOF as a clean end. Mid-frame
     /// truncation and every protocol violation are `ReadFailed` — fail closed.
     fn readSome(rs: *RelayStream, dest: []u8) Io.Reader.Error!usize {
-        while (true) {
-            if (rs.saw_close) return error.EndOfStream;
+        var written: usize = 0;
+        while (written < dest.len) {
+            if (rs.saw_close) return if (written > 0) written else error.EndOfStream;
             if (rs.remaining > 0) {
                 const r = &rs.reader.interface;
                 if (r.bufferedLen() == 0) {
+                    // A stream read may span several WebSocket data messages,
+                    // but it must not block for the next message after already
+                    // producing bytes. The caller will poll before asking
+                    // again when no lower-buffered message is ready.
+                    if (written > 0) return written;
                     r.fillMore() catch |err| switch (err) {
                         error.EndOfStream => return error.ReadFailed, // mid-frame truncation
                         error.ReadFailed => return error.ReadFailed,
                     };
                 }
                 const avail = r.buffered();
-                const n: usize = @intCast(@min(@as(u64, @min(dest.len, avail.len)), rs.remaining));
-                @memcpy(dest[0..n], avail[0..n]);
+                const n: usize = @intCast(@min(@as(u64, @min(dest.len - written, avail.len)), rs.remaining));
+                @memcpy(dest[written..][0..n], avail[0..n]);
                 r.toss(n);
                 rs.remaining -= n;
-                return n;
+                written += n;
+                if (rs.remaining > 0 or written == dest.len) return written;
+                // A byte stream has no WebSocket message boundary. Consume any
+                // fully buffered control frames and continue through a buffered
+                // data frame. `probeParked` never reads the socket, so this
+                // remains non-blocking after making progress.
+                switch (probeParked(rs) catch return error.ReadFailed) {
+                    .data_pending => continue,
+                    .closed => return written,
+                    .idle => return written,
+                }
+            }
+            if (written > 0) {
+                switch (probeParked(rs) catch return error.ReadFailed) {
+                    .data_pending => continue,
+                    .closed => return written,
+                    .idle => return written,
+                }
             }
             const arrived = rs.nextDataFrame() catch return error.ReadFailed;
-            if (!arrived) return error.EndOfStream;
+            if (!arrived) return if (written > 0) written else error.EndOfStream;
         }
+        return written;
     }
 
     /// Advance the frame state machine to the next data frame, blocking:
@@ -611,23 +646,18 @@ pub const Resident = struct {
     }
 };
 
+const resident_ctx = netlayer.ResidentContext(Resident);
+
 const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
-    // The designator is the registered peer's Ed25519 key, so a driver dial
-    // pins the partner's session identity to it, and the hello carries the
-    // `session-key-attestation` the cleartext channel cannot prove itself —
-    // the `keyed-tcp` posture over a relay leg.
+    // The designator is the registered peer's Ed25519 key. A driver dial
+    // records that target and checks any selected key route against it. The
+    // cleartext relay leg cannot authenticate the claim.
     .designator_scheme = .key,
-    .authentication = .durable_key_attestation,
     .dial = residentDial,
     .listen = residentListen,
-    .io = residentIo,
+    .io = resident_ctx.io,
 };
-
-fn residentIo(ctx: *anyopaque) ?std.Io {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
-    return self.io;
-}
 
 fn residentDial(
     ctx: *anyopaque,
@@ -635,10 +665,11 @@ fn residentDial(
     loc: model.PeerLocator,
     bufs: Buffers,
 ) netlayer.DialError!Connection {
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     if (crypto.PeerKey.fromDesignator(loc.designator) == null) return error.InvalidAddress;
     const rs = try openLeg(self.io, peer.allocator, self.relay_url, rendezvous_query, loc.designator);
-    return rs.intoConnection(peer, bufs);
+    errdefer rs.destroy();
+    return try rs.intoConnection(peer, bufs);
 }
 
 fn residentListen(
@@ -647,7 +678,7 @@ fn residentListen(
     config: netlayer.ListenConfig,
 ) netlayer.ListenError!NetLayerListener {
     _ = config; // No local bind: where to register is resident state.
-    const self: *Resident = @ptrCast(@alignCast(ctx));
+    const self = resident_ctx.of(ctx);
     const register = self.register_url orelse return error.InvalidAddress;
     const key = self.public_key orelse return error.InvalidAddress;
     const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
@@ -686,7 +717,6 @@ const ListenerBox = struct {
 const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = .key,
-    .authentication = .durable_key_attestation,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
@@ -697,9 +727,10 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.A
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     const rs = box.parked orelse return error.ConnectionLost; // accept follows a true waitAcceptable
     box.parked = null;
+    errdefer rs.destroy();
     // The next waitAcceptable registers the replacement, so an accept loop
     // keeps the peer cold-dialable without this call blocking on the relay.
-    return rs.intoConnection(peer, bufs);
+    return try rs.intoConnection(peer, bufs);
 }
 
 /// Wait until a dialer's bytes are bridged onto the parked registration.

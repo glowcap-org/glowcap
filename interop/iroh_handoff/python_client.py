@@ -47,6 +47,7 @@ from pancake import (  # noqa: E402
     format_peer_uri,
 )
 from pancake.iroh import (  # noqa: E402
+    IrohConfig,
     Reachability,
     listen_iroh,
 )
@@ -87,7 +88,7 @@ def greeter(verb: str, args: list):
 
 async def run() -> None:
     # ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-    exporter = listen_iroh(Reachability.DIRECT)
+    exporter = listen_iroh(IrohConfig(Reachability.DIRECT))
     exporter.host.publish_giftable("greeter", greeter)
     exporter_id, exporter_addrs = await dialable(exporter)
     exporter_served: list = []
@@ -95,7 +96,7 @@ async def run() -> None:
     print(f"python-iroh-handoff: exporter published greeter on {exporter_id}")
 
     # ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
-    gifter = listen_iroh(Reachability.DIRECT)
+    gifter = listen_iroh(IrohConfig(Reachability.DIRECT))
     gifter_id, gifter_addrs = await dialable(gifter)
     exporter_uri = format_peer_uri(
         TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs}

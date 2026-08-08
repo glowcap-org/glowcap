@@ -95,6 +95,48 @@ pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !m
 /// header the decoder reads — there is no separate scanner. The body is then
 /// decoded over exactly that slice and ratifies the length.
 pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
+    return decodePrefixForProfile(.v1_0, bytes, max_frame_bytes);
+}
+
+pub fn decodePrefixForProfile(profile: model.CaptpVersion, bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
+    const frame = switch (prefixFrame(bytes, max_frame_bytes)) {
+        .frame => |frame| frame,
+        .incomplete => return .incomplete,
+        .malformed => return .malformed,
+        .too_large => return .too_large,
+    };
+    const body = decodeBodyForProfile(profile, frame.view) catch return .malformed;
+    return .{ .decoded = .{ .body = body, .consumed = frame.consumed } };
+}
+
+/// Delimit one structurally valid Cap'n Proto frame without assigning
+/// profile-dependent meaning to it. In particular, raw listen mode 1 means
+/// different things in V1.0 and next; a peer-less `FrameStream` must carry the
+/// bytes to the session rather than guess.
+pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Boundary {
+    const frame = switch (prefixFrame(bytes, max_frame_bytes)) {
+        .frame => |frame| frame,
+        .incomplete => return .incomplete,
+        .malformed => return .malformed,
+        .too_large => return .too_large,
+    };
+    validateBodyForFraming(frame.view) catch return .malformed;
+    return .{ .complete = frame.consumed };
+}
+
+const PrefixFrame = struct {
+    view: foundation.FrameView,
+    consumed: usize,
+};
+
+const PrefixFrameResult = union(enum) {
+    frame: PrefixFrame,
+    incomplete,
+    malformed,
+    too_large,
+};
+
+fn prefixFrame(bytes: []const u8, max_frame_bytes: usize) PrefixFrameResult {
     // Header word not fully arrived yet.
     if (bytes.len < wire.WORD_BYTES) return .incomplete;
     const reader = shared.readerFromFrame(bytes) catch |err| switch (err) {
@@ -116,8 +158,8 @@ pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
     // length math cannot overflow here.
     const frame_len = (reader.seg_words + 1) * wire.WORD_BYTES;
     if (frame_len > max_frame_bytes) return .too_large;
-    const body = decodeBody(.{ .shape = .word, .bytes = bytes[0..frame_len] }) catch return .malformed;
-    return .{ .decoded = .{ .body = body, .consumed = frame_len } };
+    const frame: foundation.FrameView = .{ .shape = .word, .bytes = bytes[0..frame_len] };
+    return .{ .frame = .{ .view = frame, .consumed = frame_len } };
 }
 
 /// The frame length a (complete) header word declares, or null when the checked
@@ -268,6 +310,15 @@ fn borrowedData(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
     return reader.byteSlice(list.data_idx, list.count);
 }
 
+/// Borrow a model String or Symbol directly from the frame and reject malformed
+/// Unicode at the codec boundary. Validation scans in place and never allocates
+/// or copies; raw ByteArray fields continue to use `borrowedData`.
+fn borrowedText(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
+    const text = try borrowedData(reader, loc, i);
+    if (!std.unicode.utf8ValidateSlice(text)) return Error.MalformedFrame;
+    return text;
+}
+
 /// Project a borrowed reference in the receiver's perspective (the ADR-0010
 /// flip).
 fn neutralReferenceView(reader: Reader, loc: StructLoc) Error!model.view.Reference {
@@ -299,10 +350,9 @@ fn hintEntryAt(reader: Reader, hl: model.view.HintList, index: usize) Error!mode
 }
 
 /// Borrowed find over the typed entry list: decode entries in place until the
-/// name matches. No allocation — the handshake attestation lookup runs before
-/// session apply (ADR-0097). Unlike materialize this walk does not police
-/// duplicate names; the first match wins, and the full-fidelity paths still
-/// refuse a duplicated dict.
+/// name matches without allocating. Authority-bearing callers validate the hint
+/// map as a dictionary before lookup; this helper is the allocation-free lookup
+/// primitive, not the policy.
 fn capnpFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
     const count: usize = @intCast(hl.w2);
     if (count == 0) return null;
@@ -313,6 +363,21 @@ fn capnpFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?mo
         if (std.mem.eql(u8, entry.name, name)) return entry.value;
     }
     return null;
+}
+
+fn capnpValidateHintNamesUnique(hl: model.view.HintList) model.view.ProjectError!void {
+    const count: usize = @intCast(hl.w2);
+    if (count == 0) return;
+    const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
+    var index: usize = 0;
+    while (index < count) : (index += 1) {
+        const entry = hintEntryAt(reader, hl, index) catch return error.MalformedView;
+        var prior: usize = 0;
+        while (prior < index) : (prior += 1) {
+            const seen = hintEntryAt(reader, hl, prior) catch return error.MalformedView;
+            if (std.mem.eql(u8, seen.name, entry.name)) return error.MalformedView;
+        }
+    }
 }
 
 /// One frame-header parse, then every entry — the handshake / `toOwned` path.
@@ -347,12 +412,18 @@ fn capnpMaterializeHintList(
     return .{ .entries = entries, .wire_form = wire_form };
 }
 
+const capnp_hint_list_vtable = model.view.HintList.VTable{
+    .materialize = capnpMaterializeHintList,
+    .validate_unique_names = capnpValidateHintNamesUnique,
+    .find = capnpFindHint,
+};
+
 fn decodeHintEntry(reader: Reader, loc: StructLoc) Error!model.HintEntry {
     const data0 = try reader.dataWord(loc, 0);
     const kind = try enumFromWire(shared.HintValueKind, data0);
-    const name = try borrowedData(reader, loc, 0);
+    const name = try borrowedText(reader, loc, 0);
     const value: model.HintValue = switch (kind) {
-        .string => .{ .string = try borrowedData(reader, loc, 1) },
+        .string => .{ .string = try borrowedText(reader, loc, 1) },
         .bytes => .{ .bytes = try borrowedData(reader, loc, 1) },
         .boolean => .{ .boolean = data0 & shared.data0_flag != 0 },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
@@ -365,15 +436,15 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocat
     const wire_form: model.Hints.WireForm = if (empty_false) .boolean_false else .map;
     const clist = (try compositeList(reader, loc, 2)) orelse {
         return .{
-            .transport = try borrowedData(reader, loc, 0),
-            .designator = try borrowedData(reader, loc, 1),
+            .transport = try borrowedText(reader, loc, 0),
+            .designator = try borrowedText(reader, loc, 1),
             .hints = .{ .empty = wire_form },
         };
     };
     if (clist.element_count == 0) {
         return .{
-            .transport = try borrowedData(reader, loc, 0),
-            .designator = try borrowedData(reader, loc, 1),
+            .transport = try borrowedText(reader, loc, 0),
+            .designator = try borrowedText(reader, loc, 1),
             .hints = .{ .empty = wire_form },
         };
     }
@@ -401,8 +472,8 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocat
     // a lazy list so borrowed decode stays allocation-free and `toOwned`
     // materializes full fidelity (encode/decode symmetry for start-session).
     return .{
-        .transport = try borrowedData(reader, loc, 0),
-        .designator = try borrowedData(reader, loc, 1),
+        .transport = try borrowedText(reader, loc, 0),
+        .designator = try borrowedText(reader, loc, 1),
         .hints = .{
             .lazy = .{
                 .wire_form = wire_form,
@@ -411,8 +482,7 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocat
                     .w0 = clist.tag_idx + 1,
                     .w1 = (@as(u64, clist.data_words) << 16) | clist.ptr_words,
                     .w2 = clist.element_count,
-                    .materialize = capnpMaterializeHintList,
-                    .find = capnpFindHint,
+                    .vtable = &capnp_hint_list_vtable,
                 },
             },
         },
@@ -420,13 +490,13 @@ fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocat
 }
 
 fn neutralErrorView(reader: Reader, loc: StructLoc) Error!model.view.BreakReason {
-    return .{ .message = try borrowedData(reader, loc, 0) };
+    return .{ .message = try borrowedText(reader, loc, 0) };
 }
 
 fn neutralPipelineOp(reader: Reader, loc: StructLoc) Error!model.view.PipelineOp {
     const disc = try enumFromWire(PipelineOpKind, try reader.dataWord(loc, 0));
     return switch (disc) {
-        .field => .{ .field = try borrowedData(reader, loc, 0) },
+        .field => .{ .field = try borrowedText(reader, loc, 0) },
         .call => .{ .call = try neutralArgsBacking(reader, loc, 0) },
     };
 }
@@ -438,11 +508,11 @@ fn neutralArgument(reader: Reader, loc: StructLoc) Error!model.view.Argument {
     const disc = try enumFromWire(ArgKind, data0);
     return switch (disc) {
         .bytes => .{ .bytes = try borrowedData(reader, loc, 0) },
-        .symbol => .{ .symbol = try borrowedData(reader, loc, 0) },
+        .symbol => .{ .symbol = try borrowedText(reader, loc, 0) },
         .reference => .{ .reference = try neutralReferenceView(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
         .@"error" => .{ .@"error" = try neutralErrorView(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
         .handoff => .{ .handoff = try neutralHandoffFromStruct(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
-        .string => .{ .string = try borrowedData(reader, loc, 0) },
+        .string => .{ .string = try borrowedText(reader, loc, 0) },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
         .boolean => .{ .boolean = data0 & shared.data0_flag != 0 },
         .list => .{ .list = try neutralArgsBacking(reader, loc, 0) },
@@ -464,11 +534,11 @@ fn neutralArgument(reader: Reader, loc: StructLoc) Error!model.view.Argument {
         .tagged => blk: {
             const tagged_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
             break :blk .{ .tagged = .{
-                .tag = try borrowedData(reader, tagged_loc, 0),
+                .tag = try borrowedText(reader, tagged_loc, 0),
                 .value = try neutralArgsBacking(reader, tagged_loc, 1),
             } };
         },
-        .keyword => .{ .keyword = try borrowedData(reader, loc, 0) },
+        .keyword => .{ .keyword = try borrowedText(reader, loc, 0) },
         .@"struct" => .{ .@"struct" = try neutralStructBacking(reader, loc, 0) },
         .big_integer => blk: {
             const big = model.BigInteger{
@@ -506,7 +576,7 @@ fn neutralStructNext(ctx: model.view.StructEntries.Ctx, cursor: *u64) model.view
 /// Borrowed (key, value) entry from one composite-list element: key text at
 /// pointer 0, value Argument struct at pointer 1.
 fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEntry {
-    const key = try borrowedData(reader, elem, 0);
+    const key = try borrowedText(reader, elem, 0);
     const value_loc = (try reader.followStruct(elem, 1)) orelse return Error.MalformedFrame;
     return .{ .key = key, .value = try neutralArgument(reader, value_loc) };
 }
@@ -525,8 +595,8 @@ fn neutralStructBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view
         return model.view.StructEntries.fromBacking(.{ .bytes = reader.bytes }, &neutral_struct_vtable);
     var idx: usize = 1;
     while (idx < clist.element_count) : (idx += 1) {
-        const key = try borrowedData(reader, clist.elem(idx), 0);
-        const prior = try borrowedData(reader, clist.elem(idx - 1), 0);
+        const key = try borrowedText(reader, clist.elem(idx), 0);
+        const prior = try borrowedText(reader, clist.elem(idx - 1), 0);
         if (std.mem.order(u8, prior, key) != .lt) return Error.MalformedFrame;
     }
     return model.view.StructEntries.fromBacking(ctxFromComposite(reader, clist), &neutral_struct_vtable);
@@ -574,10 +644,11 @@ fn neutralResolution(reader: Reader, loc: StructLoc) Error!model.view.Resolution
 }
 
 fn neutralStartSession(reader: Reader, body: StructLoc) Error!model.view.StartSession {
-    const version_text = try borrowedData(reader, body, 0);
-    const version = model.CaptpVersion.fromWireString(version_text) orelse return Error.MalformedFrame;
+    const version_text = try borrowedText(reader, body, 0);
     return .{
-        .captp_version = version,
+        // A token this build does not know decodes as null; `session.validate`
+        // is what refuses it, and refuses it as a version mismatch.
+        .captp_version = model.CaptpVersion.fromWireString(version_text),
         .session_pubkey = try borrowedData(reader, body, 1),
         .acceptable_location = try neutralPeerLocator(reader, (try reader.followStruct(body, 2)) orelse return Error.MalformedFrame),
         .acceptable_location_sig = .{ .raw = try borrowedData(reader, body, 3) },
@@ -595,11 +666,31 @@ fn neutralStartSession(reader: Reader, body: StructLoc) Error!model.view.StartSe
 /// `shared.readerFromFrame` stays lenient for it, and this is the entry point
 /// that has already been handed a single frame.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
+    return decodeBodyForProfile(.v1_0, frame);
+}
+
+pub fn decodeBodyForProfile(profile: model.CaptpVersion, frame: foundation.FrameView) Error!model.view.Body {
     const view = try decodeMessageView(frame);
-    // After the shape and truncation checks, so those keep reporting their own
-    // specific refusals rather than being shadowed by this one.
     try shared.expectExactFrameLength(frame.bytes);
-    return neutralBody(view);
+    if (profile == .next and view.kind == .resolve) return Error.UnsupportedMessage;
+    if (profile == .next and view.kind == .deliver) {
+        const flags = try view.reader.dataWord(view.body, 0);
+        if (flags & shared.deliver_has_resolve_me != 0) return Error.UnsupportedMessage;
+    }
+    return neutralBodyForProfile(view, profile);
+}
+
+fn validateBodyForFraming(frame: foundation.FrameView) Error!void {
+    const view = try decodeMessageView(frame);
+    try shared.expectExactFrameLength(frame.bytes);
+    var budget: usize = shared.traversalBudget(view.reader.seg_words);
+    try chargeBody(view.reader.withBudget(&budget), view.kind, view.body, 0);
+    if (view.kind == .listen) {
+        const raw = try view.reader.dataWord(view.body, 0);
+        if (raw > 3) return Error.MalformedFrame;
+        return;
+    }
+    _ = try projectBody(view.reader, view.kind, view.body);
 }
 
 /// Decode-time recursion bound for the eager traversal charge pass, the capnp
@@ -709,7 +800,7 @@ fn chargeStructField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error
     while (idx < clist.element_count) : (idx += 1) {
         try reader.spend(1);
         const elem = clist.elem(idx);
-        _ = try borrowedData(reader, elem, 0);
+        _ = try borrowedText(reader, elem, 0);
         const value_loc = (try reader.followStruct(elem, 1)) orelse return Error.MalformedFrame;
         try chargeArgument(reader, value_loc, depth);
     }
@@ -725,12 +816,16 @@ fn chargeBody(reader: Reader, kind: Kind, body: StructLoc, depth: usize) Error!v
         .deliver => try chargeDeliverBody(reader, body, depth),
         .resolve => try chargeResolveBody(reader, body, depth),
         .listen => try chargeListenBody(reader, body, depth),
-        .get, .index, .untag => try chargeReceiverBody(reader, body, depth),
+        .get, .untag => try chargeReceiverBody(reader, body, depth),
+        .index => {
+            try chargeReceiverBody(reader, body, depth);
+            _ = try projectIndexValue(reader, body);
+        },
         // No composite-list amplification vector of their own. Delegate to
         // `projectBody` so the metered reader charges and validates every leaf
-        // read; the hint list a `start_session` or `handoff` locator carries is
-        // charged by `neutralPeerLocator` on this same metered pass.
-        .gc_export, .gc_answer, .abort, .start_session, .handoff => _ = try projectBody(reader, kind, body),
+        // read; the hint list a `start_session` locator carries is charged by
+        // `neutralPeerLocator` on this same metered pass.
+        .gc_export, .gc_answer, .abort, .start_session => _ = try projectBody(reader, kind, body),
     }
 }
 
@@ -769,8 +864,13 @@ fn chargeReceiverBody(reader: Reader, body: StructLoc, depth: usize) Error!void 
 /// aliasing composite lists would amplify the later lazy walk is refused here,
 /// in bounded time, on the inbound turn loop (see the charge-pass note above).
 fn neutralBody(view: MessageView) Error!model.view.Body {
+    return neutralBodyForProfile(view, .v1_0);
+}
+
+fn neutralBodyForProfile(view: MessageView, profile: model.CaptpVersion) Error!model.view.Body {
     var budget: usize = shared.traversalBudget(view.reader.seg_words);
     try chargeBody(view.reader.withBudget(&budget), view.kind, view.body, 0);
+    if (view.kind == .listen) return projectListenBodyForProfile(view.reader, view.body, profile);
     return projectBody(view.reader, view.kind, view.body);
 }
 
@@ -792,7 +892,6 @@ fn bodyProjector(comptime kind: Kind) BodyProjector {
         .index => projectIndexBody,
         .untag => projectUntagBody,
         .start_session => projectStartSessionBody,
-        .handoff => projectHandoffBody,
     };
 }
 
@@ -840,22 +939,39 @@ fn projectGcAnswerBody(reader: Reader, body: StructLoc) Error!model.view.Body {
 fn projectAbortBody(reader: Reader, body: StructLoc) Error!model.view.Body {
     return .{ .abort = .{
         .kind = try enumFromWire(model.AbortKind, try reader.dataWord(body, 0)),
-        .message = try borrowedData(reader, body, 0),
+        .message = try borrowedText(reader, body, 0),
     } };
 }
 
 fn projectListenBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return projectListenBodyForProfile(reader, body, .v1_0);
+}
+
+fn projectListenBodyForProfile(reader: Reader, body: StructLoc, profile: model.CaptpVersion) Error!model.view.Body {
+    const raw = try reader.dataWord(body, 0);
+    const mode: model.ListenMode = switch (profile) {
+        .v1_0 => switch (raw) {
+            0 => .settling_only,
+            1 => .shortening_or_settling,
+            else => return Error.MalformedFrame,
+        },
+        .next => model.ListenMode.fromInt(raw) orelse return Error.MalformedFrame,
+    };
+    return projectListenFields(reader, body, mode);
+}
+
+fn projectListenFields(reader: Reader, body: StructLoc, mode: model.ListenMode) Error!model.view.Body {
     return .{ .listen = .{
         .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
         .listener = try neutralReferenceView(reader, (try reader.followStruct(body, 1)) orelse return Error.MalformedFrame),
-        .wants_partial = (try reader.dataWord(body, 0)) & 1 != 0,
+        .mode = mode,
     } };
 }
 
 fn projectGetBody(reader: Reader, body: StructLoc) Error!model.view.Body {
     return .{ .get = .{
         .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-        .field = try borrowedData(reader, body, 1),
+        .field = try borrowedText(reader, body, 1),
         .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
     } };
 }
@@ -863,23 +979,36 @@ fn projectGetBody(reader: Reader, body: StructLoc) Error!model.view.Body {
 fn projectIndexBody(reader: Reader, body: StructLoc) Error!model.view.Body {
     return .{ .index = .{
         .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-        .index = @bitCast(try reader.dataWord(body, 0)),
+        .index = try projectIndexValue(reader, body),
         .answer = model.AnswerPosition.from(try reader.dataWord(body, 1)),
     } };
+}
+
+fn projectIndexValue(reader: Reader, body: StructLoc) Error!model.Integer {
+    const flags = try reader.dataWord(body, 2);
+    if (flags & ~(shared.index_big_integer | shared.index_negative) != 0) return Error.MalformedFrame;
+    if (flags & shared.index_big_integer == 0) {
+        if (flags != 0) return Error.MalformedFrame;
+        if (!try reader.pointerIsNull(body, 1)) return Error.MalformedFrame;
+        return .{ .integer = @bitCast(try reader.dataWord(body, 0)) };
+    }
+    if (try reader.dataWord(body, 0) != 0) return Error.MalformedFrame;
+    const big: model.BigInteger = .{
+        .negative = flags & shared.index_negative != 0,
+        .digits = try borrowedData(reader, body, 1),
+    };
+    if (!big.isCanonical()) return Error.MalformedFrame;
+    return .{ .big_integer = big };
 }
 
 fn projectUntagBody(reader: Reader, body: StructLoc) Error!model.view.Body {
     return .{ .untag = .{
         .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-        .tag = try borrowedData(reader, body, 1),
+        .tag = try borrowedText(reader, body, 1),
         .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
     } };
 }
 
 fn projectStartSessionBody(reader: Reader, body: StructLoc) Error!model.view.Body {
     return .{ .start_session = try neutralStartSession(reader, body) };
-}
-
-fn projectHandoffBody(reader: Reader, body: StructLoc) Error!model.view.Body {
-    return .{ .handoff = try neutralHandoffFromStruct(reader, body) };
 }

@@ -20,13 +20,6 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 
-/// The declared steady bounds this test holds, mirrored from the vat's
-/// private constants (`steady_turn_arena_bytes`, `steady_spare_arena_bytes`,
-/// `steady_list_bytes`, all 4096). A drift between these literals and the
-/// vat's fails this test, which is the point: raising the bound is a design
-/// event taken in both places, with memory.md updated alongside.
-const steady_bytes: usize = 4096;
-
 /// Scratch well past the steady bound in one turn, and burst well past it in
 /// one send episode.
 const oversized_scratch_bytes: usize = 32 * 1024;
@@ -95,16 +88,16 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
     try std.testing.expect(vat.spare_chunk != null);
     const spare = vat.spare_chunk.?;
     // One Vat-wide spare replaces the old queue list and monolithic arena. Its
-    // fixed row array stays within one steady-list page plus a small header, and its
-    // payload arena retains at most the existing 4096-byte bound. No idle
-    // ingress keeps a separate chunk.
-    try std.testing.expect(@sizeOf(@TypeOf(spare.*)) <= steady_bytes + 128);
-    try std.testing.expect(spare.arena.queryCapacity() <= steady_bytes);
+    // fixed row array stays within one steady-list page plus a small header, and
+    // its payload arena retains at most the declared Vat-wide spare bound. No
+    // idle ingress keeps a separate chunk.
+    try std.testing.expect(@sizeOf(@TypeOf(spare.*)) <= actors.steady_list_bytes + 128);
+    try std.testing.expect(spare.arena.queryCapacity() <= actors.steady_spare_arena_bytes);
 
     // The turn arena resets when the *next* outermost turn begins, so open
     // one small turn and assert the oversized episode's capacity is gone.
     _ = try vat.near(actor, .{ .verb = "noop" });
-    try std.testing.expect(vat.turn_arena.queryCapacity() <= steady_bytes);
+    try std.testing.expect(vat.turn_arena.queryCapacity() <= actors.steady_turn_arena_bytes);
 }
 
 test "a burst of becomes releases its retired-box capacity back under the steady bound" {
@@ -130,5 +123,5 @@ test "a burst of becomes releases its retired-box capacity back under the steady
     // capacity above the bound is returned. The testing allocator is the other
     // half of the verdict: a retired box that never released would leak here.
     const retired_bytes = vat.retired_boxes.capacity * @sizeOf(*anyopaque);
-    try std.testing.expect(retired_bytes <= steady_bytes);
+    try std.testing.expect(retired_bytes <= actors.steady_list_bytes);
 }

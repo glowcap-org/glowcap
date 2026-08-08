@@ -50,7 +50,7 @@ pub fn handshakeToOpen(
 /// one fails as `error.FetchMalformed`.
 pub fn matchFetchEvent(
     allocator: std.mem.Allocator,
-    resolver_export: model.ExportPosition,
+    resolver_export: ?model.ExportPosition,
     answer_position: model.AnswerPosition,
     event: *engine.Event,
 ) !?model.Reference {

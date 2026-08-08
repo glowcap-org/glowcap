@@ -56,6 +56,11 @@ pub const absorbFrom = frame_stream.absorbFrom;
 /// a frame arriving in pieces is walked once rather than once per read.
 pub const StreamScan = codec.framing.StreamScan;
 pub const readFrameFrom = frame_stream.readFrameFrom;
+pub const writeFrameTo = frame_stream.writeFrameTo;
+pub const writeFrameBytes = frame_stream.writeFrameBytes;
+pub const appendFrameBytes = frame_stream.appendFrameBytes;
+pub const outerPrefix = frame_stream.outerPrefix;
+pub const frameShape = codec.dispatch.frameShape;
 
 /// The one monotonic elapsed-time source for every adapter deadline. See
 /// `clock.zig`.

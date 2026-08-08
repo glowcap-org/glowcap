@@ -9,6 +9,8 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const promise_capture = @import("../support/capture.zig");
+const cross_peer = @import("../support/cross_peer.zig");
+const peer_fixture = @import("../support/peer_fixture.zig");
 const poison = @import("../support/poison.zig");
 
 /// A counter whose `self` *is* its state, `increment`/`add` mutate it in place,
@@ -432,17 +434,13 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     var captured = BreakCapture{};
     try caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = BreakCapture.listener });
 
-    _ = try caller_peer.step();
-    while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
-    _ = try host_peer.step();
+    try cross_peer.pumpAll(caller_peer, host_peer);
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
         _ = try host_port.serve(&host_vat, &e);
     }
-    _ = try host_peer.step();
-    while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
-    _ = try caller_peer.step();
+    try cross_peer.pumpAll(host_peer, caller_peer);
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
@@ -762,9 +760,7 @@ test "far tell delivers with no answer and the partner replies nothing" {
     // Fire-and-forget: no answer requested, so the caller holds no promise.
     try caller_port.tell(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "increment" });
 
-    _ = try caller_peer.step();
-    while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
-    _ = try host_peer.step();
+    try cross_peer.pumpAll(caller_peer, host_peer);
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
@@ -803,18 +799,14 @@ test "on a far vow whose resolve already arrived is refused AlreadySettled" {
     const vow = try caller_port.send(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
     // The deliver reaches the host, which runs the actor and resolves the answer.
-    _ = try caller_peer.step();
-    while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
-    _ = try host_peer.step();
+    try cross_peer.pumpAll(caller_peer, host_peer);
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
         _ = host_port.serve(&host_vat, &e) catch {};
     }
     // The host's resolve travels back to the caller and is applied.
-    _ = try host_peer.step();
-    while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
-    _ = try caller_peer.step();
+    try cross_peer.pumpAll(host_peer, caller_peer);
     // The caller pumps the resolve *before* registering `on`: it fires with no
     // listener and is dropped, and the outbound answer is now settled.
     while (caller_peer.pollEvent()) |ev| {
@@ -1731,23 +1723,13 @@ test "a far listener that pumps a second resolve through a nested serve reads in
 
     // Shuttle the delivers over (one step per frame), run both turns, then
     // shuttle the resolves back the same way.
-    while (true) {
-        _ = try caller_peer.step();
-        const frame = caller_peer.takeOutbound() orelse break;
-        try host_peer.feedOwned(frame);
-        _ = try host_peer.step();
-    }
+    try cross_peer.pumpAll(caller_peer, host_peer);
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
         _ = try host_port.serve(&host_vat, &e);
     }
-    while (true) {
-        _ = try host_peer.step();
-        const frame = host_peer.takeOutbound() orelse break;
-        try caller_peer.feedOwned(frame);
-        _ = try caller_peer.step();
-    }
+    try cross_peer.pumpAll(host_peer, caller_peer);
 
     var first_event = caller_peer.pollEvent() orelse return error.ExpectedResolve;
     defer first_event.deinit();
@@ -1766,6 +1748,75 @@ test "a far listener that pumps a second resolve through a nested serve reads in
     try std.testing.expect(!outer.broke);
     try std.testing.expectEqualStrings("reply-one", outer.buf[0..outer.len]);
     try std.testing.expectEqualStrings("reply-two", inner.buf[0..inner.len]);
+}
+
+test "one converged wire resolve fires every local far listener" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &peer);
+    defer port.deinit(&vat);
+
+    try peer.session_state.registerImport(.from(5));
+    try peer.session_state.registerImport(.from(6));
+    const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+    try pancake.ocapn.engine.listen.ensureShorteningListener(&peer, .from(5));
+    try pancake.ocapn.engine.listen.ensureShorteningListener(&peer, .from(6));
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const answer_five = try pancake.ocapn.engine.listen.listenOnFar(
+        &peer,
+        .{ .far = model.FarRef.promise(5) },
+    );
+    const answer_six = try pancake.ocapn.engine.listen.listenOnFar(
+        &peer,
+        .{ .far = model.FarRef.promise(6) },
+    );
+    const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
+        .application_answer = answer_six,
+    }).?;
+    var five = Captured{};
+    var six = Captured{};
+    try port.on(&vat, .{ .far = answer_five }, .{ .ctx = &five, .func = Captured.record });
+    try port.on(&vat, .{ .far = answer_six }, .{ .ctx = &six, .func = Captured.record });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    const shortening_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .reference = .{ .near = model.NearRef.promise(6) } },
+    };
+    var shortening = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(shortening_five.int()) },
+        .args = &shortening_args,
+    } });
+    defer shortening.deinit();
+    try peer.recvBorrowed(shortening.view());
+
+    const settlement_args = [_]model.Argument{
+        .{ .symbol = "fulfill" },
+        .{ .bytes = "shared" },
+    };
+    var settlement = try pancake.ocapn.codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(resolver_six.int()) },
+        .args = &settlement_args,
+    } });
+    defer settlement.deinit();
+    try peer.recvBorrowed(settlement.view());
+    var event = peer.pollEvent().?;
+    defer event.deinit();
+    try std.testing.expect(try port.serve(&vat, &event));
+    try std.testing.expectEqualStrings("shared", five.text());
+    try std.testing.expectEqualStrings("shared", six.text());
 }
 
 /// A break listener that registers a NEW far promise mid-break; the drain

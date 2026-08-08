@@ -1,13 +1,24 @@
 //! Settling on a CapTP version, codec, and feature set that both peers can
 //! actually do.
 //!
-//! `op:start-session` doesn't carry a feature list or codec on the wire, because
-//! pancake doesn't add fields to OCapN's messages. So this isn't a wire
-//! back-and-forth. It's a pure, symmetric function of the two peers' local
-//! `Offer`s, and both ends compute the same answer from the same two offers.
-//! The in-process driver (`pairing`) has both offers in hand already and runs
-//! `negotiate`; a netlayer adapter that learns the partner's offer (for example
-//! from a locator hint) runs the same function.
+//! It is not a wire back-and-forth. `op:start-session` carries the baseline
+//! message shape; pancake does not add fields to OCapN's messages. A peer's
+//! preference rides in locator hints, so this is a pure symmetric function of
+//! the two peers' offers and both ends compute the same answer from the same
+//! two inputs.
+//!
+//! What each end knows of the other is one `model.Preference`, which the hello
+//! states in its locator hints (`model.transport.hint_captp_version`,
+//! `hint_codec`, and `hint_features`) and
+//! `session.Session.partner_preference` records. `settle` below is the whole
+//! path from two of those to a session's active profile;
+//! `engine.Peer.settleNegotiatedProfile` calls it when the partner's hello
+//! lands, and `engine.pairing` reaches the same answer in one process.
+//!
+//! The hello itself is always the baseline, in both its version field and its
+//! grammar, and that is what makes any of this reachable: a peer that greeted
+//! with its preference would be aborted by every partner that did not already
+//! share it, which is the opposite of negotiating.
 //!
 //! CapTP versions and codecs are negotiated as independent axes. The version
 //! picked is whichever the two prefer most in combination, with `CaptpVersion`
@@ -52,6 +63,51 @@ pub const Offer = struct {
         };
     }
 };
+
+/// Storage an offer's slices point into: a preference plus the baseline is
+/// the whole offer, so two of each is the bound.
+pub const Storage = struct {
+    captp_versions: [2]model.CaptpVersion = undefined,
+    codecs: [2]model.CodecId = undefined,
+};
+
+/// Expand a preference into the offer `negotiate` reads: what the peer asked
+/// for, then the baseline it speaks by construction.
+pub fn offerFor(preference: model.Preference, storage: *Storage) Offer {
+    const baseline = model.Preference.baseline;
+    storage.captp_versions[0] = preference.captp_version;
+    storage.codecs[0] = preference.codec;
+    const versions: usize = if (preference.captp_version == baseline.captp_version) 1 else blk: {
+        storage.captp_versions[1] = baseline.captp_version;
+        break :blk 2;
+    };
+    const codecs: usize = if (preference.codec == baseline.codec) 1 else blk: {
+        storage.codecs[1] = baseline.codec;
+        break :blk 2;
+    };
+    return .{
+        .captp_versions = storage.captp_versions[0..versions],
+        .codecs = storage.codecs[0..codecs],
+        .features = preference.features,
+    };
+}
+
+/// Settle two preferences into the profile the session runs on. Symmetric, so
+/// both sides reach it without a further round trip. An axis the two cannot
+/// agree on falls back to the baseline rather than failing the session: every
+/// pancake peer speaks it, so there is always an answer.
+pub fn settle(local: model.Preference, remote: model.Preference) Negotiated {
+    var local_storage: Storage = .{};
+    var remote_storage: Storage = .{};
+    return negotiate(
+        offerFor(local, &local_storage),
+        offerFor(remote, &remote_storage),
+    ) orelse .{
+        .captp_version = model.Preference.baseline.captp_version,
+        .codec = model.Preference.baseline.codec,
+        .features = local.features.intersect(remote.features),
+    };
+}
 
 /// The negotiated outcome: CapTP version, codec, and the mutually-supported
 /// (intersected) feature set.

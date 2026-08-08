@@ -44,7 +44,7 @@ locator rather than finding the helper behind the wrapper.
 This sits on two [First Principles](../../../AGENTS.md#first-principles),
 **boring public surface** and **make the correct path the easy path**: and on
 the value that _names and structure are architecture_. The fix removes concepts
-(the per-transport dial twins, the `Registry` struct, the ritual hint spelling);
+(the per-transport dial twins, the `Registry` struct, the repeated hint construction);
 it does not add a convenience verb, which would grow surface.
 
 ## Decision
@@ -64,7 +64,7 @@ builds its own locator with no ritual.**
 - `tcp.at(designator)` builds a `tcp` locator from a `host:port` string the
   caller already holds: what `argv` hands a client, or a `Server`'s
   `localDesignator`. The locator constructor owns the empty-hints wire form
-  (`.emptyFalse()`, the spelling Goblins signs a tcp locator with), so a caller
+  (`.emptyFalse()`, the form Goblins signs a tcp locator with), so a caller
   never types `.hints` and the signed `op:start-session` bytes are byte-for-byte
   unchanged. The typed `tcp.locator(buf, address)` stays for a caller holding an
   `IpAddress`; `inproc.locator(designator)` already had this shape.
@@ -113,7 +113,7 @@ const reply = try session.call(greeter, .{ .verb = "greet", .args = &.{.{ .strin
 ### The C front door: an owning `PancakeTcpSession`
 
 The C ABI reads the same as the Zig `Session`. `libpancake_net_transport_tcp`
-grows an owning `PancakeTcpSession`: the C spelling of `driver.Session`, for
+grows an owning `PancakeTcpSession`: the C representation of `driver.Session`, for
 the blocking TCP path:
 
 - `pancake_tcp_session_connect(netlayer, host, port, codec, max_frame_bytes, …)`

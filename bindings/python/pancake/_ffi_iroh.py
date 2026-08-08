@@ -14,14 +14,7 @@ from __future__ import annotations
 
 import ctypes
 
-from ._layouts_gen import (
-    PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF,
-    PANCAKE_IROH_CONFIG_REACHABILITY_OFF,
-    PANCAKE_IROH_CONFIG_SIZE,
-    PANCAKE_IROH_READY_EVENT_SUBJECT_OFF,
-    PANCAKE_IROH_READY_EVENT_EVENTS_OFF,
-    PANCAKE_IROH_READY_EVENT_SIZE,
-)
+from ._pin import pin_struct
 from ._lib_resolve import _lib_file, _lib_path
 
 # The signature table is generated from the archive's annotated symbol
@@ -49,49 +42,18 @@ class _IrohConfig(ctypes.Structure):
     field, so filling only ``reachability`` leaves ``connect_timeout_ms`` (and
     any field a future version adds) at 0 — the header's zero-init contract."""
 
-    _fields_ = [("reachability", ctypes.c_uint32), ("connect_timeout_ms", ctypes.c_uint64)]
+    _fields_ = [
+        ("reachability", ctypes.c_uint32),
+        ("connect_timeout_ms", ctypes.c_uint64),
+        ("idle_timeout_ms", ctypes.c_uint64),
+        ("worker_threads", ctypes.c_uint32),
+    ]
 
 
-def _pin_layout() -> None:
-    # The layout gate at the declaration site, the same import-time pin
-    # _ffi_ocapn._pin_layout runs for the shared cstructs: pinned against the
-    # size and offsets `_layouts_gen` reflects off the real Zig
-    # PancakeIrohReadyEvent. A plain `raise` rather than `assert`, so
-    # `python -O` cannot strip it.
-    got = ctypes.sizeof(_IrohReadyEvent)
-    subject_off = _IrohReadyEvent.subject.offset
-    events_off = _IrohReadyEvent.events.offset
-    if (
-        got != PANCAKE_IROH_READY_EVENT_SIZE
-        or subject_off != PANCAKE_IROH_READY_EVENT_SUBJECT_OFF
-        or events_off != PANCAKE_IROH_READY_EVENT_EVENTS_OFF
-    ):
-        raise ImportError(
-            f"pancake FFI layout drift: _IrohReadyEvent is {got} bytes "
-            f"(subject@{subject_off}, events@{events_off}); expected "
-            f"{PANCAKE_IROH_READY_EVENT_SIZE} bytes with "
-            f"subject@{PANCAKE_IROH_READY_EVENT_SUBJECT_OFF}, "
-            f"events@{PANCAKE_IROH_READY_EVENT_EVENTS_OFF}; re-mirror the struct"
-        )
-    config_size = ctypes.sizeof(_IrohConfig)
-    reachability_off = _IrohConfig.reachability.offset
-    timeout_off = _IrohConfig.connect_timeout_ms.offset
-    if (
-        config_size != PANCAKE_IROH_CONFIG_SIZE
-        or reachability_off != PANCAKE_IROH_CONFIG_REACHABILITY_OFF
-        or timeout_off != PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF
-    ):
-        raise ImportError(
-            f"pancake FFI layout drift: _IrohConfig is {config_size} bytes "
-            f"(reachability@{reachability_off}, connect_timeout_ms@{timeout_off}); "
-            f"expected {PANCAKE_IROH_CONFIG_SIZE} bytes with "
-            f"reachability@{PANCAKE_IROH_CONFIG_REACHABILITY_OFF}, "
-            f"connect_timeout_ms@{PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF}; "
-            "re-mirror the struct"
-        )
-
-
-_pin_layout()
+# The layout gate at the declaration site, the same import-time pin every
+# other _ffi_* module runs for its own mirrors.
+pin_struct(_IrohReadyEvent, "PANCAKE_IROH_READY_EVENT")
+pin_struct(_IrohConfig, "PANCAKE_IROH_CONFIG")
 
 
 def _load_iroh():

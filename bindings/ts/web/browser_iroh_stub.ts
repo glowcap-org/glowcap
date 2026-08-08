@@ -49,7 +49,20 @@ export class IrohServer {
  * here, so it is accepted and unused. The handshake bound is not: a relay that
  * accepts this socket and then never bridges anything is exactly the silent
  * partner the bound exists for, widened by the far dial the relay runs on this
- * socket's behalf. A caller that asked for no bound still gets none. */
+ * socket's behalf. A caller that asked for no bound still gets none.
+ *
+ * The session is told that the far end holds `nodeId`
+ * (`Session.bindVerifiedChannelKey`, ADR-0105). The native arm reads that off
+ * the QUIC connection it opened; here the relay opened it, and iroh completes a
+ * dial only against the endpoint it was asked for, so the fact is the relay's
+ * and this passes it on. It rests on the relay being the one the page was
+ * configured with, which is the same thing every byte of this session already
+ * rests on. It is not a claim about the relay's honesty either way: a relay that
+ * bridged somewhere else is caught rather than believed, because the far peer's
+ * hello then names a key this does not, and the session refuses.
+ *
+ * Without this relay testimony the session can still open, but its durable
+ * provenance is `unauthenticated`. */
 export async function _connectIroh(
 	nodeId: string,
 	directAddresses: string,
@@ -86,6 +99,7 @@ export async function _connectIroh(
 			nodeId,
 			channel,
 			asked ? asked + RELAY_FAR_DIAL_ALLOWANCE_MS : asked,
+			nodeId,
 		);
 	} catch (err) {
 		channel.close();

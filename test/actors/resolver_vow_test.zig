@@ -12,6 +12,7 @@ const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const cross_peer = @import("../support/cross_peer.zig");
 
 const Capture = struct {
     fulfilled: bool = false,
@@ -127,17 +128,13 @@ test "a served behavior defers its answer onto a resolver vow; the partner hears
     var captured = Capture{};
     try caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = Capture.listener });
 
-    _ = try caller_peer.step();
-    while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
-    _ = try host_peer.step();
+    try cross_peer.pumpAll(caller_peer, host_peer);
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
         _ = try host_port.serve(&host_vat, &e);
     }
-    _ = try host_peer.step();
-    while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
-    _ = try caller_peer.step();
+    try cross_peer.pumpAll(host_peer, caller_peer);
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
@@ -152,9 +149,7 @@ test "a served behavior defers its answer onto a resolver vow; the partner hears
     // The "worker" completes: the settle re-enters at the top level and the
     // wire answer resolves.
     try host_vat.fulfillVow(deferring.resolver, .{ .bytes = "computed" });
-    _ = try host_peer.step();
-    while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
-    _ = try caller_peer.step();
+    try cross_peer.pumpAll(host_peer, caller_peer);
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
@@ -204,17 +199,13 @@ test "a settle from inside a turn refuses, and the refusal crosses the wire as t
     var captured = Capture{};
     try caller_port.on(&caller_vat, vow, .{ .ctx = &captured, .func = Capture.listener });
 
-    _ = try caller_peer.step();
-    while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
-    _ = try host_peer.step();
+    try cross_peer.pumpAll(caller_peer, host_peer);
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();
         _ = try host_port.serve(&host_vat, &e);
     }
-    _ = try host_peer.step();
-    while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
-    _ = try caller_peer.step();
+    try cross_peer.pumpAll(host_peer, caller_peer);
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;
         defer e.deinit();

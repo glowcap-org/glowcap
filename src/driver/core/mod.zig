@@ -36,7 +36,11 @@ pub const Publish = served.Publish;
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
 pub const HostAction = host_action.HostAction;
+/// The live trace tap: the sink vocabulary a Host reports its own session
+/// opens, message verbs, and closes through (`Host.setTrace`).
+pub const trace = @import("trace.zig");
 pub const CrossedHellos = crossed_hellos.CrossedHellos;
+pub const DialTarget = crossed_hellos.DialTarget;
 pub const HostError = host.HostError;
 pub const EnlivenPeerPolicy = host.EnlivenPeerPolicy;
 pub const PeerProvenance = host.PeerProvenance;

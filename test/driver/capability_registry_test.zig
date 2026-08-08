@@ -6,6 +6,7 @@ const core = pancake.driver.core;
 const actors = pancake.actors;
 const host_pair = @import("../support/host_pair.zig");
 const CapturedRef = @import("../support/capture.zig").CapturedRef;
+const publishAndOpenAccepted = host_pair.publishAndOpenAccepted;
 
 const LocalActor = struct {
     pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Message) !model.Argument {
@@ -46,8 +47,8 @@ const LiftSink = struct {
 test "Host lift keeps equal import positions scoped to their owning sessions" {
     var host = core.Host.init(std.testing.allocator, [_]u8{0x41} ** 32, .{});
     defer host.deinit();
-    const a = try host.openAccepted("tcp", "127.0.0.1:9101", &.{});
-    const b = try host.openAccepted("tcp", "127.0.0.1:9102", &.{});
+    const a = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9101", &.{});
+    const b = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9102", &.{});
     try a.served.port.peer.importObject(7);
     try b.served.port.peer.importObject(7);
 
@@ -64,8 +65,8 @@ test "Host lift keeps equal import positions scoped to their owning sessions" {
 test "Host local capability identity survives Port closure and reprojects lazily" {
     var host = core.Host.init(std.testing.allocator, [_]u8{0x42} ** 32, .{});
     defer host.deinit();
-    const owner = try host.openAccepted("tcp", "127.0.0.1:9201", &.{});
-    const survivor = try host.openAccepted("tcp", "127.0.0.1:9202", &.{});
+    const owner = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9201", &.{});
+    const survivor = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9202", &.{});
     const owner_cap = try owner.served.publish(&owner.host.vat, "local", LocalActor, .{});
     const survivor_cap = try survivor.served.publish(&survivor.host.vat, "local", LocalActor, .{});
 
@@ -82,7 +83,7 @@ test "Host local capability identity survives Port closure and reprojects lazily
     try std.testing.expectEqual(survivor_cap.nearRef(), try host.lowerCapability(survivor, survivor_ref));
 
     try host.releaseSession(survivor);
-    const replacement = try host.openAccepted("tcp", "127.0.0.1:9203", &.{});
+    const replacement = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9203", &.{});
     const reprojected = try host.lowerCapability(replacement, owner_ref);
     try std.testing.expect(reprojected == .near);
     try std.testing.expectEqual(owner_ref, try host.liftCapability(replacement, reprojected));
@@ -92,7 +93,7 @@ test "reserved fresh local capability lift cannot allocate after publication" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var host = core.Host.init(failing.allocator(), [_]u8{0x4b} ** 32, .{});
     defer host.deinit();
-    const session = try host.openAccepted("tcp", "127.0.0.1:9251", &.{});
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9251", &.{});
 
     // The C publish/spawn boundary reserves identity storage before it makes
     // the actor or bootstrap mapping observable.
@@ -184,7 +185,7 @@ test "repeated lift reuses identity without inventing a wire retain" {
 test "bootstrap without an import row cannot become a retained Host capability" {
     var host = core.Host.init(std.testing.allocator, [_]u8{0x4b} ** 32, .{});
     defer host.deinit();
-    const session = try host.openAccepted("tcp", "127.0.0.1:9451", &.{});
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9451", &.{});
     try std.testing.expectError(
         error.ForeignArgument,
         host.liftCapability(session, .{ .far = model.FarRef.object(0) }),
@@ -194,7 +195,7 @@ test "bootstrap without an import row cannot become a retained Host capability" 
 test "reclaimed Host slot receives a new public id before reuse" {
     var host = core.Host.init(std.testing.allocator, [_]u8{0x47} ** 32, .{});
     defer host.deinit();
-    const session = try host.openAccepted("tcp", "127.0.0.1:9501", &.{});
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9501", &.{});
     const first_cap = try session.served.publish(&session.host.vat, "first", LocalActor, .{});
     const stale = try host.liftCapability(session, first_cap.nearRef());
     try host.releaseCapability(stale, 1);
@@ -211,8 +212,8 @@ test "Host capability verbs refuse a session owned by another Host" {
     defer a.deinit();
     var b = core.Host.init(std.testing.allocator, [_]u8{0x49} ** 32, .{});
     defer b.deinit();
-    const a_session = try a.openAccepted("tcp", "127.0.0.1:9601", &.{});
-    const b_session = try b.openAccepted("tcp", "127.0.0.1:9602", &.{});
+    const a_session = try publishAndOpenAccepted(&a, "tcp", "127.0.0.1:9601", &.{});
+    const b_session = try publishAndOpenAccepted(&b, "tcp", "127.0.0.1:9602", &.{});
     try a_session.served.port.peer.importObject(7);
     try b_session.served.port.peer.importObject(7);
     const ref = try a.liftCapability(a_session, .{ .far = model.FarRef.object(7) });
@@ -287,7 +288,7 @@ test "first remote lift pays bounded indexes and repeated lift allocates nothing
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var host = core.Host.init(failing.allocator(), [_]u8{0x4a} ** 32, .{});
     defer host.deinit();
-    const session = try host.openAccepted("tcp", "127.0.0.1:9701", &.{});
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9701", &.{});
     try session.served.port.peer.importObject(7);
     try session.served.port.peer.importObject(7);
 

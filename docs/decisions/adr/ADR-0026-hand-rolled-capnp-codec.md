@@ -113,9 +113,9 @@ the seam.
 
 ## Scope (what this does not decide)
 
-- **Cross-codec conformance.** A claim that Syrup and Cap'n Proto preserve the
+- **Cross-codec parity.** A claim that Syrup and Cap'n Proto preserve the
   same semantic state machine across the whole scenario surface needs a
-  conformance harness exercising both; the live-session parity tests in
+  scenario matrix exercising both; the live-session parity tests in
   [`test/engine/pairing_test.zig`](../../../test/engine/pairing_test.zig)
   (authenticated handshake, deliver, and the V1.0 resolver-callback round-trip
   over Cap'n Proto) are the first such coverage, not the full matrix.

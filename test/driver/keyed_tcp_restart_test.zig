@@ -9,12 +9,10 @@
 //! the same kind of address, dialed under the original designator, is refused
 //! at the handshake. A keyed listener signs the designator its own key
 //! spells, so a squatter advertises its own identity rather than the dialed
-//! one and the claim check refuses it before the session opens
-//! (`PartnerDesignatorMismatch`). Claiming the dialed identity instead would
-//! not help: the hello's `session-key-attestation` is signed by the durable
-//! key that designator names, which a squatter does not hold, so that path
-//! refuses too (ADR-0097). Possession is what makes the designator
-//! trustworthy, and without this arm the whole feature is decorative. Third, the restart: the same seed rebound on a fresh port is
+//! one and the target check refuses it before the session opens
+//! (`PartnerDesignatorMismatch`). This is not authentication: a malicious
+//! cleartext peer can repeat the dialed designator. Third, the restart: the
+//! same seed rebound on a fresh port is
 //! reached through the recorded designator with only the hint updated, and the
 //! recorded and fresh locators are equal under `model.peerLocatorsEqual`. The
 //! designator is the identity, not the address, and the port change is what
@@ -125,7 +123,7 @@ fn serveAndDial(
     defer listener.close();
 
     // The bound host:port is the dial hint; the designator stays the key.
-    const hint = listener.localHint(hint_out);
+    const hint = try listener.localDirectAddresses(hint_out);
     try std.testing.expect(hint.len != 0);
 
     const hint_entries = [_]model.HintEntry{.{
@@ -166,7 +164,7 @@ test "keyed-tcp loopback: the dialed key designator is the partner's signed iden
     try std.testing.expectEqualStrings(designator[0..], listener.localDesignator(&designator_buf));
 }
 
-test "keyed-tcp negative: a listener holding a different key under the dialed designator cannot attest and is refused" {
+test "keyed-tcp negative: a listener claiming a different key than the dialed designator is refused" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -181,7 +179,7 @@ test "keyed-tcp negative: a listener holding a different key under the dialed de
     var listener = try resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
     defer listener.close();
     var hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const hint = listener.localHint(&hint_buf);
+    const hint = try listener.localDirectAddresses(&hint_buf);
 
     const hint_entries = [_]model.HintEntry{.{
         .name = net.netlayer.hint_direct_addresses,
@@ -243,7 +241,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     // and record only the designator (the hint is per-life connection advice).
     var first_listener = try resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
     var first_hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const first_hint = first_listener.localHint(&first_hint_buf);
+    const first_hint = try first_listener.localDirectAddresses(&first_hint_buf);
     {
         const hint_entries = [_]model.HintEntry{.{
             .name = net.netlayer.hint_direct_addresses,
@@ -269,7 +267,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     var second_life = net.tcp_keyed.Resident{ .io = io, .public_key = rebuilt.publicKey() };
     var second_listener = try second_life.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
     var second_hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const second_hint = second_listener.localHint(&second_hint_buf);
+    const second_hint = try second_listener.localDirectAddresses(&second_hint_buf);
     try std.testing.expect(!std.mem.eql(u8, first_hint, second_hint));
     first_listener.close();
     {

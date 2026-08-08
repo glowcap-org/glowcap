@@ -52,11 +52,16 @@ static int32_t on_flush(void *ctx, PancakeHost *host,
         if (rc != PANCAKE_OK) {
             return rc;
         }
-        if (f->pipe->len + frame.len > sizeof f->pipe->buf) {
+        char prefix[32];
+        int prefix_len = snprintf(prefix, sizeof prefix, "%zu:", frame.len);
+        if (prefix_len < 0 || (size_t)prefix_len >= sizeof prefix ||
+            f->pipe->len + (size_t)prefix_len + frame.len > sizeof f->pipe->buf) {
             pancake_managed_frame_release(&frame);
             fprintf(stderr, "host_embedder_pump: pipe overflow\n");
             return PANCAKE_ERR_INVALID_ARGUMENT;
         }
+        memcpy(f->pipe->buf + f->pipe->len, prefix, (size_t)prefix_len);
+        f->pipe->len += (size_t)prefix_len;
         memcpy(f->pipe->buf + f->pipe->len, frame.bytes, frame.len);
         f->pipe->len += frame.len;
         pancake_managed_frame_release(&frame);
@@ -114,10 +119,30 @@ static PancakeHost *new_host(uint8_t fill, size_t frame_cap) {
     uint8_t seed[32];
     memset(seed, fill, sizeof seed);
     PancakeHost *host = NULL;
-    if (pancake_host_new(seed, sizeof seed, frame_cap, 1, PANCAKE_CODEC_SYRUP, 0, &host) != PANCAKE_OK) {
+    if (pancake_host_new(seed, sizeof seed, frame_cap, 1, PANCAKE_CODEC_SYRUP,
+                         PANCAKE_CAPTP_V1_0, PANCAKE_FEATURE_FULL, 0, &host) != PANCAKE_OK) {
         return NULL;
     }
     return host;
+}
+
+static int32_t set_tcp_locator(PancakeHost *host, const char *designator) {
+    uint8_t *encoded = NULL;
+    size_t encoded_len = 0;
+    int32_t rc = pancake_locator_record_encode(
+        (const uint8_t *)"tcp", 3,
+        (const uint8_t *)designator, strlen(designator),
+        NULL, 0, &encoded, &encoded_len);
+    if (rc == PANCAKE_OK) {
+        rc = pancake_host_set_advertised_locator(host, encoded, encoded_len);
+    }
+    pancake_locator_record_bytes_release(encoded, encoded_len);
+    return rc;
+}
+
+static int32_t ensure_tcp_locator(PancakeHost *host) {
+    return pancake_host_ensure_advertised_locator(
+        host, (const uint8_t *)"tcp", 3);
 }
 
 int main(void) {
@@ -131,8 +156,12 @@ int main(void) {
     const char *designator = "127.0.0.1:9";
     PancakeHostSession *accepted = NULL;
     PancakeHostSession *dialed = NULL;
-    if (pancake_host_session_open_accepted(server, (const uint8_t *)"tcp", 3,
-            (const uint8_t *)designator, strlen(designator), NULL, 0, &accepted) != PANCAKE_OK) {
+    if (set_tcp_locator(server, designator) != PANCAKE_OK ||
+        ensure_tcp_locator(client) != PANCAKE_OK) {
+        return fail("publish locators");
+    }
+    if (pancake_host_session_open_accepted(
+            server, (const uint8_t *)"tcp", 3, &accepted) != PANCAKE_OK) {
         return fail("open_accepted");
     }
     if (pancake_host_session_open_dialed_locator(client, (const uint8_t *)"tcp", 3,
@@ -170,8 +199,12 @@ int main(void) {
     PancakeHostSession *tiny_acc = NULL;
     PancakeHostSession *peer_dial = NULL;
     const char *d2 = "127.0.0.1:10";
-    if (pancake_host_session_open_accepted(tiny, (const uint8_t *)"tcp", 3,
-            (const uint8_t *)d2, strlen(d2), NULL, 0, &tiny_acc) != PANCAKE_OK) {
+    if (set_tcp_locator(tiny, d2) != PANCAKE_OK ||
+        ensure_tcp_locator(peer) != PANCAKE_OK) {
+        return fail("publish refusal locators");
+    }
+    if (pancake_host_session_open_accepted(
+            tiny, (const uint8_t *)"tcp", 3, &tiny_acc) != PANCAKE_OK) {
         return fail("open_accepted tiny");
     }
     if (pancake_host_session_open_dialed_locator(peer, (const uint8_t *)"tcp", 3,
@@ -213,8 +246,11 @@ int main(void) {
     }
     PancakeHostSession *c = NULL;
     const char *d3 = "127.0.0.1:11";
-    if (pancake_host_session_open_accepted(h, (const uint8_t *)"tcp", 3,
-            (const uint8_t *)d3, strlen(d3), NULL, 0, &c) != PANCAKE_OK) {
+    if (set_tcp_locator(h, d3) != PANCAKE_OK) {
+        return fail("publish eof locator");
+    }
+    if (pancake_host_session_open_accepted(
+            h, (const uint8_t *)"tcp", 3, &c) != PANCAKE_OK) {
         return fail("open_accepted eof");
     }
     const char msg[] = "connection closed";

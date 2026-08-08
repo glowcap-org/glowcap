@@ -43,9 +43,25 @@ const selectors = [_]Selector{
     .{ .literal = "\"bubble\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "\"dm-open\"", .proven_by = "apps/rooms/test/web_dm_retarget_test.ts" },
     .{ .literal = "\"dm-btn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    // The mark in the title ends whatever is on screen: it leaves a room, and it
+    // closes a direct line. The two-tab proof closes a conversation with it and
+    // then checks the member is still reachable, so a rename here would report
+    // as "the members list stopped offering a direct line" — a claim about the
+    // roster, made by a button that moved.
+    .{ .literal = "id=\"leaveBtn\"", .proven_by = "apps/rooms/test/web_dm_tabs_test.ts" },
     .{ .literal = "show-list", .proven_by = "apps/rooms/test/web_page_test.ts" },
     .{ .literal = "members-open", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    // The opening screen is written in the document rather than by a component,
+    // which is what lets it paint before the bundle exists. The proof watches
+    // both of its faces from the first frame, so the names are load-bearing in
+    // the same way every name above is.
+    .{ .literal = "id=\"boot\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "class=\"boot-wait\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
+    .{ .literal = "class=\"boot-explain\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
 };
+
+/// Who writes the opening screen's state, for `checkRoomsBootStates`.
+const boot_writers = [_][]const u8{ ui_dir ++ "/page.html", ui_dir ++ "/boot.ts" };
 
 const ui_dir = "apps/rooms/web/ui";
 
@@ -236,6 +252,80 @@ pub fn checkRoomsLayerBans(
     }
 }
 
+/// The opening screen is drawn for states something actually writes, on an
+/// attribute something actually stamps.
+///
+/// That screen's state machine spans three files with no compiler between them.
+/// page.html stamps `data-boot` as the document is parsed and again if the
+/// bundle never arrives, ui/boot.ts writes it when the page is running and when
+/// it hands the page over, and page.css decides what each of those looks like.
+/// Rename a state on either side and the sheet keeps a rule that matches
+/// nothing: a screen that never explains itself, or one that never goes away.
+/// Rename the attribute and the damage is the other way round, because the
+/// sheet asks about its absence too — `:root:not([data-boot])` is how a browser
+/// with scripting off is recognised, and against an attribute nobody writes it
+/// matches every page, so every reader is told this page needs JavaScript. Both
+/// still load, so nothing else notices.
+///
+/// Only this direction is worth checking. A state the sheet does not draw is no
+/// defect: `running` exists to tell the watcher the bundle arrived, and nobody
+/// is meant to see it.
+pub fn checkRoomsBootStates(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const sheet = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch {
+        try appendViolation(gpa, violations, "{s}/page.css: could not be read", .{ui_dir});
+        return;
+    };
+    defer gpa.free(sheet);
+
+    var written: std.ArrayList(u8) = .empty;
+    defer written.deinit(gpa);
+    for (boot_writers) |writer| {
+        const source = root.readFileAlloc(io, writer, gpa, .limited(1 << 20)) catch {
+            try appendViolation(gpa, violations, "{s}: could not be read", .{writer});
+            continue;
+        };
+        defer gpa.free(source);
+        try written.appendSlice(gpa, source);
+    }
+
+    // The sheet spells it `data-boot`; a script writing it spells the same
+    // attribute `dataset.boot`. One name, two syntaxes, so the check has to
+    // carry the translation between them.
+    if (std.mem.indexOf(u8, sheet, "[data-boot") != null and
+        std.mem.indexOf(u8, written.items, "dataset.boot") == null)
+    {
+        try appendViolation(
+            gpa,
+            violations,
+            "{s}/page.css keys the opening screen on `data-boot`, but neither {s} nor {s} stamps `dataset.boot`; the sheet's absence rule would then match every page and tell every reader this one needs JavaScript",
+            .{ ui_dir, boot_writers[0], boot_writers[1] },
+        );
+    }
+
+    const drawn = "[data-boot=\"";
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, sheet, at, drawn)) |found| {
+        const start = found + drawn.len;
+        const end = std.mem.indexOfScalarPos(u8, sheet, start, '"') orelse break;
+        at = end;
+        const quoted = try std.fmt.allocPrint(gpa, "\"{s}\"", .{sheet[start..end]});
+        defer gpa.free(quoted);
+        if (std.mem.indexOf(u8, written.items, quoted) == null) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}/page.css draws the opening screen's {s} state, but neither {s} nor {s} writes it; the rule matches nothing and the screen goes on showing whatever it was showing",
+                .{ ui_dir, quoted, boot_writers[0], boot_writers[1] },
+            );
+        }
+    }
+}
+
 /// One spelling of the layout breakpoint, and a formatter that can see the
 /// components.
 pub fn checkRoomsConfig(
@@ -289,8 +379,10 @@ pub fn checkRoomsConfig(
     }
 }
 
-/// Every `.tsx` and `.ts` under the interface, concatenated, so a selector can be
-/// looked for once rather than per file.
+/// Every `.tsx` and `.ts` under the interface, and the document they mount into,
+/// concatenated, so a selector can be looked for once rather than per file. The
+/// document is in here because the opening screen is drawn there rather than by
+/// a component, and a proof selects on it just the same.
 fn readUiSources(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -309,7 +401,8 @@ fn readUiSources(
     while (walker.next(io) catch null) |entry| {
         if (entry.kind != .file) continue;
         const tsx = std.mem.endsWith(u8, entry.name, ".tsx");
-        if (!tsx and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
+        const document = std.mem.eql(u8, entry.name, "page.html");
+        if (!tsx and !document and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
         const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.name });
         defer gpa.free(path);
         const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;

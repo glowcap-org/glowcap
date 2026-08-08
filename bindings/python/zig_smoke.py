@@ -27,6 +27,7 @@ from pancake import (
     VowBroken,
     abi_version,
     connect,
+    encode_peer_locator,
     listen,
     socket_addr_designator,
     tcp_locator,
@@ -46,6 +47,12 @@ def main() -> int:
     # The linked library reports a nonzero ABI version.
     major, minor, patch = abi_version()
     assert major + minor + patch > 0, (major, minor, patch)
+
+    locator_host = Host()
+    locator_host.set_advertised_locator(
+        encode_peer_locator("tcp", "127.0.0.1:7441", ""))
+    locator_host.remove_advertised_locator("tcp")
+    locator_host.close_sessions()
 
     # Run a real frame over a TCP socket: one frame, loopback. The blocking TCP
     # shuttle is its own à-la-carte archive, composed from `pancake.tcp`.
@@ -94,11 +101,17 @@ def main() -> int:
     asyncio.run(_allocator_context_round_trip())
     print("python zig-smoke OK: drove a published counter round-trip from a context-backed Host")
 
+    asyncio.run(_live_trace_produces_timeline())
+    print("python zig-smoke OK: the live trace produced the timeline schema for a whole conversation")
+
     asyncio.run(_async_behavior_defers())
     print("python zig-smoke OK: an async behavior deferred its answer onto a resolver vow and settled off-turn")
 
     asyncio.run(_capnp_codec_round_trip())
     print("python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip")
+
+    asyncio.run(_empty_codec_is_not_the_default())
+    print("python zig-smoke OK: an empty codec offer is refused, not rewritten as Syrup")
 
     asyncio.run(_feed_refusals_are_typed())
     print("python zig-smoke OK: an over-cap frame refuses typed and a refused frame carries its abort cause")
@@ -199,6 +212,89 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
             w.close()
 
     return port, close
+
+
+async def _live_trace_produces_timeline() -> None:
+    """The live timeline producer: the veneer stamps and forwards the native
+    tap's facts, one flat record per fact -- session-opened with the codec
+    the handshake actually negotiated, the same verb outbound at the client
+    and inbound at the server, and session-closed. Endpoint labeling belongs
+    to the consumer, so the records carry only the session and direction."""
+    from pancake import annotate_session, enable_trace
+
+    events: list = []
+    uninstall = enable_trace(events.append, self_label="smoke")
+    host = Host()
+    host.publish_giftable("greeter", lambda verb, args: f"hello {verb}")
+    server = await listen("127.0.0.1", 0, host)
+    try:
+        async def serve_one() -> None:
+            async for session in server:
+                await session.serve()
+                break
+
+        hosted = asyncio.ensure_future(serve_one())
+        client = await connect(tcp_locator("127.0.0.1", server.port))
+        client.serve()
+        greeter = await client.fetch("greeter")
+        reply = await client.send(greeter, "trace-me", [])
+        assert reply == "hello trace-me", f"traced call answers, got {reply!r}"
+        # The annotation channel: the application states which partner a
+        # session carries, named for the same session row the tap names.
+        annotate_session(client, label="greeter-server")
+        await client.close()
+        await asyncio.wait_for(hosted, timeout=5)
+    finally:
+        server.close()
+    host.release()
+    uninstall()
+
+    opened = [ev for ev in events if ev["kind"] == "ocapn.session-opened"]
+    assert len(opened) >= 2, f"both hosts' opens reached the one sink: {events}"
+    assert all(ev["codec"] == "syrup" and ev["a_label"] == "smoke" for ev in opened)
+    # And what this producer RUNS, because this schema is not pancake's alone:
+    # a consumer must not read an implementation off the fact that a record
+    # arrived, so a pancake host says so in words.
+    assert all(ev["a_profile"] == "pancake" for ev in opened)
+    # Identity and label are two facts. ``a`` is the host's own key designator
+    # -- the name a partner knows it by, and so the only name two producers can
+    # agree on -- and the label never stands in for it.
+    assert all(re.fullmatch(r"[0-9a-f]{64}", ev["a"]) for ev in opened)
+    # The OCapN Session ID is what lets a consumer merging two producers'
+    # feeds tell one session watched twice from two unrelated ones: both peers
+    # of a session derive it to the same value.
+    assert all(ev.get("session_id") == opened[0].get("session_id") for ev in opened)
+    assert re.fullmatch(r"[0-9a-f]{64}", opened[0].get("session_id", ""))
+    outbound = [
+        ev for ev in events
+        if ev["kind"] == "ocapn.message-decoded" and ev.get("op") == "trace-me"
+        and ev["outbound"]
+    ]
+    assert outbound, "the client's send traced outbound"
+    inbound = [
+        ev for ev in events
+        if ev["kind"] == "ocapn.message-decoded" and ev.get("op") == "trace-me"
+        and not ev["outbound"]
+    ]
+    assert inbound, "the server's deliver traced inbound"
+    assert inbound[0]["session"] != outbound[0]["session"], \
+        "each host names its own session row"
+    # Payload: both fact sites sit at the wire boundary (inbound dispatch,
+    # the outbound drain), so both records carry the whole (sub-cap) frame
+    # with its true length and the verb inside it.
+    import base64 as _b64mod
+    for rec in (inbound[0], outbound[0]):
+        frame = _b64mod.b64decode(rec["bytes_b64"])
+        assert rec["len"] == len(frame), "true length rides beside the frame"
+        assert b"trace-me" in frame, "the frame bytes contain the delivered verb"
+    assert any(ev["kind"] == "ocapn.session-closed" for ev in events)
+    metas = [ev for ev in events if ev["kind"] == "ocapn.session-meta"]
+    assert metas and metas[0]["meta"]["label"] == "greeter-server", \
+        "the annotation reached the sink with its label"
+    assert metas[0]["session"] == outbound[0]["session"], \
+        "the annotation names the same session row the tap names"
+    stamps = [ev["sim_t_ns"] for ev in events]
+    assert stamps == sorted(stamps), "sim_t_ns is monotone"
 
 
 async def _async_behavior_defers() -> None:
@@ -369,6 +465,27 @@ async def _capnp_codec_round_trip() -> None:
         server.close()
 
 
+async def _empty_codec_is_not_the_default() -> None:
+    """An omitted codec gets the Goblins-compatible floor. An explicit empty
+    codec is not omission: it is invalid input and must fail before a socket is
+    opened or a Host is minted with Syrup by accident."""
+    for verb, action in (
+        ("listen", lambda: listen("127.0.0.1", 0, codec="")),
+        ("connect", lambda: connect(tcp_locator("127.0.0.1", 1), codec="")),
+    ):
+        try:
+            opened = await action()
+        except ValueError as exc:
+            assert "unknown OCapN codec" in str(exc), (verb, exc)
+        else:
+            close = getattr(opened, "close", None)
+            if close is not None:
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
+            raise AssertionError(f"{verb} accepted an empty codec")
+
+
 class _InjectTransport:
     """A transport that delivers nothing, so a scene can feed bytes through the
     connection's own feed seam — a binding-internal probe, the sibling of the
@@ -404,7 +521,7 @@ async def _feed_refusals_are_typed() -> None:
     # Bytes ride the named pump module (`_pump._feed`), not a Session verb.
     conn = _dial_injected(Host())
     try:
-        await _pump._feed(conn, b"<10'op:deliver<11'desc:export7+>[2000000:")
+        await _pump._feed(conn, b"2000000:")
         raise AssertionError("an over-cap frame must refuse typed instead of buffering")
     except PancakeError as exc:
         assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
@@ -434,7 +551,7 @@ async def _tightened_admission_cap_refuses() -> None:
     prefix is a typed over-cap refusal."""
     from pancake import _pump
 
-    prefix = b"<10'op:deliver<11'desc:export7+>[4000:"
+    prefix = b"4000:"
 
     conn = _dial_injected(Host())
     try:
@@ -507,6 +624,11 @@ async def _listen_surfaces_bound_port() -> None:
 
         accept_task = asyncio.ensure_future(accept_one())
         client = await connect(tcp_locator("127.0.0.1", port))
+        expected = encode_peer_locator(
+            TRANSPORT_TCP, socket_addr_designator(("127.0.0.1", port)), "",
+        )
+        assert client.partner_identity().locator_record == expected, \
+            "the accepted host advertised the listener's complete locator record"
         # Both keyed handshakes complete; one connection was accepted on the
         # bound port.
         await asyncio.wait_for(accept_task, timeout=5)
@@ -628,13 +750,13 @@ async def _enliven_round_trips_then_caches() -> None:
         session = await connect(locator)
         session.serve()
         try:
-            await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/greeter")
+            await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg")
         except PancakeError as err:
             assert err.code == ERR_INVALID_ARGUMENT, err
         else:
             raise AssertionError("enliven accepted a sturdyref for another peer")
         # The complete sturdyref must name this selected session's peer.
-        sturdyref = f"{locator}/s/greeter"
+        sturdyref = f"{locator}/s/Z3JlZXRlcg"
         cap = await session.enliven(sturdyref)
         greeting = await session.send(cap, "hello", [])
         assert greeting == Symbol("alive"), f"enlivened cap answers hello, got {greeting!r}"
@@ -719,6 +841,7 @@ async def _fetch_failed_is_typed() -> None:
     # Armed only after the legitimate fetch of "plain" has granted the export,
     # so only the second fetch is doctored.
     state = {"retargeted": False, "armed": False, "capturing": False}
+    pending = bytearray()
 
     def observe(chunk: bytes) -> None:
         if not state["capturing"] or plain_export:
@@ -729,13 +852,35 @@ async def _fetch_failed_is_typed() -> None:
             plain_export.append(int(match.group(1)))
 
     def retarget(chunk: bytes) -> bytes:
-        if not state["armed"] or state["retargeted"] or not plain_export:
+        if not state["armed"] or not plain_export:
+            return chunk
+        if state["retargeted"] and not pending:
             return chunk
         needle = b"desc:export0+"
-        if needle in chunk:
-            state["retargeted"] = True
-            return chunk.replace(needle, b"desc:export%d+" % plain_export[0], 1)
-        return chunk
+        pending.extend(chunk)
+        output = bytearray()
+        while pending:
+            colon = pending.find(b":")
+            if colon < 0:
+                break
+            prefix = pending[:colon]
+            if not prefix.isdigit():
+                # Preserve malformed input for the product parser to diagnose.
+                output.extend(pending)
+                pending.clear()
+                break
+            frame_end = colon + 1 + int(prefix)
+            if len(pending) < frame_end:
+                break
+            body = bytes(pending[colon + 1 : frame_end])
+            del pending[:frame_end]
+            if not state["retargeted"] and needle in body:
+                body = body.replace(needle, b"desc:export%d+" % plain_export[0], 1)
+                state["retargeted"] = True
+            output.extend(str(len(body)).encode())
+            output.extend(b":")
+            output.extend(body)
+        return bytes(output)
 
     relay_port, relay_close = await _start_relay(server.port, rewrite=retarget, observe=observe)
     try:
@@ -934,7 +1079,7 @@ async def _projections_reach_a_field() -> None:
     handle is also awaited afterward to prove a far reply observed *late* (after
     a sibling projection already pumped the loop) still settles from the
     recorded outcome."""
-    server = await listen("127.0.0.1", 0)
+    server = await listen("127.0.0.1", 0, host=Host(captp_version="next"))
     try:
         async def serve_one() -> None:
             async for session in server:
@@ -949,7 +1094,9 @@ async def _projections_reach_a_field() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await connect(
+            tcp_locator("127.0.0.1", server.port), host=Host(captp_version="next")
+        )
         session.serve()
         root_ref = await session.fetch("root")
         # Neither projection awaits a prior reply: they ride the unresolved make

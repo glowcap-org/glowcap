@@ -10,7 +10,10 @@ pub const canonical = @import("canonical.zig");
 pub const Error = shared.Error;
 
 pub const decodeBody = decode.decodeBody;
+pub const decodeBodyForProfile = decode.decodeBodyForProfile;
 pub const decodePrefix = decode.decodePrefix;
+pub const decodePrefixForProfile = decode.decodePrefixForProfile;
+pub const framePrefix = decode.framePrefix;
 pub const scanStream = decode.scanStream;
 // Syrup's grammar is self-delimiting, so a partial frame must be scanned
 // incrementally; the registry checks this declaration against `scanStream`'s
@@ -25,9 +28,6 @@ pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;
 pub const canonicalLocationSignedBytes = canonical.canonicalLocationSignedBytes;
 pub const canonicalLocationSignedBytesRaw = canonical.canonicalLocationSignedBytesRaw;
-pub const session_key_attestation_label = canonical.session_key_attestation_label;
-pub const session_key_attestation_max_bytes = canonical.session_key_attestation_max_bytes;
-pub const sessionKeyAttestationSignedBytes = canonical.sessionKeyAttestationSignedBytes;
 pub const canonicalHandoffGiveSignedBytes = canonical.canonicalHandoffGiveSignedBytes;
 pub const canonicalHandoffGiveViewSignedBytes = canonical.canonicalHandoffGiveViewSignedBytes;
 pub const canonicalHandoffReceiveSignedBytes = canonical.canonicalHandoffReceiveSignedBytes;

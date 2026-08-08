@@ -10,6 +10,23 @@ export async function readSwiss(
 	gate: string,
 	miss = "never saw the readiness line",
 ): Promise<string> {
+	return await readReadinessField(reader, "swiss", gate, miss);
+}
+
+export async function readSturdyrefPath(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	gate: string,
+	miss = "never saw the sturdyref path readiness field",
+): Promise<string> {
+	return await readReadinessField(reader, "sturdyref-path", gate, miss);
+}
+
+async function readReadinessField(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	field: string,
+	gate: string,
+	miss: string,
+): Promise<string> {
 	const decoder = new TextDecoder();
 	let buf = "";
 	const deadline = Date.now() + 30_000;
@@ -17,7 +34,7 @@ export async function readSwiss(
 		const { value, done } = await reader.read();
 		if (done) break;
 		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(/"swiss":"([^"]+)"/);
+		const m = buf.match(new RegExp(`"${field}":"([^"]+)"`));
 		if (m) return m[1];
 	}
 	fail(gate, miss);

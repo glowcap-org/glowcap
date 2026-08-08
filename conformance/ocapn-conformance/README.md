@@ -54,13 +54,16 @@ bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_deliver  # on
 
 The wrapper derives its module list from the upstream tree itself
 (`upstream/tests/*.py`), so a submodule bump that adds a module fails the run
-until pancake targets it. Against the external authority, pancake passes every
-upstream module, today:
+until pancake targets it. It runs every upstream module except `tests.op_abort`:
+that test does not accept Linux's TCP-reset form of teardown. The wrapper's
+abort probe uses the suite's own netlayer and message types for the same case
+and requires observable EOF, reset, or broken pipe; timeout fails. The raw
+upstream module remains available as an explicit diagnostic.
 
 | Module                       | What it exercises                                                                        |
 | ---------------------------- | ---------------------------------------------------------------------------------------- |
 | `tests.op_start_session`     | Valid keyed handshakes, invalid signature/version aborts, and crossed-hellos resolution. |
-| `tests.op_abort`             | Aborting before a session is fully established.                                          |
+| local abort probe            | Aborting before a session is fully established, with portable teardown outcomes.         |
 | `tests.op_deliver`           | Deliveries with and without answers, promise pipelining, and broken-promise propagation. |
 | `tests.op_listen`            | Listening to pending and already-settled promises.                                       |
 | `tests.op_gc`                | Answer and export garbage-collection messages.                                           |
@@ -70,14 +73,15 @@ Crossed-hellos cases in `op_start_session` can use most of a module's time
 budget, so a slow machine can hit the 5s per-module cap on a module that would
 have passed. Raise it with `OCAPN_MODULE_TIMEOUT` (and the probe's with
 `OCAPN_PROBE_TIMEOUT`) rather than reading the timeout as a protocol failure.
-`handshake_abort_probe.py` covers the invalid-signature and
-invalid-version aborts on their own. The default
+`handshake_abort_probe.py` covers invalid signature, invalid version, and
+pre-setup abort teardown on their own. The default
 `zig build ocapn-conformance` wrapper runs that probe (10s cap) before the suite
 modules. Pass `--port=N` or set `PANCAKE_OCAPN_CONFORMANCE_PORT` to match the
 peer. To run one module or the probe alone:
 
 ```sh
 bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_start_session
+bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_abort # raw upstream diagnostic
 uv run python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
 ```
 

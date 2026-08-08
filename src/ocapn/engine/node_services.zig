@@ -3,7 +3,8 @@
 //! A Peer owns one CapTP session. These callbacks let the node composition
 //! supply cross-session facilities without making the Peer know the Node's
 //! representation: outbound token lowering, Host-local object projection,
-//! live gifter lookup, and authority-neutral parked-withdraw scheduling.
+//! live gifter lookup, authority-neutral parked-withdraw scheduling, and V1
+//! compatibility count issuance.
 
 const std = @import("std");
 const model = @import("model");
@@ -11,6 +12,11 @@ const bootstrap = @import("bootstrap.zig");
 const PeerId = @import("peer_id.zig").PeerId;
 
 pub const LoweringError = error{TokenNotLiftable};
+pub const HandoffCountError = error{HandoffCountExhausted};
+pub const PromiseShorteningError = std.mem.Allocator.Error || error{
+    UnexpectedMessage,
+    ProxyRecipientCapExceeded,
+};
 
 /// Scheduler-only identity for one gift dependency. The BLAKE3 tag keeps
 /// attacker-selected gift ids out of the Node's coordination tables while the
@@ -43,6 +49,9 @@ pub const NodeServices = struct {
         pending_withdraw_removed: *const fn (ctx: *anyopaque, receiver: PeerId, dependency: HandoffDependency) void,
         gift_deposited: *const fn (ctx: *anyopaque, dependency: HandoffDependency) void,
         session_closed: *const fn (ctx: *anyopaque, peer_id: PeerId) void,
+        next_v1_emitted_handoff_count: *const fn (ctx: *anyopaque) HandoffCountError!u64,
+        prepare_promise_shortening: *const fn (ctx: *anyopaque, peer_id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void,
+        commit_promise_shortening: *const fn (ctx: *anyopaque, peer_id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) void,
     };
 
     /// Bind a concrete node implementation to the erased link stored by a
@@ -89,6 +98,18 @@ pub const NodeServices = struct {
                 implementation.session_closed(context(erased), id);
             }
 
+            fn nextV1EmittedHandoffCountThunk(erased: *anyopaque) HandoffCountError!u64 {
+                return implementation.next_v1_emitted_handoff_count(context(erased));
+            }
+
+            fn preparePromiseShorteningThunk(erased: *anyopaque, id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
+                return implementation.prepare_promise_shortening(context(erased), id, source, target, target_listener, converges);
+            }
+
+            fn commitPromiseShorteningThunk(erased: *anyopaque, id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) void {
+                implementation.commit_promise_shortening(context(erased), id, source, target, target_listener, converges);
+            }
+
             const vtable: VTable = .{
                 .lower = lowerThunk,
                 .local_object_projection = localObjectProjectionThunk,
@@ -97,6 +118,9 @@ pub const NodeServices = struct {
                 .pending_withdraw_removed = pendingWithdrawRemovedThunk,
                 .gift_deposited = giftDepositedThunk,
                 .session_closed = sessionClosedThunk,
+                .next_v1_emitted_handoff_count = nextV1EmittedHandoffCountThunk,
+                .prepare_promise_shortening = preparePromiseShorteningThunk,
+                .commit_promise_shortening = commitPromiseShorteningThunk,
             };
         };
 
@@ -117,6 +141,9 @@ pub const NodeServices = struct {
             pending_withdraw_removed: *const fn (Context, PeerId, HandoffDependency) void,
             gift_deposited: *const fn (Context, HandoffDependency) void,
             session_closed: *const fn (Context, PeerId) void,
+            next_v1_emitted_handoff_count: *const fn (Context) HandoffCountError!u64,
+            prepare_promise_shortening: *const fn (Context, PeerId, u64, u64, u64, bool) PromiseShorteningError!void,
+            commit_promise_shortening: *const fn (Context, PeerId, u64, u64, u64, bool) void,
         };
     }
 
@@ -146,5 +173,17 @@ pub const NodeServices = struct {
 
     pub fn sessionClosed(self: NodeServices) void {
         self.vtable.session_closed(self.ctx, self.peer_id);
+    }
+
+    pub fn nextV1EmittedHandoffCount(self: NodeServices) HandoffCountError!u64 {
+        return self.vtable.next_v1_emitted_handoff_count(self.ctx);
+    }
+
+    pub fn preparePromiseShortening(self: NodeServices, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
+        return self.vtable.prepare_promise_shortening(self.ctx, self.peer_id, source, target, target_listener, converges);
+    }
+
+    pub fn commitPromiseShortening(self: NodeServices, source: u64, target: u64, target_listener: u64, converges: bool) void {
+        self.vtable.commit_promise_shortening(self.ctx, self.peer_id, source, target, target_listener, converges);
     }
 };

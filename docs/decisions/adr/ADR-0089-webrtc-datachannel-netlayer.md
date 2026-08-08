@@ -1,40 +1,56 @@
-# ADR-0089: WebRTC DataChannel Netlayer
+---
+id: ADR-0089
+status: accepted
+date: 2026-07-21
+tags: [transport, webrtc, browser, signaling, sidecar, handoff]
+decision: "pancake gains a `webrtc` transport: a reliable, ordered WebRTC DataChannel that carries a keyed OCapN session byte-for-byte between two peers, at least one of which is a browser. The transport is a native Rust sidecar over the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig netlayer resident over its C ABI, a companion archive `libpancake_net_transport_webrtc` (ADR-0059), and a browser `RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the SDP offer/answer and ICE candidates, is exchanged through an OCapN capability rather than a bespoke signaling server."
+supersedes: []
+superseded_by: []
+amends: []
+amended_by: [ADR-0110]
+---
 
-**Status:** Decided and implemented. The standalone dial ships in the
-TypeScript stack: a host configured with signaling authority
-(`Host.setSignaling`) dials a bare `webrtc` locator through the one dial path,
-proven by `zig build webrtc-browser-to-browser`; handoff redemption over it is
-proven live by `zig build rooms-web-dm-webrtc`, with the room directory
-carrying the signaling. The native completion tier ships too:
-`completion.Loop(webrtc.Backend)` adopts signaled peers and dials through a
-configured `SignalingAuthority` under `driver.Bridge` + the generic Host,
-proven by `zig build webrtc-loop`, and the native three-party redeem over a
-bare `webrtc` give is proven by `zig build webrtc-bridge-redeem`.
-**Date:** 2026-07-21
-**Decision:** pancake gains a `webrtc` transport: a reliable, ordered WebRTC
+# ADR-0089 WebRTC DataChannel netlayer
+
+> **Framing amendment (ADR-0110).** Each reliable, ordered DataChannel message
+> carries one bare codec frame. The outer Syrup byte-string envelope is only
+> for byte-stream transports.
+
+> **Implementation standing.** Decided and implemented. The standalone dial
+> ships in the TypeScript stack: a host configured with signaling authority
+> (`Host.setSignaling`) dials a bare `webrtc` locator through the one dial path,
+> proven by `zig build webrtc-browser-to-browser`; handoff redemption over it is
+> proven live by `zig build rooms-web-dm-webrtc`, with the room directory
+> carrying the signaling. The native completion tier ships too:
+> `completion.Loop(webrtc.Backend)` adopts signaled peers and dials through a
+> configured `SignalingAuthority` under `driver.Bridge` and the generic Host,
+> proven by `zig build webrtc-loop`, and the native three-party redeem over a
+> bare `webrtc` give is proven by `zig build webrtc-bridge-redeem`.
+
+## Decision
+
+pancake gains a `webrtc` transport: a reliable, ordered WebRTC
 DataChannel that carries a keyed OCapN session byte-for-byte between two peers,
 at least one of which is a browser. The transport is a native Rust sidecar over
 the `webrtc` crate (the same shape as the iroh sidecar, ADR-0055), a Zig
 netlayer resident over its C ABI, a companion archive
 `libpancake_net_transport_webrtc` (ADR-0059), and a browser
-`RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs — the
-SDP offer/answer and ICE candidates — can be exchanged through an OCapN
-capability rather than a bespoke signaling server: the shipped scenarios prove
-that exchange and the keyed session after it. In the TypeScript stack the dial
-executor composes the whole bring-up: a host configured with signaling
-authority dials a bare `webrtc` locator, connect and handoff-redeem share that
-one path, and the rooms app redeems a live `webrtc` give with the room
-carrying the signaling. The native completion tier holds the same shape:
-`webrtc.Backend` adopts signaled peers and dials through a configured
-authority under the generic Host, and the native three-party redeem over a
-bare `webrtc` give runs live (`zig build webrtc-bridge-redeem`).
+`RTCPeerConnection`/`RTCDataChannel` arm. The signaling that WebRTC needs, the
+SDP offer/answer and ICE candidates, is exchanged through an OCapN capability
+rather than a bespoke signaling server. In the TypeScript stack the dial
+executor composes the whole bring-up: a host configured with signaling authority
+dials a bare `webrtc` locator, and connect and handoff-redeem share that one
+path. The native completion tier holds the same shape, with `webrtc.Backend`
+adopting signaled peers and dialing through a configured authority under the
+generic Host. The standing note above names the check that proves each half.
 
-This ADR builds on the iroh netlayer sidecar (ADR-0055), the à-la-carte
-transport archive split (ADR-0059), the browser binding (ADR-0070, whose
-Milestone 2 this is), the byte-transparent relay (ADR-0086), and the
-fully-functioning browser peer (ADR-0088).
-
----
+This ADR builds on the iroh netlayer sidecar
+([ADR-0055](ADR-0055-iroh-netlayer-sidecar.md)), the à-la-carte transport
+archive split ([ADR-0059](ADR-0059-composable-c-abi-archives.md)), the browser
+binding ([ADR-0070](ADR-0070-browser-binding-via-wasm.md), whose Milestone 2
+this is), the byte-transparent relay
+([ADR-0086](ADR-0086-byte-transparent-relay.md)), and the fully-functioning
+browser peer ([ADR-0088](ADR-0088-fully-functioning-browser-peer.md)).
 
 ## Problem
 
@@ -177,8 +193,9 @@ other capability.
 ## The signaling capability: the phase-5 wire shape
 
 Phase 5 shipped the signaling object and its offer, answer, and candidate
-scenarios. This section records that wire shape. It does not describe generic
-Host adoption or three-party handoff redemption.
+scenarios. This section records that wire shape. Generic Host adoption and
+three-party handoff redemption ship with the standing note's `webrtc-loop` and
+`webrtc-bridge-redeem` proofs.
 
 **One object, two verbs, keyed by designator.** The signaling object is a
 rendezvous keyed by peer designator, the same shape ADR-0088's cold-dial relay
@@ -268,13 +285,11 @@ because the DTLS encryption and the keyed handshake both run end to end above it
 ## The DataChannel configuration for CapTP
 
 The channel is created ordered and reliable: `ordered: true`, with neither
-`maxRetransmits` nor `maxPacketLifeTime` set, so SCTP delivers every byte in
-order. CapTP is a byte stream with in-order framing; an unordered or lossy
-channel would break the codec's frame delimiting. This matches every other
-pancake transport, which are all reliable ordered streams. Message boundaries on
-the DataChannel are not frame boundaries: the session's codec owns framing, and
-the transport concatenates and re-splits bytes freely, exactly as TCP and QUIC
-do.
+`maxRetransmits` nor `maxPacketLifeTime` set. Each DataChannel message carries
+one complete bare codec frame, and the receiver hands that frame to the
+whole-frame API. SCTP may fragment a message internally, but the DataChannel
+reassembles it before delivery. An unordered or lossy channel would violate
+CapTP's reliable ordering even though message boundaries remain intact.
 
 ## Limits
 
@@ -326,16 +341,16 @@ phase gated before the next.
 - **Phase 4 — classify signaling without faking an address dial.** The dial
   classifier (`pancake_host_plan_dial`) recognizes `webrtc` and returns the
   signaling shape. The resident has no address `Netlayer`, because a locator
-  alone cannot open a channel. The remaining generic Host work is a
-  signaling-aware completion adapter which is given a rendezvous capability;
-  the roadmap owns that boundary.
+  alone cannot open a channel. The signaling-aware completion adapter under
+  `driver.Bridge` (`webrtc.Backend` plus configured `SignalingAuthority`) is
+  the Host path that executes that plan; the standing note names its proofs.
 
 - **Phase 5 — OCapN signaling via a capability.** Define the signaling
   capability shape as an in-tree object and route the offer/answer/candidate
   exchange through it. **Gate:** `webrtc-signaling-captp` proves the signaling
   object over CapTP, and `webrtc-mesh` proves capability-routed signaling brings
   up a direct DataChannel carrying a keyed session. Generic Host adoption and
-  redemption are a later composition, not evidence supplied by this phase.
+  redemption compose on that foundation; the standing note names the checks.
 
 - **Phase 6 — the browser arm and browser-to-browser.** Ship `@pancake/webrtc`
   and prove the two end states: a browser and a native peer over a DataChannel,
@@ -352,12 +367,35 @@ phase gated before the next.
   iroh deployment opts into discovery.
 - **Signaling capability wire details.** The verb names, promise-based answer,
   and candidate-trickle framing in "The signaling capability: the phase-5 wire
-  shape" are exercised by the in-tree signaling and mesh scenarios. Those
-  scenarios do not exercise generic Host handoff redemption.
+  shape" are exercised by the in-tree signaling and mesh scenarios. Host
+  adoption and redeem over configured signaling are proved separately
+  (`webrtc-loop`, `webrtc-bridge-redeem`).
 - **A signaling-aware generic dial completion.** The shared classifier can name
-  the `signaling` shape without linking WebRTC. Executing that plan requires a
-  separately supplied signaling capability and an optional WebRTC companion;
-  this ADR does not make a bare locator sufficient.
+  the `signaling` shape without linking WebRTC. Executing that plan still
+  requires a separately supplied signaling capability and an optional WebRTC
+  companion; this ADR does not make a bare locator sufficient.
+- **Moving to a redesigned `webrtc` crate.** The sidecar pins `webrtc` `=0.14.0`
+  and the callback bridge below is shaped by that version. The crate has since
+  reached `0.20.0`, which is a re-architecture rather than a bump: it is now a
+  thin async layer over the sans-io `rtc` protocol core, driven by a background
+  `PeerConnectionDriver` behind a runtime-agnostic `Runtime` trait. The `api`,
+  `interceptor`, `ice_transport`, `configuration`, and `sdp` modules are gone.
+  What decides the shape of the port is that `RTCDataChannel` now offers
+  `poll() -> Option<DataChannelEvent>` alongside `writable()`, `try_send()`,
+  `outstanding_bytes()`, and buffered-amount thresholds. The bridge in
+  `transports/webrtc/src/lib.rs` exists only to absorb `on_message`, and a pull
+  API with its own backpressure retires it: the two bounded buffers and their
+  `Notify` plumbing delete rather than port, which also retires the WebRTC entry
+  in the [memory rule](../../../.agents/rules/memory.md) ledger and the
+  per-peer bytes it names.
+
+  The port is contained below the C ABI. All eighteen `extern "C"` functions
+  keep their signatures, so the Zig resident, the companion archive, and every
+  proof stay as they are. Six of the live proofs need only cargo, among them
+  `webrtc-interop`, `webrtc-loop`, and `webrtc-bridge-redeem`, so most of the
+  evidence does not wait on a browser; the four Chromium proofs cover the
+  browser-facing arm. It is not this ADR's decision, and no part of it is
+  started.
 
 ## Alternatives Considered
 
@@ -379,9 +417,10 @@ phase gated before the next.
 
 ## Consequences
 
-- The native resident, C companion, OCapN signaling scenarios, and browser arms
-  are live. A standalone rendezvous and generic Host completion adapter remain
-  explicit boundaries rather than fake locator dialing.
+- The native resident, C companion, OCapN signaling scenarios, browser arms,
+  generic Host completion adapter, and three-party redeem over configured
+  signaling are live. A bare locator without signaling authority remains an
+  explicit refusal rather than fake locator dialing.
 - `arch-check` claims the new sidecar and archive directories the same way it
   claims the iroh ones: out of the layer DAG, still covered for file hygiene and
   the I/O bans.

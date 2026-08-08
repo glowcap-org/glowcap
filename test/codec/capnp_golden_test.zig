@@ -9,7 +9,6 @@ const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 const capnp = pancake.ocapn.codec.capnp;
-const handoff_fixtures = @import("../support/handoff_fixtures.zig");
 
 const Fixture = struct {
     name: []const u8,
@@ -17,7 +16,22 @@ const Fixture = struct {
     bytes: []const u8,
 };
 
-fn fixtures() [13]Fixture {
+/// The gifter's deposit leg: the one argument list here that carries a symbol,
+/// a bytestring, and a reference together. `engine.Peer.sendDepositGift` is the
+/// shape this mirrors.
+///
+/// A container-level constant, not a `&.{…}` literal inside `fixtures()`. An
+/// argument list built from function calls is not comptime-known, so a literal
+/// there would be a temporary in that function's frame and the returned slice
+/// would dangle. Nothing about the deposit shape asks for the separate
+/// declaration; the lifetime does.
+const deposit_gift_args = [_]model.Argument{
+    .{ .symbol = "deposit-gift" },
+    .{ .bytes = "gift-1" },
+    .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
+};
+
+fn fixtures() [12]Fixture {
     return .{
         .{ .name = "op_abort.bin", .message = .{ .abort = .{ .kind = .protocol_error, .message = "nope" } }, .bytes = @embedFile("capnp_fixtures/op_abort.bin") },
         .{ .name = "op_gc_answer.bin", .message = .{ .gc_answer = .{ .positions = &.{ 1, 4, 9 } } }, .bytes = @embedFile("capnp_fixtures/op_gc_answer.bin") },
@@ -28,6 +42,12 @@ fn fixtures() [13]Fixture {
             .answer = .from(42),
             .resolve_me_desc = null,
         } }, .bytes = @embedFile("capnp_fixtures/op_deliver.bin") },
+        .{ .name = "op_deliver_deposit_gift.bin", .message = .{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(0) } },
+            .args = &deposit_gift_args,
+            .answer = null,
+            .resolve_me_desc = null,
+        } }, .bytes = @embedFile("capnp_fixtures/op_deliver_deposit_gift.bin") },
         .{ .name = "op_resolve_fulfill.bin", .message = .{ .resolve = .{
             .answer = .from(42),
             .resolution = .{ .fulfill = .{ .bytes = "pong" } },
@@ -39,7 +59,7 @@ fn fixtures() [13]Fixture {
         .{ .name = "op_listen.bin", .message = .{ .listen = .{
             .target = .{ .far = .{ .import_position = .from(3) } },
             .listener = .{ .far = .{ .import_position = .from(9) } },
-            .wants_partial = true,
+            .mode = .shortening_or_settling,
         } }, .bytes = @embedFile("capnp_fixtures/op_listen.bin") },
         .{ .name = "op_get.bin", .message = .{ .get = .{
             .receiver = .{ .far = .{ .import_position = .from(1) } },
@@ -48,7 +68,7 @@ fn fixtures() [13]Fixture {
         } }, .bytes = @embedFile("capnp_fixtures/op_get.bin") },
         .{ .name = "op_index.bin", .message = .{ .index = .{
             .receiver = .{ .far = .{ .import_position = .from(1) } },
-            .index = 2,
+            .index = .{ .integer = 2 },
             .answer = .from(6),
         } }, .bytes = @embedFile("capnp_fixtures/op_index.bin") },
         .{ .name = "op_untag.bin", .message = .{ .untag = .{
@@ -66,8 +86,6 @@ fn fixtures() [13]Fixture {
             },
             .acceptable_location_sig = .{ .bytes = &([_]u8{0x22} ** 64) },
         } }, .bytes = @embedFile("capnp_fixtures/op_start_session.bin") },
-        .{ .name = "op_handoff_give.bin", .message = .{ .handoff = .{ .give = handoff_fixtures.give() } }, .bytes = @embedFile("capnp_fixtures/op_handoff_give.bin") },
-        .{ .name = "op_handoff_receive.bin", .message = .{ .handoff = .{ .receive = handoff_fixtures.receive() } }, .bytes = @embedFile("capnp_fixtures/op_handoff_receive.bin") },
     };
 }
 

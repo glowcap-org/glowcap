@@ -9,7 +9,7 @@
 // consequence. The keyed handshake is signature-verified end to end — a relay
 // that re-framed, re-encoded, or reordered one byte would fail it — and then
 // the enliven settles, the echo returns the exact bytes sent, and a repeat
-// enliven of the same swiss-num dedups to the same import (ADR-0012), so the
+// enliven of the same sturdyref dedups to the same import (ADR-0012), so the
 // proof covers more than one frame shape.
 //
 // Needs `racket` + `goblins` on PATH; `zig build goblins-relay`. The vat's
@@ -27,28 +27,47 @@ if (!Number.isInteger(goblinsPort) || goblinsPort < 1 || goblinsPort > 65535) {
 	fail("--port must be an integer in 1..65535");
 }
 
-const deadline = setTimeout(() => fail("Goblins relay scenario timed out after 60s"), 60_000);
-
-// 1. The conformance Goblins vat — the same one `goblins-interop` dials —
-// publishing its echo cap and printing the swiss-num on an NDJSON line.
-const goblinsProcess = new Deno.Command("racket", {
-	args: ["conformance/goblins-peer/racket/goblins-host.rkt", "127.0.0.1", String(goblinsPort)],
-	cwd: ROOT,
-	stdout: "piped",
-	stderr: "inherit",
-}).spawn();
-const swiss = await readToken(goblinsProcess, /"swiss":"([^"]+)"/);
-
-// 2. The Deno reference relay on an ephemeral port.
-const relayProcess = new Deno.Command(Deno.execPath(), {
-	args: ["run", "--allow-net", "--allow-read", "--allow-env", "bindings/ts/relay/serve.ts", "0"],
-	cwd: ROOT,
-	stdout: "piped",
-	stderr: "inherit",
-}).spawn();
-const relayPort = await readToken(relayProcess, /DENO-RELAY-READY (\d+)/);
+let goblinsProcess: Deno.ChildProcess | null = null;
+let relayProcess: Deno.ChildProcess | null = null;
+let failure: string | null = null;
+const deadline = setTimeout(() => {
+	if (relayProcess !== null) kill(relayProcess);
+	if (goblinsProcess !== null) kill(goblinsProcess);
+	fail("Goblins relay scenario timed out after 60s");
+}, 60_000);
 
 try {
+	// 1. The conformance Goblins vat — the same one `goblins-interop` dials —
+	// publishing its echo cap and printing Goblins' canonical sturdyref path on
+	// an NDJSON line.
+	goblinsProcess = new Deno.Command("racket", {
+		args: [
+			"conformance/goblins-peer/racket/goblins-host.rkt",
+			"127.0.0.1",
+			String(goblinsPort),
+		],
+		cwd: ROOT,
+		stdout: "piped",
+		stderr: "inherit",
+	}).spawn();
+	const sturdyrefPath = await readToken(goblinsProcess, /"sturdyref-path":"([^"]+)"/);
+
+	// 2. The Deno reference relay on an ephemeral port.
+	relayProcess = new Deno.Command(Deno.execPath(), {
+		args: [
+			"run",
+			"--allow-net",
+			"--allow-read",
+			"--allow-env",
+			"bindings/ts/relay/serve.ts",
+			"0",
+		],
+		cwd: ROOT,
+		stdout: "piped",
+		stderr: "inherit",
+	}).spawn();
+	const relayPort = await readToken(relayProcess, /DENO-RELAY-READY (\d+)/);
+
 	// 3. Load the wasm browser peer; every dial's WebSocket routes through the
 	// relay, which is told the target via `?to=host:port`.
 	const stack = await init({
@@ -67,32 +86,35 @@ try {
 	// 5. Enliven the echo cap and prove the round-trip content survives. The
 	// echo actor is `(lambda args args)`, so assert the bytes, not mere
 	// settlement. Goblins invokes a cap positionally, hence verb "".
-	const sturdyref = `${locator}/s/${swiss}`;
+	const sturdyref = `${locator}/s/${sturdyrefPath}`;
 	const echo = await conn.enliven(sturdyref);
 	const reply = await conn.send(echo, "", [new TextEncoder().encode("relay-ping")]);
 	if (!Array.isArray(reply) || reply.length !== 1 || !(reply[0] instanceof Uint8Array)) {
-		fail(`echo reply is not a one-bytes list: ${JSON.stringify(reply)}`);
+		throw new Error(`echo reply is not a one-bytes list: ${JSON.stringify(reply)}`);
 	}
 	const text = new TextDecoder().decode(reply[0] as Uint8Array);
-	if (text !== "relay-ping") fail(`echo returned ${JSON.stringify(text)}, expected "relay-ping"`);
+	if (text !== "relay-ping") {
+		throw new Error(`echo returned ${JSON.stringify(text)}, expected "relay-ping"`);
+	}
 
-	// 6. A repeat enliven of the same swiss-num returns the same far import
+	// 6. A repeat enliven of the same sturdyref returns the same far import
 	// (the ADR-0012 dedup cache), exercising a second frame shape through the
 	// relay.
 	const again = await conn.enliven(sturdyref);
 	if (
 		echo.id !== again.id
 	) {
-		fail("repeat enliven did not return the same far import (dedup miss)");
+		throw new Error("repeat enliven did not return the same far import (dedup miss)");
 	}
 
 	console.log("OK: browser peer held a keyed session with live Goblins through the relay");
-	clearTimeout(deadline);
 	conn.close();
 } catch (err) {
-	fail(`Goblins relay scenario failed: ${err instanceof Error ? err.message : String(err)}`);
+	failure = `Goblins relay scenario failed: ${err instanceof Error ? err.message : String(err)}`;
 } finally {
-	kill(relayProcess);
-	kill(goblinsProcess);
-	Deno.exit(0);
+	clearTimeout(deadline);
+	if (relayProcess !== null) kill(relayProcess);
+	if (goblinsProcess !== null) kill(goblinsProcess);
 }
+if (failure !== null) fail(failure);
+Deno.exit(0);

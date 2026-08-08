@@ -1,4 +1,4 @@
-// Shared spine for the three relay conformance harnesses (tcp, backpressure,
+// Shared spine for the three relay contract harnesses (tcp, backpressure,
 // iroh). Each harness spawns a relay program named on its own command line and
 // drives one scenario against it, so one harness proves the same contract for
 // every runtime's relay — the Deno reference, the Python relay, the Rust relay,
@@ -97,7 +97,7 @@ export async function readToken(proc: Deno.ChildProcess, marker: RegExp): Promis
 	let buf = "";
 	while (true) {
 		const { value, done } = await reader.read();
-		if (done) fail(`process exited before ${marker}`);
+		if (done) throw new Error(`process exited before ${marker}`);
 		buf += decoder.decode(value);
 		const match = buf.match(marker);
 		if (match) {

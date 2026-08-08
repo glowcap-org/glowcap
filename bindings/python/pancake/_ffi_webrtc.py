@@ -22,11 +22,7 @@ from ._lib_resolve import _lib_file, _lib_path
 # its concrete cause there, read through ``pancake_webrtc_last_error`` rather
 # than the core ``pancake_last_error``.
 from ._sigs_gen import webrtc_sigs
-from ._layouts_gen import (
-    PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF,
-    PANCAKE_WEBRTC_READY_EVENT_SIZE,
-    PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF,
-)
+from ._pin import pin_struct
 
 _WEBRTC_LIB_PATH = _lib_path("pancake_net_transport_webrtc")
 _WEBRTC_LIB_FILE = _lib_file("pancake_net_transport_webrtc")
@@ -38,27 +34,28 @@ class _WebrtcReadyEvent(ctypes.Structure):
     _fields_ = [("subject", ctypes.c_size_t), ("events", ctypes.c_uint32)]
 
 
-def _pin_layout() -> None:
-    got = ctypes.sizeof(_WebrtcReadyEvent)
-    subject_off = _WebrtcReadyEvent.subject.offset
-    events_off = _WebrtcReadyEvent.events.offset
-    if (
-        got != PANCAKE_WEBRTC_READY_EVENT_SIZE
-        or subject_off != PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF
-        or events_off != PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF
-    ):
-        raise ImportError(
-            "pancake FFI layout drift: _WebrtcReadyEvent "
-            f"is {got} bytes (subject@{subject_off}, events@{events_off})"
-        )
+pin_struct(_WebrtcReadyEvent, "PANCAKE_WEBRTC_READY_EVENT")
 
 
-_pin_layout()
+class _WebrtcConfig(ctypes.Structure):
+    """One WebRTC endpoint's configuration; see the header's
+    ``PancakeWebrtcConfig`` for what each setting means. Zero-initialized by
+    ``ctypes.Structure``, and an unset field takes the transport's default."""
+
+    _fields_ = [
+        ("ice_servers", ctypes.POINTER(ctypes.c_uint8)),
+        ("ice_servers_len", ctypes.c_size_t),
+        ("include_loopback_candidates", ctypes.c_uint32),
+        ("worker_threads", ctypes.c_uint32),
+    ]
+
+
+pin_struct(_WebrtcConfig, "PANCAKE_WEBRTC_CONFIG")
 
 
 def _load_webrtc():
     lib = ctypes.CDLL(str(_WEBRTC_LIB_PATH))
-    for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent).items():
+    for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype

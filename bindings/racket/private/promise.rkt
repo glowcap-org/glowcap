@@ -183,9 +183,10 @@
 ;; An empty verb symbol is a methodless positional deliver (verb length zero on
 ;; the wire). `answer?` #t returns the minted `session-vow`; #f is tell
 ;; (Goblins `<-np`). Promise-pipelined targets ride `vow_send`.
-;; `session-listen`'s wire half: mint the listen vow over a held far promise
-;; (CapTP op:listen) and hand back the vow. The vow is plain — a listen may
-;; settle to any value, not only a capability.
+;; `session-listen`'s wire half: mint the listen vow over a held far reference
+;; (CapTP op:listen) and hand back the vow. The session API owns
+;; profile-specific target legality. The vow is plain — a listen may settle to
+;; any value, not only a capability.
 (define (listen-far c target)
   (define m (session-host c))
   (call-with-host m

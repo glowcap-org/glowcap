@@ -116,7 +116,13 @@ fn gifterServe(
     var treasure_view = driver.Session.view(&host, treasure_session);
     const treasure = try treasure_view.fetch("treasure");
 
-    const hs = try host.acceptWire(listener, listener.transportName(), bound, bound);
+    var hint_entries: [1]model.HintEntry = undefined;
+    try host.core.setAdvertisedLocator(.{
+        .transport = listener.transportName(),
+        .designator = bound,
+        .hints = model.Hints.forDirectAddresses(bound, &hint_entries),
+    });
+    const hs = try host.acceptWire(listener, listener.transportName());
     var view = driver.Session.view(&host, hs);
     _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
     while (!done.load(.acquire)) {
@@ -138,6 +144,7 @@ fn serverSideRedeem(
     exporter_designator: []const u8,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
+    defer done.store(true, .release);
     const accepted = try server.accept();
     defer accepted.deinit();
 
@@ -157,7 +164,6 @@ fn serverSideRedeem(
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
     _ = exporter_designator;
-    done.store(true, .release);
 }
 
 test "front door handoff: a give settles live inside call, and the redeemed capability answers (ADR-0090)" {
@@ -250,7 +256,7 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_key_buf));
     defer allocator.free(exporter_designator);
     var exporter_hint_buf: [64]u8 = undefined;
-    const exporter_hint = try allocator.dupe(u8, exporter.listener.localHint(&exporter_hint_buf));
+    const exporter_hint = try allocator.dupe(u8, try exporter.listener.localDirectAddresses(&exporter_hint_buf));
     defer allocator.free(exporter_hint);
     try std.testing.expect(exporter_hint.len > 0);
 
@@ -292,6 +298,42 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
 }
 
+test "driver Server can replace listener-derived reachability with deployment routing" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const secret = pancake.foundation.crypto.SecretKey.fromSeed([_]u8{0x6b} ** pancake.foundation.crypto.SEED_BYTES);
+    var resident = net.tcp_keyed.Resident{ .io = io, .public_key = secret.publicKey() };
+    var server = try driver.listen(
+        allocator,
+        resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .{ .keyed = secret },
+        opts,
+    );
+    defer server.close() catch {};
+
+    var designator_buf: [128]u8 = undefined;
+    const designator = try server.localDesignator(&designator_buf);
+    var hints: [1]model.HintEntry = undefined;
+    try server.setAdvertisedLocator(.{
+        .transport = net.tcp_keyed.transport_name,
+        .designator = designator,
+        .hints = model.Hints.forDirectAddresses("proxy.example:443", &hints),
+    });
+
+    const advertised = server.advertisedLocator();
+    try std.testing.expectEqualStrings(designator, advertised.designator);
+    try std.testing.expectEqualStrings("proxy.example:443", advertised.hints.entries[0].value.string);
+    try std.testing.expectError(error.TransportMismatch, server.setAdvertisedLocator(.{
+        .transport = model.transport.tcp,
+        .designator = "proxy.example:443",
+        .hints = model.Hints.emptyFalse(),
+    }));
+}
+
 test "front door handoff: a listening server redeems too, so both halves match every binding (ADR-0090)" {
     // The connect half's proof is above. This is the accept half: the party
     // that *listens* receives an introduction and redeems it, which requires
@@ -322,15 +364,22 @@ test "front door handoff: a listening server redeems too, so both halves match e
 
     var exporter_future = try io.concurrent(exporterServe, .{ &exporter, &done });
     var redeem_future = try io.concurrent(serverSideRedeem, .{ allocator, &redeemer, exporter_designator, &done });
+    var joined = false;
     defer {
-        done.store(true, .release);
-        redeem_future.await(io) catch {};
-        exporter_future.await(io) catch {};
+        if (!joined) {
+            done.store(true, .release);
+            redeem_future.await(io) catch {};
+            exporter_future.await(io) catch {};
+        }
     }
 
     // The gifter dials both peers, so the party under test is the accepting
     // half, and publishes the introducer on the session it dialed to it.
     try dialingGifter(allocator, io, &netlayers, exporter_designator, redeemer_designator, &done);
+    try redeem_future.await(io);
+    done.store(true, .release);
+    try exporter_future.await(io);
+    joined = true;
 }
 
 /// A gifter that *dials* both parties: it fetches the treasure from the

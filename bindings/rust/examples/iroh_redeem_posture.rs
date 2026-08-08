@@ -34,8 +34,8 @@
 use std::rc::Rc;
 
 use pancake_rust_dogfood::{
-	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, Reachability, Ref,
-	Session, TRANSPORT_IROH,
+	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability,
+	Ref, Session, TRANSPORT_IROH,
 };
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Fail> {
 
 async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-	let exporter = Rc::new(listen_iroh(Reachability::LocalDiscovery)?);
+	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery))?);
 	exporter
 		.host()
 		.publish_giftable("greeter", || Box::new(greeter));
@@ -64,7 +64,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-redeem-posture: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-	let gifter = Rc::new(listen_iroh(Reachability::LocalDiscovery)?);
+	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery))?);
 	let gifter_host = gifter.host();
 	let gifter_id = gifter.node_id().to_string();
 	let exporter_uri = format_peer_uri(TRANSPORT_IROH, &exporter_id, &Default::default())?;

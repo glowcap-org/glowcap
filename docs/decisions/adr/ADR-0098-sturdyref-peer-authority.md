@@ -24,9 +24,10 @@ the checks that hold each clause.
 A sturdyref carries `(peer locator, swiss)`. Before migration steps 1–2,
 Host-facing C and binding enlivenment parsed that shape, discarded the peer
 locator, and fetched the swiss on a caller-selected session. Equal swiss bytes
-at peers A and B could therefore redirect A's sturdyref to B. The shipped
-session-level path now retains and checks the complete locator; Host-level
-peer selection remains proposed.
+at peers A and B could therefore redirect A's sturdyref to B. Every tier now
+retains and checks the complete locator: the session-level path does, and
+`Host.enlivenSelectOrDial` picks the peer the sturdyref names, dialing it when
+no live session reaches it.
 
 This is the same scope error as a mutable publication name being mistaken for
 an object. The peer locator selects the authority that may interpret the swiss;

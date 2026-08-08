@@ -7,7 +7,7 @@
 ;; WebSocket and a native host, without parsing them, so the keyed handshake and
 ;; session authority run end to end and the relay holds no capability. This is the
 ;; same five-part shape ADR-0086 names, in Racket: the WebSocket adapter is
-;; `rfc6455`, the pump is `relay-pump`, the byte channel is a TCP `relay-channel`
+;; `rfc6455`, the pump is `relay-pump`, the byte channel is a TCP `byte-channel`
 ;; or the iroh binding's `dial-locator-for-relay`, the dial dispatcher is
 ;; `open-channel`, and the config is the two constants below. The embedding app
 ;; would add the target allow-list; this proof relays wherever the conformance
@@ -26,17 +26,18 @@
 
 (require racket/async-channel
          racket/tcp
-         racket/runtime-path
          net/rfc6455
          (only-in web-server/web-server serve)
          (only-in net/rfc6455/dispatcher make-general-websockets-dispatcher)
          net/url
-         "private/relay-channel.rkt")
+         "private/iroh-companion.rkt"
+         "private/byte-channel.rkt")
 
-;; The iroh binding loads lazily, only when a `?locator=` dial actually needs it,
-;; so a TCP-only relay never loads iroh — matching the Deno, Python, and Rust
-;; relays, which each defer their iroh import to the locator path.
-(define-runtime-path iroh-companion-path "pancake-iroh.rkt")
+;; The iroh binding loads on demand, only when a `?locator=` dial actually needs
+;; it, so a TCP-only relay never loads iroh — matching the Deno, Python, and Rust
+;; relays, which each defer their iroh import to the locator path. A relay serves
+;; many connections at once, so it reaches the companion through
+;; `iroh-companion.rkt`, which loads it exactly once however many arrive together.
 
 ;; The two bounded-resources knobs ADR-0086's contract names, matching the
 ;; @pancake/relay gold standard. The idle timeout reclaims a stalled pair; the
@@ -50,14 +51,14 @@
 (define MAX-BYTES-PER-SESSION (expt 2 30)) ; 1 GiB
 (define READ-CHUNK 65536)                   ; 64 KiB
 
-;; A raw TCP byte channel as a `relay-channel`: `read` blocks and returns eof on
+;; A raw TCP byte channel as a `byte-channel`: `read` blocks and returns eof on
 ;; close, `write` flushes (which blocks under the socket's send-buffer
 ;; backpressure) — the same shape `dial-locator-for-relay` returns so the pump is
 ;; transport-agnostic.
 (define (open-tcp-channel host port)
   (define-values (in out) (tcp-connect host port))
   (define read-buf (make-bytes READ-CHUNK))
-  (relay-channel
+  (byte-channel
    ;; `read-bytes-avail!` returns as soon as any bytes arrive (up to the buffer),
    ;; never blocking for a full buffer — a whole handshake reply forwards at once
    ;; rather than waiting for 64 KiB that a small session never sends.
@@ -67,7 +68,10 @@
    (lambda (data) (write-bytes data out) (flush-output out))
    (lambda ()
      (close-input-port in)
-     (close-output-port out))))
+     (close-output-port out))
+   ;; A TCP dial proves nothing about who answered: the designator is an
+   ;; address, and an address is a route rather than a name.
+   #f))
 
 ;; Dial classifier: a `host:port` opens a raw socket, an iroh `ocapn://` locator
 ;; opens the iroh relay channel. One of the two must be present.
@@ -77,8 +81,8 @@
      ;; The conformance host advertises loopback direct addresses, so the relay
      ;; reaches it directly; a deployment relay resolves node ids by discovery.
      ;; Load the iroh binding only now, so a TCP-only relay never touches it.
-     (define dial (dynamic-require iroh-companion-path 'dial-locator-for-relay))
-     (define reach (dynamic-require iroh-companion-path 'IROH-REACH-DIRECT))
+     (define dial (iroh-ref 'dial-locator-for-relay))
+     (define reach (iroh-ref 'IROH-REACH-DIRECT))
      (dial locator reach)]
     [else
      ;; Split on the last colon so an IPv6 host keeps its own colons.
@@ -126,7 +130,7 @@
               [(over-cap?) (semaphore-post done)]
               [else
                (with-handlers ([(lambda (_) #t) (lambda (_) (semaphore-post done))])
-                 ((relay-channel-write ch) bytes*)
+                 ((byte-channel-write ch) bytes*)
                  (loop))])])))))
 
   (define channel->ws
@@ -134,7 +138,7 @@
      (lambda ()
        (let loop ()
          (define chunk
-           (with-handlers ([(lambda (_) #t) (lambda (_) eof)]) ((relay-channel-read ch))))
+           (with-handlers ([(lambda (_) #t) (lambda (_) eof)]) ((byte-channel-read ch))))
          (cond
            [(eof-object? chunk) (semaphore-post done)]
            [else
@@ -162,7 +166,7 @@
            [else (sleep (/ (- IDLE-TIMEOUT-MS idle) 1000.0)) (loop)])))))
 
   (semaphore-wait done)
-  (with-handlers ([(lambda (_) #t) void]) ((relay-channel-close! ch)))
+  (with-handlers ([(lambda (_) #t) void]) ((byte-channel-close! ch)))
   (with-handlers ([(lambda (_) #t) void]) (ws-close! conn))
   (kill-thread ws->channel)
   (kill-thread channel->ws)

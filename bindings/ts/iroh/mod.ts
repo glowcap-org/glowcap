@@ -7,6 +7,7 @@
 
 export {
 	dialLocatorForRelay,
+	type IrohConfig,
 	IrohConn,
 	IrohNetlayer,
 	IrohServer,

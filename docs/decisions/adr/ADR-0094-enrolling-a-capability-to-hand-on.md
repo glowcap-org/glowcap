@@ -12,6 +12,16 @@ amended_by: []
 
 # ADR-0094 Enrolling a Capability to Hand On
 
+> **Scope of supersession.**
+> Superseded by [ADR-0096](ADR-0096-host-scoped-capability-identity.md). The
+> problem this record names is real and still solved: a capability an
+> application received from any path, not only from `fetch`, can be handed to a
+> third party. What does not stand is the answer. An application no longer
+> enrolls a capability under a node-unique token before handing it on; every
+> capability an application holds is already one opaque Host identity, so the
+> lift is automatic and the explicit enrollment verb is gone. This record
+> remains the history of the displaced design.
+
 ## Problem
 
 A three-party handoff starts when an application replies to a call with a

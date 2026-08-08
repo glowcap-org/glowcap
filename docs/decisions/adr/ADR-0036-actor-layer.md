@@ -114,4 +114,4 @@ turn, no per-call heap reply" caveat.
 
 Closes the actor-synthesis gap named in
 [ADR-0007](ADR-0007-promise-pipelining-substrate.md). The vat is the same shape
-as the in-process conformance ferry loop, generalized to an object heap.
+as the in-process scenario ferry loop, generalized to an object heap.

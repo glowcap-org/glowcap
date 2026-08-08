@@ -7,19 +7,17 @@
 .draft = false,
 ---
 
-A relay carries a peer's keyed CapTP session over a WebSocket to a peer that has a
-socket. It is there for the browser. A browser opens no listening socket and dials
-no raw TCP or QUIC connection, so it has no netlayer of its own, and the relay stands
-in as the byte carrier. Only bytes cross it
+A browser opens no listening socket and dials no raw TCP or QUIC connection, so
+it has no netlayer of its own. The relay stands in as the byte carrier
 ([ADR-0086](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
 
 ## Byte transparency
 
-The relay never parses a frame and never holds a capability. The keyed
-`op:start-session` handshake and every capability that follows it run between the
-browser and the far peer, and the relay sees only the bytes on the wire. The
-session's authority is the keys at its two ends; the relay holds none of it, so it
-carries a session without being party to it.
+The keyed `op:start-session` handshake and every capability that follows it run
+between the browser and the far peer. The relay never parses a frame and never
+holds a capability; it sees only the bytes on the wire. The session's authority
+is the keys at its two ends, so the relay carries a session without being party
+to it.
 
 ## Reaching the other side
 
@@ -76,15 +74,18 @@ same forwarding, backpressure, and idle-reclaim behavior.
 
 ## Not a netlayer
 
-The relay is not a netlayer. pancake ships five of those (TCP, keyed-tcp,
-in-process, iroh, and WebRTC), and a dial dispatches on a
-[locator]($link.page('concepts'))'s transport symbol; the relay is none of them,
-and no locator names it. The cold-dial rendezvous does put a `keyed-relay` symbol
-on a locator, `ocapn://<key>.keyed-relay`, but that locator names the waiting
-peer's key, not the relay, and the relay registers no transport resident of its
-own. That rendezvous is settled in
-[ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md). A peer with its own socket dials a
-[transport]($link.page('transports')) directly and never touches a relay.
+The relay *service* is not a netlayer. pancake ships six netlayers (TCP,
+keyed-tcp, keyed-relay, in-process, iroh, and WebRTC); a dial dispatches on a
+[locator]($link.page('concepts'))'s transport symbol, and the relay registers
+none of those residents. A `keyed-relay` locator, `ocapn://<key>.keyed-relay`,
+names the waiting peer's key, not the relay. The dialing host's configured relay
+URL is how the `keyed-relay` resident reaches that peer. That rendezvous is
+settled in
+[ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md).
+A peer dialing `tcp`, `keyed-tcp`, `iroh`, or `webrtc` uses that transport's own
+resident and never touches the relay service. Only `keyed-relay` opens a
+WebSocket to one, and even then the relay is still only a byte carrier. See
+[Transports]($link.page('transports')).
 
 ## Running one
 

@@ -67,6 +67,9 @@ pub const SettleMailbox = struct {
     /// entries. Posts append at `head + count`; apply consumes at `head`.
     head: usize = 0,
     count: usize = 0,
+    /// Settles that reached the owning thread and still failed to land. See
+    /// `apply`; a nonzero value is a defect, not backpressure.
+    lost: usize = 0,
     channel: net.wake_channel.WakeChannel,
 
     /// Allocate the mailbox on the heap — workers hold the pointer across
@@ -146,10 +149,14 @@ pub const SettleMailbox = struct {
     }
 
     /// Apply every recorded settle through `host`'s top-level resolver verbs,
-    /// on the thread that owns `host`. A refused settle (a worker that posted
-    /// twice for one resolver, allocator pressure mid-settle) is dropped
-    /// after the attempt — the mailbox carries best-effort completions, and a
-    /// worker that needs the outcome observes its own answer's settlement.
+    /// on the thread that owns `host`.
+    ///
+    /// A refusal is dropped after the attempt, but the two kinds are not
+    /// alike. `AlreadySettled` means the resolver was already consumed and
+    /// nothing is owed. Anything else — allocator pressure inside the settle
+    /// — leaves a vow retired but unsettled, which no later observation can
+    /// repair, so it is counted rather than swallowed silently: a nonzero
+    /// `lost` is the only evidence that ever existed.
     /// The lock brackets only the ring bookkeeping; the resolver verb runs
     /// unlocked while the entry's slot stays reserved, so a concurrent post
     /// can fill every other slot but never the one being applied.
@@ -163,10 +170,15 @@ pub const SettleMailbox = struct {
             const slot = &self.slots[self.head % self.slots.len];
             self.lock.unlock();
 
-            switch (slot.resolution) {
-                .fulfilled => |value| host.resolverFulfill(slot.resolver_id, value) catch {},
-                .broken => |reason| host.resolverBreak(slot.resolver_id, reason) catch {},
-            }
+            const outcome = switch (slot.resolution) {
+                .fulfilled => |value| host.resolverFulfill(slot.resolver_id, value),
+                .broken => |reason| host.resolverBreak(slot.resolver_id, reason),
+            };
+            outcome catch |err| switch (err) {
+                // Already consumed: nothing was owed.
+                error.AlreadySettled => {},
+                else => self.lost += 1,
+            };
 
             self.lock.lock();
             self.head +%= 1;

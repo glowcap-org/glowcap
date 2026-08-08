@@ -113,6 +113,10 @@ test "c-abi inproc connect rejects bad arguments and a missing listener distinct
     // An unknown codec selector is an invalid argument.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn),
+    );
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
         ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, 999, frame_cap, &conn),
     );
     // A null required pointer is a null-pointer error.

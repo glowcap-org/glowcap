@@ -10,6 +10,32 @@ test "rooms-peer usage and unsupervised map to exit usage" {
     try std.testing.expect(cli.rooms_peer.verbExit(error.OutOfMemory) == null);
 }
 
+test "rooms-peer deriveRendezvousUrl from http locator bootstrap" {
+    const gpa = std.testing.allocator;
+    const url = (try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "http://localhost:8000/locator")).?;
+    defer gpa.free(url);
+    try std.testing.expectEqualStrings("ws://127.0.0.1:8000/relay", url);
+
+    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "https://localhost:8000/locator")) == null);
+    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "ocapn://abc.iroh")) == null);
+}
+
+test "rooms-peer resolveRendezvousUrl prefers PANCAKE_RENDEZVOUS" {
+    const gpa = std.testing.allocator;
+    const url = (try cli.rooms_peer_common.resolveRendezvousUrl(
+        gpa,
+        "ws://127.0.0.1:9/relay",
+        "http://localhost:8000/locator",
+    )).?;
+    defer gpa.free(url);
+    try std.testing.expectEqualStrings("ws://127.0.0.1:9/relay", url);
+
+    try std.testing.expectError(
+        error.InvalidRendezvousUrl,
+        cli.rooms_peer_common.resolveRendezvousUrl(gpa, "http://not-ws", "http://localhost:8000/locator"),
+    );
+}
+
 test "rooms-peer peerCliPrefix for install alias vs product" {
     try std.testing.expectEqualStrings("app rooms-peer ", cli.rooms_peer.peerCliPrefix("pancake"));
     try std.testing.expectEqualStrings("", cli.rooms_peer.peerCliPrefix("rooms-peer"));
@@ -166,6 +192,167 @@ test "rooms-peer outbox backlog reflects undrained bytes after offset persist" {
     const loaded = cli.rooms_peer_harness.clampOutboxOffset(cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir), body.len);
     try std.testing.expectEqual(@as(usize, 10), loaded);
     try std.testing.expectEqual(body.len - 10, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+}
+
+test "rooms-peer dm_backchannels armed map fails closed when missing" {
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-dm-backchannels-test";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    // Missing file → not armed (no false-sent --dm).
+    try std.testing.expect(!cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Jim"));
+
+    cli.rooms_peer_harness.persistDmBackchannels(io, gpa, dir, &.{ "Jim", "Bob" });
+    try std.testing.expect(cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Jim"));
+    try std.testing.expect(cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Bob"));
+    try std.testing.expect(!cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Eve"));
+
+    cli.rooms_peer_harness.persistDmBackchannels(io, gpa, dir, &.{});
+    try std.testing.expect(!cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Jim"));
+}
+
+test "rooms-peer one-wake both-surfaces: DM ranks before human room" {
+    // Hermetic golden for multi-surface drain: one wake must surface BOTH a
+    // human DM and a human room line, with DM first — so agents cannot drain
+    // DMs and leave room starved in the same tick JSON.
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-one-wake-both-surfaces-test";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    // Room line first in the file; sort must still put DM first.
+    const inbox =
+        \\{"kind":"msg","channel":"room","author":"Jim","text":"are you getting general?"}
+        \\{"kind":"msg","channel":"dm","author":"Jim","text":"hello","peer":"Jim"}
+        \\
+    ;
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "inbox.jsonl", inbox);
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"fresh-eyes\",\"agentic-lead\",\"engineering-steward\"]}\n");
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const scanned = cli.rooms_peer_harness.scanInbox(arena, io, dir, "fresh-eyes");
+    try std.testing.expectEqual(@as(usize, 2), scanned.items.len);
+    cli.rooms_peer_harness.sortPending(scanned.items);
+    try std.testing.expectEqualStrings("dm", scanned.items[0].channel);
+    try std.testing.expectEqualStrings("room", scanned.items[1].channel);
+    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(scanned.items, cli.rooms_peer_harness.loadRosterNicks(arena, io, gpa, dir)));
+}
+
+test "rooms-peer sortPending is DM then @mention then room (one-wake order)" {
+    // Hermetic stand-in for multi-surface drain: tick must surface DM before
+    // room chatter so a wake that only answers DMs cannot pretend the room
+    // was empty. Order is owned by harness.sortPending (verbs.zig uses it).
+    var items = [_]cli.rooms_peer_harness.Pending{
+        .{ .id = "c", .channel = "room", .author = "peer", .text = "chatter", .peer = "", .mention = false },
+        .{ .id = "a", .channel = "dm", .author = "Jim", .text = "hi", .peer = "Jim", .mention = false },
+        .{ .id = "b", .channel = "room", .author = "Jim", .text = "@you", .peer = "", .mention = true },
+    };
+    cli.rooms_peer_harness.sortPending(&items);
+    try std.testing.expectEqualStrings("dm", items[0].channel);
+    try std.testing.expectEqualStrings("a", items[0].id);
+    try std.testing.expect(items[1].mention);
+    try std.testing.expectEqualStrings("b", items[1].id);
+    try std.testing.expectEqualStrings("room", items[2].channel);
+    try std.testing.expectEqualStrings("c", items[2].id);
+}
+
+test "rooms-peer one-wake clears DM and human room together" {
+    // Stranger failure: answer the DM, leave human room pending, claim idle.
+    // After markReplied on both ids from one sorted wake, neither resurfaces.
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-one-wake-both-surfaces";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\"]}\n");
+    const inbox =
+        \\{"kind":"msg","channel":"room","author":"Jim","text":"general?"}
+    ++ "\n" ++
+        \\{"kind":"msg","channel":"dm","author":"Jim","peer":"Jim","text":"psst"}
+    ++ "\n";
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "inbox.jsonl", inbox);
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const roster = cli.rooms_peer_harness.loadRosterNicks(arena, io, gpa, dir);
+    const pending = cli.rooms_peer_harness.scanInbox(arena, io, dir, "fresh-eyes");
+    try std.testing.expectEqual(@as(usize, 2), pending.items.len);
+    cli.rooms_peer_harness.sortPending(pending.items);
+    try std.testing.expectEqualStrings("dm", pending.items[0].channel);
+    try std.testing.expectEqualStrings("room", pending.items[1].channel);
+    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(pending.items, roster));
+
+    const ids = [_][]const u8{ pending.items[0].id, pending.items[1].id };
+    _ = try cli.rooms_peer_harness.markReplied(io, gpa, dir, &ids);
+
+    var after_arena = std.heap.ArenaAllocator.init(gpa);
+    defer after_arena.deinit();
+    const after_alloc = after_arena.allocator();
+    const replied = cli.rooms_peer_harness.loadReplied(after_alloc, io, dir);
+    var remaining: std.ArrayList(cli.rooms_peer_harness.Pending) = .empty;
+    for (cli.rooms_peer_harness.scanInbox(after_alloc, io, dir, "fresh-eyes").items) |item| {
+        if (replied.contains(item.id)) continue;
+        try remaining.append(after_alloc, item);
+    }
+    try std.testing.expectEqual(@as(usize, 0), remaining.items.len);
+    try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(remaining.items, roster));
+}
+
+test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-roster-filter-test";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    const peer_line = cli.rooms_peer_harness.Pending{
+        .id = "1",
+        .channel = "room",
+        .author = "fresh-eyes",
+        .text = "hi",
+        .peer = "",
+        .mention = false,
+    };
+    const human_line = cli.rooms_peer_harness.Pending{
+        .id = "2",
+        .channel = "room",
+        .author = "Jim",
+        .text = "hi",
+        .peer = "",
+        .mention = false,
+    };
+    const mixed = [_]cli.rooms_peer_harness.Pending{ peer_line, human_line };
+
+    // No roster → never claim human (avoids stuck_human_room false positive).
+    try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(&mixed, &.{}));
+
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "roster.json", "{\"nicks\":[\"agentic-lead\",\"fresh-eyes\",\"engineering-steward\"]}\n");
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const roster = cli.rooms_peer_harness.loadRosterNicks(arena_state.allocator(), io, gpa, dir);
+    try std.testing.expectEqual(@as(usize, 3), roster.len);
+    try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(&[_]cli.rooms_peer_harness.Pending{peer_line}, roster));
+    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(&mixed, roster));
+    try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(&[_]cli.rooms_peer_harness.Pending{human_line}, roster));
 }
 
 test "rooms-peer a failed introduce ages out instead of poisoning the outbox" {

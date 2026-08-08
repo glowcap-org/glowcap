@@ -19,7 +19,7 @@ without making ordinary applications manage protocol machinery.
 
 An independent implementation also tests whether the specification can be
 implemented from its own words. Differences between the draft, Goblins, and
-pancake stay visible in [community review](community-review.md); project
+pancake stay visible in [community review](community-review.md). Project
 provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../PROVENANCE.md).
 

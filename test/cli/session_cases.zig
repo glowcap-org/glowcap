@@ -305,3 +305,83 @@ test "an unwritable state directory is refused as an identity problem, not a dia
     // it as one is what sent the reader in the wrong direction.
     try std.testing.expect(code != cli.exit_codes.dial);
 }
+
+test "listen --rendezvous reaches the background front, not just argv" {
+    // A flag accepted and silently ignored is worse than one refused. The
+    // background listener reads the same flag through the same owner
+    // (`ocapn.listenNetlayer`), so the locator it prints names the relay
+    // transport rather than a TCP address nobody asked for.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = makeCtx(threaded.io(), gpa, &environ);
+    defer c.deinit();
+    c.front = .mcp;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    c.sink = .{ .buffer = &capture };
+
+    // A relay URL that parses but has nobody behind it: registration fails,
+    // which is a dial failure and not a silent fallback to TCP.
+    var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer parsed.deinit();
+    try parsed.setString("rendezvous", "ws://127.0.0.1:1/register");
+    const code = try cli.ocapn.cmdListen(&c, &parsed);
+    try std.testing.expectEqual(cli.exit_codes.dial, code);
+    try std.testing.expect(c.background_listener == null);
+
+    // A malformed URL is caller error, refused by the shared owner.
+    var bad = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer bad.deinit();
+    try bad.setString("rendezvous", "http://not-a-relay/");
+    try std.testing.expectEqual(cli.exit_codes.usage, try cli.ocapn.cmdListen(&c, &bad));
+    try std.testing.expect(c.background_listener == null);
+}
+
+test "info reports a background listener that died on its own" {
+    // The handle outlives its accept thread, so the handle's presence is not
+    // evidence the listener is alive. A loop that stopped by itself records
+    // why, and `info` must report that rather than keep claiming to listen.
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = makeCtx(threaded.io(), gpa, &environ);
+    defer c.deinit();
+    c.front = .mcp;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    c.sink = .{ .buffer = &capture };
+
+    var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer parsed.deinit();
+    try parsed.setString("bind", "127.0.0.1:0");
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
+
+    // A live listener says so.
+    capture.clearRetainingCapacity();
+    var info_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer info_parsed.deinit();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":true") != null);
+
+    // Simulate the loop stopping by itself, the way a relay drop would.
+    c.background_listener.?.stop_reason.store("ConnectionLost", .release);
+    capture.clearRetainingCapacity();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "ConnectionLost") != null);
+
+    // The benign stop reports the same way: a one-partner listener that
+    // served its partner is not listening, and says why, rather than
+    // reporting a live accept loop it no longer runs.
+    const lb = @import("cli").ocapn_listen_background;
+    c.background_listener.?.stop_reason.store(lb.Handle.served_stop, .release);
+    capture.clearRetainingCapacity();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "\"listening\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture.items, "served its one partner") != null);
+}

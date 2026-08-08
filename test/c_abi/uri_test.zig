@@ -77,14 +77,19 @@ test "parse a peer URI with hints; look up and enumerate them" {
 }
 
 test "parse a sturdyref URI and read its swissnum" {
-    const uri = "ocapn://abcd.tcp/s/my-swiss-num";
+    const uri = "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU";
+    const swiss = [_]u8{
+        0x79, 0x08, 0xcf, 0xe2, 0x74, 0x76, 0xf1, 0xf7,
+        0xd7, 0xe5, 0xea, 0x0d, 0x08, 0xae, 0x43, 0x58,
+        0x7e, 0x83, 0x4f, 0xf7, 0x7b, 0x04, 0x8a, 0x83,
+        0xdf, 0xe3, 0x32, 0xe3, 0x9f, 0x42, 0x51, 0xb5,
+    };
     var loc: ?*c.PancakeLocator = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref(uri.ptr, uri.len, &loc));
     defer c.pancake_locator_release(loc);
 
-    try std.testing.expectEqualStrings("tcp", try view(c.pancake_locator_transport, loc));
-    try std.testing.expectEqualStrings("abcd", try view(c.pancake_locator_designator, loc));
-    try std.testing.expectEqualStrings("my-swiss-num", try view(c.pancake_locator_swissnum, loc));
+    try std.testing.expectEqualStrings("onion", try view(c.pancake_locator_transport, loc));
+    try std.testing.expectEqualSlices(u8, &swiss, try view(c.pancake_locator_swissnum, loc));
 }
 
 test "format a peer URI with a hint, then parse it back" {
@@ -151,6 +156,7 @@ test "format a sturdyref URI round-trips through parse" {
         &out_len,
     ));
     const rendered = buf[0..out_len];
+    try std.testing.expectEqualStrings("ocapn://127.0.0.1%3A9000.tcp/s/c3dpc3MtNDI", rendered);
 
     var loc: ?*c.PancakeLocator = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref(rendered.ptr, rendered.len, &loc));

@@ -24,12 +24,6 @@
 
 const std = @import("std");
 
-// Force sidecar stubs so reflecting the iroh archive stays cargo-free.
-comptime {
-    _ = @import("iroh_sidecar_stub");
-    _ = @import("webrtc_sidecar_stub");
-}
-
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
@@ -126,8 +120,17 @@ const constants = [_]Const{
     con("ARG_KEYWORD", c.PANCAKE_ARG_KEYWORD, .uint, null),
     con("ARG_BIG_INTEGER", c.PANCAKE_ARG_BIG_INTEGER, .uint, null),
     // Wire-grammar codec selectors (c_uint).
+    con("CODEC_UNKNOWN", c.PANCAKE_CODEC_UNKNOWN, .uint, null),
     con("CODEC_SYRUP", c.PANCAKE_CODEC_SYRUP, .uint, null),
     con("CODEC_CAPNP", c.PANCAKE_CODEC_CAPNP, .uint, null),
+    con("CAPTP_V1_0", c.PANCAKE_CAPTP_V1_0, .uint, null),
+    con("CAPTP_NEXT", c.PANCAKE_CAPTP_NEXT, .uint, null),
+    con("FEATURE_PIPELINING", c.PANCAKE_FEATURE_PIPELINING, .uint, null),
+    con("FEATURE_HANDOFF", c.PANCAKE_FEATURE_HANDOFF, .uint, null),
+    con("FEATURE_WIRE_DELTA", c.PANCAKE_FEATURE_WIRE_DELTA, .uint, null),
+    con("FEATURE_STURDYREF", c.PANCAKE_FEATURE_STURDYREF, .uint, null),
+    con("FEATURE_MINIMUM", c.PANCAKE_FEATURE_MINIMUM, .uint, null),
+    con("FEATURE_FULL", c.PANCAKE_FEATURE_FULL, .uint, null),
     // PancakeLastAbort.domain (c_uint).
     con("ABORT_DOMAIN_CODEC", c.PANCAKE_ABORT_DOMAIN_CODEC, .uint, null),
     con("ABORT_DOMAIN_SESSION", c.PANCAKE_ABORT_DOMAIN_SESSION, .uint, null),
@@ -135,6 +138,10 @@ const constants = [_]Const{
     // The resolved dial the core hands back from pancake_host_plan_dial: the
     // byte channel to open, the peer-id reachability, and the posture policy
     // (c_uint, libpancake_host).
+    con("TRACE_SESSION_OPEN", cd.PANCAKE_TRACE_SESSION_OPEN, .uint, null),
+    con("TRACE_MESSAGE", cd.PANCAKE_TRACE_MESSAGE, .uint, null),
+    con("TRACE_SESSION_CLOSE", cd.PANCAKE_TRACE_SESSION_CLOSE, .uint, null),
+    con("TRACE_DIGEST_BYTES", cd.PANCAKE_TRACE_DIGEST_BYTES, .uint, null),
     con("DIAL_SHAPE_HOST_PORT", cd.PANCAKE_DIAL_SHAPE_HOST_PORT, .uint, null),
     con("DIAL_SHAPE_PEER_ID", cd.PANCAKE_DIAL_SHAPE_PEER_ID, .uint, null),
     con("DIAL_SHAPE_SIGNALING", cd.PANCAKE_DIAL_SHAPE_SIGNALING, .uint, null),
@@ -148,12 +155,12 @@ const constants = [_]Const{
     // PancakePartnerIdentity.provenance: how the partner's advertised durable
     // identity was authenticated (ADR-0097).
     con("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", cd.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, .uint, null),
-    con("DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION", cd.PANCAKE_DURABLE_PROVENANCE_DURABLE_KEY_ATTESTATION, .uint, null),
     con("DURABLE_PROVENANCE_UNAUTHENTICATED", cd.PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED, .uint, null),
     // Default host connection frame cap and the local Forward hop bound
     // (usize, libpancake_host).
     con("DEFAULT_FRAME_CAP", cd.PANCAKE_DEFAULT_FRAME_CAP, .usize, null),
     con("MAX_LOCAL_FORWARD_HOPS", cd.PANCAKE_MAX_LOCAL_FORWARD_HOPS, .usize, null),
+    con("HANDSHAKE_TIMEOUT_MS", cd.PANCAKE_HANDSHAKE_TIMEOUT_MS, .usize, null),
     con("DISCOVERY_DIAL_RETRY_MS", cd.PANCAKE_DISCOVERY_DIAL_RETRY_MS, .usize, null),
     con("DISCOVERY_DIAL_MAX_ATTEMPTS", cd.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS, .usize, null),
     // Iroh reachability postures and the redeem knob's starting value (c_uint,

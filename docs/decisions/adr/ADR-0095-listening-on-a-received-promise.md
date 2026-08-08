@@ -3,9 +3,10 @@ id: ADR-0095
 status: accepted
 date: 2026-07-29
 tags: [engine, session, driver, handoff, promises]
-decision: "A peer asks how a promise it holds settles with `engine.listen.listenOnPromise`, and the notification is read back through one version-neutral resolver-export table shared with the V1.0 resolver callback."
+decision: "A peer asks how a far reference it holds settles with `engine.listen.listenOnFar`, and the notification is read back through one version-neutral resolver-export table shared with the V1.0 resolver callback."
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0111]
 ---
 
 # ADR-0095 Listening on a received promise
@@ -39,7 +40,7 @@ moved out of `engine.v1_0.interceptInboundDeliver` and into
 What is left of the V1.0 intercept is `registerPartnerResolver`, which installs
 the resolver the *partner* advertised and stays gated.
 
-The verb is `engine.listen.listenOnPromise(peer, target)`. It refuses anything
+The verb is `engine.listen.listenOnFar(peer, target)`. It refuses anything
 but a far this session holds, reserves a listener export bound to a fresh
 outbound answer through `Session.nominateResolverExport` — which installs that
 answer, so ordering it before the send is the verb's property rather than the
@@ -66,46 +67,38 @@ fulfill or break the provided resolver when a resolution is available to the
 the resolver object, and Goblins CapTP v1.0 settles a resolver callback the
 same way. One table describes one wire shape.
 
-Answer settlement stays profile-distinct, and nothing here touches it. On V1.0
-an answered `op:deliver` is augmented with a synthesized resolver export and
+How each profile asks for answer notification stays distinct. On V1.0 an
+answered `op:deliver` is augmented with a synthesized resolver export and
 settles through a callback deliver
 (`engine.v1_0.installResolverForOutboundDeliver`,
-`encodeResolveAsCallback`, `session.v1_0.mintOutboundResolver`). On
-`pancake-next` it settles through the `op:resolve` fold, and no resolver is
-minted at all; `test/engine/resolver_export_test.zig` asserts that directly, by
-sending an answered deliver on a next session and checking that no export was
-minted, that the partner learned no resolver import, and that the settlement
-arrives as a wire `op:resolve` with no off-wire answer override.
+`encodeResolveAsCallback`, `session.v1_0.mintOutboundResolver`). Next sends an
+answered operation with no inline resolver, then follows it with a mandatory
+`op:listen`. The listener callback settles the answer; next has no wire
+`op:resolve`.
 
-The two profiles also differ on `op:listen` itself: V1.0 carries a third
-`wants_partial` operand and next does not
-(`src/ocapn/codec/syrup/encode.zig`). The verb emits whichever the session
-negotiated, pinned in `test/engine/relay_resolution_test.zig` by running it on
-both and asserting the V1.0 record is exactly one Syrup boolean longer.
-
-Two [roadmap](../../roadmap.md) section 1 watch items name the seams a settled
-draft spec would move. The **listen arity** item owns that operand difference:
-if the draft text and the suite agree on arity, the encoder's per-profile branch
-is where it changes, and the arity assertion above is what fails first. The
-**settlement encoding** item owns the other half: if CapTP settles on a
-`op:break`-style encoding Goblins also speaks, the V1.0 augmentation and the
-next fold both move, and this ADR's claim that the *notification* shape is
-common is what would need re-checking before the resolver-export table is
-assumed to still serve both.
+The two profiles also differ on `op:listen` itself. V1.0 carries Goblins's
+Boolean `wants_partial`; next carries integer mode 1, 2, or 3. Both translate to
+`model.ListenMode` at the codec edge. [ADR-0111](ADR-0111-next-promise-listeners.md)
+records the next-profile amendment.
 
 ## Scope (what this does not decide)
 
 - A listen on a *near* export, on a bare `promise` reference, on a sturdyref, or
   on a broken reference is refused `InvalidReference`. Only a far this session
   holds is a legal target.
-- `wants_partial` is always false. pancake asks for a settled result, never a
-  partial one, and no tier exposes the knob.
+- `listenTo` asks only for settling on both profiles. On next, the private
+  mode-1 listener installed when the remote promise arrived is already the one
+  shortening subscription PR 282 permits; the application listen is the later
+  mode-2 request for its settled result. The public tiers do not expose a mode
+  parameter.
 - `Node.armHomeProxy` keeps its own claim path. Its listener export carries no
   resolver link, so the two probes are disjoint by construction, and it stays
   separate because its settlement consumer is different: it fans one home
-  settlement out to N recipient stores and mints no vow.
-- The C ABI and the language bindings expose no verb that listens on a promise
-  yet (each binding's `listen` accepts connections, an unrelated thing).
+  settlement out to N recipient stores and mints no vow. Both claim paths move
+  their mode-2 listener to the current target when the promise shortens.
+- The C ABI verb is `pancake_host_session_listen`; each language binding exposes
+  the same far-reference listen under its Host/Session face. An unrelated
+  `listen` on some bindings still means accept connections.
 - No live partner has been asked to play *this* seat, where pancake waits on a
   promise a partner introduced, so the verb's own evidence is in-tree
   ([community-review](../../community-review.md) holds the proven/unproven
@@ -134,8 +127,10 @@ assumed to still serve both.
   `.resolver_callback_resolve`, and `engine.v1_0.InboundIntercept` is gone.
 - `src/ocapn/engine/listen.zig` is new, one verb, no allocation on the wire
   path: `sendCopying` clones an `op:listen`'s two position-only references.
-  Three POD rows per live listen, in tables no partner can grow: every row is
-  minted by this side, so the bound is the application's own listens.
+  Three POD rows per live application listen, in tables no partner can grow:
+  every row is minted by this side, so the bound is the application's own
+  listens. Next also maintains one private shortening subscription per remote
+  promise.
 - Evidence: `test/engine/relay_resolution_test.zig` (the verb, both profiles,
   fulfill and break, per-profile arity, refusals),
   `test/engine/resolver_export_test.zig` (the probe on both profiles, the

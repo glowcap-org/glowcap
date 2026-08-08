@@ -28,12 +28,43 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch_check = @import("tools/check/arch_check.zig");
 const meta_check = @import("tools/check/meta_check.zig");
+const toolchain_check = @import("tools/check/toolchain_check.zig");
 
 /// C ABI version (keep in lockstep with `PANCAKE_VERSION_*` in
 /// `include/pancake_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
 /// in `build.zig.zon` — the meta gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
+
+/// What `zig build check` requires on PATH besides Zig, and why each member
+/// earns a place in the gate everyone runs rather than a sibling step.
+///
+/// `check` is hermetic on the axis that divides it from `check-external`: no
+/// network, no submodules, no live peer, no authority outside pancake. It is not
+/// Zig-only, and three separate changes made it so without saying — see
+/// `tools/check/toolchain_check.zig`, which holds this table against the graph.
+/// A new row raises the floor for every contributor, so it is a decision, and
+/// the [cli rule](.agents/rules/cli.md) names the set for a reader who has not
+/// opened this file.
+const check_runtimes = [_]toolchain_check.Runtime{
+    .{
+        .program = "cargo",
+        .why = "the hermetic CLI tests link the iroh sidecar staticlib, so `cli-registry-test` " ++
+            "and `cli-src-test` cannot link without it. The alternative is a hand-written Zig " ++
+            "mirror of 26 sidecar externs, a second authority for an ABI that would drift.",
+    },
+    .{
+        .program = "bash",
+        .scripts = &.{
+            "tools/check/ocapnviz-test.sh",
+            "tools/c-abi/c-abi-extract-matrix.sh",
+        },
+        .why = "two harnesses whose subjects are not Zig. The visualizer's suite is TypeScript " ++
+            "and needs `deno`; the C-ABI extract matrix reaches `python3`, `deno`, and `tar` to " ++
+            "drive each resolve port's real extractor, because a soft-green extract is a footgun. " ++
+            "Those three are invisible to the gate, which sees only the script name.",
+    },
+};
 
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0040; ADR-0048 for the sibling-codec modules below the codec layer).
@@ -204,13 +235,21 @@ fn addPancakeRun(
     return run;
 }
 
+/// A system command run from the repository root. Use this for tools whose
+/// arguments name repo-relative manifests or scripts, but which do not need the
+/// installed archive set.
+fn addRootedSystemCommand(b: *std.Build, argv: []const []const u8) *std.Build.Step.Run {
+    const run = b.addSystemCommand(argv);
+    run.setCwd(b.path("."));
+    return run;
+}
+
 /// A sibling-step system command that needs the installed archive set and its
 /// headers and runs from the repository root with side effects, the shape
 /// every cross-language interop and demo orchestrator shares.
 fn addInstalledSystemRun(b: *std.Build, argv: []const []const u8) *std.Build.Step.Run {
-    const run = b.addSystemCommand(argv);
+    const run = addRootedSystemCommand(b, argv);
     run.step.dependOn(b.getInstallStep());
-    run.setCwd(b.path("."));
     run.has_side_effects = true;
     return run;
 }
@@ -906,6 +945,13 @@ pub fn build(b: *std.Build) void {
     arch_check_step.dependOn(arch_check_step_inner);
     check_step.dependOn(arch_check_step);
 
+    // The walk reads `check_step`'s dependencies at make time, so members added
+    // anywhere below this line are still seen.
+    const toolchain_check_step_inner = toolchain_check.create(b, check_step, &check_runtimes);
+    const toolchain_check_step = b.step("toolchain-check", "Hold `zig build check` to its declared external runtimes");
+    toolchain_check_step.dependOn(toolchain_check_step_inner);
+    check_step.dependOn(toolchain_check_step);
+
     const meta_check_step_inner = meta_check.create(b);
 
     // Unit tests for the meta gate's own parsers (link/command/Mermaid logic)
@@ -990,7 +1036,7 @@ pub fn build(b: *std.Build) void {
     // The wasm module is a shipped artifact like the archives, so fold its
     // install into the default `zig build` install. Every serve path reads the
     // on-disk `zig-out/wasm/pancake_host.wasm`: the rooms serve steps
-    // (`rooms-web`, `rooms-web-iroh`) ride `addInstalledSystemRun`, which depends
+    // (`rooms-web-tcp`, `rooms-web-iroh`) ride `addInstalledSystemRun`, which depends
     // on the default install, and the compose deploy runs plain `zig build`.
     // Without this edge a renamed C-ABI symbol leaves the served module stale,
     // and the browser can only report the missing export at dlopen time.
@@ -1144,9 +1190,9 @@ pub fn build(b: *std.Build) void {
             });
             gen_mod.addImport(hg.import_name, hg.import_module);
             for (hg.extra_imports) |imp| gen_mod.addImport(imp.name, imp.module);
-            // Available to every generator; the iroh and webrtc headers plus the
-            // FFI mirrors force-link these so reflecting a transport archive that
-            // calls a Rust sidecar stays cargo-free.
+            // Available to every generator; the emit/verify harness roots
+            // force-link these so reflecting a transport archive that calls a
+            // Rust sidecar stays cargo-free without each generator remembering.
             gen_mod.addImport("iroh_sidecar_stub", bb.createModule(.{
                 .root_source_file = bb.path("tools/gen/stub/iroh_sidecar.zig"),
                 .target = tgt,
@@ -1178,6 +1224,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = opt,
             });
             check_mod.addImport("generator", gen_mod);
+            check_mod.addImport("iroh_sidecar_stub", gen_mod.import_table.get("iroh_sidecar_stub").?);
+            check_mod.addImport("webrtc_sidecar_stub", gen_mod.import_table.get("webrtc_sidecar_stub").?);
             const check_exe = bb.addExecutable(.{ .name = hg.check_step_name, .root_module = check_mod });
             const check_run = bb.addRunArtifact(check_exe);
             check_run.setCwd(bb.path("."));
@@ -1191,6 +1239,8 @@ pub fn build(b: *std.Build) void {
                 .optimize = opt,
             });
             write_mod.addImport("generator", gen_mod);
+            write_mod.addImport("iroh_sidecar_stub", gen_mod.import_table.get("iroh_sidecar_stub").?);
+            write_mod.addImport("webrtc_sidecar_stub", gen_mod.import_table.get("webrtc_sidecar_stub").?);
             const write_exe = bb.addExecutable(.{ .name = hg.write_step_name, .root_module = write_mod });
             const write_run = bb.addRunArtifact(write_exe);
             write_run.setCwd(bb.path("."));
@@ -1383,7 +1433,7 @@ pub fn build(b: *std.Build) void {
     };
     var dogfood_runs: [dogfoods.len]*std.Build.Step.Run = undefined;
     for (dogfoods, 0..) |dogfood, i| {
-        dogfood_runs[i] = b.addSystemCommand(dogfood.argv);
+        dogfood_runs[i] = addRootedSystemCommand(b, dogfood.argv);
         dogfood_runs[i].step.dependOn(b.getInstallStep());
         b.step(dogfood.step_name, dogfood.description).dependOn(&dogfood_runs[i].step);
     }
@@ -1401,23 +1451,34 @@ pub fn build(b: *std.Build) void {
     // this compile-only leg keeps that claim a gate instead of a sentence (the
     // cfg-gated surface plus the dead-code deny make it the likeliest shape to
     // rot silently).
-    const rust_core_only = b.addSystemCommand(&.{
+    const rust_core_only = addRootedSystemCommand(b, &.{
         "cargo", "check", "--manifest-path", "bindings/rust/Cargo.toml", "--no-default-features",
     });
     rust_core_only.step.dependOn(b.getInstallStep());
     dogfood_runs[0].step.dependOn(&rust_core_only.step);
-    // The Racket unit tests. `raco test` is not in the devcontainer image, and
-    // running each file directly is what a `#lang racket/base` module with
-    // rackunit checks at the top level needs anyway. Without this the bench
-    // apps had no check at all, which is how one of them came to pass `'bcom`
-    // where a procedure was expected and stay broken.
+    // The Racket unit tests. `raco test` is not in the devcontainer image, so
+    // they run through `tools/check/racket-test.rkt`, which does the two things
+    // a bare `racket <file>` does not: it makes a failed rackunit check raise,
+    // so the exit code this step reads means something, and it runs a
+    // `(module+ test ...)` submodule, which is where a library's own tests have
+    // to live because top-level checks would run on every import. Without this
+    // step the bench apps had no check at all, which is how one of them came to
+    // pass `'bcom` where a procedure was expected and stay broken.
     const racket_tests = [_][]const u8{
         "bench/goblins/metrics-test.rkt",
         "bench/goblins/apps-test.rkt",
+        "conformance/goblins-peer/racket/captp-message-procs.rkt",
+        "conformance/goblins-peer/racket/ocapn-names.rkt",
+        "conformance/goblins-peer/racket/session-trace.rkt",
+        "conformance/goblins-peer/racket/trace-publish.rkt",
+        "conformance/goblins-peer/racket/iroh-netlayer.rkt",
+        "conformance/goblins-peer/racket/rooms-client.rkt",
+        "conformance/goblins-peer/racket/rooms-dm.rkt",
     };
-    const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket)");
+    const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket + goblins)");
     for (racket_tests) |file| {
-        const run = b.addSystemCommand(&.{ "racket", file });
+        const run = b.addSystemCommand(&.{ "racket", "-y", "tools/check/racket-test.rkt", file });
+        run.has_side_effects = true;
         racket_test_step.dependOn(&run.step);
     }
 
@@ -1509,10 +1570,24 @@ pub fn build(b: *std.Build) void {
     const goblins_gift_step = b.step("goblins-gift", "Live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)");
     goblins_gift_step.dependOn(&run_goblins_gift.step);
 
-    // The same topology with a credential-bearing exporter locator: the give's
-    // hint dict carries a 64-byte session-key-attestation entry, and both live
-    // Goblins peers must decode, re-encode, and verify it byte-exactly
-    // (ADR-0097 migration step 1's live foreign-decode evidence).
+    // The exporter is its own process, like every Goblins peer here: one
+    // completion loop per process, and the driver's own loop is the gifter's.
+    const native_pair_exporter_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-native-pair-exporter", "interop/goblins_interop/native_pair_exporter.zig");
+    native_pair_exporter_exe.root_module.addImport("interop_harness", interop_harness_mod);
+    b.installArtifact(native_pair_exporter_exe);
+    check_step.dependOn(&native_pair_exporter_exe.step);
+    const goblins_native_pair_gift_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-native-pair-gift", "interop/goblins_interop/native_pair_gift_driver.zig");
+    goblins_native_pair_gift_exe.root_module.addImport("interop_harness", interop_harness_mod);
+    check_step.dependOn(&goblins_native_pair_gift_exe.step);
+    const run_goblins_native_pair_gift = b.addRunArtifact(goblins_native_pair_gift_exe);
+    run_goblins_native_pair_gift.step.dependOn(b.getInstallStep());
+    run_goblins_native_pair_gift.setCwd(b.path("."));
+    run_goblins_native_pair_gift.has_side_effects = true;
+    const goblins_native_pair_gift_step = b.step("goblins-native-pair-gift", "Live three-party handoff with two pancake vats and one Goblins vat: the pancake pair holds a pancake-next Cap'n Proto session while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)");
+    goblins_native_pair_gift_step.dependOn(&run_goblins_native_pair_gift.step);
+
+    // The same topology with an opaque route hint. Both live Goblins peers
+    // must decode and re-encode the mapping-shaped locator byte-exactly.
     const run_goblins_gift_hints = b.addRunArtifact(goblins_gift_exe);
     run_goblins_gift_hints.setCwd(b.path("."));
     run_goblins_gift_hints.has_side_effects = true;
@@ -1522,7 +1597,7 @@ pub fn build(b: *std.Build) void {
     // `-Dport` pin still overrides.
     run_goblins_gift_hints.addArg("--port=22170");
     if (pin_port) |p| run_goblins_gift_hints.addArg(b.fmt("--port={d}", .{p}));
-    const goblins_gift_hints_step = b.step("goblins-gift-hints", "Live hinted-locator handoff vs Goblins: a give whose exporter locator carries the provisional session-key-attestation hint dict survives Goblins decode, re-encode, and signature verification (needs racket + goblins)");
+    const goblins_gift_hints_step = b.step("goblins-gift-hints", "Live hinted-locator handoff vs Goblins: an opaque route hint survives decode, re-encode, and signature verification (needs racket + goblins)");
     goblins_gift_hints_step.dependOn(&run_goblins_gift_hints.step);
 
     // A relayed give read by live Goblins: pancake introduces a third party to
@@ -1645,7 +1720,7 @@ pub fn build(b: *std.Build) void {
     // a deliver/resolve over an encrypted QUIC stream, dialed by endpoint id
     // with direct-address hints. Needs cargo on PATH, so both are sibling
     // steps of `check`, the same posture as `rust-dogfood`.
-    const iroh_lib = b.addSystemCommand(&.{
+    const iroh_lib = addRootedSystemCommand(b, &.{
         "cargo", "build", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
     const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
@@ -1654,7 +1729,7 @@ pub fn build(b: *std.Build) void {
     // The sidecar's own Rust unit tests, chief among them the positive-fire proof
     // that a caller-set connect timeout trips fast against a bound-but-silent UDP
     // black hole. Needs cargo, so it is a sibling step like `iroh-lib`.
-    const iroh_sidecar_test = b.addSystemCommand(&.{
+    const iroh_sidecar_test = addRootedSystemCommand(b, &.{
         "cargo", "test", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
     });
     const iroh_sidecar_test_step = b.step("iroh-sidecar-test", "Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)");
@@ -1664,11 +1739,22 @@ pub fn build(b: *std.Build) void {
     // bound: a far peer that sends faster than the resident reads has to wait
     // for room rather than grow the buffer without limit. Needs cargo, so it is
     // a sibling step like the iroh one above.
-    const webrtc_sidecar_test = b.addSystemCommand(&.{
+    const webrtc_sidecar_test = addRootedSystemCommand(b, &.{
         "cargo", "test", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
     });
     const webrtc_sidecar_test_step = b.step("webrtc-sidecar-test", "Run the WebRTC sidecar Rust unit tests, including the inbound backpressure proof (needs cargo)");
     webrtc_sidecar_test_step.dependOn(&webrtc_sidecar_test.step);
+
+    // ── Browser proofs: one preflight for all of them ────────────────────────
+    // Every step that drives a real headless Chromium depends on this. The
+    // devcontainer ships the browser in its image, so an absent one means the
+    // image predates that or the build is running somewhere else, and Playwright's
+    // own error names a remedy this project does not use. The script says which
+    // version to install and where the version is written; every browser step
+    // borrows that one answer rather than restating it in a header comment.
+    const browser_preflight = b.addSystemCommand(&.{ "bash", "tools/check/playwright-preflight.sh" });
+    browser_preflight.setCwd(b.path("."));
+    browser_preflight.has_side_effects = true;
 
     // ── WebRTC DataChannel netlayer (ADR-0089) ───────────────────────────────
     // One cargo build of `transports/webrtc/` produces both the phase-1 probe
@@ -1684,7 +1770,7 @@ pub fn build(b: *std.Build) void {
     // capability-routed signaling path.
     // Sibling steps, not folded into `check`: they need cargo, deno, and a
     // browser binary.
-    const webrtc_probe_build = b.addSystemCommand(&.{
+    const webrtc_probe_build = addRootedSystemCommand(b, &.{
         "cargo", "build", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
     });
     const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and phase-1 probe binary (ADR-0089; needs cargo)");
@@ -1695,6 +1781,7 @@ pub fn build(b: *std.Build) void {
     });
     webrtc_datachannel_test.setCwd(b.path("."));
     webrtc_datachannel_test.has_side_effects = true;
+    webrtc_datachannel_test.step.dependOn(&browser_preflight.step);
     webrtc_datachannel_test.step.dependOn(&webrtc_probe_build.step);
     const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a native webrtc-crate peer on loopback (ADR-0089 phase 1; needs cargo + deno + a Playwright Chromium)");
     webrtc_datachannel_test_step.dependOn(&webrtc_datachannel_test.step);
@@ -1933,6 +2020,7 @@ pub fn build(b: *std.Build) void {
     });
     webrtc_browser_peer.setCwd(b.path("."));
     webrtc_browser_peer.has_side_effects = true;
+    webrtc_browser_peer.step.dependOn(&browser_preflight.step);
     webrtc_browser_peer.step.dependOn(&wasm_driver_install.step);
     webrtc_browser_peer.step.dependOn(&webrtc_answerer_install.step);
     b.step("webrtc-browser-peer", "Prove a real headless Chromium runs @pancake/web + @pancake/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)").dependOn(&webrtc_browser_peer.step);
@@ -1949,6 +2037,7 @@ pub fn build(b: *std.Build) void {
     });
     webrtc_browser_to_browser.setCwd(b.path("."));
     webrtc_browser_to_browser.has_side_effects = true;
+    webrtc_browser_to_browser.step.dependOn(&browser_preflight.step);
     webrtc_browser_to_browser.step.dependOn(&wasm_driver_install.step);
     b.step("webrtc-browser-to-browser", "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the offerer dialing a bare webrtc locator through its host's configured signaling authority (Host.setSignaling), the signaling host out of the byte path (ADR-0089; needs deno + a Playwright Chromium)").dependOn(&webrtc_browser_to_browser.step);
 
@@ -1987,6 +2076,10 @@ pub fn build(b: *std.Build) void {
     //                   superset. Deterministic.
     //   iroh-bridge-redeem — ADR-0076: recipient on Loop(iroh.Backend, iroh.DialResolver) redeems
     //                   a handoff via Loop.dialLocator. Deterministic.
+    //   goblins-iroh  — the one row whose partner is not pancake: a real Spritely
+    //                   Goblins vat over the iroh netlayer this repository wrote
+    //                   for it, both directions. Needs racket + goblins as well
+    //                   as cargo, so it is the family's only Racket-spawning row.
     //   bench-iroh    — round-trip latency/throughput over real keyed QUIC vs a
     //                   same-machine cleartext TCP baseline; reports numbers,
     //                   gates none, and forwards `-- <args>`. `bench-site-report`
@@ -2002,6 +2095,7 @@ pub fn build(b: *std.Build) void {
         .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig" },
         .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig" },
         .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "pancake-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig" },
+        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a pancake peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "pancake-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig" },
         .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true },
     };
     for (iroh_drivers) |drv| {
@@ -2091,10 +2185,10 @@ pub fn build(b: *std.Build) void {
     // The Rust relay builds twice: archive-free for the TCP and backpressure legs,
     // and with `--features iroh` (linking the iroh binding) for the iroh leg. Deno
     // and Python relays are single scripts that serve every leg.
-    const rust_relay_build = b.addSystemCommand(&.{
+    const rust_relay_build = addRootedSystemCommand(b, &.{
         "cargo", "build", "--release", "--manifest-path", "bindings/rust/relay/Cargo.toml",
     });
-    const rust_relay_iroh_build = b.addSystemCommand(&.{
+    const rust_relay_iroh_build = addRootedSystemCommand(b, &.{
         "cargo", "build", "--release", "--features", "iroh", "--manifest-path", "bindings/rust/relay/Cargo.toml",
     });
     rust_relay_iroh_build.step.dependOn(iroh_abi_step);
@@ -2175,6 +2269,91 @@ pub fn build(b: *std.Build) void {
     if (pin_port) |p| goblins_relay.addArg(b.fmt("--port={d}", .{p}));
     const goblins_relay_step = b.step("goblins-relay", "Live Goblins through the byte-transparent relay: a browser peer holds a keyed OCapN session with a real Goblins vat through the Deno reference relay (needs deno + racket + goblins)");
     goblins_relay_step.dependOn(&goblins_relay.step);
+
+    // A real Goblins vat as an ordinary member of the rooms chat. The rooms
+    // fleet prefers pancake-next over Cap'n Proto and a Goblins vat speaks only
+    // the v1.0 Syrup baseline, so each session settles its own pair
+    // (ADR-0103); the harness reads both profiles off the server's live trace
+    // rather than taking either member's word for it.
+    const goblins_rooms = addInstalledSystemRun(b, &.{
+        "deno",                             "run",         "--allow-read",
+        "--allow-net",                      "--allow-run", "--allow-env",
+        "interop/goblins_rooms/harness.ts",
+    });
+    const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a pancake peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
+    goblins_rooms_step.dependOn(&goblins_rooms.step);
+
+    // The same room over encrypted QUIC. The accepting side records the
+    // endpoint key QUIC authenticated. The room server's iroh listener does that
+    // for every connection it accepts, and this is where that stays true: the
+    // vat is refused without it, and reads the refusal as a decode error
+    // because a refusal is framed in the room's own profile.
+    const goblins_rooms_iroh = addInstalledSystemRun(b, &.{
+        "deno",        "run",            "--allow-read",
+        "--allow-net", "--allow-run",    "--allow-env",
+        "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
+        "--iroh",
+    });
+    // Server and vat both reach iroh through the C ABI companion library.
+    goblins_rooms_iroh.step.dependOn(iroh_abi_step);
+    const goblins_rooms_iroh_step = b.step("goblins-rooms-iroh", "Live Goblins in the rooms chat over iroh's encrypted QUIC: the accepting side records the endpoint id QUIC authenticated (needs cargo + deno + racket + goblins)");
+    goblins_rooms_iroh_step.dependOn(&goblins_rooms_iroh.step);
+
+    // A browser tab and a real Goblins vat hold a direct message. The room
+    // introduces them and then carries none of it: the tab redeems the give by
+    // dialing the vat's own netlayer, and the vat answers over that same
+    // connection, which is the only path back to a tab that opens no listener.
+    // Three implementations at the three corners of one handoff, with nothing
+    // changed in Goblins to allow it, and the whole conversation drawn on the
+    // live timeline from both ends.
+    const goblins_rooms_dm = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts",
+    });
+    goblins_rooms_dm.setCwd(b.path("."));
+    goblins_rooms_dm.has_side_effects = true;
+    goblins_rooms_dm.step.dependOn(&browser_preflight.step);
+    goblins_rooms_dm.step.dependOn(&wasm_driver_install.step);
+    goblins_rooms_dm.step.dependOn(b.getInstallStep());
+    const goblins_rooms_dm_step = b.step("goblins-rooms-dm", "Live Goblins direct message, both directions: a browser tab redeems a room introduction and reaches a real Goblins vat off-room over cleartext TCP, the vat answers over that same connection, and the vat starts a direct message of its own by redeeming a give that names a native pancake member as its exporter (needs deno + racket + goblins + a Playwright Chromium)");
+    goblins_rooms_dm_step.dependOn(&goblins_rooms_dm.step);
+
+    // The same conversation over encrypted QUIC. The relay leg records which
+    // endpoint it dialed as its channel testimony. Nothing else changes.
+    const goblins_rooms_dm_iroh = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "interop/goblins_rooms_dm/harness.ts", "--iroh",
+    });
+    goblins_rooms_dm_iroh.setCwd(b.path("."));
+    goblins_rooms_dm_iroh.has_side_effects = true;
+    goblins_rooms_dm_iroh.step.dependOn(&browser_preflight.step);
+    goblins_rooms_dm_iroh.step.dependOn(&wasm_driver_install.step);
+    goblins_rooms_dm_iroh.step.dependOn(iroh_abi_step);
+    goblins_rooms_dm_iroh.step.dependOn(b.getInstallStep());
+    const goblins_rooms_dm_iroh_step = b.step("goblins-rooms-dm-iroh", "The browser's direction over iroh's encrypted QUIC: the relay leg records which endpoint it dialed (needs cargo + deno + racket + goblins + a Playwright Chromium)");
+    goblins_rooms_dm_iroh_step.dependOn(&goblins_rooms_dm_iroh.step);
+
+    const goblins_rooms_matrix_phases = [_][]const u8{
+        "rooms", "dms-a", "dms-b", "dms-goblins", "count-discrepancy",
+    };
+    var previous_goblins_rooms_matrix_phase: ?*std.Build.Step = null;
+    for (goblins_rooms_matrix_phases) |phase| {
+        const run = b.addSystemCommand(&.{
+            "deno",                         "run", "--allow-all", "interop/goblins_rooms_matrix/harness.ts",
+            b.fmt("--phase={s}", .{phase}),
+        });
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        if (previous_goblins_rooms_matrix_phase) |previous| {
+            run.step.dependOn(previous);
+        } else {
+            run.step.dependOn(&browser_preflight.step);
+            run.step.dependOn(&wasm_driver_install.step);
+            run.step.dependOn(iroh_abi_step);
+            run.step.dependOn(b.getInstallStep());
+        }
+        previous_goblins_rooms_matrix_phase = &run.step;
+    }
+    const goblins_rooms_matrix_iroh_step = b.step("goblins-rooms-matrix-iroh", "Heavy four-peer rooms matrix: pin Goblins' cross-receiver count defect, then exercise mixed and homogeneous rooms, every DM pair, close/reopen, and peer restart over iroh");
+    goblins_rooms_matrix_iroh_step.dependOn(previous_goblins_rooms_matrix_phase.?);
 
     // ── release packaging ────────────────────────────────────────────────────
     // Stage the complete installed archive set — the pure-Zig archives plus the
@@ -2435,6 +2614,11 @@ pub fn build(b: *std.Build) void {
             .step_name = "rust-keyed-relay-rendezvous",
             .description = "Keyed-relay rendezvous cold-dial proof: the Rust binding dials a registered peer through the reference relay (needs deno + cargo)",
             .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "rendezvous", "--example", "keyed_relay_rendezvous", "--" },
+        },
+        .{
+            .step_name = "zig-keyed-relay-register",
+            .description = "Keyed-relay register proof: the native pancake CLI registers at the reference relay (no listening socket) and answers a cold dial (needs deno)",
+            .argv = &.{ "bash", "bindings/proofs/keyed_relay_rendezvous/zig_register.sh" },
         },
         .{
             .step_name = "zig-keyed-relay-rendezvous",
@@ -2786,12 +2970,17 @@ pub fn build(b: *std.Build) void {
     // `apps/_demo/zig/`: the typed room-error vocabulary, the
     // one-shot usage printer, and the tools capability checklist. Each std-only
     // leaf is minted once and imported by the clients that name it.
+    // The one Zig authority for the wire profile a rooms peer speaks, shared
+    // by the chat client and `pancake app rooms-peer` so the two cannot drift
+    // into a session neither can open.
+    const rooms_profile_mod = b.createModule(.{ .root_source_file = b.path("apps/rooms/lib/profile.zig"), .target = target, .optimize = optimize });
     const demo_rooms_cli_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/rooms_cli.zig"), .target = target, .optimize = optimize });
     const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
     const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
 
     const rooms_client_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-rooms-client", "apps/rooms/clients/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", demo_rooms_cli_mod);
+    rooms_client_exe.root_module.addImport("rooms_profile", rooms_profile_mod);
     rooms_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
     // The default rooms client is TCP-only: a build option flips the iroh dial
     // path off so the `@import("iroh")` inside it is comptime-elided and the
@@ -2820,8 +3009,8 @@ pub fn build(b: *std.Build) void {
     // sidecar's nonblocking FFI; they skip when the iroh ABI lib is absent, so
     // the flag is harmless for the TCP suite and a cargo-free run stays green.
     const rooms_server_test = addInstalledSystemRun(b, &.{
-        "deno",                           "test",                        "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "apps/rooms/test/server_test.ts", "apps/rooms/test/web_test.ts",
+        "deno",                           "test",                        "--allow-ffi",                 "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/rooms/test/server_test.ts", "apps/rooms/test/web_test.ts", "apps/rooms/test/viz_test.ts",
     });
 
     const rooms_demo = addInstalledSystemRun(b, &.{
@@ -2896,6 +3085,7 @@ pub fn build(b: *std.Build) void {
     rooms_iroh_opts.addOption(bool, "iroh_enabled", true);
     rooms_client_iroh_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_mod.addImport("demo_rooms_cli", demo_rooms_cli_mod);
+    rooms_client_iroh_mod.addImport("rooms_profile", rooms_profile_mod);
     rooms_client_iroh_mod.addImport("demo_usage", demo_usage_mod);
     linkIrohSidecar(b, rooms_client_iroh_mod, target);
     const rooms_client_iroh_exe = b.addExecutable(.{ .name = "pancake-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
@@ -2908,6 +3098,7 @@ pub fn build(b: *std.Build) void {
     const rooms_client_iroh_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_check_mod.addImport("demo_rooms_cli", demo_rooms_cli_mod);
+    rooms_client_iroh_check_mod.addImport("rooms_profile", rooms_profile_mod);
     rooms_client_iroh_check_mod.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&b.addObject(.{ .name = "rooms-client-iroh-check", .root_module = rooms_client_iroh_check_mod }).step);
 
@@ -2931,6 +3122,7 @@ pub fn build(b: *std.Build) void {
     const pancake_cli_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "cli/main.zig");
     pancake_cli_mod.addOptions("build_options", pancake_cli_opts);
     pancake_cli_mod.addImport("vaxis", vaxis_mod orelse return);
+    pancake_cli_mod.addImport("rooms_profile", rooms_profile_mod);
     linkIrohSidecar(b, pancake_cli_mod, target);
     const pancake_cli_exe = b.addExecutable(.{ .name = "pancake", .root_module = pancake_cli_mod });
     pancake_cli_exe.step.dependOn(&iroh_lib.step);
@@ -2944,6 +3136,7 @@ pub fn build(b: *std.Build) void {
     const pancake_cli_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "cli/main.zig");
     pancake_cli_check_mod.addOptions("build_options", pancake_cli_opts);
     pancake_cli_check_mod.addImport("vaxis", vaxis_mod orelse return);
+    pancake_cli_check_mod.addImport("rooms_profile", rooms_profile_mod);
     check_step.dependOn(&b.addObject(.{ .name = "pancake-cli-check", .root_module = pancake_cli_check_mod }).step);
 
     // Install alias: thin shim → `pancake app rooms-peer` (no CapTP/iroh link).
@@ -2977,6 +3170,7 @@ pub fn build(b: *std.Build) void {
     cli_api_mod.addImport("pancake", lib_mod);
     cli_api_mod.addImport("vaxis", vaxis_mod orelse return);
     cli_api_mod.addImport("iroh", iroh_resident_mod);
+    cli_api_mod.addImport("rooms_profile", rooms_profile_mod);
     cli_api_mod.addOptions("build_options", pancake_cli_opts);
     linkIrohSidecar(b, cli_api_mod, target);
     const cli_tests_mod = b.createModule(.{
@@ -3009,6 +3203,7 @@ pub fn build(b: *std.Build) void {
     cli_src_mod.addImport("pancake", lib_mod);
     cli_src_mod.addImport("vaxis", vaxis_mod orelse return);
     cli_src_mod.addImport("iroh", iroh_resident_mod);
+    cli_src_mod.addImport("rooms_profile", rooms_profile_mod);
     cli_src_mod.addOptions("build_options", pancake_cli_opts);
     linkIrohSidecar(b, cli_src_mod, target);
     const cli_src_tests = b.addTest(.{
@@ -3069,22 +3264,33 @@ pub fn build(b: *std.Build) void {
     b.step("demo-rooms-dm-iroh-discovery", "Opt-in: rooms DM-by-introduction over iroh by node id ALONE through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)")
         .dependOn(&rooms_dm_iroh_discovery.step);
 
-    // The rooms browser UI: a Deno process that serves a single-page chat and, for
-    // each browser tab, bridges a real pancake connection to the room directory. It
-    // carries public rooms and direct messages by introduction, the three-party
-    // handoff a browser cannot make on its own. It is a long-running server, so it
-    // runs like `docs-serve`: start it, then open the URL it prints. `-Dport` pins
-    // the HTTP port (default 8000). Needs `deno`.
+    // The rooms browser UI over cleartext TCP: a Deno process that serves a
+    // single-page chat and, for each browser tab, bridges a real pancake
+    // connection to the room directory. It carries public rooms and direct
+    // messages by introduction, the three-party handoff a browser cannot make on
+    // its own. It is a long-running server, so it runs like `docs-serve`: start
+    // it, then open the URL it prints. `-Dport` pins the HTTP port (default
+    // 8000). Needs `deno`.
+    //
+    // The step is named for its transport because `tcp` proves no peer and
+    // encrypts nothing, so it is not the one to reach for by default. That is
+    // `rooms-web-iroh` below, which runs the same UI over encrypted QUIC and
+    // costs only `cargo`.
     const rooms_web = addInstalledSystemRun(b, &.{
-        "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
-        "--allow-env", // PANCAKE_RELAY_MAX_SESSIONS / _MAX_REGISTRATIONS override the host-derived caps
-        "apps/rooms/web/serve.ts",
+        "deno",        "run",                     "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        // PANCAKE_RELAY_MAX_SESSIONS / _MAX_REGISTRATIONS override the
+        // host-derived caps; PANCAKE_RELAY_TCP_PEERS names the cleartext-TCP
+        // peers a browser may be relayed to besides the room itself.
+        "--allow-env", "apps/rooms/web/serve.ts",
     });
     if (pin_port) |p| rooms_web.addArg(b.fmt("{d}", .{p}));
-    const rooms_web_step = b.step("rooms-web", "Serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno)");
+    // The page's browser peer loads the wasm Host module from zig-out; serving
+    // a stale one ships a layout descriptor the freshly-bundled page refuses.
+    rooms_web.step.dependOn(&wasm_driver_install.step);
+    const rooms_web_step = b.step("rooms-web-tcp", "Serve the rooms browser UI over cleartext TCP (public rooms + direct messages by introduction); open the printed URL. Prefer rooms-web-iroh, which serves the same UI over encrypted QUIC (needs deno)");
     rooms_web_step.dependOn(&rooms_web.step);
 
-    // The rooms-web browser-peer proof: a wasm browser peer drives the real
+    // The rooms browser-peer proof: a wasm browser peer drives the real
     // room directory through
     // serve.ts's `/relay` byte pipe, no dlopen and no JSON bridge in its process.
     // Needs the wasm module and the native archives (serve.ts and the room server
@@ -3106,13 +3312,14 @@ pub fn build(b: *std.Build) void {
     // /relay — the full shipped path (browser wasm Host, WebSocket channel, a
     // capability call, no dlopen). Needs deno, the wasm module, the native
     // archives (serve.ts's children), and a Playwright Chromium
-    // (`npx playwright install chromium && sudo npx playwright install-deps`).
+    // (the devcontainer image ships one).
     // A sibling step, not folded into `check` (it needs a browser binary).
     const rooms_web_browser_peer = b.addSystemCommand(&.{
         "deno", "run", "--allow-all", "apps/rooms/test/browser_peer_test.ts",
     });
     rooms_web_browser_peer.setCwd(b.path("."));
     rooms_web_browser_peer.has_side_effects = true;
+    rooms_web_browser_peer.step.dependOn(&browser_preflight.step);
     rooms_web_browser_peer.step.dependOn(&wasm_driver_install.step);
     rooms_web_browser_peer.step.dependOn(b.getInstallStep());
     const rooms_web_browser_peer_step = b.step("rooms-web-browser-peer", "Prove a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)");
@@ -3128,6 +3335,7 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_page.setCwd(b.path("."));
     rooms_web_page.has_side_effects = true;
+    rooms_web_page.step.dependOn(&browser_preflight.step);
     rooms_web_page.step.dependOn(&wasm_driver_install.step);
     rooms_web_page.step.dependOn(b.getInstallStep());
     const rooms_web_page_step = b.step("rooms-web-page", "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)");
@@ -3143,6 +3351,7 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_reconnect.setCwd(b.path("."));
     rooms_web_reconnect.has_side_effects = true;
+    rooms_web_reconnect.step.dependOn(&browser_preflight.step);
     rooms_web_reconnect.step.dependOn(&wasm_driver_install.step);
     rooms_web_reconnect.step.dependOn(b.getInstallStep());
     const rooms_web_reconnect_step = b.step("rooms-web-reconnect", "Prove the rooms page survives losing its room server: it notices, reconnects and re-enters its room untouched, keeps the conversation, and reaches the room again over the new session (needs deno + a Playwright Chromium)");
@@ -3157,6 +3366,7 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_dm.setCwd(b.path("."));
     rooms_web_dm.has_side_effects = true;
+    rooms_web_dm.step.dependOn(&browser_preflight.step);
     rooms_web_dm.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm.step.dependOn(iroh_abi_step);
     rooms_web_dm.step.dependOn(b.getInstallStep());
@@ -3176,10 +3386,43 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_dm_tabs.setCwd(b.path("."));
     rooms_web_dm_tabs.has_side_effects = true;
+    rooms_web_dm_tabs.step.dependOn(&browser_preflight.step);
     rooms_web_dm_tabs.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_tabs.step.dependOn(b.getInstallStep());
     const rooms_web_dm_tabs_step = b.step("rooms-web-dm-tabs", "Prove two browser tabs direct-message each other by cold-dial relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser on a shared relay, deno-only (needs deno + a Playwright Chromium)");
     rooms_web_dm_tabs_step.dependOn(&rooms_web_dm_tabs.step);
+
+    // Two browser tabs direct-message each other and the conversation appears
+    // on the live timeline (ADR-0104). The room server serves the endpoint;
+    // each tab publishes its OWN trace to it, because the DM is a session the
+    // room does not carry and must not start carrying. Same needs as
+    // rooms-web-dm-tabs.
+    const rooms_web_dm_viz = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/test/web_dm_viz_test.ts",
+    });
+    rooms_web_dm_viz.setCwd(b.path("."));
+    rooms_web_dm_viz.has_side_effects = true;
+    rooms_web_dm_viz.step.dependOn(&browser_preflight.step);
+    rooms_web_dm_viz.step.dependOn(&wasm_driver_install.step);
+    rooms_web_dm_viz.step.dependOn(b.getInstallStep());
+    const rooms_web_dm_viz_step = b.step("rooms-web-dm-viz", "Prove a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, the endpoint scopes both producers' session ids apart and carries both ends of the wire, and the room stays off the DM's path (needs deno + a Playwright Chromium)");
+    rooms_web_dm_viz_step.dependOn(&rooms_web_dm_viz.step);
+
+    // The whole picture, over a member's life in a room: two tabs join, direct
+    // message each other, leave, close, reopen, and go away, and after every
+    // step the proof asks ocapnviz's OWN converter how many peers and sessions
+    // are on screen and which peers are on each session's ends. Same needs as
+    // rooms-web-dm-tabs.
+    const rooms_web_viz_lifecycle = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/test/web_viz_lifecycle_test.ts",
+    });
+    rooms_web_viz_lifecycle.setCwd(b.path("."));
+    rooms_web_viz_lifecycle.has_side_effects = true;
+    rooms_web_viz_lifecycle.step.dependOn(&browser_preflight.step);
+    rooms_web_viz_lifecycle.step.dependOn(&wasm_driver_install.step);
+    rooms_web_viz_lifecycle.step.dependOn(b.getInstallStep());
+    const rooms_web_viz_lifecycle_step = b.step("rooms-web-viz-lifecycle", "Prove the live timeline draws a member's whole life in a room, counted through ocapnviz's own converter: two tabs in a room are three peers and two sessions, a direct message adds a session between the members with the room off its path, leaving the room keeps the session and drops the nickname, closing the direct message closes its session from either end, and a tab going away takes its peer and both its sessions (needs deno + a Playwright Chromium)");
+    rooms_web_viz_lifecycle_step.dependOn(&rooms_web_viz_lifecycle.step);
 
     // A NATIVE peer cold-dials a browser member by relay rendezvous (ADR-0088
     // capability 5, the native-dialer row): the tab registers its keyed
@@ -3193,6 +3436,7 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_dm_native.setCwd(b.path("."));
     rooms_web_dm_native.has_side_effects = true;
+    rooms_web_dm_native.step.dependOn(&browser_preflight.step);
     rooms_web_dm_native.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_native.step.dependOn(b.getInstallStep());
     const rooms_web_dm_native_step = b.step("rooms-web-dm-native", "Prove a native peer cold-dials a browser member by relay rendezvous (ADR-0088): the tab registers its keyed identity, the native Host redeems a room introduction through its configured rendezvous mapping (Host.setRendezvousUrl), the keyed session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
@@ -3208,6 +3452,7 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_dm_webrtc.setCwd(b.path("."));
     rooms_web_dm_webrtc.has_side_effects = true;
+    rooms_web_dm_webrtc.step.dependOn(&browser_preflight.step);
     rooms_web_dm_webrtc.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_webrtc.step.dependOn(b.getInstallStep());
     const rooms_web_dm_webrtc_step = b.step("rooms-web-dm-webrtc", "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only the offer/answer/candidate exchange (Host.setSignaling), the keyed session opens over the DataChannel off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
@@ -3224,10 +3469,29 @@ pub fn build(b: *std.Build) void {
     });
     rooms_web_dm_retarget.setCwd(b.path("."));
     rooms_web_dm_retarget.has_side_effects = true;
+    rooms_web_dm_retarget.step.dependOn(&browser_preflight.step);
     rooms_web_dm_retarget.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_retarget.step.dependOn(b.getInstallStep());
     const rooms_web_dm_retarget_step = b.step("rooms-web-dm-retarget", "Prove a nickname changing hands cannot move a direct conversation: the member leaves, someone else is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)");
     rooms_web_dm_retarget_step.dependOn(&rooms_web_dm_retarget.step);
+
+    // Closing a direct conversation and reopening it has to open a second
+    // connection, and the second one has to carry. The sibling proofs ask only
+    // whether the message arrived, which a reopen resolving to the connection
+    // the close was supposed to end also satisfies, so this one watches the
+    // live timeline and requires a session id nobody had seen. It runs the
+    // scenario once per way a tab is reachable directly, `webrtc` and
+    // `keyed-relay`. Same needs as rooms-web-dm-tabs.
+    const rooms_web_dm_reopen = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/test/web_dm_reopen_test.ts",
+    });
+    rooms_web_dm_reopen.setCwd(b.path("."));
+    rooms_web_dm_reopen.has_side_effects = true;
+    rooms_web_dm_reopen.step.dependOn(&browser_preflight.step);
+    rooms_web_dm_reopen.step.dependOn(&wasm_driver_install.step);
+    rooms_web_dm_reopen.step.dependOn(b.getInstallStep());
+    const rooms_web_dm_reopen_step = b.step("rooms-web-dm-reopen", "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over keyed-relay (needs deno + a Playwright Chromium)");
+    rooms_web_dm_reopen_step.dependOn(&rooms_web_dm_reopen.step);
 
     // The same browser UI with its rooms and its direct-message members over iroh's
     // encrypted QUIC instead of TCP. The bridge announces and dials ocapn:// URIs,
@@ -3238,6 +3502,8 @@ pub fn build(b: *std.Build) void {
     });
     if (pin_port) |p| rooms_web_iroh.addArg(b.fmt("{d}", .{p}));
     rooms_web_iroh.step.dependOn(iroh_abi_step);
+    // Same stale-wasm guard as `rooms-web-tcp` above.
+    rooms_web_iroh.step.dependOn(&wasm_driver_install.step);
     const rooms_web_iroh_step = b.step("rooms-web-iroh", "Serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)");
     rooms_web_iroh_step.dependOn(&rooms_web_iroh.step);
 
@@ -3330,13 +3596,22 @@ pub fn build(b: *std.Build) void {
     // extra runtime, so it rides the gate as an application contract (below). The
     // app source lives under `apps/accountability-on-pancake/`, beside
     // the other worked applications.
-    const run_accountability = addPancakeRun(b, lib_mod, target, optimize, "accountability-on-pancake", "apps/accountability-on-pancake/zig/main.zig");
+    const accountability_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-on-pancake", "apps/accountability-on-pancake/zig/main.zig");
+    const run_accountability = b.addRunArtifact(accountability_exe);
+    run_accountability.setCwd(b.path("."));
+    run_accountability.has_side_effects = true;
     const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
     // The accountability application and its three-party attribution test are
     // Zig-hermetic (loopback TCP and in-memory respectively), so they ride the
-    // gate: a runnable application is a contract the same way an example is.
-    check_step.dependOn(&run_accountability.step);
+    // gate: a runnable application is a contract the same way an example is. The
+    // check run writes generated state under `.zig-cache` instead of the public
+    // demo's `.data/` path, so the gate never dirties source files.
+    const check_accountability = b.addRunArtifact(accountability_exe);
+    check_accountability.setCwd(b.path("."));
+    check_accountability.has_side_effects = true;
+    check_accountability.setEnvironmentVariable("PANCAKE_ACCOUNTABILITY_DATA_ROOT", ".zig-cache/pancake-accountability/check");
+    check_step.dependOn(&check_accountability.step);
 
     // The cross-language accountability demo: the standalone Zig host (listens
     // on an ephemeral port and serves one connection per caller) driven by the
@@ -3474,10 +3749,10 @@ pub fn build(b: *std.Build) void {
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
     const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust and TypeScript formatting, the lint and type-check for every TypeScript scope, and ruff plus mypy over the Python binding (needs cargo + deno + uv)");
     for (rust_manifests) |manifest| {
-        const write = b.addSystemCommand(&.{ "cargo", "fmt", "--manifest-path", manifest });
+        const write = addRootedSystemCommand(b, &.{ "cargo", "fmt", "--manifest-path", manifest });
         write.has_side_effects = true;
         bindings_fmt_step.dependOn(&write.step);
-        const check = b.addSystemCommand(&.{ "cargo", "fmt", "--check", "--manifest-path", manifest });
+        const check = addRootedSystemCommand(b, &.{ "cargo", "fmt", "--check", "--manifest-path", manifest });
         bindings_fmt_check_step.dependOn(&check.step);
     }
     // The loose TypeScript under the root `deno.json` and the `bindings/ts` deno
@@ -3551,6 +3826,50 @@ pub fn build(b: *std.Build) void {
     });
     deno_check.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_check.step);
+    // Pure binding-edge invariants: no FFI permissions, but still a real
+    // executable test because codec/profile input refusal is behavior.
+    const deno_stack_test = b.addSystemCommand(&.{ "deno", "test", "stack/value_test.ts" });
+    deno_stack_test.setCwd(b.path("bindings/ts"));
+    bindings_fmt_check_step.dependOn(&deno_stack_test.step);
+
+    // ── ocapnviz (the live visualizer) ──────────────────────────────────────
+    // ocapnviz is its own Deno scope: the root `deno.json` excludes it, so none
+    // of the TypeScript checks above reach it, and its own suite ran only when
+    // someone remembered to type `deno test` in that directory. A suite nothing
+    // invokes rots invisibly, because every run a human does by hand is green
+    // right up until the one nobody did.
+    //
+    // The suite therefore rides `check`, through a script that skips when deno
+    // is absent — the same posture `c-abi-extract-matrix.sh` takes for the
+    // language ports it cannot find, so a Zig-only machine still gets a green
+    // hermetic gate and says which it was. The type, format, and lint checks
+    // below stay siblings: they are the ocapnviz half of `bindings-fmt-check`,
+    // and that is a sibling for the same reason.
+    const ocapnviz_test = b.addSystemCommand(&.{ "bash", "tools/check/ocapnviz-test.sh" });
+    ocapnviz_test.setCwd(b.path("."));
+    ocapnviz_test.has_side_effects = true;
+    const ocapnviz_test_step = b.step("ocapnviz-test", "Run the ocapnviz visualizer's own test suite, skipping when deno is absent; part of check");
+    ocapnviz_test_step.dependOn(&ocapnviz_test.step);
+    check_step.dependOn(ocapnviz_test_step);
+
+    const ocapnviz_check_step = b.step("ocapnviz-check", "Check ocapnviz: types, formatting, lint, and its test suite (needs deno)");
+    ocapnviz_check_step.dependOn(&ocapnviz_test.step);
+    // `deno test` type-checks the tests and what they import; this covers the
+    // rest of the app, which is most of it — the React entry pulls in the
+    // renderer, the UI, and the state layer.
+    const ocapnviz_typecheck = b.addSystemCommand(&.{ "deno", "check", "src/main.tsx" });
+    ocapnviz_typecheck.setCwd(b.path("apps/ocapnviz"));
+    ocapnviz_check_step.dependOn(&ocapnviz_typecheck.step);
+    const ocapnviz_fmt_check = b.addSystemCommand(&.{ "deno", "fmt", "--check" });
+    ocapnviz_fmt_check.setCwd(b.path("apps/ocapnviz"));
+    ocapnviz_check_step.dependOn(&ocapnviz_fmt_check.step);
+    const ocapnviz_lint = b.addSystemCommand(&.{ "deno", "lint" });
+    ocapnviz_lint.setCwd(b.path("apps/ocapnviz"));
+    ocapnviz_check_step.dependOn(&ocapnviz_lint.step);
+    const ocapnviz_fmt = b.addSystemCommand(&.{ "deno", "fmt" });
+    ocapnviz_fmt.setCwd(b.path("apps/ocapnviz"));
+    ocapnviz_fmt.has_side_effects = true;
+    b.step("ocapnviz-fmt", "Format the ocapnviz sources in place (needs deno)").dependOn(&ocapnviz_fmt.step);
 
     // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal

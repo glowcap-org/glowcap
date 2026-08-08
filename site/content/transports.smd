@@ -1,6 +1,6 @@
 ---
 .title = "Transports",
-.description = "The netlayers that move a session's bytes between two peers — TCP, keyed TCP, in-process, iroh, and WebRTC — and how the core stays ignorant of which one carried a frame.",
+.description = "The netlayers that move a session's bytes between two peers, what each one authenticates and encrypts, and which of them are safe to deploy.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
@@ -11,18 +11,38 @@ A transport, or *netlayer*, moves session bytes between two peers. The session
 above it does not change. In the table, the **designator** is the peer name
 inside an OCapN locator.
 
-| Transport | Symbol | Channel | Designator | Reach for it when |
+| Symbol | Designator | Channel | What proves the peer | Safe to deploy |
 | --- | --- | --- | --- | --- |
-| TCP | `tcp` | cleartext TCP | `host:port` | a real network, or Goblins interoperability |
-| Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal ([ADR-0075](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)) |
-| In-process | `inproc` | in-memory byte pipes, no sockets | a name within one process | tests and demos that run both peers in one process |
-| iroh | `iroh` | encrypted QUIC (separate artifact) | a self-authenticating node id in an `ocapn://` URI | you want an encrypted channel today, or peer-to-peer reach |
-| WebRTC | `webrtc` | encrypted DataChannel over DTLS (separate artifact) | an Ed25519 designator reached through signaling | direct browser-to-browser traffic |
+| `tcp` | `host:port` | cleartext | Nothing does. | No. Keep it for testing and Goblins interoperability. |
+| `keyed-tcp` | Ed25519 key, address in the `direct-addresses` hint | cleartext | Nothing; the key is only a dial target. | Only on a network you already trust. |
+| `keyed-relay` | Ed25519 key, no address at all | cleartext WebSocket to the relay | Nothing; the key is only a dial target. | Only with a relay and a network you already trust. |
+| `iroh` | Ed25519 node id | encrypted QUIC | The QUIC handshake itself. | Yes. |
+| `webrtc` | Ed25519 key, reached through signaling | encrypted DataChannel over DTLS | The signaling authority binds the identity to the channel. | Yes, with a signaling authority you trust. |
+| `inproc` | a name inside one process | in-memory pipes | Nothing, and there is nothing to prove. | No. Keep it for tests and demos. |
 
-TCP and keyed TCP are not encrypted. Use iroh for encrypted native
-peer-to-peer traffic and WebRTC for a direct browser channel. A browser can
-also reach a native peer through the byte-transparent
-[relay]($link.page('relay')).
+Two different facts sit behind that fourth column. Every pancake connection
+signs its handshake with a key it draws fresh for that connection, so the
+signature proves the session held together and nothing more. Naming *who* the
+peer is requires an authenticated end-to-end channel. iroh reads the identity
+its QUIC handshake authenticated, and WebRTC uses the identity its signaling
+authority assigned. A key in a cleartext locator proves nothing by itself.
+
+Plain `tcp` is the one to be careful with. The OCapN draft specification
+requires a netlayer to keep a session secure enough that only its participants
+can insert messages, and cleartext TCP does not. Upstream
+[Spritely Goblins](https://spritely.institute/goblins/) ships no TCP netlayer,
+and the OCapN test suite's equivalent is named `tcp-testing-only` and says in
+its own source that it is not safe and should not be used in production. Treat
+pancake's `tcp` the same way: it exists so live checks can run against outside
+peers.
+
+`keyed-tcp` and `keyed-relay` do not authenticate the peer or encrypt the
+bytes. Anyone on the path can read every frame and change it. On `keyed-relay` that
+includes the relay operator, who sees plaintext even when the browser leg is
+`wss://`. Use iroh when a native channel must be confidential, and WebRTC for a
+direct browser channel. A browser can also reach a native peer through the
+byte-transparent [relay]($link.page('relay')); ADR-0107 proposes Noise_XK to
+seal that byte channel end to end.
 
 [Choosing a transport]($link.page('transports/choosing')) turns the table into
 a decision. The [iroh]($link.page('transports/iroh')) and

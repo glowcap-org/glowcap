@@ -6,6 +6,7 @@ tags: [pipelining, op-listen, queue, fifo-drain, syrup-decompose, listener-fire]
 decision: A pipelined `op:deliver` against a still-pending inbound answer queues FIFO on that answer's entry and drains against the resolution (far-forward / local delivery / requeue) when the answer settles; `op:listen` installs a listener fired on resolve. A promise target carrying a non-empty pipeline path has no single-frame Syrup shape, so it decomposes at the sender into a chain of single-hop `op:deliver`s, each recorded and enqueued through the normal send path.
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0111]
 ---
 
 # ADR-0007 Promise pipelining substrate
@@ -29,10 +30,9 @@ target carrying a non-empty path reach the wire when the only implemented codec
 Syrup: has no path operand?
 
 `op:listen` is the sibling operation: it installs a party to be told when an
-answer resolves. The spec shape is `<op:listen to-desc listen-desc>`; Spritely
-Goblins always emits a third `wants-partial?` operand
-(`goblins/ocapn/captp.rkt`), which controls whether a listener fires at
-intermediate promise hops or only on the settled value.
+answer changes. Goblins V1.0 uses a Boolean `wants-partial?` operand. The next
+profile uses the integer modes from the pending OCapN promise-listening
+proposal: shortening only, settling only, or either.
 
 Engages the First Principles
 [_session state is authoritative_](../../../AGENTS.md#first-principles): queued
@@ -53,9 +53,11 @@ surfaces no application event;
 [`Peer.maybeEnqueuePipelinedCall`](../../../src/ocapn/engine/mod.zig) makes that
 decision at dispatch time.
 
-When a `Peer` sends `op:resolve` for that answer, `step` drains the queue
+When a `Peer` settles that answer, `step` drains the queue
 ([`Peer.drainPipelinedCalls`](../../../src/ocapn/engine/mod.zig)) and then fires
-the listeners: calls first, since a drained call may settle further answers.
+the matching listeners. V1.0 sends a resolver callback. Next uses the mandatory
+listener that followed the answered operation and has no wire `op:resolve`.
+Calls drain first because a drained call may settle further answers.
 Each queued call dispatches against the resolution
 ([`Peer.dispatchDrainedCall`](../../../src/ocapn/engine/mod.zig)): a `far`
 resolution forwards the call on the wire (target rewritten via
@@ -66,10 +68,11 @@ cycle detection; every other shape drops the call.
 ### Listener fire matrix
 
 [`pipeline.classifyListenerDrain`](../../../src/ocapn/engine/pipeline.zig)
-decides each listener's fate against the resolution and its `wants_partial`
-flag. A `Fulfill(Promise(_))` resolution re-anchors the listener on the next
-answer (firing the partial first only when `wants_partial`) while every other
-resolution fires the listener once via
+decides each listener's fate from the resolution and its mode. A same-peer
+promise fulfillment re-anchors the listener without notification. A far
+promise fires a mode that requested shortening, while a settled value or break
+fires a mode that requested settlement. Every notification concludes that
+subscription and is sent through
 [`pipeline.borrowedListenerFire`](../../../src/ocapn/engine/pipeline.zig),
 which builds the resolver-method `op:deliver` (`[Symbol("fulfill"), payload]` or
 `[Symbol("break"), Symbol(reason)]`, the shape the upstream suite pins) as a
@@ -143,8 +146,9 @@ the engine runs no actor method itself.
   already holds.
 - Listeners on third-party handoff-imported promises and their relayed
   resolutions, [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
-- The `op:resolve` to V1.0 resolver-callback translation the drain trigger rides
-  on, [ADR-0010](ADR-0010-payload-descriptor-discriminator.md).
+- Profile-specific answer notification is amended by
+  [ADR-0111](ADR-0111-next-promise-listeners.md). V1.0 resolver callbacks remain
+  under [ADR-0010](ADR-0010-payload-descriptor-discriminator.md).
 
 ## Alternatives Considered
 

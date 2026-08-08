@@ -7,15 +7,11 @@
 //! (read a frame, feed it, step, take the outbound, write it), so all this layer
 //! does is frame the inbound bytes. It applies no authority of its own.
 //!
-//! The framing is still the one parser: the active codec's decoder marks where a
-//! frame ends (`codec.dispatch.decodePrefix`). And the edge cases the codec can't
-//! decide on its own — a clean EOF versus one in the middle of a frame, and a
-//! frame that outgrows the read buffer — are settled in a single place
-//! (`fillStep` / `fillThroughSpill` / `Spill`), which the `Connection` pump
-//! shares too so the two can't drift apart. The read buffer stays small; an
-//! admissible frame larger than it accumulates once in the bounded `Spill` and
-//! decodes from there, so per-connection memory does not scale with
-//! `max_frame_bytes`.
+//! Byte-stream netlayers carry each codec frame inside a Syrup byte string:
+//! canonical decimal byte length, `:`, then the frame bytes. Intrinsically
+//! message-framed transports continue to exchange bare codec frames through the
+//! engine's whole-frame APIs. The outer parser and writer live here so every
+//! byte-stream adapter agrees on that distinction.
 //!
 //! The frame operations themselves are free functions over a type-erased reader
 //! and writer (`readFrameFrom` / `writeFrameTo`), so we test them with
@@ -43,6 +39,44 @@ const Stream = std.Io.net.Stream;
 /// ladder's 500k-connection budget owns.
 pub const steady_outbound_bytes: usize = 16 * 1024;
 
+/// The outer frame used by byte-stream netlayers: a Syrup byte string containing
+/// exactly one bare codec frame. There is no netstring trailing comma.
+pub const OuterPrefix = foundation.stream_framing.Prefix;
+
+/// Parse one outer Syrup byte string from the front of `bytes`. The declared
+/// body length is bounded before the body is buffered, and canonical Syrup
+/// length syntax rejects an empty digit run, non-digits, and leading zeroes.
+pub fn outerPrefix(bytes: []const u8, max_frame_bytes: usize) OuterPrefix {
+    return foundation.stream_framing.parsePrefix(bytes, max_frame_bytes);
+}
+
+/// Append one bare codec frame in byte-stream form without an intermediate
+/// allocation. Capacity is secured for the complete outer frame before either
+/// slice is appended, so allocation failure cannot leave a partial prefix.
+pub fn appendFrameBytes(
+    list: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+) std.mem.Allocator.Error!usize {
+    var prefix_buf: [foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
+    const prefix = foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
+    const framed_len = std.math.add(usize, prefix.len, bytes.len) catch return error.OutOfMemory;
+    try list.ensureUnusedCapacity(allocator, framed_len);
+    list.appendSliceAssumeCapacity(prefix);
+    list.appendSliceAssumeCapacity(bytes);
+    return framed_len;
+}
+
+/// Write one bare codec frame in byte-stream form. The prefix uses stack
+/// storage; the codec frame remains borrowed and is not copied into a wrapper.
+pub fn writeFrameBytes(w: *std.Io.Writer, bytes: []const u8) std.Io.Writer.Error!usize {
+    var prefix_buf: [foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
+    const prefix = foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
+    try w.writeAll(prefix);
+    try w.writeAll(bytes);
+    return prefix.len + bytes.len;
+}
+
 /// Append every encoded outbound frame `peer` holds onto `list`, freeing each
 /// frame as its bytes are copied — the one take-outbound drain shape both
 /// readiness loops ride. It lives here beside `steady_outbound_bytes` because
@@ -58,7 +92,7 @@ pub fn queueOutboundBytes(
     while (peer.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
-        try list.appendSlice(allocator, frame.bytes());
+        _ = try appendFrameBytes(list, allocator, frame.bytes());
     }
 }
 
@@ -196,31 +230,35 @@ pub fn readFrameFrom(
 ) FrameError!foundation.Frame {
     while (true) {
         const supply = if (spill.isActive()) spill.bytes() else r.buffered();
-        // `framePrefix` carries the scan across reads, so a frame arriving in
-        // pieces is walked once rather than once per read, and it owns the
-        // refusal that withholding the decoder would otherwise hide. The spill
-        // takes over the prefix unchanged when it activates, so the cursor
-        // stays valid across that handover.
         if (supply.len > 0) {
-            switch (codec.dispatch.framePrefix(codec_id, supply, scan, max_frame_bytes)) {
-                .decoded => |decoded| {
-                    // `framePrefix` above already accepted this codec, so its
-                    // shape is registered; a null here would mean the two
-                    // dispatchers disagree, which we classify as malformed.
-                    const shape = codec.dispatch.frameShape(codec_id) orelse return error.MalformedFrame;
-                    const view: foundation.FrameView = .{
-                        .bytes = supply[0..decoded.consumed],
-                        .shape = shape,
-                    };
-                    // The one shape-aware owned copy (8-aligned for `word`).
-                    const frame = engine.ownedFrameFromView(allocator, view) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        // decodePrefix already accepted the frame, so a shape
-                        // violation cannot occur; classify defensively.
-                        error.InvalidFrameShape => return error.MalformedFrame,
-                    };
-                    if (spill.isActive()) spill.consume(allocator, decoded.consumed, spill_retain_bytes) else r.toss(decoded.consumed);
-                    return frame;
+            switch (outerPrefix(supply, max_frame_bytes)) {
+                .decoded => |outer| switch (codec.dispatch.framePrefix(codec_id, outer.body, scan, max_frame_bytes)) {
+                    .complete => |consumed| {
+                        // The byte-string body is one frame, not an arbitrary
+                        // concatenation of otherwise valid codec values.
+                        if (consumed != outer.body.len) return error.MalformedFrame;
+                        // `framePrefix` above already accepted this codec, so its
+                        // shape is registered; a null here would mean the two
+                        // dispatchers disagree, which we classify as malformed.
+                        const shape = codec.dispatch.frameShape(codec_id) orelse return error.MalformedFrame;
+                        const view: foundation.FrameView = .{
+                            .bytes = outer.body,
+                            .shape = shape,
+                        };
+                        // The one shape-aware owned copy (8-aligned for `word`).
+                        const frame = engine.ownedFrameFromView(allocator, view) catch |err| switch (err) {
+                            error.OutOfMemory => return error.OutOfMemory,
+                            // Structural framing accepted the frame, so a shape
+                            // violation cannot occur; classify defensively.
+                            error.InvalidFrameShape => return error.MalformedFrame,
+                        };
+                        if (spill.isActive()) spill.consume(allocator, outer.consumed, spill_retain_bytes) else r.toss(outer.consumed);
+                        return frame;
+                    },
+                    // The outer byte string is complete, so its bounded body
+                    // cannot become a complete inner frame by reading more.
+                    .incomplete, .malformed => return error.MalformedFrame,
+                    .too_large => return error.FrameTooLarge,
                 },
                 .incomplete => {},
                 .malformed => return error.MalformedFrame,
@@ -233,6 +271,30 @@ pub fn readFrameFrom(
             .closed => return error.Closed,
         }
     }
+}
+
+/// Apply one outer-framed byte-stream message to `peer`. The outer length owns
+/// the stream boundary; `recvBorrowed` validates the complete bounded body as
+/// exactly one codec frame and preserves the engine's one-parse apply path.
+pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !engine.Peer.RecvStream {
+    const outer = switch (outerPrefix(bytes, peer.limits().max_frame_bytes)) {
+        .incomplete => return .incomplete,
+        .malformed => {
+            peer.emitFailure(error.MalformedFrame);
+            return error.MalformedFrame;
+        },
+        .too_large => {
+            peer.emitFailure(error.FrameTooLarge);
+            return error.FrameTooLarge;
+        },
+        .decoded => |decoded| decoded,
+    };
+    const shape = codec.dispatch.frameShape(peer.inboundCodec()) orelse {
+        peer.emitFailure(error.MalformedFrame);
+        return error.MalformedFrame;
+    };
+    try peer.recvBorrowed(.{ .bytes = outer.body, .shape = shape });
+    return .{ .consumed = outer.consumed };
 }
 
 /// The verdict of draining whole frames from one received chunk.
@@ -277,7 +339,7 @@ pub fn drainWholeFrames(
     while (true) {
         const supply = if (from_spill) spill.bytes() else chunk[offset..];
         if (supply.len == 0) break;
-        const outcome = peer.recvStreamPrefix(supply) catch return .fail;
+        const outcome = recvOuterPrefix(peer, supply) catch return .fail;
         switch (outcome) {
             .incomplete => break,
             .consumed => |used| {
@@ -297,7 +359,7 @@ pub fn drainWholeFrames(
 
 /// Write one frame's bytes and flush. `bytes` are borrowed for the call.
 pub fn writeFrameTo(w: *std.Io.Writer, bytes: []const u8) FrameError!void {
-    w.writeAll(bytes) catch return error.ConnectionLost;
+    _ = writeFrameBytes(w, bytes) catch return error.ConnectionLost;
     w.flush() catch return error.ConnectionLost;
 }
 

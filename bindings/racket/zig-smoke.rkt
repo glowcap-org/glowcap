@@ -10,7 +10,8 @@
 ;; endpoints, which is dogfood work, not application surface. This is the
 ;; consumer `zig build bindings` runs.
 
-(require "pancake.rkt"
+(require net/base64
+         "pancake.rkt"
          "pancake-tcp.rkt"
          "pancake-inproc.rkt"
          ;; Binding-internal plumbing, for the scripted sections only: the
@@ -29,6 +30,7 @@
          "private/ffi-host.rkt"
          "private/ffi-shared.rkt"
          "private/errors.rkt"
+         "private/constants.rkt"
          "private/codec.rkt"
          (only-in "private/value.rkt" make-ref/internal)
          racket/tcp)
@@ -43,6 +45,25 @@
 ;; The linked library reports a real ABI version.
 (let-values ([(major minor patch) (abi-version)])
   (expect (positive? (+ major minor patch)) "abi-version is nonzero"))
+
+(define locator-host (make-fresh-host))
+(host-set-advertised-locator!
+ locator-host
+ (encode-peer-locator "tcp" "127.0.0.1:7441" ""))
+(host-remove-advertised-locator! locator-host "tcp")
+(host-release! locator-host)
+
+(define profile-host (make-fresh-host))
+(define profile-conflict
+  (with-handlers ([exn:fail:pancake? values])
+    (connect (tcp-locator "127.0.0.1" 1)
+             #:host profile-host
+             #:captp-version 'next)
+    #f))
+(expect (and (exn:fail:pancake? profile-conflict)
+             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code profile-conflict)))
+        "connect: shared Host refuses a conflicting CapTP profile")
+(host-release! profile-host)
 
 ;; ── Goblins for Racket: a counter actor, near-called and eventual-sent ────────
 ;; A Goblins-faithful actor: a constructor `(^counter bcom n)` the vat calls once
@@ -234,6 +255,11 @@
 ;; publish before fetching.
 (define hl-session (connect (tcp-locator "127.0.0.1" (server-port hl-server))))
 (semaphore-wait hl-ready)
+(expect (equal? (partner-identity-locator-record (session-partner-identity hl-session))
+                (encode-peer-locator
+                 TRANSPORT-TCP
+                 (socket-addr-designator "127.0.0.1" (server-port hl-server))))
+        "listen/accept: the host advertised the listener's complete locator record")
 (define hl-svc (session-fetch hl-session "svc"))
 (expect (equal? "hello pancake" (session-send hl-session hl-svc 'greet "pancake"))
         "listen/accept: high-level call round-tripped")
@@ -244,6 +270,97 @@
 (server-close! hl-server)
 
 (printf "racket zig-smoke OK: high-level listen/accept hosted a keyed session\n")
+
+;; ── The live timeline producer ────────────────────────────────────────────────
+;; The veneer stamps and forwards the native tap's facts, one flat record per
+;; fact — session-opened with the codec the handshake actually negotiated,
+;; the same verb outbound at the client and inbound at the server, and
+;; session-closed. Endpoint labeling belongs to the consumer, so the records
+;; carry only the session and direction.
+(define trace-events (box '()))
+(define trace-uninstall
+  (enable-trace! (lambda (ev) (set-box! trace-events (cons ev (unbox trace-events))))
+                 #:self-label "smoke"))
+(define tr-server (listen "127.0.0.1" 0))
+(define tr-serve
+  (thread
+   (lambda ()
+     (define hsession (accept tr-server))
+     (host-publish-giftable (session-host hsession) "tracer"
+                            (lambda (method . args) "hello trace"))
+     (session-serve hsession))))
+(define tr-session (connect (tcp-locator "127.0.0.1" (server-port tr-server))))
+(define tr-cap (session-fetch tr-session "tracer"))
+(expect (equal? "hello trace" (session-send tr-session tr-cap 'trace-me))
+        "trace: the traced call still answers")
+;; The annotation channel: the application states which partner a
+;; session carries, named for the same session row the tap names.
+(session-annotate! tr-session #:label "greeter-server")
+(session-close! tr-session)
+(server-close! tr-server)
+(trace-uninstall)
+(let* ([events (reverse (unbox trace-events))]
+       [kinds (map (lambda (ev) (hash-ref ev 'kind)) events)]
+       [msg? (lambda (ev) (equal? (hash-ref ev 'kind) "ocapn.message-decoded"))]
+       [opened (filter (lambda (ev) (equal? (hash-ref ev 'kind) "ocapn.session-opened")) events)])
+  (expect (>= (length opened) 2) "trace: both hosts' opens reached the one sink")
+  (expect (andmap (lambda (ev) (and (equal? (hash-ref ev 'codec) "syrup")
+                                    (equal? (hash-ref ev 'a_label #f) "smoke")))
+                  opened)
+          "trace: opens carry the codec and the application's display label")
+  ;; And what this producer RUNS, because this schema is not pancake's alone: a
+  ;; consumer must not read an implementation off the fact that a record
+  ;; arrived, so a pancake host says so in words.
+  (expect (andmap (lambda (ev) (equal? (hash-ref ev 'a_profile #f) "pancake")) opened)
+          "trace: an open states the implementation this producer runs")
+  ;; Identity and label are two facts. `a` is the host's own key designator —
+  ;; the name a partner knows it by, and so the only name two producers can
+  ;; agree on — and the label never stands in for it.
+  (expect (andmap (lambda (ev) (regexp-match? #px"^[0-9a-f]{64}$" (hash-ref ev 'a "")))
+                  opened)
+          "trace: an open's `a` endpoint is the reporting host's key designator")
+  ;; The OCapN Session ID is what lets a consumer merging two producers' feeds
+  ;; tell one session watched twice from two unrelated ones: both peers of a
+  ;; session derive it to the same value.
+  (expect (let ([ids (map (lambda (ev) (hash-ref ev 'session_id #f)) opened)])
+            (and (andmap (lambda (id) (and id (regexp-match? #px"^[0-9a-f]{64}$" id))) ids)
+                 (andmap (lambda (id) (equal? id (car ids))) ids)))
+          "trace: both peers of one session report the same OCapN Session ID")
+  (define outbound
+    (findf (lambda (ev) (and (msg? ev) (equal? (hash-ref ev 'op #f) "trace-me")
+                             (hash-ref ev 'outbound)))
+           events))
+  (define inbound
+    (findf (lambda (ev) (and (msg? ev) (equal? (hash-ref ev 'op #f) "trace-me")
+                             (not (hash-ref ev 'outbound))))
+           events))
+  (expect outbound "trace: the client's send traced outbound")
+  (expect inbound "trace: the server's deliver traced inbound")
+  (expect (not (equal? (hash-ref outbound 'session) (hash-ref inbound 'session)))
+          "trace: each host names its own session row")
+  ;; Payload: both fact sites sit at the wire boundary (inbound dispatch,
+  ;; the outbound drain), so both records carry the whole (sub-cap) frame
+  ;; with its true length and the verb inside it.
+  (for ([rec (list inbound outbound)])
+    (let ([frame (base64-decode
+                  (string->bytes/latin-1 (hash-ref rec 'bytes_b64)))])
+      (expect (= (hash-ref rec 'len) (bytes-length frame))
+              "trace: true length rides beside the frame")
+      (expect (regexp-match? #rx#"trace-me" frame)
+              "trace: the frame bytes contain the delivered verb")))
+  (expect (member "ocapn.session-closed" kinds) "trace: the close reached the sink")
+  (let ([meta (findf (lambda (ev) (equal? (hash-ref ev 'kind) "ocapn.session-meta"))
+                     events)])
+    (expect (and meta (equal? (hash-ref (hash-ref meta 'meta) 'label) "greeter-server"))
+            "trace: the annotation reached the sink with its label")
+    (expect (equal? (hash-ref meta 'session) (hash-ref outbound 'session))
+            "trace: the annotation names the same session row the tap names"))
+  (expect (let loop ([last -1] [rest events])
+            (cond [(null? rest) #t]
+                  [(< (hash-ref (car rest) 'sim_t_ns) last) #f]
+                  [else (loop (hash-ref (car rest) 'sim_t_ns) (cdr rest))]))
+          "trace: sim_t_ns is monotone"))
+(printf "racket zig-smoke OK: the live trace produced the timeline schema for a whole conversation\n")
 
 ;; ── Off-turn settlement: a behavior defers onto a resolver vow ────────────────
 ;; The worker's behavior mints a resolver pair inside its turn
@@ -333,11 +450,11 @@
 (define en-session (connect en-locator))
 (semaphore-wait en-ready)
 (expect (with-handlers ([exn:fail? (lambda (_) #t)])
-          (session-enliven en-session "ocapn://127.0.0.1%3A1.tcp/s/greeter")
+          (session-enliven en-session "ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg")
           #f)
         "enliven: a sturdyref for another peer is refused")
 ;; The complete sturdyref must name this selected session's peer.
-(define en-sturdyref (string-append en-locator "/s/greeter"))
+(define en-sturdyref (string-append en-locator "/s/Z3JlZXRlcg"))
 (define en-cap (session-enliven en-session en-sturdyref))
 (expect (ref? en-cap) "enliven: a sturdyref enlivened to a capability")
 (expect (equal? (sym "alive") (session-send en-session en-cap 'hello)) "enliven: the live capability answers hello")
@@ -361,7 +478,7 @@
 ;; the executor opens the exporter session on its own serve thread, and the
 ;; host-scoped wait settles over it.
 (define dial-host (make-fresh-host))
-(define dial-cap (host-enliven dial-host (string-append en-locator "/s/porter")))
+(define dial-cap (host-enliven dial-host (string-append en-locator "/s/cG9ydGVy")))
 (expect (ref? dial-cap) "host-enliven: a cold sturdyref staged a dial and settled")
 (host-release! dial-host)
 
@@ -508,6 +625,7 @@
   (define db (string->bytes/utf-8 designator))
   (call-with-host m
     (lambda ()
+      (host-ensure-advertised-locator! m transport-name)
       (define-values (rc ptr)
         (pancake_host_session_open_dialed_locator
          (host-ptr m)
@@ -519,14 +637,36 @@
 (define (open-accepted-over m transport-name designator tr)
   (define tb (string->bytes/utf-8 transport-name))
   (define db (string->bytes/utf-8 designator))
-  (define hb #"")
+  ;; These byte-fed tcp scenarios know the accepted endpoint they model. Feed
+  ;; it as the accepted address so the signed locator matches what the dialer
+  ;; selected; an empty address deliberately means unreachable-client.
+  (define hb db)
   (call-with-host m
     (lambda ()
+      (define tpin (pin-immobile tb))
+      (define dbpin (pin-immobile db))
+      (define hbpin (pin-immobile hb))
+      (define plan (make-PancakeAcceptPlan #f 0 #f 0))
+      (check/host (pancake_host_plan_accept
+                   tpin (bytes-length tb)
+                   dbpin (bytes-length db)
+                   hbpin (bytes-length hb)
+                   plan))
+      (define (plan-text ptr len)
+        (if (or (not ptr) (zero? len))
+            ""
+            (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
+      (host-set-advertised-locator!
+       m
+       (encode-peer-locator
+        transport-name
+        (plan-text (PancakeAcceptPlan-designator plan)
+                   (PancakeAcceptPlan-designator-len plan))
+        (plan-text (PancakeAcceptPlan-direct-addresses-hint plan)
+                   (PancakeAcceptPlan-direct-addresses-hint-len plan))))
       (define-values (rc ptr)
         (pancake_host_session_open_accepted (host-ptr m)
-                                         (pin-immobile tb) (bytes-length tb)
-                                         (pin-immobile db) (bytes-length db)
-                                         (pin-immobile hb) (bytes-length hb)))
+                                             tpin (bytes-length tb)))
       (check/host rc)
       (build-session m ptr tr #f))))
 
@@ -545,7 +685,7 @@
 (drain-host! oc-host) ; the signed op:start-session leaves into the discard transport
 (define oc-code
   (with-handlers ([exn:fail:pancake? (lambda (e) (exn:fail:pancake-code e))])
-    (feed-bytes! oc-session #"<10'op:deliver<11'desc:export7+>[2000000:")
+    (feed-bytes! oc-session #"2000000:")
     'no-error))
 (expect (equal? -11 oc-code) "over-cap frame: typed FRAME_TOO_LARGE refusal")
 (session-close! oc-session)
@@ -750,7 +890,7 @@
 ;; surfaces as a tagged/struct arg; index and untag are the
 ;; cross-binding-comparable pair, so they are what this dogfood asserts,
 ;; matching Python.)
-(define pj-server (listen "127.0.0.1" 0))
+(define pj-server (listen "127.0.0.1" 0 #:captp-version 'next))
 (define pj-ready (make-semaphore 0))
 (define pj-ch (make-channel))
 (define pj-host
@@ -766,7 +906,8 @@
        (session-serve hsession)
        (channel-put pj-ch 'served)))))
 
-(define pj-session (connect (tcp-locator "127.0.0.1" (server-port pj-server))))
+(define pj-session (connect (tcp-locator "127.0.0.1" (server-port pj-server))
+                            #:captp-version 'next))
 (semaphore-wait pj-ready)
 (define pj-root (session-fetch pj-session "root"))
 ;; Neither projection waits for make's reply: they ride the unresolved make
@@ -1527,11 +1668,39 @@
 ;; every blocking read after the frame it waits for is already in flight: both
 ;; hellos leave before either side pumps its handshake, and each fetch/call leg
 ;; feeds exactly the frame the previous leg wrote.
+(define (outer-frame-bytes frame)
+  (bytes-append
+   (string->bytes/utf-8 (format "~a:" (bytes-length frame)))
+   frame))
+
 (define (endpoint-transport read-frame write-frame!)
+  ;; The host pump writes byte-stream frames as two chunks: the canonical
+  ;; outer length prefix, then the bare codec frame. Explicit C endpoints take
+  ;; and return that bare frame as one unit. Keep the representation change at
+  ;; this composition boundary, and verify the pump's pair before discarding
+  ;; its prefix.
+  (define pending-prefix #f)
+  (define (write-chunk! chunk)
+    (cond
+      [pending-prefix
+       (define expected
+         (string->bytes/utf-8 (format "~a:" (bytes-length chunk))))
+       (unless (bytes=? pending-prefix expected)
+         (error 'endpoint-transport "non-canonical outer frame prefix"))
+       (set! pending-prefix #f)
+       (write-frame! chunk)]
+      [else (set! pending-prefix chunk)]))
+  (define (flush!)
+    (when pending-prefix
+      (error 'endpoint-transport "outer frame ended before its body")))
   (async-transport
-   (lambda (frame) (write-frame! frame))
-   void
-   (lambda (_wake) (read-frame))
+   write-chunk!
+   flush!
+   (lambda (_wake)
+     (define frame (read-frame))
+     (if (eof-object? frame)
+         eof
+         (outer-frame-bytes frame)))
    void))
 
 ;; The minting half of `session-fetch`, without its blocking pump: queue the
@@ -1554,7 +1723,8 @@
 
 ;; Read one whole frame off the endpoint and feed its bytes (the feed drains,
 ;; so a reply this frame provokes is written back through the same transport).
-(define (feed-next! c read-frame) (feed-bytes! c (read-frame)))
+(define (feed-next! c read-frame)
+  (feed-bytes! c (outer-frame-bytes (read-frame))))
 
 (define (transport-counter-roundtrip client-read client-write! server-read server-write!)
   (define chost (make-fresh-host))
@@ -1563,13 +1733,13 @@
   (define client-session (open-dialed-over chost "tcp" (socket-addr-designator "127.0.0.1" 1)
                                         (endpoint-transport client-read client-write!)))
   (drain-host! chost)  ; the dialer's signed op:start-session is in flight
-  (define server-session (open-accepted-over shost "tcp" (socket-addr-designator "127.0.0.1" 2)
+  (define server-session (open-accepted-over shost "tcp" (socket-addr-designator "127.0.0.1" 1)
                                           (endpoint-transport server-read server-write!)))
   (drain-host! shost)  ; the acceptor's hello crosses it
   ;; #f: no handshake bound. Both hellos are already in the paired in-memory
   ;; transports, so each pump reads a frame that is waiting for it.
-  (finish-establish! server-session #f)
-  (finish-establish! client-session #f)
+  (run-handshake! server-session #f)
+  (run-handshake! client-session #f)
   ;; Publish, fetch, call: deliver, serve, resolve, one leg at a time.
   (session-publish server-session "counter" ^counter 10)
   (define fetched (scripted-fetch! client-session "counter"))

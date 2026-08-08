@@ -218,7 +218,7 @@ test "a recipient listens on a relayed promise and redeems the give it settles w
     // The test is the dial executor. The exporter publishes on the redeem
     // session too: a gift resolves against the withdrawing session's own
     // registry.
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7801", &.{});
+    const e_accepts_r = try host_pair.publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7801", &.{});
     _ = try e_accepts_r.served.publish(&e_accepts_r.host.vat, "widget", Widget, .{});
     const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{

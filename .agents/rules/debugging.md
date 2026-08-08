@@ -39,14 +39,41 @@ from git; see the [cli rule](cli.md)), half the input, half the scenario,
 half the history with read-only `git log` and `git show`. Each cut is one
 question with a yes-or-no answer.
 
+Cut by varying one condition, not by trying a fix. A candidate fix is the most
+expensive experiment available — it costs a design plus a full verification
+round — and when it fails it has told you almost nothing, because a fix that
+does not work rules out only itself. Varying one condition between a case that
+passes and a case that fails costs a probe edit and rules out half the space
+whichever way it lands. So when you have a passing reproduction and a failing
+one, spend the next move on the difference between them, and keep spending
+there until the mechanism is named. Reach for a fix once you can say what
+breaks, not to find out.
+
+The tell that this rule is being broken: two candidate fixes in a row have been
+disproved. That is not bad luck and it does not mean the next guess is due. It
+means the search is being driven by guesses about the cause rather than by
+evidence of it, and the cost per guess is the highest in the table. Stop and go
+find a difference to measure. Never let it become a reason to leave the bug
+alone: the answer to a hunt going badly is a cheaper question, not a smaller
+ambition.
+
 ## Prove, don't assume
 
 The defect lives in an assumption nobody tested. When your reasoning passes
 through "this can't be null / reordered / reused," stop and make that
 assumption observable: an assert, a focused test, or a log line written to a
-file (subprocess stderr is often swallowed). Then write the causal chain from
-symptom to root in one paragraph. Where the writing stalls is where knowledge
-is missing.
+file (subprocess stderr is often swallowed, and under zsh's `noclobber` a plain
+`>` silently refuses an existing path, so the stale log reads as the fresh one —
+write with `>|`). Then write the causal chain from symptom to root in one
+paragraph. Where the writing stalls is where knowledge is missing.
+
+**A harness that reports nothing is making a claim about itself.** Absence is
+the one result a driven probe produces just as readily when it is aimed wrong:
+a synthetic click outside the region it meant to hit, a scenario whose
+precondition never armed. So before believing "the feature does nothing," make
+the same harness show a positive — drive the case that must work and watch it
+work. Uncalibrated, a negative is a finding about the probe, and filing it as a
+defect spends someone else's session confirming your harness was broken.
 
 ## A fix explains the symptom
 

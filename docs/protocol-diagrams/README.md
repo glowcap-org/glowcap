@@ -24,7 +24,7 @@ change. A diagram that disagrees with the session is a bug.
 | File                                                           | Diagrams    | Covers                                                                                                                |
 | -------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------- |
 | [01-session-lifecycle.md](01-session-lifecycle.md)             | SL-1 … SL-6 | Session state machine, `op:start-session`, crossed hellos, admission policy, `op:abort` teardown                      |
-| [02-deliver-and-resolve.md](02-deliver-and-resolve.md)         | DR-1 … DR-7 | `op:deliver` (with and without an answer), `op:resolve`, resolver callbacks, bootstrap `fetch`, `op:get` / `op:index` |
+| [02-deliver-and-resolve.md](02-deliver-and-resolve.md)         | DR-1 … DR-7 | `op:deliver` (with and without an answer), resolver callbacks, bootstrap `fetch`, `op:get` / `op:index` |
 | [03-promises-and-pipelining.md](03-promises-and-pipelining.md) | PP-1 … PP-7 | Promise lifecycle, pipelined delivers, multi-hop chains, resolved-answer forwarding, `op:listen`                      |
 | [04-references-and-tables.md](04-references-and-tables.md)     | RT-1 … RT-4 | Descriptor taxonomy, perspective flip, the four tables, import installation                                           |
 | [05-gc.md](05-gc.md)                                           | GC-1 … GC-4 | Export refcount lifecycle, `op:gc-exports` wire-deltas, the GC race, `op:gc-answers`                                  |

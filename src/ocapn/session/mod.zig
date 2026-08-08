@@ -26,13 +26,14 @@ const sturdyref_cache = @import("sturdyref_cache.zig");
 const imported_promise = @import("imported_promise.zig");
 const gc = @import("gc.zig");
 const resolver_export = @import("resolver_export.zig");
+const shortening = @import("shortening.zig");
 const v1_0 = @import("v1_0.zig");
 const bimap = @import("bimap.zig");
 const handshake = @import("handshake.zig");
 const limits = @import("limits.zig");
 
 /// Re-exported so a caller that must keep the recv-turn's introduced-import
-/// record alive past the call (`recordInboundDeliverView`'s caller,
+/// record alive across validate and apply (`validateInboundDeliverView`'s caller,
 /// `engine.inbound.applyDecodedOwnedFrame`) can name `validate.IntroducedImports`
 /// without reaching past this module into `session/validate.zig` directly.
 pub const validate = @import("validate.zig");
@@ -140,13 +141,13 @@ pub const Error = error{
     /// alias. Projects to `resource_exhausted`.
     ExportRangeExhausted,
     /// A set argument carried two Equal elements. A set admits each member
-    /// once, so a duplicate is a second wire spelling of one value and is
+    /// once, so a duplicate is a second wire encoding of one value and is
     /// refused rather than admitted: inbound as the codec-neutral twin of the
     /// Syrup decoder's ascending-element byte refusal (projects to
     /// `protocol_error`), and on send pre-commit, before `retainSentExports`
     /// records wire deltas. The send fold is at least as strict as the
     /// encoders' byte-level refusal (ADR-0003): Equal-but-byte-distinct
-    /// spellings refuse only in validation, matching the inbound rule. The
+    /// forms refuse only in validation, matching the inbound rule. The
     /// relayed-resolution store holds the same rule pre-commit
     /// (`validateStoredResolution`).
     DuplicateSetElement,
@@ -203,9 +204,11 @@ pub const REDEEMED_TOKEN_BASE: u64 = model.REDEEMED_TOKEN_BASE;
 /// outbound answers a local export settles, and which resolver import the
 /// partner gave us for each of its inbound answers.
 ///
-/// The outbound half is version-neutral (`resolver_export.zig`). The inbound
-/// half is V1.0's alone, because only V1.0 lacks a wire `op:resolve` to push a
-/// resolution back.
+/// The outbound half is version-neutral (`resolver_export.zig`): both profiles
+/// receive answer and listener notifications through resolver callbacks. The
+/// inbound half is V1.0's alone because only V1.0 advertises a resolver in an
+/// answered `op:deliver`; next follows every answered operation with
+/// `op:listen` instead.
 ///
 /// These are not folded onto the answer rows: the inbound resolver is installed
 /// while classifying an inbound deliver, *before* `recordRecv` installs the
@@ -221,13 +224,47 @@ pub const REDEEMED_TOKEN_BASE: u64 = model.REDEEMED_TOKEN_BASE;
 /// lockstep by construction rather than by comment. The outbound link binds a
 /// resolver-export position to the answer-pos it settles: the hot lookup
 /// (`answerForResolverExport`, run per inbound deliver) reads it forward, and
-/// the `op:gc-answers` prune reads it by its answer side, both O(1) — no scan of
-/// every outstanding link per released answer, which would be O(Q²) across a
-/// full release wave. The inbound link binds an answer-pos to the partner's
+/// the `op:gc-answers` retirement reads it by its answer side, both O(1). A
+/// retired purpose keeps an in-flight callback from becoming an ordinary
+/// deliver until the partner releases the resolver's wire mention. The inbound
+/// link binds an answer-pos to the partner's
 /// resolver import (`resolverForInboundAnswer` forward, `answerForResolverImport`
 /// reverse). Keying each on its position newtype makes the direction a property
 /// of the type. Neither owns heap beyond its two map backings.
-const OutboundResolverLink = bimap.BiMap(model.ExportPosition, model.AnswerPosition);
+pub const PromiseIncarnation = struct {
+    position: model.ImportPosition,
+    row_id: u64,
+};
+
+pub const RetiredResolverState = enum {
+    pending,
+    complete,
+};
+
+/// Resolver export whose application answer is gone while the partner may
+/// still hold or invoke its wire mention. The export position in the value
+/// keeps retired purposes unique in the resolver `BiMap`.
+pub const RetiredResolver = struct {
+    resolver_export: model.ExportPosition,
+    settling_source: ?PromiseIncarnation = null,
+    state: RetiredResolverState,
+};
+
+pub const NodeSettlingResolver = struct {
+    resolver_export: model.ExportPosition,
+    settling_source: ?PromiseIncarnation = null,
+};
+
+pub const ResolverPurpose = union(enum) {
+    application_answer: model.AnswerPosition,
+    node_settling: NodeSettlingResolver,
+    retired: RetiredResolver,
+    shortening_pending: PromiseIncarnation,
+    shortening_complete: PromiseIncarnation,
+};
+pub const ShorteningNomination = shortening.Nomination;
+pub const SettlingMovePlan = imported_promise.SettlingMovePlan;
+const OutboundResolverLink = bimap.BiMap(model.ExportPosition, ResolverPurpose);
 const InboundResolverLink = bimap.BiMap(model.AnswerPosition, model.ImportPosition);
 
 pub const State = enum {
@@ -254,6 +291,7 @@ pub const ListenerEntry = answers.ListenerEntry;
 const ListenerList = answers.ListenerList;
 pub const Projection = answers.Projection;
 pub const ProjectionKind = answers.ProjectionKind;
+pub const ProjectionIndex = answers.ProjectionIndex;
 pub const deinitProjection = answers.deinitProjection;
 pub const AnswerView = answers.AnswerView;
 pub const AnswerTable = answers.AnswerTable;
@@ -277,22 +315,36 @@ pub const PromiseListenCell = struct {
     row_id: u64,
 };
 
-/// A promise imported from a *third party* via handoff (ADR-0009 § `op:listen`
-/// on `desc:import-promise`). The introducing partner gave us this import; its
-/// eventual resolution lives on the third-party `host`, not on the direct
-/// partner, so it is forwarded to us as a *relayed resolution* rather than a
-/// direct `op:resolve`.
-///
-/// The presence of a row marks `import_position` third-party-hosted, the distinction
-/// that lets an inbound `op:listen` on this import install a listener here rather
-/// than be rejected. Grouping the host and listen cell in one owned row gives
-/// the third-party promise a single lifecycle.
+/// Session metadata for one imported promise. Every next-profile remote promise
+/// uses the shortening fields; a non-null `host` additionally marks a promise
+/// introduced through third-party handoff (ADR-0009), whose relayed resolution
+/// and proxy listeners use `cell`.
 pub const ImportedPromise = struct {
     /// The third-party host this promise lives on (`key_arena`-interned). Held
     /// so a re-root with a conflicting host is rejected (`Error.HostMismatch`).
-    host: []const u8,
+    host: ?[]const u8,
     /// Listeners + stored relayed resolution + row identity.
     cell: PromiseListenCell,
+    /// Next-profile forwarding edge. A self-edge means the shortening
+    /// subscription is still pending. A completed edge stays stable because
+    /// it also records which callback-introduced import retain this source
+    /// owns and must release when the source dies.
+    shortening_target: model.ImportPosition,
+    /// This promise incarnation already spent PR 282's one settling-listener
+    /// allowance. Claimed before the send and rolled back if the send fails.
+    settling_listener_claimed: bool = false,
+    /// The one resolver export named by the surviving wire settling listener.
+    /// Meaningful only while `settling_listener_claimed` is true.
+    settling_listener_export: model.ExportPosition = .from(0),
+    /// The application answer awaiting this subscription, null when the Node
+    /// is its only local consumer.
+    settling_answer: ?model.AnswerPosition = null,
+    /// Additional application answers sharing the one wire callback. Empty in
+    /// the common one-consumer case; capacity is reused when a released answer
+    /// is replaced by another converging source.
+    settling_followers: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
+    /// Whether a Node promise proxy also consumes this subscription.
+    settling_node_claimed: bool = false,
 };
 
 /// One resolved sturdyref enlivenment (ADR-0012 dedup cache): the swiss-number
@@ -309,6 +361,9 @@ pub const SturdyrefCacheEntry = struct {
 pub const Session = struct {
     allocator: std.mem.Allocator,
     state: State,
+    /// The active profile with `codec`: what the handshake settled, not what
+    /// either side asked for. Holds the preference until a partner's hello
+    /// settles it.
     captp_version: model.CaptpVersion,
     /// The wire codec negotiated for this direct session. The
     /// authoritative record of the codec choice; the engine's codec-dispatch
@@ -316,6 +371,23 @@ pub const Session = struct {
     /// the session produces is tagged with it. Defaults to `.syrup` for the
     /// non-negotiating constructors.
     codec: model.CodecId,
+    /// What this side asked for, and what the partner asked for: the two
+    /// inputs `engine.negotiation.settle` reads to produce the active profile
+    /// above. Both are a whole `model.Preference` rather than loose fields,
+    /// because they are the same kind of thing and every reader wants them
+    /// whole — a decomposed side would be rebuilt at each use site.
+    ///
+    /// Kept beside the active values rather than folded into them because
+    /// they answer a different question. The active pair is a property of the
+    /// two peers; these are properties of one peer each, and they are what
+    /// answers "why is this session on the baseline". The hello advertises
+    /// `preferred`, so it has to survive the settle that overwrites the
+    /// active values — including `features`, which is why the offered set
+    /// lives here and the negotiated set lives above.
+    preferred: model.Preference,
+    /// The partner's, or the baseline before its hello has arrived. The
+    /// session records the claim; the engine decides with it.
+    partner_preference: model.Preference = .{},
     features: model.FeatureSet,
     limits: SessionLimits,
     next_export_position: u64,
@@ -365,7 +437,7 @@ pub const Session = struct {
     /// (`checkInboundSetUniqueness` — view handles + hash rows for Cap'n Proto
     /// duplicate refusal; small sets stay on the stack). All of it dies when the turn ends: every
     /// recv entry point (`recordRecv`, `recordRecvView`,
-    /// `recordInboundDeliverView`, `recordResolverCallbackResolve`) resets it,
+    /// `validateInboundDeliverView`, `recordResolverCallbackResolve`) resets it,
     /// so the per-message dupe-then-`freeMessage` choreography collapses to one
     /// bump-and-reset, and apply dupes anything session-lived onto `allocator`,
     /// so the reset can never dangle a table row. The reset retains at most
@@ -424,9 +496,11 @@ pub const Session = struct {
     /// position bound to the outbound answer-pos it settles. An inbound
     /// deliver to that export is the partner settling the answer
     /// (`answerForResolverExport`, forward, per inbound deliver); a
-    /// fully-released answer drops the link on the `op:gc-answers` path by its
-    /// answer side, O(1) either way. One `BiMap` holds both directions, so no
-    /// half-installed link can survive. Version-neutral (`resolver_export.zig`).
+    /// fully-released answer retires that purpose on the `op:gc-answers` path
+    /// by its answer side. The tombstone remains until any racing callback and
+    /// the partner's export mention are concluded. One `BiMap` holds both
+    /// directions, so no half-installed link can survive. Version-neutral
+    /// (`resolver_export.zig`).
     outbound_resolver_link: OutboundResolverLink,
     /// V1.0 inbound resolver link (ADR-0010): an answer-pos bound to the
     /// resolver import position we target when we send our resolution
@@ -462,7 +536,7 @@ pub const Session = struct {
     /// bound must leave room for the tables beside it.
     /// `test/engine/deliver_set_scratch_budget_test.zig` pins a big-set frame's
     /// scratch back under it after the frame drains.
-    const steady_recv_scratch_bytes: usize = 384;
+    pub const steady_recv_scratch_bytes: usize = 384;
 
     /// Construction knobs for `initWith`. Every field has a default, so a
     /// caller names only what it overrides: `Session.init(allocator)` is
@@ -473,8 +547,8 @@ pub const Session = struct {
     pub const Options = struct {
         /// Start in `negotiating` (awaiting `op:start-session`) instead of `open`.
         negotiating: bool = false,
-        codec: model.CodecId = .syrup,
-        captp_version: model.CaptpVersion = model.CaptpVersion.v1_0,
+        codec: model.CodecId = model.Preference.baseline.codec,
+        captp_version: model.CaptpVersion = model.Preference.baseline.captp_version,
         features: model.FeatureSet = model.FeatureSet.full(),
         limits: SessionLimits = .{},
         /// The first export position this session hands out.
@@ -518,6 +592,19 @@ pub const Session = struct {
         return initWith(allocator, .{ .negotiating = true });
     }
 
+    /// One input, two roles: a configured profile is both what this side asks
+    /// for and what it speaks until a partner's hello settles otherwise. Named
+    /// once here because two tiers impose a profile — construction and
+    /// `engine.Peer.reposture` — and a third that encoded it independently would
+    /// advertise something the session does not speak.
+    pub fn preferenceOf(
+        captp_version: model.CaptpVersion,
+        codec: model.CodecId,
+        features: model.FeatureSet,
+    ) model.Preference {
+        return .{ .captp_version = captp_version, .codec = codec, .features = features };
+    }
+
     /// The one full constructor; every `init*` shorthand delegates here.
     pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         return .{
@@ -525,6 +612,7 @@ pub const Session = struct {
             .state = if (options.negotiating) .negotiating else .open,
             .captp_version = options.captp_version,
             .codec = options.codec,
+            .preferred = preferenceOf(options.captp_version, options.codec, options.features),
             .features = options.features,
             .limits = options.limits,
             // Start past the bootstrap id so `allocateExport` never aliases the
@@ -588,17 +676,40 @@ pub const Session = struct {
     /// stays on `Session`.
     pub const nominateResolverExport = resolver_export.nominateResolverExport;
     pub const bindFreshResolverExport = resolver_export.bindFreshResolverExport;
+    pub const mintMentionedResolverExport = resolver_export.mintMentionedResolverExport;
+    pub const abandonMentionedResolverExport = resolver_export.abandonMentionedResolverExport;
     pub const abandonResolverExport = resolver_export.abandonResolverExport;
     pub const abandonResolverNomination = resolver_export.abandonResolverNomination;
     pub const installOutboundResolver = resolver_export.installOutboundResolver;
     pub const removeOutboundResolver = resolver_export.removeOutboundResolver;
     pub const answerForResolverExport = resolver_export.answerForResolverExport;
+    pub const retireApplicationResolver = resolver_export.retireApplicationResolver;
+    pub const retiredResolverState = resolver_export.retiredResolverState;
+    pub const completeRetiredResolverCallback = resolver_export.completeRetiredResolverCallback;
+    pub const isNodeSettlingResolver = resolver_export.isNodeSettlingResolver;
+    pub const installNodeSettlingResolver = resolver_export.installNodeSettlingResolver;
+    pub const completeNodeSettlingResolverCallback = resolver_export.completeNodeSettlingResolverCallback;
+    pub const retireNodeSettlingResolver = resolver_export.retireNodeSettlingResolver;
+    pub const releaseRetiredResolverIfUnmentioned = resolver_export.releaseRetiredResolverIfUnmentioned;
+    pub const nominateShorteningResolver = shortening.nominate;
+    pub const abandonShorteningResolver = shortening.abandon;
+    pub const sourceForShorteningResolver = shortening.sourceForResolver;
+    pub const shorteningSourceIsHeld = shortening.sourceIsHeld;
+    pub const validateShorteningCompletion = shortening.validateCompletion;
+    pub const completeShortening = shortening.complete;
+    pub const releaseShorteningSourceAuthority = shortening.releaseSourceAuthority;
+    pub const shorteningIncarnationForImport = shortening.incarnationForImport;
+    pub const releaseShorteningResolverExport = shortening.releaseResolverExport;
+    pub const expandShorteningGcExportReleases = shortening.expandGcExportReleases;
+    pub const rewriteShortenedMessage = shortening.rewriteMessage;
+    pub const rewriteShortenedResolution = shortening.rewriteResolution;
 
     /// V1.0 resolver-callback translation lives in `v1_0.zig`; these aliases keep
     /// the call sites reading as ordinary `Session` methods while the bodies sit
     /// beside the rest of the V1.0 bridge. The resolver-link fields they operate
     /// on stay on `Session`.
     pub const needsV1_0Translation = v1_0.needsV1_0Translation;
+    pub const validateHandoffGiftId = validate.validateHandoffGiftId;
     pub const mintOutboundResolver = v1_0.mintOutboundResolver;
     pub const installInboundResolver = v1_0.installInboundResolver;
     pub const resolverForInboundAnswer = v1_0.resolverForInboundAnswer;
@@ -609,6 +720,7 @@ pub const Session = struct {
     /// aliases keep the call sites reading as ordinary `Session` methods. The
     /// handshake fields they operate on stay on `Session`.
     pub const handshakeComplete = handshake.handshakeComplete;
+    pub const awaitsPartnerHello = handshake.awaitsPartnerHello;
     pub const transitionToOpen = handshake.transitionToOpen;
     pub const partnerSessionKey = handshake.partnerSessionKey;
     pub const localSessionKey = handshake.localSessionKey;
@@ -690,7 +802,7 @@ pub const Session = struct {
     }
 
     /// Install `id` as a pending outbound answer we await resolution for.
-    /// Idempotent.
+    /// The position must be fresh; one live row cannot name two questions.
     pub fn installOutboundAnswer(self: *Session, id: model.AnswerPosition) !void {
         try self.installAnswer(.outbound, id);
     }
@@ -723,8 +835,8 @@ pub const Session = struct {
     /// pipelined path returns without ever reaching it, so a closed session would
     /// otherwise queue a pipelined deliver, failing open. Checking here keeps
     /// `closed` a terminal refusal for every inbound kind. Exactly the state
-    /// gate, nothing more: kind-specific rules (e.g. a wire `op:resolve` on a
-    /// V1.0 session) belong to the validators (`validateRecvView`).
+    /// gate, nothing more: kind-specific rules such as refusing wire
+    /// `op:resolve` belong to the validators (`validateRecvView`).
     pub fn admits(self: *const Session, body: model.view.Body) Error!void {
         try self.admitInState(body);
     }
@@ -793,7 +905,7 @@ pub const Session = struct {
                 try self.validateRecvView(body, &introduced);
                 try self.applyRecvView(body, &introduced);
             },
-            .gc_export, .gc_answer, .handoff => {
+            .gc_export, .gc_answer => {
                 // The feature gate reads the kind alone, so it runs against the
                 // borrowed view first. Otherwise a kind this session never
                 // negotiated could make us materialize its whole payload and
@@ -817,64 +929,62 @@ pub const Session = struct {
     fn refuseUnnegotiatedKind(self: *const Session, body: model.view.Body) Error!void {
         switch (body) {
             .gc_export, .gc_answer => if (!self.features.wire_delta) return Error.FeatureNotNegotiated,
-            .handoff => if (!self.features.handoff) return Error.FeatureNotNegotiated,
             else => {},
         }
     }
 
-    /// `recordRecvView`, restricted to a wire `op:deliver` and with the
-    /// introduced-import record supplied by the caller instead of a
-    /// throwaway turn-scratch one. `recordRecvView`'s own record lives in
-    /// `recv_scratch`, reset before that call even returns — too short-lived
-    /// for a consumer that needs the far positions a deliver introduced
-    /// *after* the event is surfaced. The engine's inbound dispatch
-    /// (`engine.inbound.applyDecodedOwnedFrame`) calls this instead, backing
-    /// `introduced` with an allocator that outlives the turn, so it can copy
-    /// the mentions onto the surfaced `Event` for post-dispatch stateless GC
-    /// (`driver.core.gc.emitExportsForDeliver`) rather than re-walking the
-    /// same argument tree a second time once the event is polled.
-    /// `introduced`'s allocator and lifetime are the caller's.
-    ///
-    /// `recv_scratch` is still this call's own turn arena and is reset like the
-    /// other three recv entry points: the set-uniqueness fold
-    /// (`validate.checkInboundSetUniqueness`) materializes a set's elements
-    /// there to hash them for duplicate refusal, so without the reset that
-    /// scratch accumulates for the session's whole life under a stream of
-    /// set-carrying delivers. The reset is a different arena from the caller's
-    /// `introduced` record (backed by the caller's own allocator), so it leaves
-    /// that record intact; apply dupes anything session-lived onto
-    /// `self.allocator`, so it can never dangle a table row.
-    pub fn recordInboundDeliverView(self: *Session, body: model.view.Body, introduced: *validate.IntroducedImports) !void {
-        std.debug.assert(body == .deliver);
+    /// Validate a borrowed inbound deliver before the engine performs any of
+    /// its deliver-specific authority mutations (V1.0 resolver registration or
+    /// pipeline retention). The caller-owned `introduced` record survives into
+    /// `applyValidatedInboundDeliverView`, so the argument tree is walked once.
+    /// Validation scratch remains turn-local and is reset before returning.
+    pub fn validateInboundDeliverView(self: *Session, deliver: model.view.Deliver, introduced: *validate.IntroducedImports) !void {
+        const body = model.view.Body{ .deliver = deliver };
         try self.admitInState(body);
         defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         try self.validateRecvView(body, introduced);
+    }
+
+    /// Apply a deliver already accepted by `validateInboundDeliverView`.
+    /// Engine-only in practice: keeping this separate is what lets validation
+    /// precede resolver and pipeline mutation without validating the same
+    /// argument tree again when an ordinary deliver reaches session apply.
+    pub fn applyValidatedInboundDeliverView(self: *Session, deliver: model.view.Deliver, introduced: *const validate.IntroducedImports) !void {
+        const body = model.view.Body{ .deliver = deliver };
         try self.applyRecvView(body, introduced);
     }
 
-    /// Record the inbound resolve the engine synthesizes when a V1.0 partner
-    /// fulfills a promise by delivering to its resolver callback (ADR-0010).
+    /// Record the inbound resolve the engine synthesizes when a partner
+    /// fulfills a promise by delivering to its resolver callback (ADR-0010,
+    /// ADR-0111).
     /// Validates and applies straight from the borrowed resolution view, so the
-    /// V1.0 hot path materializes no owned resolution.
+    /// callback hot path materializes no owned resolution.
     ///
     /// This is deliberately *not* `recordRecvView`: that path refuses a
-    /// wire `op:resolve` on a V1.0 session, and this resolve never arrived on
-    /// the wire, the partner sent an `op:deliver` to the resolver and the
+    /// wire `op:resolve`, and this resolve never arrived on the wire. The
+    /// partner sent an `op:deliver` to the resolver and the
     /// engine surfaces the settlement as a semantic resolve. The shared
     /// inbound-resolve validation and apply run exactly as the canonical
     /// resolve path does, minus that wire refusal. The borrowed `resolve` must
     /// outlive this call; the engine keeps the frame it borrows alive on the
     /// event queue before applying.
     pub fn recordResolverCallbackResolve(self: *Session, resolve: model.view.Resolve) !void {
-        const body = model.view.Body{ .resolve = resolve };
-        try self.admitInState(body);
-        // Same turn-scratch introduced-import record as `recordRecvView`; the
-        // fulfill payload is walked once in validation and apply consumes the
-        // record.
         defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator(), self.limits);
-        try validate.validateInboundResolve(self, resolve, &introduced);
-        try self.applyRecvView(body, &introduced);
+        try self.validateResolverCallbackResolve(resolve, &introduced);
+        try self.applyValidatedResolverCallbackResolve(resolve, &introduced);
+    }
+
+    /// Engine split of `recordResolverCallbackResolve`: validate before an
+    /// event is committed, then apply the same introduced-import record after.
+    pub fn validateResolverCallbackResolve(self: *Session, resolve: model.view.Resolve, introduced: *validate.IntroducedImports) !void {
+        const body = model.view.Body{ .resolve = resolve };
+        try self.admitInState(body);
+        try validate.validateInboundResolve(self, resolve, introduced);
+    }
+
+    pub fn applyValidatedResolverCallbackResolve(self: *Session, resolve: model.view.Resolve, introduced: *const validate.IntroducedImports) !void {
+        try self.applyRecvView(.{ .resolve = resolve }, introduced);
     }
 
     // Per-kind validate/apply live in `validate.zig` (the module-level
@@ -892,9 +1002,6 @@ pub const Session = struct {
     const applySentResolve = apply.applySentResolve;
     const applyRecv = apply.applyRecv;
 
-    /// Validate a pipelined inbound deliver before the engine queues or
-    /// redirects it. Engine caller: `engine.pipeline.maybeEnqueuePipelinedCall`.
-    pub const validatePipelinedDeliver = validate.validatePipelinedDeliver;
     /// Validate an inbound `op:listen` before the engine installs its
     /// listener. Engine caller: `engine.pipeline.maybeInstallInboundListener`.
     pub const validateInboundListen = validate.validateInboundListen;
@@ -1102,14 +1209,14 @@ pub const Session = struct {
     }
 
     /// The reserved, versioned namespace for randomly minted durable swiss
-    /// names (ADR-0098): a fixed domain prefix followed by the hex spelling of
+    /// names (ADR-0098): a fixed domain prefix followed by the hex encoding of
     /// `durable_swiss_entropy_len` cryptographically random bytes. Mutable
     /// bootstrap binds structurally refuse this prefix, and the Host's durable
     /// mint produces only names inside it, so the two namespaces cannot
     /// collide — including across a process restart, where no in-memory
     /// tombstone could survive to police it.
     pub const durable_swiss_prefix = "pancake-durable-1-";
-    /// Random bytes behind the prefix, spelled as lowercase hex.
+    /// Random bytes behind the prefix, encoded as lowercase hex.
     pub const durable_swiss_entropy_len = 16;
     /// A minted durable swiss name's exact byte length.
     pub const durable_swiss_len = durable_swiss_prefix.len + durable_swiss_entropy_len * 2;
@@ -1363,12 +1470,9 @@ pub const Session = struct {
         return entry.status() != .pending;
     }
 
-    // Third-party handoff-imported promises (ADR-0009): a `desc:import-promise`
-    // handed to us by an introducing partner names a promise hosted on a *third*
-    // peer, whose resolution reaches us as a relayed resolution rather than a
-    // direct `op:resolve`. The substrate mirrors the answer-side pipelining one
-    // above, keyed on import position; bodies live in `imported_promise.zig`, aliased
-    // here so `sess.installThirdPartyImport(...)` still resolves.
+    // Imported-promise metadata: third-party relay state from ADR-0009 plus the
+    // next profile's shortening and settling claims. Bodies live in
+    // `imported_promise.zig` and are aliased here.
     pub const installThirdPartyImport = imported_promise.installThirdPartyImport;
     pub const isThirdPartyImport = imported_promise.isThirdPartyImport;
     pub const installImportedPromiseListener = imported_promise.installImportedPromiseListener;
@@ -1377,6 +1481,23 @@ pub const Session = struct {
     pub const importedPromiseResolution = imported_promise.importedPromiseResolution;
     pub const importedPromiseRowId = imported_promise.importedPromiseRowId;
     pub const findImportedPromise = imported_promise.findImportedPromise;
+    pub const claimPromiseSettlingListener = imported_promise.claimSettlingListener;
+    pub const abandonPromiseSettlingListener = imported_promise.abandonSettlingListener;
+    pub const promiseSettlingAnswer = imported_promise.settlingAnswer;
+    pub const promiseSettlingListenerExport = imported_promise.settlingListenerExport;
+    pub const promiseSettlingNodeClaimed = imported_promise.settlingNodeClaimed;
+    pub const promiseSettlingConsumerClaimed = imported_promise.settlingConsumerClaimed;
+    pub const discardUnconsumedPromiseSettlingListener = imported_promise.discardUnconsumedSettlingListener;
+    pub const detachPromiseSettlingNodeConsumer = imported_promise.detachSettlingNodeConsumer;
+    pub const promiseSettlingFollowersForAnswer = imported_promise.settlingFollowersForAnswer;
+    pub const validatePromiseSettlingFollowers = imported_promise.validateSettlingFollowers;
+    pub const applyPromiseSettlingFollowers = imported_promise.applySettlingFollowers;
+    pub const takePromiseSettlingFollowers = imported_promise.takeSettlingFollowers;
+    pub const unlinkPromiseSettlingAnswer = imported_promise.unlinkSettlingAnswer;
+    pub const promiseSettlingListenerClaimed = imported_promise.settlingListenerClaimed;
+    pub const preparePromiseSettlingMove = imported_promise.prepareSettlingMove;
+    pub const commitPromiseSettlingMove = imported_promise.commitSettlingMove;
+    pub const shortenedPromiseTarget = imported_promise.shortenedTarget;
 
     // Sturdyref-enliven dedup (ADR-0012): the resolved-enlivenment cache and the
     // in-flight enliven set. Bodies live in `sturdyref_cache.zig`; aliased here

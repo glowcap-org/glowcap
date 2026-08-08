@@ -2,6 +2,7 @@
 set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+. "$repo_root/.devcontainer/pins.sh"
 spec="$repo_root/conformance/ocapn-spec/upstream/draft-specifications/CapTP Specification.md"
 netlayers="$repo_root/conformance/ocapn-spec/upstream/draft-specifications/Netlayers.md"
 suite="$repo_root/conformance/ocapn-conformance/upstream/utils/captp_types.py"
@@ -33,6 +34,13 @@ echo "$submodules" | while IFS= read -r path; do
     esac
 done
 
+goblins_revision=$(git -C "$repo_root/conformance/spritely-goblins/upstream" rev-parse HEAD)
+if [ "$goblins_revision" != "$GOBLINS_REVISION" ]; then
+    printf '%s\n' "ocapn-findings-check: devcontainer Goblins $GOBLINS_REVISION does not match submodule $goblins_revision" >&2
+    printf '%s\n' "  update .devcontainer/pins.sh with the submodule so live checks run the source they report" >&2
+    exit 1
+fi
+
 require_text() {
     path=$1
     text=$2
@@ -58,6 +66,12 @@ require_text "$goblins_urls" "[hints (or/c #f string?)]" "Goblins string-or-fals
 require_text "$goblins_urls" "ignoring hints" "Goblins hints-ignoring node equality"
 require_text "$goblins" "($ locations->open-session-names 'ref exporter-location))" "Goblins withdrawal session lookup by full node value"
 require_text "$goblins" "($ locations->open-session-names 'set remote-location session-name)" "Goblins session registration under the hello-declared location"
+require_text "$spec" 'MUST not have been used in the **Exporter-Receiver** session' "draft Exporter-Receiver handoff-count scope"
+require_text "$goblins" "($ gifter-exporter-session-coordinator 'get-remote-handoff-count)" "Goblins Gifter-Exporter handoff-count check"
+require_text "$goblins" "($ gifter-exporter-session-coordinator 'new-handoff-count (add1 this-handoff-count))" "Goblins Gifter-Exporter handoff-count advance"
+require_text "$spec" "when this is sent the connection should" "draft op:abort connection teardown"
+require_text "$repo_root/conformance/ocapn-conformance/upstream/tests/op_abort.py" "with self.assertRaises((TimeoutError, ConnectionAbortedError)):" "suite pre-handshake abort outcomes"
+require_text "$goblins" "(bcom (lambda _ (void)))" "Goblins pre-handshake abort handler"
 
-printf '%s\n' "ocapn-findings-check: pinned op:listen, locator-hints, and withdrawal-lookup discrepancies reproduced"
+printf '%s\n' "ocapn-findings-check: pinned op:listen, locator-hints, withdrawal-lookup, handoff-count, and pre-handshake-abort discrepancies reproduced"
 git -C "$repo_root" submodule status -- $submodules

@@ -1,9 +1,9 @@
 //! A rooms chat client, written on pancake actors in native Zig. Zig is the home
 //! language; this runs on the same core every binding wraps, and it drives the
-//! real TCP netlayer pancake ships.
+//! real netlayers pancake ships.
 //!
-//! On the driver surface this reads like the other languages: one owning
-//! `driver.connect`, `fetch` the directory by name, `call` it to enter or open
+//! On the driver surface this reads like the other languages: one borrowing
+//! `driver.connectVia`, `fetch` the directory by name, `call` it to enter or open
 //! the named room (which hands back a live reference to that room), `spawn` an
 //! inbox the room can call back, `send` the room a subscribe with that
 //! capability, `tell` it the post, and `step` the connection with one explicit pump
@@ -29,10 +29,12 @@ const std = @import("std");
 const pancake = @import("pancake");
 const build_options = @import("rooms_client_build_options");
 
+const rooms_profile = @import("rooms_profile");
 const demo_rooms = @import("demo_rooms_cli");
 const demo_usage = @import("demo_usage");
 
 const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
@@ -93,9 +95,10 @@ const State = struct {
 const Inbox = struct {
     state: *State,
 
-    pub fn handle(self: *Inbox, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        _ = ht;
-        if (!std.mem.eql(u8, verb, "notify")) return error.NoSuchMethod;
+    pub fn handle(self: *Inbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
+        const args = msg.args;
         const from = if (args.len > 0 and args[0] == .string) args[0].string else "?";
         const text = if (args.len > 1 and args[1] == .string) args[1].string else "";
         std.debug.print("[{s}] {s}: {s}\n", .{ self.state.nick, from, text });
@@ -105,7 +108,7 @@ const Inbox = struct {
             self.state.markPresent(from);
             self.state.markSeen(from);
         }
-        return .{ .void = {} };
+        return .{ .boolean = true };
     }
 };
 
@@ -114,20 +117,34 @@ const Inbox = struct {
 const Watcher = struct {
     nick: []const u8,
 
-    pub fn handle(self: *Watcher, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        _ = ht;
-        if (!std.mem.eql(u8, verb, "notify")) return error.NoSuchMethod;
+    pub fn handle(self: *Watcher, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
+        const args = msg.args;
         const kind = if (args.len > 0 and args[0] == .string) args[0].string else "?";
         const name = if (args.len > 1 and args[1] == .string) args[1].string else "";
         const count = if (args.len > 2 and args[2] == .integer) args[2].integer else 0;
         std.debug.print("[{s}] directory: {s} {s} ({d})\n", .{ self.nick, kind, name, count });
-        return .{ .void = {} };
+        return .{ .boolean = true };
     }
 };
 
+/// Every dial this client makes wears the room's profile (`rooms_profile`
+/// is the one Zig authority for it) and the same finite waits, so they are
+/// named once here rather than respelled per transport.
+fn roomsSessionOpts() driver.SessionOptions {
+    return .{
+        .frame_cap = frame_cap,
+        .codec = rooms_profile.codec,
+        .captp_version = rooms_profile.captp_version,
+        .handshake = .{ .ms = 10_000 },
+        .settle = .{ .ms = 10_000 },
+    };
+}
+
 /// Print a `list`/`watch` snapshot — a list of `[name, count]` pairs — on one
 /// line, so discovery is visible before this client enters its room.
-fn printRooms(nick: []const u8, arg: driver.Value) void {
+fn printRooms(nick: []const u8, arg: model.Argument) void {
     std.debug.print("[{s}] rooms:", .{nick});
     var any = false;
     if (arg == .list) {
@@ -148,7 +165,7 @@ fn printRooms(nick: []const u8, arg: driver.Value) void {
 /// welcome), and `notify("room", text, "join"|"leave", nick)` marks that one member
 /// present or absent. Returns true when the line was a presence change, so the
 /// caller does not also count it as a chat line.
-fn applyPresence(state: *State, args: []const driver.Value) bool {
+fn applyPresence(state: *State, args: []const model.Argument) bool {
     if (args.len < 3 or args[2] != .string) return false;
     const kind = args[2].string;
     if (std.mem.eql(u8, kind, "roster")) {
@@ -206,9 +223,7 @@ pub fn main(init: std.process.Init) !void {
             return fail("this Zig rooms client is TCP-only; build the iroh variant (`zig build demo-rooms-iroh`) to dial an ocapn:// URI");
         }
     } else {
-        var session = try dialRoomsLocator(io, allocator, locator);
-        defer session.deinit();
-        try runRoom(io, session, allocator, &state, room_name, nick, line);
+        try runTcpRoom(io, allocator, locator, &state, room_name, nick, line);
     }
 
     if (state.seenCount() < state.roster.len) {
@@ -217,12 +232,21 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-/// Dial a `host:port` designator over the TCP netlayer pancake ships. A bare
-/// `host:port` is the designator of a `tcp` locator (`tcp.at`); dial it through
-/// the one dialer against a TCP-only transport slice.
-fn dialRoomsLocator(io: std.Io, allocator: std.mem.Allocator, locator: []const u8) !*driver.Session {
+/// Dial a `host:port` designator over the TCP netlayer pancake ships.
+fn runTcpRoom(io: std.Io, allocator: std.mem.Allocator, locator: []const u8, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
     var tcp_resident = tcp.Resident{ .io = io };
-    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(locator), .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    try dialVia(
+        io,
+        allocator,
+        &.{tcp_resident.netlayer()},
+        tcp.at(locator),
+        roomsSessionOpts().handshake,
+        roomsSessionOpts().settle,
+        state,
+        room_name,
+        nick,
+        line,
+    );
 }
 
 /// Dial an `ocapn://<nodeid>.iroh?direct-addresses=…` URI over iroh's encrypted
@@ -241,16 +265,58 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     const iroh = @import("iroh");
     var resident = try iroh.Resident.init(io, null, .{ .reachability = reachability });
     defer resident.deinit();
-    var session = try driver.connect(allocator, &.{resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    // A userspace-multiplexed iroh stream has no pollable per-connection fd;
+    // the one-connection borrowing driver blocks in the resident itself.
+    try dialVia(io, allocator, &.{resident.netlayer()}, loc, .unbounded, .unbounded, state, room_name, nick, line);
+}
+
+/// One caller-owned peer and its bounded frame buffers, shared by TCP and
+/// iroh. `BlockingSession` is the transport-neutral one-connection face; the
+/// owning `Session` face multiplexes pollable sockets and therefore is not the
+/// contract for an iroh userspace stream.
+fn dialVia(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    netlayers: []const net.netlayer.Netlayer,
+    locator: model.PeerLocator,
+    handshake: driver.Budget,
+    settle: driver.Budget,
+    state: *State,
+    room_name: []const u8,
+    nick: []const u8,
+    line: []const u8,
+) !void {
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = rooms_profile.captp_version,
+        .codec = rooms_profile.codec,
+        .limits = .{ .max_frame_bytes = frame_cap },
+    });
+    defer peer.deinit();
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    var session = try driver.connectVia(
+        allocator,
+        netlayers,
+        &peer,
+        locator,
+        .ephemeral,
+        read_buf,
+        write_buf,
+        handshake,
+    );
     defer session.deinit();
-    try runRoom(io, session, allocator, state, room_name, nick, line);
+    session.settle = settle;
+    try runRoom(io, &session, allocator, state, room_name, nick, line);
 }
 
 /// The capability a `call` returned, or a refusal when the reply carried
 /// something else.
-fn roomRefFromArg(arg: driver.Value) !driver.Capability {
-    if (arg != .capability) return error.NotACapability;
-    return arg.capability;
+fn roomRefFromArg(arg: model.Argument) !actors.Ref {
+    if (arg != .reference or arg.reference != .far) return error.NotACapability;
+    return .{ .far = arg.reference.far };
 }
 
 /// Enter-or-open lives here because it materializes settled outcomes through the
@@ -261,35 +327,38 @@ fn roomRefFromArg(arg: driver.Value) !driver.Capability {
 /// — so this tries `enter`, falls back to `open`, and on a creation race falls
 /// back to `enter` once more. The settled outcomes are materialized into a
 /// scratch arena that frees here; the returned far ref is POD and outlives it.
-fn enterOrOpen(session: *driver.Session, allocator: std.mem.Allocator, directory: driver.Capability, room_name: []const u8) !driver.Capability {
+fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
-    const name_arg = driver.Value{ .string = room_name };
+    const name_arg = model.Argument{ .string = room_name };
 
-    switch (try session.call(directory, "enter", &.{name_arg}, scratch)) {
+    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.EnterFailed;
         },
+        .give => return error.UnexpectedHandoff,
     }
-    switch (try session.call(directory, "open", &.{name_arg}, scratch)) {
+    switch (try session.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.OpenFailed;
         },
+        .give => return error.UnexpectedHandoff,
     }
-    switch (try session.call(directory, "enter", &.{name_arg}, scratch)) {
+    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => return error.EnterFailed,
+        .give => return error.UnexpectedHandoff,
     }
 }
 
 /// Enter the room, subscribe our inbox, and pump until every roster member's
 /// line has arrived, the transport-neutral body both dial paths share.
-fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
+fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
     const directory = try session.fetch("directory");
 
     // Discovery: list the live rooms once, then watch the directory so the room
@@ -299,14 +368,16 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const scratch = arena.allocator();
-        switch (try session.call(directory, "list", &.{}, scratch)) {
+        switch (try session.call(directory, .{ .verb = "list" }, scratch)) {
             .fulfilled => |arg| printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
+            .give => return error.UnexpectedHandoff,
         }
         const watcher = try session.spawn(Watcher, .{ .nick = nick });
-        switch (try session.call(directory, "watch", &.{.{ .capability = watcher }}, scratch)) {
+        switch (try session.call(directory, .{ .verb = "watch", .args = &.{watcher.arg()} }, scratch)) {
             .fulfilled => {}, // the snapshot reply; we already listed, so ignore it
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
+            .give => return error.UnexpectedHandoff,
         }
     }
 
@@ -316,7 +387,7 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
     // Subscribe, handing the room a capability to our inbox. Success is the
     // resolution; the room delivers the welcome and roster as our first `notify`
     // (the roster line), not as a return value.
-    _ = try session.send(room, "subscribe", &.{ .{ .string = nick }, .{ .capability = inbox } });
+    _ = try session.send(room, .{ .verb = "subscribe", .args = &.{ .{ .string = nick }, inbox.arg() } });
 
     // Bounded like every sibling client: if the roster never completes (a
     // member failed to join), fail loud with the seen-count message below
@@ -330,7 +401,7 @@ fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, s
             break;
         };
         if (!posted and state.allPresent()) {
-            try session.tell(room, "post", &.{.{ .string = line }});
+            try session.tell(room, .{ .verb = "post", .args = &.{.{ .string = line }} });
             posted = true;
         }
         if (progress) |p| {

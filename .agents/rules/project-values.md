@@ -19,6 +19,9 @@ the vision itself when a tradeoff between them is unclear.
   consumer proves consumability, not the source of truth.
 - **Explicit over implicit.** Ownership, allocation, copying, I/O, scheduling,
   and authority must be visible at the API boundary that performs them.
+  In JavaScript and TypeScript, `== null` / `!= null` are the ordinary nullish
+  absence checks; reserve strict equality for type guards, discriminants, and
+  cases where `null` and `undefined` mean different things.
 - **No hidden runtime.** The protocol core is deterministic, sync, and no-I/O.
   Adapters own host integration.
 - **Boring public surface.** The C ABI ships as a small declared set of
@@ -38,7 +41,7 @@ the vision itself when a tradeoff between them is unclear.
   changing one thing must not require touching an unrelated one, and an
   effect stays local to the seam that owns it. When two shapes are otherwise
   equal, pick the one easier to change — a shared seam over parallel
-  spellings, a generated mirror over a hand-kept copy, a check over a
+  representations, a generated mirror over a hand-kept copy, a check over a
   convention.
 - **Small modules, sharp boundaries.** Split by responsibility. A reader should
   know what a file owns before reading its body.
@@ -46,7 +49,10 @@ the vision itself when a tradeoff between them is unclear.
   rules becomes a rough edge in every contribution.
 - **Taste becomes code shape.** Do not commit external taste-reference names
   from prompts. Express the prompt through Zig-native control, clear lifetime
-  surfaces, small modules, sharp tests, and boring public APIs.
+  surfaces, small modules, sharp tests, and boring public APIs. Agent economy
+  follows the same rule: spend fewer tokens through progressive disclosure,
+  focused reads, and deterministic automation, never by weakening code, tests,
+  boundaries, ownership, or cost evidence.
 
 ## Release Bar
 
@@ -64,9 +70,9 @@ pancake protects (performance, architecture, cross-binding interop).
   that moves a type, an owner, or a boundary decides the shape the others get
   fixed into. Take the severe ones that stand alone straight away. Where a fix
   sits inside a pending structural change, do the structural one first: its
-  interim spelling is not "quick", it is rework with a delay, and the honest
+  interim form is not "quick", it is rework with a delay, and the honest
   move when the reshaping change is too big for the session is to name which
-  findings are waiting on it rather than spend the session on spellings that
+  findings are waiting on it rather than spend the session on forms that
   will be torn up. [`ladder.md`](../../docs/ladder.md) already argues this for
   the route to 1.0 ("The order is an argument, not a wish list"); a review's
   findings deserve the same argument.

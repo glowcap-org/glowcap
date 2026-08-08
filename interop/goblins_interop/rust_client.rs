@@ -39,23 +39,35 @@ async fn main() -> Result<(), Fail> {
 		.kill_on_drop(true)
 		.spawn()?;
 
-	let swiss = helpers::read_swiss(&mut child).await?;
-	println!("rust-goblins-interop: goblins published echo swiss={swiss} on {HOST}:{port}");
+	let sturdyref_path = helpers::read_sturdyref_path(&mut child).await?;
+	println!("rust-goblins-interop: goblins published its echo sturdyref path on {HOST}:{port}");
 
 	// The `Session` is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result = local.run_until(converse(swiss, port)).await;
+	let result = match tokio::time::timeout(
+		helpers::INTEROP_TIMEOUT,
+		local.run_until(converse(sturdyref_path, port)),
+	)
+	.await
+	{
+		Ok(result) => result,
+		Err(_) => Err("rust-goblins-interop timed out".into()),
+	};
 	let _ = child.kill().await;
 	result
 }
 
-async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
+async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; reaching here means Goblins
 	// accepted our signed start-session and we accepted its.
-	let conn = connect(&tcp_locator(HOST, port), None, None).await?;
+	let locator = tcp_locator(HOST, port);
+	let conn = connect(&locator, None, None).await?;
 	println!("rust-goblins-interop: session open, keyed start-session accepted by goblins");
 
-	let sturdyref = format!("ocapn://goblins-echo.tcp/s/{swiss}");
+	// A sturdyref names a peer, and the enliven checks that peer against the
+	// session it rides (ADR-0098). Build it from the very locator this session
+	// dialed, so the two cannot drift apart.
+	let sturdyref = format!("{locator}/s/{sturdyref_path}");
 	let echo = conn.enliven(&sturdyref).await?;
 	println!("rust-goblins-interop: enlivened goblins echo cap, calling it");
 

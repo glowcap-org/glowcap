@@ -5,6 +5,7 @@ const pancake = @import("pancake");
 
 const Host = pancake.driver.core.Host;
 const engine = pancake.ocapn.engine;
+const publishAndOpenAcceptedOver = @import("../support/host_pair.zig").publishAndOpenAcceptedOver;
 
 test "Host.Options projects full SessionLimits into minted peers" {
     const allocator = std.testing.allocator;
@@ -61,7 +62,7 @@ test "Host mint projects full SessionLimits onto an adopted peer" {
 
     var pinned = engine.Peer.initNegotiating(allocator);
     defer pinned.deinit();
-    const adopted = try server.openAcceptedOver(&pinned, "tcp", "127.0.0.1:7001", &.{});
+    const adopted = try publishAndOpenAcceptedOver(&server, &pinned, "tcp", "127.0.0.1:7001", &.{});
     defer server.releaseSession(adopted) catch {};
 
     try std.testing.expectEqual(@as(usize, 4096), pinned.session_state.limits.max_frame_bytes);

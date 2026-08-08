@@ -202,6 +202,21 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Ba
 /// kernel happens to buffer.
 const backpressure_batch: usize = 512;
 
+/// The client's receive buffer while it plays the slow reader.
+///
+/// Volume alone cannot force this park. Linux auto-tunes a receive window up
+/// to `net.ipv4.tcp_rmem`'s maximum — tens of megabytes on an ordinary
+/// machine — so a client that merely declines to read still absorbs every
+/// reply into the kernel, the server's writes all succeed, and its outbound
+/// queue never reaches the high-water mark. Sending more is an arms race
+/// against a number the kernel picks.
+///
+/// Setting `SO_RCVBUF` explicitly opts this socket out of that auto-tuning,
+/// which is what makes the proof a statement about pancake rather than about
+/// the host's sysctls. Small on purpose: the window closes almost at once, so
+/// the server's writes back up into the queue ADR-0042 bounds.
+const client_rcvbuf_bytes: c_int = 4096;
+
 /// How many batches to try before calling it a failure. The product is the old
 /// fixed count, so a machine that needs every one of them still passes; a
 /// machine that parks early stops early instead of pushing the rest uphill into
@@ -238,6 +253,21 @@ fn backpressureOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerro
     cv.settle = client_budget;
 
     const greeter = try cv.fetch("greeter");
+
+    // Become a genuinely slow reader before asking for anything (see
+    // `client_rcvbuf_bytes`). The fetch above is already settled, so shrinking
+    // the window now cannot stall the handshake that got us here.
+    if (cv.conn.socketHandle()) |fd| {
+        std.posix.setsockopt(
+            fd,
+            std.posix.SOL.SOCKET,
+            std.posix.SO.RCVBUF,
+            &std.mem.toBytes(client_rcvbuf_bytes),
+        ) catch |err| {
+            std.debug.print("tcp-loop: could not shrink the client receive buffer: {s}\n", .{@errorName(err)});
+            return error.SlowReaderNotEstablished;
+        };
+    } else return error.SlowReaderNotEstablished;
 
     // Heap, not stack: this many vows is more than a thread stack should hold.
     const vows = try allocator.alloc(actors.Vow, backpressure_batch * backpressure_batches);
@@ -336,6 +366,23 @@ pub fn main(init: std.process.Init) !void {
         // nothing to wake the poll. The bound is generous, because tripping
         // it here would mean a genuinely wedged connection, not a slow one.
         .on_park = reportPark,
+        // A mark this proof can actually reach.
+        //
+        // The default is `frame_cap`, and reaching it from a client means
+        // out-writing the kernel: Linux auto-tunes a receive window to
+        // `net.ipv4.tcp_rmem`'s maximum and a send buffer to `tcp_wmem`'s —
+        // tens of megabytes between them on an ordinary machine — and the
+        // server's socket is inside this loop where no client can shrink it.
+        // Volume alone is therefore an arms race against numbers the host
+        // picks, and the proof lost it: the queue peaked around 3 KiB while
+        // the mark sat at 4 KiB, so the park never fired and the failure read
+        // as a pancake regression.
+        //
+        // The mark is configuration, so the honest proof configures it. What
+        // ADR-0042 claims is that the queue parks the read once it passes the
+        // mark, and that claim is the same at any mark; pinning a low one
+        // makes the assertion about pancake rather than about sysctls.
+        .outbound_high_water = 1024,
         .fan_in_throttle = true,
         .park_kill_ms = 30_000,
     }));

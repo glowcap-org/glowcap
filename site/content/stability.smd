@@ -15,16 +15,17 @@ it still leaves open. It is evidence, not a compatibility or security promise.
 
 | Surface | Evidence on every push | What remains |
 | --- | --- | --- |
-| Protocol core | The upstream OCapN suite and a live Goblins peer exercise model, session, engine, calls, promises, and all three handoff roles. | Community review lists the exact outside-peer gaps. |
+| Protocol core | The upstream OCapN suite and a live Goblins peer exercise V1.0 model, session, engine, calls, promises, and all three handoff roles. In-tree scenarios exercise the PR 282 behavior in `pancake-next`. | No outside peer exercises the next profile; community review lists the other exact gaps. |
 | Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
 | Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads pancake's hand-written format. |
-| `tcp` | The OCapN and Goblins checks use it for live sessions. | The channel is cleartext. |
-| `iroh` | `iroh-interop` and the relay checks use real iroh endpoints and its QUIC stack. | Both CapTP peers are pancake; two-NAT hole-punching is not in CI. |
+| `tcp` | The Goblins checks use it for live sessions, against a TCP netlayer this repository wrote, because Goblins ships none. The upstream OCapN suite runs over its own `tcp-testing-only` symbol instead. | The channel is cleartext and the peer proves no identity, so this is a testing transport. [Known limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md) says why. |
+| `iroh` | `iroh-interop` and the relay checks use real iroh endpoints and its QUIC stack. | Two-NAT hole-punching is not in CI. `goblins-iroh` holds live Goblins sessions both ways on demand (needs cargo + racket; not in `ci/gates.sh`). |
 | `keyed-tcp` and `inproc` | In-tree restart, refusal, and end-to-end netlayer tests run under `check`. | No outside peer speaks these transport symbols; `inproc` is test-only. |
-| `webrtc` | Rust sidecar tests cover queue progress, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. | The readiness-driven native DataChannel, browser, and signaling-mesh checks are manual rather than CI runs; generic Host adoption and handoff redemption are not built. |
+| `keyed-relay` | In-tree netlayer tests run under `check`. On-demand rendezvous proofs (`bindings-keyed-relay-rendezvous`, `zig-keyed-relay-register`) cold-dial a registered non-listening peer through the reference relay. | Those rendezvous steps need deno and are not in the every-push list. The channel is cleartext and unauthenticated; [known limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md) says why. |
+| `webrtc` | Rust sidecar tests cover queue progress, retained capacity, runtime teardown, readiness coalescing, and exactly-once terminal publication. | The readiness-driven native DataChannel, browser, and signaling-mesh checks are manual rather than CI runs. Host adoption and three-party redeem are proved by `webrtc-loop` and `webrtc-bridge-redeem` (need cargo; not in the every-push check list). |
 | C ABI | Header parity, layouts, ownership, archives, and all binding consumers run in-tree. | There is no independent C consumer; live binding proofs still pass through this ABI. |
 | Rust, Deno, Python, and Racket bindings | Each binding holds a live Goblins session as a client and in both handoff roles. | Only Deno has a live check in which Goblins dials the binding. |
-| TypeScript on Bun | `bun-dogfood` exercises the shared TypeScript source against pancake. | No Bun-native Goblins check runs. |
+| TypeScript on Bun | `bun-dogfood` (a binding check against the shared TypeScript source) exercises pancake on Bun. | No Bun-native Goblins check runs. |
 | Native Zig driver and actor layer | Front-door session, host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are pancake-native APIs with no outside implementation to compare. |
 | Distributed GC | A live Goblins peer sends `op:gc-exports`; in-tree tests cover outbound release and `op:gc-answers`. | No live peer observes pancake's outbound GC or binding finalizers. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The outside-peer proof does not run through the Python, Rust, or Racket relays. |

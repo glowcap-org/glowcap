@@ -1,8 +1,8 @@
 //! Differential prefix-decode property test for the one-parser stream framer.
 //!
-//! The byte-stream netlayer frames an inbound stream by running the active
-//! codec's decoder over the front of a read buffer (`decodePrefix`). The decoder
-//! *is* the framer, so this is the untrusted-input attack surface; it must:
+//! Profile-aware session paths run `decodePrefix`; peer-less byte streams run
+//! the same codec's structural `framePrefix`. Both are untrusted-input attack
+//! surfaces and must agree on frame boundaries:
 //!
 //!   * report `.incomplete` for every strict prefix of a valid frame, and
 //!     exactly `.decoded{ consumed = frame_len }` at the full length, never a
@@ -69,10 +69,6 @@ fn encodeSyrup(allocator: std.mem.Allocator, message: model.Message) !pancake.fo
     return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
 }
 
-fn encodeSyrupNext(allocator: std.mem.Allocator, message: model.Message) !pancake.foundation.Frame {
-    return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, message);
-}
-
 test "syrup decodePrefix: every byte split of a valid frame is incomplete until complete" {
     const allocator = std.testing.allocator;
 
@@ -109,7 +105,7 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
         .args = &.{},
         .answer = null,
     } }));
-    try frames.append(allocator, try encodeSyrupNext(allocator, .{
+    try frames.append(allocator, try encodeSyrup(allocator, .{
         .resolve = .{ .answer = .from(3), .resolution = .{ .fulfill = .{ .bytes = "ok" } } },
     }));
     try frames.append(allocator, try encodeSyrup(allocator, .{

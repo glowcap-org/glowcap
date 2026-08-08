@@ -4,6 +4,7 @@ const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
 const codec = pancake.ocapn.codec;
 const session = pancake.ocapn.session;
+const cross_peer = @import("../support/cross_peer.zig");
 
 test "resolveForSwissnum fulfills with the mapped export, breaks on a miss" {
     var sess = pancake.ocapn.session.Session.init(std.testing.allocator);
@@ -101,28 +102,19 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
     // p1 fetches it.
     const prepared = try engine.fetch.prepareFetchSwissnum(std.testing.allocator, &pair.p1.session_state, "thermostat");
     try pair.p1.send(prepared.message);
-    _ = try pair.p1.step();
-
-    // Shuttle the fetch deliver to p2; p2 dispatches (surfaces the deliver event)
-    // and then encodes its synthesized resolve.
-    {
-        const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedOwned(frame);
+    // Next answered operations travel with their mandatory listener. Deliver
+    // both before the responder settles so its callback has a destination.
+    try cross_peer.pumpAll(&pair.p1, &pair.p2);
+    var saw_deliver = false;
+    while (pair.p2.pollEvent()) |event_in| {
+        var event = event_in;
+        defer event.deinit();
+        saw_deliver = event.kind() == .deliver or saw_deliver;
     }
-    _ = try pair.p2.step(); // dispatch inbound: recognize + enqueue resolve
-    {
-        var ev = pair.p2.pollEvent().?; // the deliver event still surfaces
-        defer ev.deinit();
-        try std.testing.expectEqual(engine.EventKind.deliver, ev.kind());
-    }
-    _ = try pair.p2.step(); // drain pending_send: encode the resolve (V1.0 resolver-callback)
+    try std.testing.expect(saw_deliver);
 
     // Shuttle the settlement back to p1 and match it.
-    {
-        const frame = pair.p2.takeOutbound().?;
-        try pair.p1.feedOwned(frame);
-    }
-    _ = try pair.p1.step();
+    try cross_peer.pumpAll(&pair.p2, &pair.p1);
     var settle = pair.p1.pollEvent().?;
     defer settle.deinit();
     const owned = try settle.decodeOwned(std.testing.allocator);

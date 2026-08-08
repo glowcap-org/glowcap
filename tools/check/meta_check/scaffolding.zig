@@ -1,12 +1,12 @@
 //! The agent-scaffolding checks.
 //!
-//! Both overlay schemes complete and unbroken (symlinks, Cursor `.mdc`
-//! mirrors), the hook and MCP configurations, rule/skill/persona index parity
-//! in both directions (including skill purpose parity across the two catalogs
-//! and the ratchet skill's landing map), agent routing, and rule frontmatter.
-//! These are the checks that keep the scaffolding a public API whose
-//! consumers act on what
-//! it says. Wired by the meta-check driver (`tools/check/meta_check.zig`).
+//! Cursor and Claude overlays complete and unbroken, Codex direct-loading kept
+//! free of duplicate mirrors, the hook and MCP configurations, rule/skill/persona
+//! index parity in both directions (including skill purpose parity across the
+//! two catalogs and the ratchet skill's landing map), agent routing, and rule
+//! frontmatter. These are the checks that keep the scaffolding a public API
+//! whose consumers act on what it says. Wired by the meta-check driver
+//! (`tools/check/meta_check.zig`).
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -63,6 +63,24 @@ pub fn expectSymlink(
             target,
         });
     }
+}
+
+pub fn expectAbsent(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    reason: []const u8,
+) !void {
+    _ = root.statFile(io, path, .{ .follow_symlinks = false }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => {
+            try appendViolation(gpa, violations, "{s}: absence check failed with {s}", .{ path, @errorName(err) });
+            return;
+        },
+    };
+    try appendViolation(gpa, violations, "{s}: must not exist; {s}", .{ path, reason });
 }
 
 pub fn checkCursorRuleOverlay(
@@ -220,6 +238,12 @@ pub fn checkRequiredSubstrings(
         "/mcp-server.lock",
         "/index.lock",
         "/.index-complete",
+    });
+    try expectFileContains(io, gpa, root, violations, ".codex/README.md", &.{
+        "AGENTS.md",
+        ".agents/skills",
+        "`.codex/skills` mirror",
+        "bin/",
     });
 }
 

@@ -3,35 +3,46 @@ id: ADR-0093
 status: accepted
 date: 2026-07-29
 tags: [captp, host, identity, bindings]
-decision: "An application can ask a session who its partner is and get an answer the handshake proved rather than one the partner asserted; unverified and incomplete handshakes refuse."
+decision: "An application can read a verified session key, the locator claim that key signed, and separate durable-authentication provenance. Unverified and incomplete handshakes refuse."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0097]
+amended_by: [ADR-0097, ADR-0109]
 ---
 
 # ADR-0093 Verified Partner Identity
 
+## Status
+
+Accepted for the `PartnerIdentity` API and its verified-or-refuse contract.
+ADR-0097 separated the per-connection session key from durable peer identity,
+and ADR-0109 removed durable-key attestation from locator hints. A successful
+report now contains a verified session signer, that signer's locator claim, and
+separate provenance that is authenticated only when the realized channel proved
+the same durable key.
+
 ## Problem
 
-The handshake already learns everything an application needs to know about who
-it is talking to. A keyed `op:start-session` carries an Ed25519 signature over
-the partner's own `<my-location …>` record, and
+The handshake already learns the session signer and the locator that signer
+claims. A keyed `op:start-session` carries an Ed25519 signature over the
+partner's `<my-location …>` record, and
 `engine.verifyPartnerStartSession` checks it before the session opens and before
-the key is recorded. The session then holds the partner's key, its signed
-designator, and the verbatim location record those came from.
+the key is recorded. The session then holds the verified session key, the
+designator it signed, and the verbatim location record. That signature proves
+control of the session key and authorship of the claim; it does not prove
+durable ownership of the claimed designator.
 
 None of that was reachable. `Session.partnerSessionKey`,
 `partnerDesignator`, and `partnerLocatorRaw` are core-side accessors, and
 `src/c_abi/host/symbols.zig` exported no partner-identity entry point at all,
-so no binding could read the identity the handshake had already verified.
+so no binding could read the handshake facts already retained by the session.
 
 What that costs shows up the moment an application routes on a name a caller
 supplies. The rooms directory takes an exporter locator from the wire and
 stamps it on the session, overriding the partner's signed location, so anyone
 reaching the directory can point introductions at a third party. The
-application cannot fix that properly on its own, because it has no way to ask
-who the caller actually is.
+application cannot evaluate that claim properly on its own without both the
+verified session signer and any independent durable-authentication provenance.
 
 ## Decision
 
@@ -42,46 +53,50 @@ struct.
 
 **The policy lives in the core, not at the ABI.** The first cut read
 `peer.session_state` directly from `src/c_abi/host/session.zig`, which put the
-verified-or-refuse decision in the C wrapper where no Zig consumer could reach
-it. It belongs in `driver_core` beside `Identity`, the type describing what
-*this* side signs, with the C ABI and the native `driver.Session` both wrapping
-one definition.
+verified-session-or-refuse decision in the C wrapper where no Zig consumer
+could reach it. It belongs in `driver_core` beside `Identity`, the type
+describing what *this* side advertises, with the C ABI and the native
+`driver.Session` both wrapping one definition.
 
 **A success means the signature was checked, and that is enforced rather than
 documented.** `Options.verify_partner` defaults on and no ABI entry point turns
 it off, but a Zig embedder can, so `partnerIdentity` refuses
 `HostError.PartnerUnverified` on a session that does not verify its partner
-instead of handing back bytes nothing proved. A partner that has not sent its
-handshake half yet refuses `HostError.HandshakeIncomplete`. Between them, a
-caller never has to ask how the session was configured before trusting what it
-read. Injecting the removal of that check makes an unverified key come back
-indistinguishable from a proved one, which is the whole reason the refusal is a
-refusal and not a flag on the result.
+instead of handing back an unchecked session key and locator claim. A partner
+that has not sent its handshake half yet refuses
+`HostError.HandshakeIncomplete`. Between them, a caller never has to ask how the
+session was configured before trusting the session key as verified. The locator
+remains the verified signer's claim unless `provenance` says a matching channel
+proof authenticated its durable key. Injecting the removal of the signature
+check makes an unverified session key come back indistinguishable from a
+verified one, which is why this is a refusal rather than a flag on the result.
 
-**The designator question is answered once, in the library.** The signature
-covers the whole location record, so the designator is bound to the key by the
-same signature. `PartnerIdentity.designatorIsSessionKey` compares the
-designator against the key in the canonical hex a key designator is spelled in,
-so no binding re-derives that encoding. This is the same reasoning that put dial
-resolution in `driver_core.dial_plan` rather than in four bindings.
+**The literal designator comparison is answered once, in the library.** The
+signature covers the whole location record, so it binds the session signer to
+the designator claim. `PartnerIdentity.designatorIsSessionKey` compares that
+claim against the session key in the canonical hex encoding for a key
+designator, so no binding re-derives the encoding. Equality is diagnostic only;
+it does not authenticate durable ownership.
 
 [ADR-0097](ADR-0097-captp-session-identity-attestation.md) later demoted that
-comparison to a diagnostic and gave the identity a third field. Whether a
-partner's durable name was *authenticated* is now `PartnerIdentity.provenance`,
-which every public tier reports, because key equality is a coincidence of
-today's key reuse and answers false for a fully authenticated partner once each
-connection draws a fresh session key.
+comparison to a diagnostic and gave the report a third field. ADR-0109 then
+removed the attestation provenance arm. Whether a partner's durable name was
+authenticated is now `PartnerIdentity.provenance`, which every public tier
+reports and which is positive only for matching authenticated-channel proof.
+Fresh session keys are normally distinct from durable locator keys.
 
 ## Scope (what this does not decide)
 
-- Nothing here changes what is signed or verified. The handshake already
-  proved all of it; this only makes the result readable.
+- Nothing here changes what is signed or verified. The handshake verifies the
+  session key's signature over the locator claim; this only makes those facts
+  and their distinct provenance readable.
 - The answer is meaningful for a key-designator transport, the
   `DesignatorScheme.key` set that `designatorSchemeForTransport` names. An
   address transport such as `tcp` designates a socket address the key does not
   determine, so `designatorIsSessionKey` is false for a verified `tcp` partner,
-  and false is the correct answer rather than a failure. A caller that wants
-  "this locator is the partner's own" checks the transport's scheme first.
+  and false is the correct answer rather than a failure. A caller that requires
+  an authenticated durable peer asks `durableIdentityAuthenticated`; transport
+  scheme and key equality are not substitutes for provenance.
 - No policy is imposed on any application. `setExporterLocation` still accepts
   the locator it is given; deciding whether a caller may claim one is the
   application's call, and this is the fact it needs to decide.
@@ -95,9 +110,9 @@ connection draws a fresh session key.
   Rejected: it makes the unverified case representable, and every caller then
   has to remember to read the flag. A refusal makes the correct path the only
   path.
-- **Expose the three accessors separately.** Rejected: they are one fact the
-  handshake established, and splitting them invites a caller to read the
-  designator without the key that binds it.
+- **Expose the three accessors separately.** Rejected: they are one report with
+  deliberately distinct meanings, and splitting them invites a caller to read
+  the claimed designator without its verified session signer or provenance.
 - **Let each binding hex-encode the key and compare.** Rejected: four
   re-derivations of one encoding, which is the shape `dial_plan` exists to
   prevent. An injected raw-bytes comparison passes a naive test, so the
@@ -112,11 +127,10 @@ connection draws a fresh session key.
   it fell through to `PANCAKE_ERR_INTERNAL` while the generated header for
   ADR-0092's `pancake_host_session_release_import` promised
   `PANCAKE_ERR_INVALID_ARGUMENT`. The mapping now matches the header.
-- `test/driver/core_host_test.zig` holds the contract, validated by injection:
-  dropping the verification check, comparing raw key bytes instead of canonical
-  hex, and reporting an absent key as an empty success each fail exactly one
-  test. No case drives `iroh`, `webrtc`, or `keyed-relay`, so the
-  key-designator claim rests on `keyed-tcp` plus the shared transport table.
+- `test/driver/core_host_test.zig` holds the report contract: signature
+  verification gates success, the canonical comparison remains literal, raw
+  keyed-TCP locator claims stay unauthenticated, and matching channel proof
+  supplies authenticated provenance without equating session and durable keys.
 
 ## Notes
 

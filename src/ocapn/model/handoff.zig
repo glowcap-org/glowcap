@@ -8,6 +8,11 @@
 
 const peer_locator = @import("peer_locator.zig");
 
+/// Width of the random gift identifier in the current OCapN profile. V1.0
+/// Goblins accepts a wider legacy domain, so session admission decides when
+/// this shape is required.
+pub const GIFT_ID_BYTES: usize = 32;
+
 /// The gifter's signed gift: who may redeem it (`recipient_key`), where the
 /// exporter lives (`exporter`), and the bookkeeping that ties the gift to one
 /// exporter session so it cannot be replayed elsewhere.

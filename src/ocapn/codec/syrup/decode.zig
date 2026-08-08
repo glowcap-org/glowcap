@@ -1,8 +1,8 @@
 //! The Syrup decoder: wire bytes to borrowed views and owned messages.
 //!
 //! This is the decode half of the Syrup codec. It owns the borrowed
-//! codec-neutral projection (`decodeBody` / `decodePrefix`, which doubles as
-//! the stream framer, see ADR-0029), the owned materializer (`decodeOwned`,
+//! codec-neutral projection (`decodeBody` / `decodePrefix`), the structural
+//! stream framer (`framePrefix`; ADR-0110), the owned materializer (`decodeOwned`,
 //! which is `decodeBody` followed by `model.view.Body.toOwned` — one decode
 //! vocabulary, full fidelity), and the `read*` / skip/scan leaf readers beneath
 //! them. Every frame here is potentially hostile, so the length math on each
@@ -21,6 +21,19 @@ const framing = @import("framing");
 const shared = @import("shared.zig");
 
 const Error = shared.Error;
+
+const DecodePosture = enum {
+    v1_0,
+    next,
+    framing,
+
+    fn forProfile(profile: model.CaptpVersion) DecodePosture {
+        return switch (profile) {
+            .v1_0 => .v1_0,
+            .next => .next,
+        };
+    }
+};
 
 /// Decode-time recursion bound for the neutral argument walker. The arg tree is
 /// attacker-controlled, and slicing a nested `list` / `set` / `user-record`
@@ -479,10 +492,18 @@ fn readNeutralResolution(bytes: []const u8, cursor: *usize, limit: usize) Error!
 /// read is therefore a malformed frame here. Streaming callers with incomplete
 /// input use `decodePrefix`, which shares the same parser.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
+    return decodeBodyWithPosture(.v1_0, frame);
+}
+
+pub fn decodeBodyForProfile(profile: model.CaptpVersion, frame: foundation.FrameView) Error!model.view.Body {
+    return decodeBodyWithPosture(.forProfile(profile), frame);
+}
+
+fn decodeBodyWithPosture(posture: DecodePosture, frame: foundation.FrameView) Error!model.view.Body {
     if (frame.shape != .byte) return Error.InvalidFrameShape;
 
     var cursor: usize = 0;
-    const body = decodeBodyAt(frame.bytes, &cursor, no_limit) catch |err| switch (err) {
+    const body = decodeBodyAt(posture, frame.bytes, &cursor, no_limit) catch |err| switch (err) {
         Error.Incomplete => return Error.MalformedFrame,
         else => |other| return other,
     };
@@ -547,12 +568,12 @@ pub fn scanStream(bytes: []const u8, state: *framing.StreamScan, max_frame_bytes
     return state.park(cursor, depth);
 }
 
-/// Decode the one message at the front of `bytes`, returning its borrowed body
-/// and the number of bytes it consumed, or a structural verdict. This is the
-/// single stream framer: the decoder *is* the framer, so nothing else reports a
-/// frame boundary. `scanStream` in this module runs ahead of it on a growing
-/// buffer, but it only answers whether a whole frame could be there yet; it
-/// never names where one ends, so it has nothing to disagree with.
+/// Decode the one message at the front of `bytes` under one CapTP profile,
+/// returning its borrowed body and the number of bytes it consumed, or a
+/// structural verdict. `framePrefix` uses the same parser with a profile-less
+/// posture that accepts the union of supported wire grammars but returns only
+/// the boundary. `scanStream` may run ahead on a growing buffer, but never
+/// names where a frame ends.
 ///
 /// `max_frame_bytes` caps an accepted frame, and the cap is enforced *during*
 /// the decode (ADR-0029): a length prefix that declares a body past the cap is
@@ -564,8 +585,16 @@ pub fn scanStream(bytes: []const u8, state: *framing.StreamScan, max_frame_bytes
 /// `.incomplete` — streaming callers bound their buffering on exactly this
 /// (ADR-0041), so it is a contract, not a courtesy.
 pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
+    return decodePrefixWithPosture(.v1_0, bytes, max_frame_bytes);
+}
+
+pub fn decodePrefixForProfile(profile: model.CaptpVersion, bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
+    return decodePrefixWithPosture(.forProfile(profile), bytes, max_frame_bytes);
+}
+
+fn decodePrefixWithPosture(posture: DecodePosture, bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
     var cursor: usize = 0;
-    const body = decodeBodyAt(bytes, &cursor, max_frame_bytes) catch |err| switch (err) {
+    const body = decodeBodyAt(posture, bytes, &cursor, max_frame_bytes) catch |err| switch (err) {
         // The in-walk checks fire at element entries, so a prefix can run out
         // a few leaf bytes past the cap without crossing one; ratify here.
         Error.Incomplete => return if (bytes.len > max_frame_bytes) .too_large else .incomplete,
@@ -578,13 +607,27 @@ pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
     return .{ .decoded = .{ .body = body, .consumed = cursor } };
 }
 
+/// Delimit a structurally valid Syrup frame without choosing a CapTP profile.
+/// V1's optional boolean and next's integer listen mode have distinct Syrup
+/// forms, so the generalized parse can validate either while its body remains
+/// private to this function.
+pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Boundary {
+    const prefix = decodePrefixWithPosture(.framing, bytes, max_frame_bytes);
+    return switch (prefix) {
+        .decoded => |decoded| .{ .complete = decoded.consumed },
+        .incomplete => .incomplete,
+        .malformed => .malformed,
+        .too_large => .too_large,
+    };
+}
+
 /// Decode exactly one message starting at `cursor.*`, advancing `cursor` to the
 /// byte just past it and leaving any trailing bytes untouched. The cursor it
 /// leaves *is* the frame boundary. `Error.Incomplete` means the buffer ends
 /// mid-message (read more); `Error.FrameTooLarge` means the message cannot fit
 /// inside `limit` bytes no matter how many more arrive; every other error means
 /// the bytes are structurally invalid regardless of how many more arrive.
-fn decodeBodyAt(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
+fn decodeBodyAt(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     const message_start = cursor.*;
     try readByte(bytes, cursor, '<');
     const op = try readSymbolLimited(bytes, cursor, limit);
@@ -595,7 +638,7 @@ fn decodeBodyAt(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vie
     // `std.meta.Tag(model.Message)` — a new kind cannot compile without a wire
     // op *and* a decoder, and this table picks it up automatically.
     if (messageOpDecoder(op)) |decode| {
-        return decode(bytes, cursor, limit, message_start);
+        return decode(posture, bytes, cursor, limit, message_start);
     }
     return Error.UnsupportedMessage;
 }
@@ -642,13 +685,9 @@ fn messageOpDecoderForLen(comptime len: usize, op: []const u8) ?OpDecoder {
 }
 
 /// One decoder reads one message body from just past its op symbol, advancing
-/// `cursor` to the byte after the closing `>`. `message_start` is the offset of
-/// the opening `<`; only the handoff decoder needs it (it re-parses the whole
-/// signed envelope from there), but every decoder takes it so the dispatch
-/// table is one uniform function-pointer type. That is why each non-handoff
-/// decoder below opens with `_ = message_start;` — the discard is the uniform
-/// signature's price, not a forgotten parameter.
-const OpDecoder = *const fn (bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body;
+/// `cursor` to the byte after the closing `>`. `message_start` is retained in
+/// the uniform function-pointer signature for the dispatch table.
+const OpDecoder = *const fn (DecodePosture, []const u8, *usize, usize, usize) Error!model.view.Body;
 
 fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
     return switch (kind) {
@@ -662,11 +701,11 @@ fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
         .untag => decodeUntagBody,
         .listen => decodeListenBody,
         .start_session => decodeStartSessionBody,
-        .handoff => decodeHandoffBody,
     };
 }
 
-fn decodeAbortBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeAbortBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const message = try readStringLimited(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
@@ -674,12 +713,19 @@ fn decodeAbortBody(bytes: []const u8, cursor: *usize, limit: usize, message_star
     return .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
 }
 
-fn decodeDeliverBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeDeliverBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
     _ = message_start;
     const target = try readReference(bytes, cursor, limit);
     const args_body = try sliceArgumentListNeutral(bytes, cursor, 0, limit);
     const answer = try readOptionalPositiveInt(bytes, cursor);
-    const resolve_me_desc = try readOptionalReference(bytes, cursor, limit);
+    const resolve_me_desc = switch (posture) {
+        .v1_0 => try readOptionalReference(bytes, cursor, limit),
+        .next => null,
+        .framing => blk: {
+            if (cursor.* >= bytes.len) return Error.Incomplete;
+            break :blk if (bytes[cursor.*] == '>') null else try readOptionalReference(bytes, cursor, limit);
+        },
+    };
     try readByte(bytes, cursor, '>');
     return .{ .deliver = .{
         .target = neutralReference(target),
@@ -689,7 +735,8 @@ fn decodeDeliverBody(bytes: []const u8, cursor: *usize, limit: usize, message_st
     } };
 }
 
-fn decodeResolveBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeResolveBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    if (posture == .next) return Error.UnsupportedMessage;
     _ = message_start;
     const answer = try readPositiveInt(bytes, cursor);
     const resolution = try readNeutralResolution(bytes, cursor, limit);
@@ -697,7 +744,8 @@ fn decodeResolveBody(bytes: []const u8, cursor: *usize, limit: usize, message_st
     return .{ .resolve = .{ .answer = model.AnswerPosition.from(answer), .resolution = resolution } };
 }
 
-fn decodeGcExportBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeGcExportBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const positions = try readPositionList(bytes, cursor, limit);
     const deltas = try readPositionList(bytes, cursor, limit);
@@ -708,14 +756,16 @@ fn decodeGcExportBody(bytes: []const u8, cursor: *usize, limit: usize, message_s
     } };
 }
 
-fn decodeGcAnswerBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeGcAnswerBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const positions = try readPositionList(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
     return .{ .gc_answer = .{ .positions = neutralPositions(positions) } };
 }
 
-fn decodeGetBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeGetBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const receiver = try readReference(bytes, cursor, limit);
     // A String per the spec (and what Goblins sends); see the encoder.
@@ -725,16 +775,18 @@ fn decodeGetBody(bytes: []const u8, cursor: *usize, limit: usize, message_start:
     return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeIndexBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeIndexBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const receiver = try readReference(bytes, cursor, limit);
-    const index = try readInteger(bytes, cursor);
+    const index = try readIntegerValue(bytes, cursor);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
     return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeUntagBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const receiver = try readReference(bytes, cursor, limit);
     // A String per the spec; see the encoder.
@@ -744,26 +796,38 @@ fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_star
     return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeListenBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeListenBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
     _ = message_start;
     const target = try readReference(bytes, cursor, limit);
     const listener = try readReference(bytes, cursor, limit);
-    const wants_partial = if (cursor.* < bytes.len and bytes[cursor.*] != '>')
-        try readBool(bytes, cursor)
-    else
-        false;
+    const mode: model.ListenMode = switch (posture) {
+        .v1_0 => model.ListenMode.fromV1_0WantsPartial(if (cursor.* < bytes.len and bytes[cursor.*] != '>')
+            try readBool(bytes, cursor)
+        else
+            false),
+        .next => model.ListenMode.fromInt(try readPositiveInt(bytes, cursor)) orelse return Error.MalformedFrame,
+        .framing => switch (if (cursor.* < bytes.len) bytes[cursor.*] else return Error.Incomplete) {
+            '>' => .settling_only,
+            't', 'f' => model.ListenMode.fromV1_0WantsPartial(try readBool(bytes, cursor)),
+            '0'...'9' => model.ListenMode.fromInt(try readPositiveInt(bytes, cursor)) orelse return Error.MalformedFrame,
+            else => return Error.MalformedFrame,
+        },
+    };
     try readByte(bytes, cursor, '>');
     return .{ .listen = .{
         .target = neutralReference(target),
         .listener = neutralReference(listener),
-        .wants_partial = wants_partial,
+        .mode = mode,
     } };
 }
 
-fn decodeStartSessionBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeStartSessionBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = posture;
     _ = message_start;
     const version_wire = try readStringLimited(bytes, cursor, limit);
-    const captp_version = model.CaptpVersion.fromWireString(version_wire) orelse return Error.MalformedFrame;
+    // A token this build does not know decodes as null; `session.validate` is
+    // what refuses it, and refuses it as a version mismatch.
+    const captp_version = model.CaptpVersion.fromWireString(version_wire);
     const session_pubkey = try readPeerKeyQ(bytes, cursor, limit);
     // Span the exact `<ocapn-peer …>` location-record bytes around the read so
     // a verifier checks the signature over what was received, not a re-encode.
@@ -779,15 +843,6 @@ fn decodeStartSessionBody(bytes: []const u8, cursor: *usize, limit: usize, messa
         .acceptable_location_sig = .{ .halves = .{ .r = acceptable_location_sig.r, .s = acceptable_location_sig.s } },
         .acceptable_location_raw = location_raw,
     } };
-}
-
-fn decodeHandoffBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
-    // The signed-handoff reader re-parses the whole envelope from where this
-    // message began, so its cursor — not the outer one — marks the message end.
-    var envelope_cursor: usize = message_start;
-    const handoff = try readBorrowedSignedHandoff(bytes, &envelope_cursor, limit);
-    cursor.* = envelope_cursor;
-    return .{ .handoff = handoff };
 }
 
 /// Turn a V1.0 abort wire string back into a typed reason. V1.0 writes aborts
@@ -918,7 +973,9 @@ fn readString(bytes: []const u8, cursor: *usize) Error![]const u8 {
 }
 
 fn readStringLimited(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u8 {
-    return readLengthPrefixed(bytes, cursor, '"', limit);
+    const string = try readLengthPrefixed(bytes, cursor, '"', limit);
+    if (!std.unicode.utf8ValidateSlice(string)) return Error.MalformedFrame;
+    return string;
 }
 
 pub fn readSymbol(bytes: []const u8, cursor: *usize) Error![]const u8 {
@@ -926,7 +983,9 @@ pub fn readSymbol(bytes: []const u8, cursor: *usize) Error![]const u8 {
 }
 
 fn readSymbolLimited(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u8 {
-    return readLengthPrefixed(bytes, cursor, '\'', limit);
+    const symbol = try readLengthPrefixed(bytes, cursor, '\'', limit);
+    if (!std.unicode.utf8ValidateSlice(symbol)) return Error.MalformedFrame;
+    return symbol;
 }
 
 /// Read a `[ … ]` list of positive ints, returning the borrowed body slice
@@ -1093,11 +1152,10 @@ fn readPeerLocatorView(bytes: []const u8, cursor: *usize, limit: usize) Error!mo
 }
 
 /// Borrowed find over the lazy dict span: walk `{name value …}` in place and
-/// return the named entry's value borrowing the frame. No allocation — the
-/// handshake attestation lookup runs before session apply (ADR-0097). An
+/// return the named entry's value borrowing the frame without allocating. An
 /// exotic value under another name is skipped exactly as materialize skips it;
-/// an exotic value under the *searched* name reads as absent, which the caller
-/// refuses (fail closed), never accepts.
+/// an exotic value under the *searched* name is malformed, because reserved
+/// profile hints carry signed handshake authority.
 fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
     const bytes = hl.bytes;
     var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
@@ -1105,10 +1163,38 @@ fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?mo
         const step = nextSyrupHintStep(bytes, &cursor) catch return error.MalformedView;
         switch (step) {
             .known => |entry| if (std.mem.eql(u8, entry.name, name)) return entry.value,
-            .skipped => {},
+            .skipped => |skipped| if (std.mem.eql(u8, skipped.name, name)) return error.MalformedView,
         }
     }
     return null;
+}
+
+fn syrupHasHintNameBefore(bytes: []const u8, end: usize, name: []const u8) Error!bool {
+    var cursor: usize = 1;
+    while (cursor < end) {
+        const step = try nextSyrupHintStep(bytes, &cursor);
+        switch (step) {
+            .known => |entry| if (std.mem.eql(u8, entry.name, name)) return true,
+            .skipped => |skipped| if (std.mem.eql(u8, skipped.name, name)) return true,
+        }
+    }
+    return false;
+}
+
+fn syrupValidateHintNamesUnique(hl: model.view.HintList) model.view.ProjectError!void {
+    const bytes = hl.bytes;
+    var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
+    while (cursor < bytes.len and bytes[cursor] != '}') {
+        const entry_start = cursor;
+        const step = nextSyrupHintStep(bytes, &cursor) catch return error.MalformedView;
+        const name = switch (step) {
+            .known => |entry| entry.name,
+            .skipped => |skipped| skipped.name,
+        };
+        if (syrupHasHintNameBefore(bytes, entry_start, name) catch return error.MalformedView) {
+            return error.MalformedView;
+        }
+    }
 }
 
 fn syrupMaterializeHintList(
@@ -1125,11 +1211,17 @@ fn syrupMaterializeHintList(
     return hints;
 }
 
+const syrup_hint_list_vtable = model.view.HintList.VTable{
+    .materialize = syrupMaterializeHintList,
+    .validate_unique_names = syrupValidateHintNamesUnique,
+    .find = syrupFindHint,
+};
+
 /// One hints-dict entry: a Cap'n Proto–expressible value, or an exotic Syrup
 /// shape that was skipped (hints are advisory).
 const SyrupHintStep = union(enum) {
     known: model.HintEntry,
-    skipped,
+    skipped: struct { name: []const u8 },
 };
 
 /// Shared walk for owned materialize: read name, then keep a known
@@ -1141,7 +1233,7 @@ fn nextSyrupHintStep(bytes: []const u8, cursor: *usize) Error!SyrupHintStep {
         return .{ .known = .{ .name = name, .value = value } };
     } else |_| {
         try skipSyrupValue(bytes, cursor);
-        return .skipped;
+        return .{ .skipped = .{ .name = name } };
     }
 }
 
@@ -1168,8 +1260,7 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
                 .wire_form = .map,
                 .list = .{
                     .bytes = span,
-                    .materialize = syrupMaterializeHintList,
-                    .find = syrupFindHint,
+                    .vtable = &syrup_hint_list_vtable,
                 },
             },
         };
@@ -1202,7 +1293,10 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
         while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
             // Known HintValueKind only; exotic Syrup shapes skip via nextSyrupHintStep.
             switch (try nextSyrupHintStep(bytes, cursor)) {
-                .skipped => continue,
+                .skipped => |skipped| {
+                    if (model.transport.isProfileHintName(skipped.name)) return Error.MalformedFrame;
+                    continue;
+                },
                 .known => |borrowed| {
                     // Hints are a dictionary, so a repeated name is malformed.
                     // Refusing here is what makes the encoder's assumption
@@ -1396,7 +1490,7 @@ fn scanDigits(bytes: []const u8, cursor: *usize) Error![]const u8 {
 /// i64, so the caller decides (reject it, or take the arbitrary-precision arm),
 /// and `MalformedFrame` for `0-` (the spec has exactly one zero, `0+`) and any
 /// non-sign terminator. The shared sign/magnitude tail of `readInteger` and
-/// `readIntegerArgument`.
+/// `readIntegerValue`.
 fn signedI64FromDigits(digits: []const u8, bytes: []const u8, cursor: *usize) Error!?i64 {
     // Parse the magnitude as u64, not i64: `writeSignedMagnitude` emits
     // `minInt(i64)` as the unsigned magnitude 2^63 (`9223372036854775808`), which
@@ -1434,14 +1528,9 @@ fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
     return value;
 }
 
-/// Read an OCapN Integer argument: the `i64` arm when the magnitude fits, the
-/// borrowed `big_integer` arm when it does not (Model.md § Integer is
-/// arbitrary-precision). The split is canonical — a value representable as
-/// `integer` never decodes as `big_integer` — so the two arms never spell one
-/// arithmetic value and big-integer equality stays bytewise. Protocol-position
-/// integers (export positions, answer positions, list indexes) go through
-/// `readInteger` instead and stay `i64`-only.
-fn readIntegerArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argument {
+/// Read an arbitrary-precision OCapN Integer. The split is canonical: a value
+/// representable as `i64` never takes the decimal-magnitude arm.
+fn readIntegerValue(bytes: []const u8, cursor: *usize) Error!model.Integer {
     const digits = try scanDigits(bytes, cursor);
     // Capture the sign before `signedI64FromDigits` consumes the terminator: an
     // overflow (null) takes the arbitrary-precision arm, whose sign is that
@@ -1454,10 +1543,17 @@ fn readIntegerArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argum
     return .{ .big_integer = .{ .negative = sign_byte == '-', .digits = digits } };
 }
 
+fn readIntegerArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argument {
+    return switch (try readIntegerValue(bytes, cursor)) {
+        .integer => |value| .{ .integer = value },
+        .big_integer => |big| .{ .big_integer = big },
+    };
+}
+
 fn readInteger(bytes: []const u8, cursor: *usize) Error!i64 {
     const digits = try scanDigits(bytes, cursor);
-    // Protocol-position integers are `i64`-only: a magnitude past i64 (null) is a
-    // malformed frame, never the big-integer arm `readIntegerArgument` takes.
+    // Hint integers use the bounded HintValue arm; a magnitude past i64 is not
+    // representable there and is therefore malformed.
     return (try signedI64FromDigits(digits, bytes, cursor)) orelse Error.MalformedFrame;
 }
 
